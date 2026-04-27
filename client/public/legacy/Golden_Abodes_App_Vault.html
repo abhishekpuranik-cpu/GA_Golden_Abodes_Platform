@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Golden Abodes · App Vault</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;0,700;1,600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --mid: #0a1628;
+      --deep: #050d18;
+      --gold: #d4af37;
+      --gold-dim: rgba(212, 175, 55, 0.35);
+      --teal: #0d9488;
+      --blue: #2563eb;
+      --violet: #7c3aed;
+      --glass: rgba(255, 255, 255, 0.06);
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: "Outfit", system-ui, sans-serif;
+      color: var(--text);
+      background: var(--deep);
+      overflow-x: hidden;
+    }
+    .aurora {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 20% -20%, rgba(212, 175, 55, 0.25), transparent 50%),
+        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(13, 148, 136, 0.2), transparent 45%),
+        radial-gradient(ellipse 50% 60% at 50% 100%, rgba(37, 99, 235, 0.15), transparent 50%),
+        linear-gradient(180deg, #0a1628 0%, #050d18 100%);
+      pointer-events: none;
+    }
+    .grid-bg {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      opacity: 0.04;
+      background-image:
+        linear-gradient(rgba(255,255,255,.15) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,.15) 1px, transparent 1px);
+      background-size: 48px 48px;
+      pointer-events: none;
+    }
+    .wrap { position: relative; z-index: 1; max-width: 1180px; margin: 0 auto; padding: 32px 20px 80px; }
+    .hero {
+      text-align: center;
+      padding: 28px 20px 40px;
+      animation: fadeUp 0.9s ease-out;
+    }
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .logo-row {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .logo-row img {
+      height: 72px;
+      width: auto;
+      filter: drop-shadow(0 8px 24px rgba(212, 175, 55, 0.25));
+    }
+    .hero h1 {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: clamp(2.1rem, 5vw, 3.25rem);
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #fff 0%, var(--gold) 55%, #e2e8f0 100%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero .tag {
+      margin-top: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--muted);
+      max-width: 560px;
+      margin-left: auto;
+      margin-right: auto;
+      line-height: 1.6;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 16px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--gold);
+      border: 1px solid var(--gold-dim);
+      background: var(--glass);
+      backdrop-filter: blur(8px);
+      margin-bottom: 8px;
+    }
+    .apps {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 20px;
+      margin-bottom: 28px;
+    }
+    .app-card {
+      position: relative;
+      border-radius: 20px;
+      padding: 1px;
+      background: linear-gradient(145deg, rgba(255,255,255,.2), rgba(255,255,255,.03));
+      transition: transform 0.25s ease, box-shadow 0.25s ease;
+      animation: fadeUp 0.8s ease-out backwards;
+    }
+    .app-card:nth-child(1) { animation-delay: 0.05s; }
+    .app-card:nth-child(2) { animation-delay: 0.1s; }
+    .app-card:nth-child(3) { animation-delay: 0.15s; }
+    .app-card:nth-child(4) { animation-delay: 0.2s; }
+    .app-card:hover {
+      transform: translateY(-4px);
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.35);
+    }
+    .app-card .in {
+      border-radius: 19px;
+      background: rgba(10, 22, 40, 0.85);
+      backdrop-filter: blur(16px);
+      padding: 24px 22px 22px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      min-height: 240px;
+      display: flex;
+      flex-direction: column;
+    }
+    .app-card.v3 .glow { background: linear-gradient(120deg, var(--teal), #2dd4bf); }
+    .app-card.v2 .glow { background: linear-gradient(120deg, var(--blue), #60a5fa); }
+    .app-card.v1 .glow { background: linear-gradient(120deg, var(--violet), #a78bfa); }
+    .glow {
+      width: 44px;
+      height: 4px;
+      border-radius: 4px;
+      margin-bottom: 14px;
+    }
+    .app-card h2 {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 1.45rem;
+      margin: 0 0 6px;
+      color: #fff;
+    }
+    .app-card .role {
+      font-size: 10px;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+    .app-card p {
+      font-size: 13px;
+      line-height: 1.55;
+      color: var(--muted);
+      margin: 0 0 20px;
+      flex: 1;
+    }
+    .app-card a.launch {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      padding: 14px 20px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 14px;
+      text-decoration: none;
+      color: #0a1628;
+      background: linear-gradient(135deg, #fff 0%, #e2e8f0 100%);
+      border: none;
+      cursor: pointer;
+      transition: filter 0.2s, transform 0.15s;
+    }
+    .app-card a.launch:hover { filter: brightness(1.08); transform: scale(1.02); }
+    .app-card.v3 a.launch { background: linear-gradient(135deg, #5eead4, #0d9488); color: #042f2e; }
+    .app-card.v2 a.launch { background: linear-gradient(135deg, #93c5fd, #2563eb); color: #fff; }
+    .app-card.v1 a.launch { background: linear-gradient(135deg, #c4b5fd, #7c3aed); color: #fff; }
+    .doc-zone {
+      border-radius: 24px;
+      padding: 28px 26px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(12px);
+      margin-bottom: 24px;
+      animation: fadeUp 0.9s ease-out 0.2s backwards;
+    }
+    .doc-zone h3 {
+      font-family: "Playfair Display", Georgia, serif;
+      font-size: 1.5rem;
+      margin: 0 0 8px;
+      color: #fff;
+    }
+    .doc-zone .lead {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.55;
+      margin-bottom: 20px;
+      max-width: 720px;
+    }
+    .folder-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 14px;
+    }
+    .folder {
+      background: rgba(0, 0, 0, 0.25);
+      border: 1px solid rgba(212, 175, 55, 0.2);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
+    .folder-interactive {
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    }
+    .folder-interactive:hover {
+      border-color: rgba(212, 175, 55, 0.55);
+      background: rgba(212, 175, 55, 0.08);
+      transform: translateY(-2px);
+    }
+    .folder-interactive:focus {
+      outline: 2px solid rgba(212, 175, 55, 0.7);
+      outline-offset: 2px;
+    }
+    .folder-interactive .hint-open {
+      font-size: 10px;
+      color: #5eead4;
+      margin-top: 6px;
+      font-weight: 600;
+    }
+    .folder.folder-flash {
+      animation: folderFlash 1.4s ease-out 1;
+      border-color: rgba(94, 234, 212, 0.85) !important;
+      box-shadow: 0 0 0 2px rgba(94, 234, 212, 0.35);
+    }
+    @keyframes folderFlash {
+      0%, 100% { box-shadow: 0 0 0 0 transparent; }
+      35% { box-shadow: 0 0 0 3px rgba(94, 234, 212, 0.45); }
+    }
+    .dv-root-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 10px;
+      margin-bottom: 18px;
+      padding: 12px 14px;
+      border-radius: 12px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .dv-root-row label {
+      display: block;
+      width: 100%;
+      font-size: 11px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+    .dv-root-row input {
+      flex: 1;
+      min-width: 200px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(10, 22, 40, 0.9);
+      color: #e2e8f0;
+      font-size: 12px;
+    }
+    .dv-root-row button {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(212, 175, 55, 0.45);
+      background: rgba(212, 175, 55, 0.15);
+      color: var(--gold);
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .dv-root-row button:hover { background: rgba(212, 175, 55, 0.25); }
+    #dv-toast {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      z-index: 9999;
+      padding: 10px 18px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid rgba(94, 234, 212, 0.4);
+      color: #e2e8f0;
+      font-size: 12px;
+      font-weight: 600;
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.25s ease, opacity 0.25s ease;
+    }
+    #dv-toast.on {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+    .folder h4 { margin: 0 0 8px; font-size: 14px; color: var(--gold); }
+    .folder ul { margin: 0; padding-left: 18px; font-size: 12px; color: var(--muted); max-height: 120px; overflow-y: auto; }
+    .folder li { margin-bottom: 4px; }
+    .timeline {
+      margin-top: 18px;
+      font-size: 12px;
+      color: var(--muted);
+      max-height: 160px;
+      overflow-y: auto;
+      border-top: 1px solid rgba(255,255,255,.08);
+      padding-top: 12px;
+    }
+    .timeline .row { display: flex; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,.04); }
+    .timeline .row strong { color: #e2e8f0; font-weight: 600; }
+    footer {
+      text-align: center;
+      font-size: 11px;
+      color: var(--muted);
+      padding-top: 24px;
+    }
+    .btn-clear {
+      margin-top: 12px;
+      padding: 8px 14px;
+      font-size: 11px;
+      font-weight: 600;
+      border-radius: 8px;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      background: transparent;
+      color: #fca5a5;
+      cursor: pointer;
+    }
+    .btn-clear:hover { background: rgba(239, 68, 68, 0.12); }
+    .dv-folder-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 10px 0 12px;
+      align-items: center;
+    }
+    .dv-folder-actions button,
+    .dv-folder-actions label.dv-upload {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(212, 175, 55, 0.45);
+      background: rgba(212, 175, 55, 0.12);
+      color: var(--gold);
+      cursor: pointer;
+    }
+    .dv-folder-actions button:hover,
+    .dv-upload:hover { background: rgba(212, 175, 55, 0.22); }
+    .dv-upload input { display: none; }
+    .dv-pdf-list {
+      margin: 8px 0 0;
+      padding: 0;
+      list-style: none;
+      font-size: 11px;
+    }
+    .dv-pdf-list li {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 6px 8px;
+      margin-bottom: 4px;
+      border-radius: 8px;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .dv-pdf-list a {
+      color: #5eead4;
+      font-weight: 600;
+      text-decoration: none;
+      max-width: 55%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .dv-pdf-list a:hover { text-decoration: underline; }
+    .dv-pdf-list .dv-pdf-meta { color: #94a3b8; font-size: 10px; }
+    .dv-pdf-list button.dv-rm {
+      border: none;
+      background: transparent;
+      color: #fca5a5;
+      cursor: pointer;
+      font-size: 11px;
+      padding: 2px 6px;
+    }
+    .dv-pdf-h {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: #94a3b8;
+      margin: 12px 0 4px;
+    }
+    .dv-app-block {
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .dv-app-block:first-of-type { margin-top: 6px; }
+    .dv-app-h {
+      font-size: 11px;
+      font-weight: 700;
+      color: #e2e8f0;
+      margin: 0 0 8px;
+      letter-spacing: 0.02em;
+    }
+    .dv-cloud-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: flex-end;
+      gap: 10px;
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(37, 99, 235, 0.08);
+      border: 1px solid rgba(37, 99, 235, 0.25);
+    }
+    .dv-cloud-row label {
+      display: block;
+      width: 100%;
+      font-size: 11px;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 6px;
+    }
+    .dv-cloud-row input[type="text"] {
+      flex: 1;
+      min-width: 200px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(10, 22, 40, 0.9);
+      color: #e2e8f0;
+      font-size: 12px;
+    }
+    .dv-cloud-row button {
+      padding: 8px 14px;
+      border-radius: 8px;
+      border: 1px solid rgba(96, 165, 250, 0.5);
+      background: rgba(37, 99, 235, 0.35);
+      color: #e0e7ff;
+      font-size: 11px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .dv-cloud-row button:hover { filter: brightness(1.12); }
+    .dv-cloud-status {
+      font-size: 10px;
+      color: #94a3b8;
+      width: 100%;
+      margin-top: 4px;
+    }
+    .dv-pdf-list button.dv-dl {
+      border: none;
+      background: transparent;
+      color: #93c5fd;
+      cursor: pointer;
+      font-size: 11px;
+      padding: 2px 6px;
+    }
+    .dv-pdf-list .dv-pdf-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .folder-grid { grid-template-columns: 1fr; }
+  </style>
+</head>
+<body>
+  <div class="aurora" aria-hidden="true"></div>
+  <div class="grid-bg" aria-hidden="true"></div>
+  <div class="wrap">
+    <header class="hero">
+      <div class="pill">Enterprise toolkit</div>
+      <div class="logo-row">
+        <img id="ga-logo" src="assets/golden-abodes-logo.svg" alt="Golden Abodes"/>
+      </div>
+      <h1>App Vault</h1>
+      <p class="tag">Launch acquisition modelling, operations, and finance from one place. Data flows across apps via your browser profile — open tools in new tabs from here whenever you use the local server.</p>
+    </header>
+
+    <section class="apps" id="apps-grid" aria-label="Applications">
+      <article class="app-card v3">
+        <div class="in">
+          <div class="glow"></div>
+          <div class="role">Strategy · V3</div>
+          <h2>Project Acquisition</h2>
+          <p>Deal framing, FSI modes, revenue model, milestones, investor scenarios, and due diligence. Pushes the project list into Resource Planner and Cashflow.</p>
+          <a class="launch" id="link-v3" href="GA_OrgResourcePlanner_V3.html" target="_blank" rel="noopener">Open Project Acquisition →</a>
+        </div>
+      </article>
+      <article class="app-card v2">
+        <div class="in">
+          <div class="glow"></div>
+          <div class="role">Operations · V2</div>
+          <h2>Resource Planner</h2>
+          <p>Roles, capacity, and cost build-up. Feeds GA and marketing hints to the cashflow model.</p>
+          <a class="launch" id="link-v2" href="GA_ResourcePlanner_V2.html" target="_blank" rel="noopener">Open Resource Planner →</a>
+        </div>
+      </article>
+      <article class="app-card v1">
+        <div class="in">
+          <div class="glow"></div>
+          <div class="role">Finance · V1</div>
+          <h2>Cashflow Tracker</h2>
+          <p>Sales timing, monthly cashflow, GA consolidated, capital, debt, and Tally-friendly actuals.</p>
+          <a class="launch" id="link-v1" href="GA_Cashflow_V1.html" target="_blank" rel="noopener">Open Cashflow Tracker →</a>
+        </div>
+      </article>
+      <article class="app-card v2">
+        <div class="in">
+          <div class="glow"></div>
+          <div class="role">Marketing &amp; Sales</div>
+          <h2>Command Centre</h2>
+          <p>Business, Operational, Sales, and Insight views with Excel/JSON import, governance layers, and rule-based actions.</p>
+          <a class="launch" id="link-ms" href="ga_sales_dashboard.html" target="_blank" rel="noopener">Open Marketing &amp; Sales Command Centre →</a>
+        </div>
+      </article>
+    </section>
+
+    <section class="doc-zone" id="doc-vault" aria-labelledby="doc-vault-h">
+      <h3 id="doc-vault-h">Doc Vault</h3>
+      <p class="lead">Each project has <strong>subfolders per app</strong> (V3, Planning, Cashflow, Marketing &amp; Sales Command Centre, etc.). <strong>Open</strong> views PDFs in this browser; <strong>Download</strong> saves a copy to disk where you choose. <strong>Save to Cloud</strong> syncs PDFs to the same Google Apps Script file as Project Acquisition (GA_Planner_Data.json) so teammates can <strong>Load from Cloud</strong> in any browser. <br/><br/><strong>Important:</strong> Websites cannot open Windows File Explorer. The copied path is only useful if you set a <strong>real</strong> folder root below (e.g. <code style="color:#cbd5e1">D:\Work\GoldenAbodes\DocVault</code>) and create folders manually on your shared drive — then paste the path in Explorer’s address bar.</p>
+      <div class="dv-cloud-row" id="dv-cloud-bar">
+        <div style="flex:1;min-width:220px">
+          <label for="dv-cloud-url">Google Apps Script Web App URL (same as Project Acquisition → ☁ cloud)</label>
+          <input type="text" id="dv-cloud-url" placeholder="https://script.google.com/macros/s/..." autocomplete="off"/>
+        </div>
+        <button type="button" id="dv-cloud-url-save">Save URL</button>
+        <button type="button" id="dv-cloud-save">☁ Save Doc Vault to Cloud</button>
+        <button type="button" id="dv-cloud-load">☁ Load Doc Vault from Cloud</button>
+        <span class="dv-cloud-status" id="dv-cloud-status"></span>
+      </div>
+      <div class="dv-root-row">
+        <div style="flex:1;min-width:220px">
+          <label for="doc-vault-root">Doc folder root on your PC or OneDrive (optional — full path for <code style="color:#cbd5e1">…/DocVault/&lt;Project&gt;/&lt;App&gt;/</code>)</label>
+          <input type="text" id="doc-vault-root" placeholder="e.g. D:\Work\GoldenAbodes\DocVault or C:\Users\you\OneDrive\GoldenAbodes\DocVault" autocomplete="off"/>
+        </div>
+        <button type="button" id="doc-vault-root-save">Save root</button>
+      </div>
+      <div class="folder-grid" id="doc-folders"></div>
+      <div class="timeline" id="doc-timeline"></div>
+      <button type="button" class="btn-clear" id="doc-clear" hidden>Clear Doc Vault log</button>
+    </section>
+
+    <footer>Golden Abodes · Internal · same-origin localStorage links Project Acquisition ↔ Planner ↔ Cashflow</footer>
+  </div>
+  <div id="dv-toast" role="status" aria-live="polite"></div>
+  <script>
+  (function () {
+    var L = window.location;
+    var isHttp = (L.protocol === "http:" || L.protocol === "https:");
+    var base = isHttp ? (L.protocol + "//" + L.host) : "";
+    if (isHttp) {
+      var v3 = document.getElementById("link-v3");
+      var v2 = document.getElementById("link-v2");
+      var v1 = document.getElementById("link-v1");
+      var ms = document.getElementById("link-ms");
+      var logo = document.getElementById("ga-logo");
+      if (logo) logo.src = base + "/assets/golden-abodes-logo.svg";
+      if (v3) { v3.href = base + "/"; v3.textContent = "Open Project Acquisition →"; }
+      if (v2) { v2.href = base + "/rp"; v2.textContent = "Open Resource Planner →"; }
+      if (v1) { v1.href = base + "/legacy/GA_Cashflow_V1.html"; v1.textContent = "Open Cashflow Tracker →"; }
+      if (ms) { ms.href = base + "/ms"; ms.textContent = "Open Marketing & Sales Command Centre →"; }
+    }
+    function appTitleFromName(name) {
+      var n = (name || "").replace(/\.[^.]+$/, "");
+      n = n.replace(/^GA_/i, "").replace(/_/g, " ").replace(/-/g, " ");
+      return n || "Additional App";
+    }
+    function renderDynamicApps(apps) {
+      var grid = document.getElementById("apps-grid");
+      if (!grid || !apps || !apps.length) return;
+      var known = {
+        "GA_OrgResourcePlanner_V3.html": 1,
+        "GA_ResourcePlanner_V2.html": 1,
+        "GA_Cashflow_V1.html": 1,
+        "GA_MarketingSales_KPI_Dashboard.html": 1,
+        "ga_sales_dashboard.html": 1,
+        "Golden_Abodes_App_Vault.html": 1
+      };
+      apps.forEach(function (a) {
+        if (!a || !a.name || known[a.name]) return;
+        var route = a.route || ("/" + a.name);
+        var href = isHttp ? (base + route) : a.name;
+        var card = document.createElement("article");
+        card.className = "app-card";
+        card.innerHTML =
+          "<div class='in'>" +
+          "<div class='glow'></div>" +
+          "<div class='role'>Additional Tool</div>" +
+          "<h2>" + escapeHtml(appTitleFromName(a.name)) + "</h2>" +
+          "<p>Auto-discovered from this folder. New HTML tools will appear here automatically.</p>" +
+          "<a class='launch' href='" + encodeURI(href) + "' target='_blank' rel='noopener'>Open " + escapeHtml(appTitleFromName(a.name)) + " →</a>" +
+          "</div>";
+        grid.appendChild(card);
+      });
+    }
+    var GA_CONF_KEY = "ga_cloud_url";
+    var DV_APPS = [
+      { id: "v3", label: "Project Planning (V3)", folder: "01_Project-Acquisition-V3" },
+      { id: "v2", label: "Resource Planner (V2)", folder: "02_Resource-Planner-V2" },
+      { id: "v1", label: "Cashflow (V1)", folder: "03_Cashflow-V1" },
+      { id: "marketing", label: "Marketing & Sales Command Centre", folder: "04_Marketing-Sales-KPI" },
+      { id: "vault", label: "App Vault / General", folder: "05_App-Vault-General" },
+      { id: "other", label: "Other / shared", folder: "06_Other" }
+    ];
+    function getDocVaultRoot() {
+      try { return (localStorage.getItem("ga_doc_vault_root") || "").trim(); } catch (e) { return ""; }
+    }
+    function getCloudUrl() {
+      try { return (localStorage.getItem(GA_CONF_KEY) || "").trim(); } catch (e) { return ""; }
+    }
+    function gaCloudRelayBase() {
+      try {
+        if (window.location.protocol === "file:") return "http://localhost:8765";
+        if ((window.location.protocol === "http:" || window.location.protocol === "https:") && window.location.host)
+          return window.location.origin;
+      } catch (e) {}
+      return "http://localhost:8765";
+    }
+    function sanitizeFolderName(n) {
+      var s = String(n || "Project").replace(/[<>:"|?*]+/g, "_").replace(/[/\\]+/g, " ").trim();
+      return s || "Project";
+    }
+    function suggestedProjectBase(projectName) {
+      var root = getDocVaultRoot();
+      var name = sanitizeFolderName(projectName);
+      if (!root) return "…/GoldenAbodes/DocVault/" + name + "/";
+      var sep = root.indexOf("\\") >= 0 ? "\\" : "/";
+      var r = root.replace(/[/\\]+$/, "");
+      return r + sep + name + sep;
+    }
+    function suggestedPathForProject(projectName, appFolder) {
+      var root = getDocVaultRoot();
+      var name = sanitizeFolderName(projectName);
+      var sub = appFolder || "05_App-Vault-General";
+      if (!root) return "…/GoldenAbodes/DocVault/" + name + "/" + sub + "/";
+      var sep = root.indexOf("\\") >= 0 ? "\\" : "/";
+      var r = root.replace(/[/\\]+$/, "");
+      return r + sep + name + sep + sub + sep;
+    }
+    function showDvToast(msg) {
+      var t = document.getElementById("dv-toast");
+      if (!t) return;
+      t.textContent = msg;
+      t.classList.add("on");
+      clearTimeout(showDvToast._tm);
+      showDvToast._tm = setTimeout(function () { t.classList.remove("on"); }, 2600);
+    }
+    function copyTextToClipboard(text) {
+      if (!text) return Promise.resolve(false);
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text).then(function () { return true; }).catch(function () { return false; });
+      }
+      try {
+        var ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.left = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        var ok = document.execCommand("copy");
+        document.body.removeChild(ta);
+        return Promise.resolve(ok);
+      } catch (e) {
+        return Promise.resolve(false);
+      }
+    }
+    function focusDocVaultProject(pid, projectName, appFolder) {
+      if (!pid || pid === "_") return;
+      var zone = document.getElementById("doc-vault");
+      if (zone) zone.scrollIntoView({ behavior: "smooth", block: "start" });
+      var path = appFolder ? suggestedPathForProject(projectName, appFolder) : suggestedProjectBase(projectName);
+      copyTextToClipboard(path).then(function (ok) {
+        var hint = getDocVaultRoot()
+          ? "Copied path — paste into Explorer’s address bar (create folders if needed)"
+          : "Set Doc folder root above for a real path; … is not a file path";
+        showDvToast(ok ? hint : "Path: " + path);
+      });
+      setTimeout(function () {
+        var el = document.querySelector('.folder[data-folder-pid="' + pid.replace(/"/g, "") + '"]');
+        if (!el) return;
+        el.classList.remove("folder-flash");
+        void el.offsetWidth;
+        el.classList.add("folder-flash");
+        setTimeout(function () { el.classList.remove("folder-flash"); }, 1400);
+      }, 320);
+    }
+
+    function abToB64(buf) {
+      if (!buf) return "";
+      var bytes = new Uint8Array(buf);
+      var CHUNK = 0x8000;
+      var binary = "";
+      for (var i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+      }
+      return btoa(binary);
+    }
+    function b64ToAb(b64) {
+      if (!b64) return null;
+      var binary = atob(b64);
+      var out = new Uint8Array(binary.length);
+      for (var i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+      return out.buffer;
+    }
+
+    var IDB_NAME = "ga_doc_vault_idb";
+    var IDB_STORE = "pdfs";
+    var IDB_VER = 2;
+    var idbDb = null;
+    function idbInit() {
+      return new Promise(function (resolve) {
+        if (!window.indexedDB) { resolve(null); return; }
+        var req = indexedDB.open(IDB_NAME, IDB_VER);
+        req.onerror = function () { resolve(null); };
+        req.onsuccess = function () { idbDb = req.result; resolve(idbDb); };
+        req.onupgradeneeded = function (ev) {
+          var db = ev.target.result;
+          var oldV = ev.oldVersion;
+          if (!db.objectStoreNames.contains(IDB_STORE)) {
+            var os = db.createObjectStore(IDB_STORE, { keyPath: "id" });
+            os.createIndex("pid", "pid", { unique: false });
+            os.createIndex("pidApp", "pidApp", { unique: false });
+          } else if (oldV < 2) {
+            var tx = ev.target.transaction;
+            var os = tx.objectStore(IDB_STORE);
+            try {
+              os.createIndex("pidApp", "pidApp", { unique: false });
+            } catch (e) {}
+            os.openCursor().onsuccess = function (e) {
+              var cursor = e.target.result;
+              if (cursor) {
+                var v = cursor.value;
+                if (!v.appId) v.appId = "vault";
+                v.pidApp = (v.pid || "_") + "|" + v.appId;
+                cursor.update(v);
+                cursor.continue();
+              }
+            };
+          }
+        };
+      });
+    }
+    function idbListByPidApp(pid, appId) {
+      var key = pid + "|" + appId;
+      return new Promise(function (resolve) {
+        if (!idbDb) { resolve([]); return; }
+        try {
+          var tx = idbDb.transaction(IDB_STORE, "readonly");
+          var store = tx.objectStore(IDB_STORE);
+          if (!store.indexNames.contains("pidApp")) {
+            var r0 = store.getAll();
+            r0.onsuccess = function () {
+              var all = r0.result || [];
+              resolve(all.filter(function (x) { return x.pid === pid && (x.appId || "vault") === appId; }));
+            };
+            r0.onerror = function () { resolve([]); };
+            return;
+          }
+          var ix = store.index("pidApp");
+          var r = ix.getAll(key);
+          r.onsuccess = function () { resolve(r.result || []); };
+          r.onerror = function () { resolve([]); };
+        } catch (e) { resolve([]); }
+      });
+    }
+    function idbGetAllPdfs() {
+      return new Promise(function (resolve) {
+        if (!idbDb) { resolve([]); return; }
+        try {
+          var tx = idbDb.transaction(IDB_STORE, "readonly");
+          var r = tx.objectStore(IDB_STORE).getAll();
+          r.onsuccess = function () { resolve(r.result || []); };
+          r.onerror = function () { resolve([]); };
+        } catch (e) { resolve([]); }
+      });
+    }
+    function idbPutPdf(rec) {
+      return new Promise(function (resolve, reject) {
+        if (!idbDb) { reject(new Error("no idb")); return; }
+        var aid = rec.appId || "vault";
+        rec.appId = aid;
+        rec.pidApp = (rec.pid || "_") + "|" + aid;
+        var tx = idbDb.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).put(rec);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { reject(tx.error); };
+      });
+    }
+    function idbDeletePdf(id) {
+      return new Promise(function (resolve) {
+        if (!idbDb) { resolve(); return; }
+        var tx = idbDb.transaction(IDB_STORE, "readwrite");
+        tx.objectStore(IDB_STORE).delete(id);
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };
+      });
+    }
+    function openPdfRecord(rec) {
+      if (!rec || !rec.buffer) return;
+      try {
+        var blob = new Blob([rec.buffer], { type: rec.mimeType || "application/pdf" });
+        var url = URL.createObjectURL(blob);
+        window.open(url, "_blank", "noopener,noreferrer");
+        setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 120000);
+      } catch (e) {
+        showDvToast("Could not open PDF");
+      }
+    }
+    function downloadPdfRecord(rec) {
+      if (!rec || !rec.buffer) return;
+      try {
+        var blob = new Blob([rec.buffer], { type: rec.mimeType || "application/pdf" });
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement("a");
+        a.href = url;
+        a.download = rec.fileName || "document.pdf";
+        a.click();
+        setTimeout(function () { try { URL.revokeObjectURL(url); } catch (e) {} }, 4000);
+      } catch (e) {
+        showDvToast("Could not download");
+      }
+    }
+    function buildDocVaultPayload() {
+      return idbGetAllPdfs().then(function (rows) {
+        return {
+          v: 1,
+          ts: Date.now(),
+          items: rows.map(function (r) {
+            return {
+              id: r.id,
+              pid: r.pid,
+              appId: r.appId || "vault",
+              projectName: r.projectName,
+              fileName: r.fileName,
+              mimeType: r.mimeType,
+              size: r.size,
+              ts: r.ts,
+              b64: r.buffer ? abToB64(r.buffer) : ""
+            };
+          })
+        };
+      });
+    }
+    function applyCloudDocVault(docVault) {
+      var items = (docVault && docVault.items) || [];
+      if (!items.length) return Promise.resolve(0);
+      var n = 0;
+      return items.reduce(function (p, item) {
+        return p.then(function () {
+          var buf = item.b64 ? b64ToAb(item.b64) : item.buffer;
+          if (!buf) return;
+          var appId = item.appId || "vault";
+          return idbPutPdf({
+            id: item.id,
+            pid: item.pid,
+            appId: appId,
+            pidApp: (item.pid || "_") + "|" + appId,
+            projectName: item.projectName,
+            fileName: item.fileName,
+            mimeType: item.mimeType || "application/pdf",
+            size: item.size || 0,
+            ts: item.ts || Date.now(),
+            buffer: buf
+          }).then(function () { n++; });
+        });
+      }, Promise.resolve()).then(function () { return n; });
+    }
+    function setCloudStatus(msg) {
+      var el = document.getElementById("dv-cloud-status");
+      if (el) el.textContent = msg || "";
+    }
+    function dvCloudSave() {
+      var url = getCloudUrl();
+      if (!url) {
+        showDvToast("Save your Google Apps Script Web App URL first");
+        return;
+      }
+      var btn = document.getElementById("dv-cloud-save");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+      }
+      buildDocVaultPayload()
+        .then(function (docVault) {
+          var enc = encodeURIComponent(url);
+          return fetch(gaCloudRelayBase() + "/cloud-save?url=" + enc, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ docVault: docVault, ts: Date.now() })
+          });
+        })
+        .then(function (r) {
+          return r.text().then(function (t) {
+            return { r: r, t: t };
+          });
+        })
+        .then(function (o) {
+          if (!o.r.ok) throw new Error(o.t.slice(0, 280) || "HTTP " + o.r.status);
+          var meta = JSON.parse(o.t);
+          if (meta.ok === false) throw new Error(meta.error || "Save rejected");
+          showDvToast("Doc Vault saved to cloud (Google Drive JSON)");
+          setCloudStatus("Last cloud save: " + new Date().toLocaleString("en-IN"));
+        })
+        .catch(function (e) {
+          alert("Cloud save failed: " + e.message + "\n\nUse the same Web App URL as Project Acquisition. Redeploy GA_Backend.gs if you upgraded merge logic.");
+        })
+        .finally(function () {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "☁ Save Doc Vault to Cloud";
+          }
+        });
+    }
+    function dvCloudLoad() {
+      var url = getCloudUrl();
+      if (!url) {
+        showDvToast("Save your Google Apps Script Web App URL first");
+        return;
+      }
+      var btn = document.getElementById("dv-cloud-load");
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "Loading…";
+      }
+      fetch(gaCloudRelayBase() + "/cloud-load?url=" + encodeURIComponent(url))
+        .then(function (r) {
+          return r.json();
+        })
+        .then(function (data) {
+          if (!data || data.error) throw new Error(data && data.error ? data.error : "Empty response");
+          var dv = data.docVault;
+          if (!dv || !dv.items || !dv.items.length) {
+            showDvToast("No Doc Vault data in cloud yet — Save Doc Vault to Cloud first");
+            return;
+          }
+          return applyCloudDocVault(dv).then(function (n) {
+            showDvToast("Merged " + n + " PDF(s) from cloud into this browser");
+            setCloudStatus("Loaded " + dv.items.length + " file(s) from cloud");
+            renderDocVault();
+          });
+        })
+        .catch(function (e) {
+          alert("Cloud load failed: " + e.message);
+        })
+        .finally(function () {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = "☁ Load Doc Vault from Cloud";
+          }
+        });
+    }
+
+    function loadProjects() {
+      try {
+        var raw = localStorage.getItem("ga_rp_projects");
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) { return []; }
+    }
+    function loadEntries() {
+      try {
+        var raw = localStorage.getItem("ga_doc_vault_entries");
+        return raw ? JSON.parse(raw) : [];
+      } catch (e) { return []; }
+    }
+    function populatePdfList(pid, ul, appId) {
+      if (!ul) return;
+      ul.innerHTML = "<li style='color:#94a3b8;border:none;background:transparent;padding-left:0'>Loading…</li>";
+      idbListByPidApp(pid, appId).then(function (rows) {
+        ul.innerHTML = "";
+        if (!rows || !rows.length) {
+          var empty = document.createElement("li");
+          empty.style.cssText = "color:#94a3b8;border:none;background:transparent";
+          empty.textContent = "No PDFs — Upload PDF.";
+          ul.appendChild(empty);
+          return;
+        }
+        rows
+          .slice()
+          .sort(function (a, b) {
+            return (b.ts || 0) - (a.ts || 0);
+          })
+          .forEach(function (rec) {
+            var li = document.createElement("li");
+            var left = document.createElement("div");
+            left.style.cssText = "min-width:0;flex:1";
+            var a = document.createElement("a");
+            a.href = "#";
+            a.textContent = rec.fileName || "document.pdf";
+            a.title = "Open PDF in new tab";
+            a.addEventListener("click", function (ev) {
+              ev.preventDefault();
+              openPdfRecord(rec);
+            });
+            var meta = document.createElement("div");
+            meta.className = "dv-pdf-meta";
+            meta.textContent = fmtTs(rec.ts) + (rec.size ? " · " + Math.round(rec.size / 1024) + " KB" : "");
+            left.appendChild(a);
+            left.appendChild(meta);
+            var actions = document.createElement("div");
+            actions.className = "dv-pdf-actions";
+            var dl = document.createElement("button");
+            dl.type = "button";
+            dl.className = "dv-dl";
+            dl.textContent = "Download";
+            dl.title = "Save a copy to your PC";
+            dl.addEventListener("click", function (ev) {
+              ev.stopPropagation();
+              downloadPdfRecord(rec);
+            });
+            var rm = document.createElement("button");
+            rm.type = "button";
+            rm.className = "dv-rm";
+            rm.textContent = "Remove";
+            rm.addEventListener("click", function (ev) {
+              ev.stopPropagation();
+              if (confirm("Remove this PDF from this browser? (Cloud copy unchanged until you save again.)")) {
+                idbDeletePdf(rec.id).then(function () {
+                  populatePdfList(pid, ul, appId);
+                  showDvToast("PDF removed");
+                });
+              }
+            });
+            actions.appendChild(dl);
+            actions.appendChild(rm);
+            li.appendChild(left);
+            li.appendChild(actions);
+            ul.appendChild(li);
+          });
+      });
+    }
+    function renderDocVault() {
+      var projs = loadProjects();
+      var entries = loadEntries();
+      var byPid = {};
+      entries.forEach(function (e) {
+        var k = e.pid || "_";
+        if (!byPid[k]) byPid[k] = [];
+        byPid[k].push(e);
+      });
+      var fg = document.getElementById("doc-folders");
+      var tl = document.getElementById("doc-timeline");
+      var clr = document.getElementById("doc-clear");
+      if (!fg || !tl) return;
+      fg.innerHTML = "";
+      var list = projs.length ? projs : [{ id: "_", name: "No projects yet — sync from Project Acquisition" }];
+      list.forEach(function (p) {
+        var pid = p.id || "_";
+        var name = p.name || pid;
+        var evs = byPid[pid] || [];
+        var div = document.createElement("div");
+        div.className = "folder";
+        if (pid !== "_") div.setAttribute("data-folder-pid", pid);
+        div.innerHTML =
+          "<h4>📁 " + escapeHtml(name) + "</h4>" +
+          "<p style='margin:0 0 8px;font-size:11px;color:#94a3b8'>Prints logged: " + evs.length + " · PDFs: IndexedDB + cloud (see buttons above).</p>";
+        if (pid !== "_") {
+          var appsWrap = document.createElement("div");
+          DV_APPS.forEach(function (app) {
+            var block = document.createElement("div");
+            block.className = "dv-app-block";
+            block.innerHTML =
+              "<div class='dv-app-h'>" + escapeHtml(app.label) + "</div>" +
+              "<div class='dv-folder-actions'>" +
+              "<button type='button' class='dv-btn-copy'>Copy path</button>" +
+              "<label class='dv-upload'>Upload PDF<input type='file' accept='application/pdf,.pdf' /></label>" +
+              "</div>" +
+              "<ul class='dv-pdf-list' data-pdf-ul='1'></ul>";
+            var btnCopy = block.querySelector(".dv-btn-copy");
+            var fileInp = block.querySelector("input[type=file]");
+            var ulPdf = block.querySelector("[data-pdf-ul]");
+            if (btnCopy) {
+              btnCopy.addEventListener("click", function (ev) {
+                ev.stopPropagation();
+                focusDocVaultProject(pid, name, app.folder);
+              });
+            }
+            if (fileInp) {
+              fileInp.addEventListener("change", function (ev) {
+                var f = ev.target.files && ev.target.files[0];
+                ev.target.value = "";
+                if (!f) return;
+                if (f.type && f.type.indexOf("pdf") < 0) {
+                  showDvToast("Please choose a PDF file");
+                  return;
+                }
+                var reader = new FileReader();
+                reader.onload = function () {
+                  var id = "pdf-" + Date.now() + "-" + Math.random().toString(36).slice(2, 9);
+                  idbPutPdf({
+                    id: id,
+                    pid: pid,
+                    appId: app.id,
+                    projectName: name,
+                    fileName: f.name,
+                    mimeType: f.type || "application/pdf",
+                    size: f.size,
+                    ts: Date.now(),
+                    buffer: reader.result
+                  })
+                    .then(function () {
+                      showDvToast("PDF saved — " + app.label);
+                      populatePdfList(pid, ulPdf, app.id);
+                    })
+                    .catch(function () {
+                      showDvToast("Could not store PDF (storage full or private mode?)");
+                    });
+                };
+                reader.readAsArrayBuffer(f);
+              });
+            }
+            appsWrap.appendChild(block);
+            populatePdfList(pid, ulPdf, app.id);
+          });
+          div.appendChild(appsWrap);
+          var hint = document.createElement("div");
+          hint.className = "hint-open";
+          hint.style.marginTop = "8px";
+          hint.textContent = "Use Copy path per app for shared-drive folders; use Open/Download for files in this browser.";
+          div.appendChild(hint);
+        }
+        var logBlock = document.createElement("div");
+        logBlock.innerHTML =
+          "<div class='dv-pdf-h' style='margin-top:12px'>Print log</div>" +
+          "<ul style='margin:0;padding-left:18px;font-size:12px;color:#94a3b8;max-height:120px;overflow-y:auto'>" +
+          (evs.length ? evs.slice(0, 8).map(function (x) {
+            return "<li>" + fmtTs(x.ts) + " — investment report</li>";
+          }).join("") : "<li>No prints logged yet</li>") + "</ul>";
+        div.appendChild(logBlock);
+        fg.appendChild(div);
+      });
+      tl.innerHTML = "<strong style='display:block;margin-bottom:8px;color:#e2e8f0'>Recent activity (all projects)</strong>";
+      if (!entries.length) {
+        tl.innerHTML += "<div>No entries yet. Generate a report in Project Acquisition → Print → Record in Doc Vault.</div>";
+      } else {
+        entries.slice(0, 25).forEach(function (e) {
+          var row = document.createElement("div");
+          row.className = "row" + (e.pid && e.pid !== "_" ? " folder-interactive" : "");
+          row.style.borderRadius = "6px";
+          row.style.paddingLeft = "4px";
+          row.style.paddingRight = "4px";
+          row.innerHTML = "<span><strong>" + escapeHtml(e.name || e.pid) + "</strong></span><span>" + fmtTs(e.ts) + "</span>";
+          if (e.pid && e.pid !== "_") {
+            row.setAttribute("role", "button");
+            row.setAttribute("tabindex", "0");
+            row.title = "Copy project folder base path (add app subfolder manually)";
+            row.addEventListener("click", function () { focusDocVaultProject(e.pid, e.name || e.pid, null); });
+            row.addEventListener("keydown", function (ev) {
+              if (ev.key === "Enter" || ev.key === " ") {
+                ev.preventDefault();
+                focusDocVaultProject(e.pid, e.name || e.pid, null);
+              }
+            });
+          }
+          tl.appendChild(row);
+        });
+      }
+      if (clr) {
+        clr.hidden = entries.length === 0;
+        clr.onclick = function () {
+          if (confirm("Clear all Doc Vault log entries? (PDF files on disk are not deleted.)")) {
+            localStorage.removeItem("ga_doc_vault_entries");
+            renderDocVault();
+          }
+        };
+      }
+    }
+    function escapeHtml(s) {
+      var d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+    function fmtTs(ts) {
+      if (!ts) return "—";
+      var d = new Date(ts);
+      return isNaN(d.getTime()) ? "—" : d.toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+    }
+    (function initDocVaultRoot() {
+      var ri = document.getElementById("doc-vault-root");
+      var rs = document.getElementById("doc-vault-root-save");
+      if (ri) {
+        try { ri.value = getDocVaultRoot(); } catch (e) {}
+      }
+      if (rs && ri) {
+        rs.addEventListener("click", function () {
+          try {
+            localStorage.setItem("ga_doc_vault_root", ri.value.trim());
+            showDvToast("Doc folder root saved");
+          } catch (e) {
+            showDvToast("Could not save root");
+          }
+        });
+      }
+      var cu = document.getElementById("dv-cloud-url");
+      var cus = document.getElementById("dv-cloud-url-save");
+      if (cu) {
+        try { cu.value = getCloudUrl(); } catch (e) {}
+      }
+      if (cus && cu) {
+        cus.addEventListener("click", function () {
+          try {
+            localStorage.setItem(GA_CONF_KEY, cu.value.trim());
+            showDvToast("Cloud URL saved (same key as Project Acquisition)");
+          } catch (e) {
+            showDvToast("Could not save URL");
+          }
+        });
+      }
+      var cs = document.getElementById("dv-cloud-save");
+      var cl = document.getElementById("dv-cloud-load");
+      if (cs) cs.addEventListener("click", function () { dvCloudSave(); });
+      if (cl) cl.addEventListener("click", function () { dvCloudLoad(); });
+    })();
+    function bootVault() {
+      renderDocVault();
+      if (isHttp) {
+        fetch(base + "/apps")
+          .then(function (r) {
+            return r.json();
+          })
+          .then(function (x) {
+            renderDynamicApps((x && x.apps) || []);
+          })
+          .catch(function () {});
+      }
+    }
+    idbInit().then(function () {
+      bootVault();
+    });
+    window.addEventListener("storage", function (ev) {
+      if (ev.key === "ga_doc_vault_entries" || ev.key === "ga_rp_projects") renderDocVault();
+    });
+    document.addEventListener("visibilitychange", function () {
+      if (!document.hidden) renderDocVault();
+    });
+  })();
+  </script>
+</body>
+</html>

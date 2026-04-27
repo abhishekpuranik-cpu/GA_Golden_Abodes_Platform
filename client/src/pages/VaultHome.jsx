@@ -111,7 +111,7 @@ export default function VaultHome() {
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V1</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Cashflow Tracker</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
-              Opens the updated legacy HTML V1 from <code>/legacy/GA_Cashflow_V1.html</code>.
+              Opens the latest V1 HTML from <code>/legacy/GA_Cashflow_V1.html</code>.
             </p>
           </a>
         </div>

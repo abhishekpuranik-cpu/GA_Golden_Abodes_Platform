@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Golden Abodes · Sales Command Centre</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <style>
+    :root{
+      --bg:#0B1020; --bg2:#10172B; --card:#121A31; --card2:#0F162A; --text:#EAF1FF; --text-secondary:#A9B4D1; --text-muted:#7C89AD;
+      --line:rgba(201,164,74,.15); --gold:#C9A44A; --blue:#5B8DEF; --green:#4CAF7D; --red:#E05C5C; --amber:#F59E0B; --purple:#8B5CF6;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;height:100%;font-family:"Outfit",system-ui,sans-serif;background:linear-gradient(180deg,var(--bg),#070B17);color:var(--text)}
+    .wrap{max-width:1380px;margin:0 auto;padding:16px}
+    .topbar,.data-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:rgba(16,23,43,.8);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+    .topbar{justify-content:space-between}
+    .brand{font-weight:800;letter-spacing:.02em}
+    .sub{font-size:11px;color:var(--text-muted)}
+    .actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    .dash-btn,.layer-select{background:var(--card2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px}
+    .dash-btn{cursor:pointer}
+    .dash-btn:hover{border-color:rgba(201,164,74,.35)}
+    .layer-select{min-width:120px}
+    .status{font-size:11px;color:var(--text-secondary)}
+    .tabs{display:flex;gap:8px;margin:12px 0}
+    .gov-tab{background:var(--card2);border:1px solid var(--line);color:var(--text-secondary);border-radius:10px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer}
+    .gov-tab.active,.gov-tab:hover{color:var(--text);border-color:rgba(91,141,239,.4)}
+    .tab-content{display:none}
+    .tab-content.active{display:block}
+    .sec{background:rgba(18,26,49,.85);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:12px}
+    .sec-title{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);margin:0 0 10px}
+    .kpi-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px}
+    .kpi-card{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px}
+    .kpi-icon{font-size:14px}
+    .kpi-label{font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.06em;margin-top:4px}
+    .kpi-value{font-size:18px;font-weight:800;margin-top:6px}
+    .kpi-value small{font-size:11px;color:var(--text-muted)}
+    .kpi-meta{display:flex;justify-content:space-between;gap:8px;margin-top:6px}
+    .kpi-trend{font-size:10px;color:var(--text-secondary)}
+    .kpi-target-txt{font-size:10px;color:var(--text-muted)}
+    .dev-pill{display:inline-block;font-size:10px;border-radius:999px;padding:2px 8px;margin-top:6px}
+    .dev-ok{background:rgba(76,175,125,.15);color:#8AE0B0}.dev-warn{background:rgba(245,158,11,.15);color:#FDC66A}.dev-bad{background:rgba(224,92,92,.16);color:#F29A9A}
+    .kpi-bar{height:5px;background:rgba(255,255,255,.08);border-radius:999px;margin-top:8px;overflow:hidden}
+    .kpi-bar-fill{height:100%;background:linear-gradient(90deg,var(--blue),var(--gold))}
+    .badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+    .badge{font-size:10px;border-radius:999px;padding:4px 8px}
+    .badge-green{background:rgba(76,175,125,.15);color:#8AE0B0}.badge-amber{background:rgba(245,158,11,.15);color:#FDC66A}.badge-blue{background:rgba(91,141,239,.16);color:#A7C6FF}
+    .g2{display:grid;grid-template-columns:2fr 1fr;gap:12px}.g22{display:grid;grid-template-columns:1fr 1fr;gap:12px}.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+    .plot-wrap{position:relative;height:280px}
+    .plot-wrap.sm{height:220px}
+    canvas{max-width:100%}
+    .prog-row{display:grid;grid-template-columns:170px 1fr 72px 56px;gap:8px;align-items:center;margin:8px 0}
+    .prog-label{font-size:11px;color:var(--text-secondary)}
+    .prog-track{height:8px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden}
+    .prog-fill{height:100%}
+    .prog-val{font-size:11px;text-align:right}
+    .prog-pct{font-size:11px;text-align:right}.prog-pct.up{color:#8AE0B0}.prog-pct.neutral{color:#FDC66A}.prog-pct.down{color:#F29A9A}
+    .mini3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:8px}
+    .mini{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px}
+    .mini .v{font-size:16px;font-weight:800}.mini .l{font-size:10px;color:var(--text-muted)}
+    .funnel-row{display:grid;grid-template-columns:200px 1fr 80px;gap:10px;align-items:center;margin:8px 0}
+    .f-lbl{font-size:11px;color:var(--text-secondary)}
+    .f-bar-wrap{height:18px;background:rgba(255,255,255,.08);border-radius:999px;overflow:hidden}
+    .f-bar{height:100%;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:#fff;font-size:10px;font-weight:700;white-space:nowrap}
+    .f-meta .n{font-size:13px;font-weight:700;text-align:right}.f-meta .p{font-size:10px;color:var(--text-muted);text-align:right}
+    .funnel-conv{font-size:10px;color:var(--text-muted);margin:4px 0 0 200px}
+    .table{width:100%;border-collapse:collapse}
+    .table th,.table td{border-bottom:1px solid rgba(255,255,255,.08);padding:8px 6px;font-size:12px;text-align:left}
+    .table th{font-size:10px;text-transform:uppercase;color:var(--text-muted);letter-spacing:.06em}
+    .insights{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px}
+    .insight-card{background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:10px}
+    .insight-card.sev-high{border-color:rgba(224,92,92,.35)}.insight-card.sev-med{border-color:rgba(245,158,11,.35)}
+    .insight-owner{font-size:10px;color:var(--text-muted);text-transform:uppercase}.insight-title{font-weight:700;margin-top:6px}.insight-action{font-size:12px;color:var(--text-secondary);margin-top:6px}
+    @media (max-width:1120px){.kpi-grid{grid-template-columns:1fr 1fr 1fr}.g2,.g22,.g3{grid-template-columns:1fr}}
+    @media (max-width:820px){.kpi-grid{grid-template-columns:1fr 1fr}.funnel-row{grid-template-columns:1fr}.funnel-conv{margin-left:0}}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div>
+        <div class="brand">Golden Abodes · Sales Command Centre</div>
+        <div class="sub" id="asOfLabel">As of —</div>
+      </div>
+      <div class="actions">
+        <select id="layerSel" class="layer-select" title="View layer">
+          <option value="board">Board</option>
+          <option value="ops">Operations</option>
+          <option value="sales">Sales</option>
+        </select>
+        <select id="periodSel" class="layer-select" onchange="updatePeriod(this.value)">
+          <option value="fy2526">FY 2025–26 YTD</option>
+          <option value="q4">Q4 FY 2025–26</option>
+          <option value="q3">Q3 FY 2025–26</option>
+          <option value="q2">Q2 FY 2025–26</option>
+        </select>
+        <button class="dash-btn" onclick="refreshDash(this)">Refresh</button>
+        <button class="dash-btn" onclick="document.getElementById('fileXlsx').click()">Import Excel</button>
+        <button class="dash-btn" onclick="document.getElementById('fileJson').click()">Import JSON</button>
+        <button class="dash-btn" id="btnExportJson">Export JSON</button>
+        <button class="dash-btn" onclick="exportCSV()">Export CSV</button>
+        <button class="dash-btn" id="btnReset">Reset</button>
+        <input id="fileXlsx" type="file" accept=".xlsx,.xls" style="display:none"/>
+        <input id="fileJson" type="file" accept=".json" style="display:none"/>
+      </div>
+    </div>
+
+    <div class="data-toolbar" style="margin-top:10px">
+      <span class="status" id="dataStatus">Data loaded</span>
+    </div>
+
+    <div class="tabs">
+      <button class="gov-tab active" onclick="switchTab('executive',this)">Business</button>
+      <button class="gov-tab" onclick="switchTab('operations',this)">Operational</button>
+      <button class="gov-tab" onclick="switchTab('salesteam',this)">Sales</button>
+      <button class="gov-tab" onclick="switchTab('insights',this)">Insight</button>
+    </div>
+
+    <section id="executive" class="tab-content active">
+      <div class="sec">
+        <h2 class="sec-title" id="execTitle">Business Performance · FY 2025–26 YTD</h2>
+        <div id="execKpis" class="kpi-grid"></div>
+        <div id="execBadges" class="badges"></div>
+      </div>
+      <div class="g2">
+        <div class="sec">
+          <h3 class="sec-title">Revenue vs Target</h3>
+          <div class="plot-wrap"><canvas id="revenueChart"></canvas></div>
+        </div>
+        <div class="sec">
+          <h3 class="sec-title">Project Revenue Mix</h3>
+          <div class="plot-wrap sm"><canvas id="projectDonut"></canvas></div>
+          <div id="donutLegend"></div>
+        </div>
+      </div>
+      <div class="g22">
+        <div class="sec">
+          <h3 class="sec-title">Project Progress</h3>
+          <div id="execProjectProg"></div>
+          <div class="mini3">
+            <div class="mini"><div class="v" id="execUnitsSummaryVal">—</div><div class="l">Booked / Target Units</div></div>
+            <div class="mini"><div class="v" id="execDemandCr">—</div><div class="l">Demand (FY)</div></div>
+            <div class="mini"><div class="v" id="execPendingCr">—</div><div class="l">Pending Collections</div></div>
+          </div>
+        </div>
+        <div class="sec">
+          <h3 class="sec-title">Collections & CSAT</h3>
+          <div class="plot-wrap sm"><canvas id="collectionsChart"></canvas></div>
+          <div class="plot-wrap sm" style="height:170px"><canvas id="csatGauge"></canvas></div>
+          <div class="mini3">
+            <div class="mini"><div class="v" id="csatScore">—</div><div class="l">CSAT / NPS</div></div>
+            <div class="mini"><div class="v" id="execColEff">—</div><div class="l">Collection Efficiency</div></div>
+            <div class="mini"><div class="v" id="dataSourceTag">Model</div><div class="l">Source</div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section id="operations" class="tab-content">
+      <div class="sec">
+        <h2 class="sec-title" id="opsTitle">Operational Health · FY 2025–26 YTD</h2>
+        <div id="opsKpis" class="kpi-grid"></div>
+        <div id="opsBadges" class="badges"></div>
+      </div>
+      <div class="g2">
+        <div class="sec">
+          <h3 class="sec-title">Funnel</h3>
+          <div id="funnelMount"></div>
+        </div>
+        <div class="sec">
+          <h3 class="sec-title">Source Mix</h3>
+          <div class="plot-wrap sm"><canvas id="sourceChart"></canvas></div>
+          <div id="sourceLegend"></div>
+        </div>
+      </div>
+      <div class="g22">
+        <div class="sec">
+          <h3 class="sec-title">Lead Trend</h3>
+          <div class="plot-wrap"><canvas id="leadTrendChart"></canvas></div>
+        </div>
+        <div class="sec">
+          <h3 class="sec-title">Channel Performance</h3>
+          <div class="plot-wrap sm"><canvas id="channelChart"></canvas></div>
+          <div class="plot-wrap sm"><canvas id="roiChart"></canvas></div>
+        </div>
+      </div>
+      <div class="g22">
+        <div class="sec">
+          <h3 class="sec-title">CPL</h3>
+          <div id="cplMount"></div>
+          <div class="mini3">
+            <div class="mini"><div class="v" id="mktgSpend">—</div><div class="l">Marketing Spend</div></div>
+            <div class="mini"><div class="v" id="blendedCpl">—</div><div class="l">Blended CPL</div></div>
+            <div class="mini"><div class="v" id="slaOverall">—</div><div class="l">SLA Overall</div></div>
+          </div>
+        </div>
+        <div class="sec">
+          <h3 class="sec-title">SLA</h3>
+          <div id="slaMount"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="salesteam" class="tab-content">
+      <div class="sec">
+        <h2 class="sec-title">Sales Team Productivity · FY 2025–26 YTD</h2>
+        <div id="salesKpis" class="kpi-grid"></div>
+        <div id="salesBadges" class="badges"></div>
+      </div>
+      <div class="g2">
+        <div class="sec">
+          <h3 class="sec-title">Leaderboard</h3>
+          <table class="table">
+            <thead><tr><th>#</th><th>Rep</th><th>Project</th><th>Leads</th><th>Closures</th><th>Value (₹L)</th><th>Conv%</th><th>Status</th></tr></thead>
+            <tbody id="lbBody"></tbody>
+          </table>
+        </div>
+        <div class="sec">
+          <h3 class="sec-title">Leads vs Closures</h3>
+          <div class="plot-wrap"><canvas id="scatterChart"></canvas></div>
+        </div>
+      </div>
+      <div class="g22">
+        <div class="sec">
+          <h3 class="sec-title">Activity Mix</h3>
+          <div class="plot-wrap sm"><canvas id="activityChart"></canvas></div>
+          <div class="plot-wrap sm"><canvas id="callTrendChart"></canvas></div>
+        </div>
+        <div class="sec">
+          <h3 class="sec-title">Monthly Tracker</h3>
+          <div id="monthlyTracker"></div>
+          <h3 class="sec-title" style="margin-top:16px">Pipeline Tracker</h3>
+          <div id="pipelineTracker"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="insights" class="tab-content">
+      <div class="sec">
+        <h2 class="sec-title">Insights & Actions</h2>
+        <div id="insightsBody" class="insights"></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="ga_sales_dashboard_runtime.js"></script>
+</body>
+</html>

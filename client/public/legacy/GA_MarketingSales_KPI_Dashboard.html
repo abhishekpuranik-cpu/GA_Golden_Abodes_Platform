@@ -1,0 +1,1027 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>Marketing &amp; Sales · Control Tower</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Serif:wght@500;600&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      /* Dark Command Hub (v1-style shell) */
+      --bg: #0c0e13;
+      --surface: #141821;
+      --surface-2: #1a1f2a;
+      --border: #2a3142;
+      --text: #e8ecf4;
+      --muted: #8b93a7;
+      --slate: #a8b0c4;
+      --accent: #6eb0f4;
+      --accent-soft: rgba(110, 176, 244, 0.12);
+      --warn: #f59e0b;
+      --ok: #34d399;
+      --radius: 12px;
+      --shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+      --font: "IBM Plex Sans", system-ui, sans-serif;
+      --font-serif: "IBM Plex Serif", Georgia, serif;
+    }
+    * { box-sizing: border-box; }
+    html { color-scheme: dark; }
+    html, body { margin: 0; height: 100%; font-family: var(--font); color: var(--text); background: var(--bg); font-size: 14px; line-height: 1.45; }
+    .app { display: flex; min-height: 100vh; }
+    .sidebar {
+      width: 240px; flex-shrink: 0; background: #0f1218; border-right: 1px solid var(--border);
+      padding: 24px 0; display: flex; flex-direction: column;
+    }
+    .sidebar .brand {
+      padding: 0 20px 20px; font-family: var(--font-serif); font-size: 1.05rem; font-weight: 600; color: var(--accent);
+      letter-spacing: -0.02em; border-bottom: 1px solid var(--border); margin-bottom: 12px;
+    }
+    .sidebar .sub { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); padding: 8px 20px; }
+    .nav-btn {
+      display: block; width: 100%; text-align: left; padding: 10px 20px; border: none; background: transparent;
+      font-size: 13px; font-weight: 500; color: var(--slate); cursor: pointer; border-left: 3px solid transparent;
+    }
+    .nav-btn:hover { background: var(--accent-soft); color: var(--text); }
+    .nav-btn.on { border-left-color: var(--accent); background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+    .main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--bg); }
+    .topbar {
+      background: var(--surface); border-bottom: 1px solid var(--border); padding: 14px 28px;
+      display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between;
+    }
+    .topbar h1 { margin: 0; font-size: 1.15rem; font-weight: 600; letter-spacing: -0.02em; color: var(--text); }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .btn {
+      padding: 8px 14px; border-radius: 8px; font-size: 12px; font-weight: 600; cursor: pointer;
+      border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
+    }
+    .btn:hover { border-color: var(--accent); color: var(--text); }
+    .btn-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+    .btn-primary:hover { filter: brightness(1.08); }
+    .btn-ghost { background: transparent; color: var(--muted); border-color: transparent; }
+    .btn-ghost:hover { color: var(--text); background: var(--accent-soft); }
+    .content { padding: 24px 28px 48px; flex: 1; overflow: auto; }
+    .page { display: none; animation: fade 0.2s ease; }
+    .page.active { display: block; }
+    @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+    .kpi-strip { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .kpi {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; box-shadow: var(--shadow);
+    }
+    .kpi .v { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.03em; color: var(--accent); }
+    .kpi .l { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-top: 4px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; margin-bottom: 16px; box-shadow: var(--shadow);
+    }
+    .card h2 {
+      margin: 0 0 14px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted);
+    }
+    .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
+    .action-board { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+    .ab-card {
+      border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; background: var(--surface-2);
+    }
+    .ab-card.cp { border-color: rgba(110, 176, 244, 0.35); background: linear-gradient(135deg, #161c28 0%, #1a2230 100%); }
+    .ab-card .n { font-size: 1.4rem; font-weight: 700; color: var(--accent); }
+    .ab-card .t { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.35; }
+    .narrative { font-size: 13px; color: var(--slate); line-height: 1.6; border-left: 3px solid var(--accent); padding-left: 14px; margin-top: 8px; }
+    table.data { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.data th, table.data td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+    table.data th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); font-weight: 600; }
+    table.data tr:hover td { background: rgba(110, 176, 244, 0.06); }
+    .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .chip { font-size: 11px; padding: 4px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+    .chip.dim { background: var(--surface-2); color: var(--muted); }
+    .plot { min-height: 320px; width: 100%; }
+    .plot-sm { min-height: 240px; }
+    .filters-bar { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; align-items: flex-end; }
+    .filters-bar label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); display: block; margin-bottom: 4px; }
+    .filters-bar input, .filters-bar select { padding: 7px 10px; border-radius: 8px; border: 1px solid var(--border); font-size: 12px; min-width: 120px; background: var(--surface-2); color: var(--text); }
+    .intel-search-label { font-size: 11px; font-weight: 600; color: var(--muted); display: block; margin-bottom: 6px; }
+    .intel-search-input { width: 100%; max-width: 420px; padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border); font-size: 13px; background: var(--surface-2); color: var(--text); }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 600; }
+    .badge-warn { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+    .badge-ok { background: rgba(52, 211, 153, 0.15); color: var(--ok); }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 12px; }
+    .tabs button { padding: 8px 14px; border: none; background: transparent; font-size: 12px; font-weight: 600; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+    .tabs button.on { color: var(--accent); border-bottom-color: var(--accent); }
+    .tab-panel { display: none; }
+    .tab-panel.on { display: block; }
+    .score { font-weight: 700; color: var(--accent); }
+    .hidden-file { position: absolute; width: 0; height: 0; opacity: 0; }
+    .hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">Sales Control Tower</div>
+      <div class="sub">Navigate</div>
+      <button type="button" class="nav-btn on" data-page="exec">Executive Overview</button>
+      <button type="button" class="nav-btn" data-page="funnel">Funnel &amp; Leakage</button>
+      <button type="button" class="nav-btn" data-page="source">Source / Campaign</button>
+      <button type="button" class="nav-btn" data-page="owner">Owner / Team</button>
+      <button type="button" class="nav-btn" data-page="ops">Operations</button>
+      <button type="button" class="nav-btn" data-page="intel">Lead Intelligence</button>
+    </aside>
+    <div class="main">
+      <header class="topbar">
+        <h1 id="page-title">Executive Overview</h1>
+        <div class="toolbar">
+          <input type="file" id="file-xlsx" class="hidden-file" accept=".xlsx,.xls"/>
+          <button type="button" class="btn btn-primary" id="btn-upload">Upload Excel</button>
+          <button type="button" class="btn" id="btn-demo">Load Demo</button>
+          <button type="button" class="btn btn-ghost" id="btn-clear">Clear data</button>
+        </div>
+      </header>
+      <div class="content">
+        <div class="filters-bar" id="global-filters">
+          <div>
+            <label>Project</label>
+            <select id="f-project"><option value="">All</option></select>
+          </div>
+          <div>
+            <label>Source</label>
+            <select id="f-source"><option value="">All</option></select>
+          </div>
+          <div>
+            <label>Owner</label>
+            <select id="f-owner"><option value="">All</option></select>
+          </div>
+          <div>
+            <label>Journey stage</label>
+            <select id="f-journey"><option value="">All</option></select>
+          </div>
+          <div>
+            <label>Age bucket</label>
+            <select id="f-age"><option value="">All</option>
+              <option value="0-2">0–2 days</option>
+              <option value="3-5">3–5 days</option>
+              <option value="6-10">6–10 days</option>
+              <option value="10+">10+ days</option>
+            </select>
+          </div>
+        </div>
+
+        <section class="page active" id="page-exec"></section>
+        <section class="page" id="page-funnel"></section>
+        <section class="page" id="page-source"></section>
+        <section class="page" id="page-owner"></section>
+        <section class="page" id="page-ops"></section>
+        <section class="page" id="page-intel">
+          <div class="card" style="margin-bottom:16px">
+            <label class="intel-search-label" for="intel-q">Search leads</label>
+            <input type="search" id="intel-q" class="intel-search-input" placeholder="Name, phone, source, Sub_Source, comment, owner…"/>
+          </div>
+          <div id="intel-dynamic"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  'use strict';
+
+  var JOURNEY = ['New Lead','Site Visit Booked','Site Visit Completed','Revisit Booked','Revisit Completed','Negotiation','Booking / Won'];
+  var JOURNEY_KEY = ['new','svb','svc','rvb','rvc','neg','won'];
+  /** Dark Command Hub — chart chrome matches shell */
+  var CHART_PAPER = '#0c0e13';
+  var CHART_PLOT = '#141821';
+  var CHART_MUTED = '#94a3b8';
+  var CHART_GRID = 'rgba(148, 163, 184, 0.12)';
+  function darkPlotLayout(extra) {
+    var base = {
+      paper_bgcolor: CHART_PAPER,
+      plot_bgcolor: CHART_PLOT,
+      font: { family: 'IBM Plex Sans', size: 11, color: CHART_MUTED },
+      xaxis: { gridcolor: CHART_GRID, zerolinecolor: CHART_GRID, tickfont: { color: CHART_MUTED }, titlefont: { color: CHART_MUTED } },
+      yaxis: { gridcolor: CHART_GRID, zerolinecolor: CHART_GRID, tickfont: { color: CHART_MUTED }, titlefont: { color: CHART_MUTED } }
+    };
+    if (!extra) return base;
+    var out = Object.assign({}, base, extra);
+    out.xaxis = Object.assign({}, base.xaxis, extra.xaxis || {});
+    out.yaxis = Object.assign({}, base.yaxis, extra.yaxis || {});
+    return out;
+  }
+
+  var DEMO_JSON = [
+    {"Created At":"2025-01-05","Updated At":"2025-01-12","Status":"Site Visit Completed","First Name":"Asha","Phone":"980001","Email":"a@x.com","Source Name":"Meta","Sub_Source":"","Reference Projects Name":"Proj A","Employees":"Ravi","Lead Comments":"Interested in 3 BHK, visit next week","Next Call Date":"2025-01-14","Visit Count":"2","Configuration Name":"3 BHK","Presale Stage":"","Campaign Ad Name":"Jan Promo","Lead Stage":"Site Visit Completed","Tentative Visit Date":"2025-01-10"},
+    {"Created At":"2025-01-02","Updated At":"2025-01-08","Status":"Negotiation","First Name":"Vikram","Phone":"980002","Email":"","Source Name":"Channel_Partner","Sub_Source":"Ace Realty","Reference Projects Name":"Proj A","Employees":"Ravi","Lead Comments":"Price discussion, callback Friday","Next Call Date":"","Visit Count":"3","Configuration Name":"","Presale Stage":"Hot","Campaign Ad Name":"","Lead Stage":"Negotiation","Tentative Visit Date":""},
+    {"Created At":"2025-01-10","Updated At":"2025-01-11","Status":"New Lead","First Name":"Meera","Phone":"980003","Email":"m@x.com","Source Name":"Referral","Sub_Source":"","Reference Projects Name":"Proj B","Employees":"Sneha","Lead Comments":"","Next Call Date":"","Visit Count":"0","Configuration Name":"2 BHK","Presale Stage":"","Campaign Ad Name":"","Lead Stage":"","Tentative Visit Date":""},
+    {"Created At":"2024-12-28","Updated At":"2025-01-05","Status":"Lost","First Name":"John","Phone":"980004","Email":"j@x.com","Source Name":"Meta","Sub_Source":"","Reference Projects Name":"Proj A","Employees":"Ravi","Lead Comments":"Family decision delayed","Next Call Date":"","Visit Count":"1","Configuration Name":"","Presale Stage":"","Campaign Ad Name":"Jan Promo","Lead Stage":"Open","Tentative Visit Date":""},
+    {"Created At":"2025-01-08","Updated At":"2025-01-09","Status":"Site Visit Booked","First Name":"Priya","Phone":"980005","Email":"p@x.com","Source Name":"Walk-in","Sub_Source":"","Reference Projects Name":"Proj A","Employees":"Sneha","Lead Comments":"Wants revisit Sunday","Next Call Date":"2025-01-12","Visit Count":"1","Configuration Name":"3 BHK","Presale Stage":"","Campaign Ad Name":"","Lead Stage":"Site Visit Booked","Tentative Visit Date":"2025-01-11"},
+    {"Created At":"2025-01-01","Updated At":"2025-01-15","Status":"Booking","First Name":"Karan","Phone":"980006","Email":"k@x.com","Source Name":"Google","Sub_Source":"","Reference Projects Name":"Proj B","Employees":"Ravi","Lead Comments":"Token done","Next Call Date":"","Visit Count":"4","Configuration Name":"4 BHK","Presale Stage":"Closed","Campaign Ad Name":"Search","Lead Stage":"Booking / Won","Tentative Visit Date":""},
+    {"Created At":"2025-01-06","Updated At":"2025-01-07","Status":"Follow up","First Name":"Sara","Phone":"980007","Email":"s@x.com","Source Name":"Meta","Sub_Source":"","Reference Projects Name":"Proj A","Employees":"Sneha","Lead Comments":"No response to calls","Next Call Date":"","Visit Count":"0","Configuration Name":"","Presale Stage":"","Campaign Ad Name":"Jan Promo","Lead Stage":"Follow-up / no response","Tentative Visit Date":""},
+    {"Created At":"2025-01-04","Updated At":"2025-01-13","Status":"Revisit Completed","First Name":"Dev","Phone":"980008","Email":"d@x.com","Source Name":"Referral","Sub_Source":"Broker network","Reference Projects Name":"Proj B","Employees":"Ravi","Lead Comments":"Negotiation next step","Next Call Date":"2025-01-16","Visit Count":"3","Configuration Name":"3 BHK","Presale Stage":"Warm","Campaign Ad Name":"","Lead Stage":"Revisit Completed","Tentative Visit Date":""},
+    {"Created At":"2025-01-09","Updated At":"2025-01-09","Status":"Reschedule","First Name":"Anita","Phone":"980009","Email":"","Source Name":"Google","Sub_Source":"","Reference Projects Name":"Proj A","Employees":"Sneha","Lead Comments":"Visit reschedule requested","Next Call Date":"2025-01-18","Visit Count":"1","Configuration Name":"","Presale Stage":"","Campaign Ad Name":"Search","Lead Stage":"Reschedule","Tentative Visit Date":""},
+    {"Created At":"2024-12-15","Updated At":"2025-01-03","Status":"Negotiation","First Name":"Rohit","Phone":"980010","Email":"r@x.com","Source Name":"Meta","Sub_Source":"","Reference Projects Name":"Proj A","Employees":"Ravi","Lead Comments":"Price sensitive, compare with competitor","Next Call Date":"","Visit Count":"2","Configuration Name":"2 BHK","Presale Stage":"Hot","Campaign Ad Name":"Jan Promo","Lead Stage":"Negotiation","Tentative Visit Date":""}
+  ];
+
+  var state = {
+    raw: [],
+    leads: [],
+    funnelStageFilter: null,
+    ageBucketFilter: null,
+    intelSearch: ''
+  };
+
+  function excelSerialToDate(n) {
+    if (typeof n !== 'number' || isNaN(n)) return null;
+    var utc = Math.round((n - 25569) * 86400 * 1000);
+    var d = new Date(utc);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  function parseDate(val) {
+    if (val == null || val === '') return null;
+    if (typeof val === 'number') return excelSerialToDate(val);
+    if (val instanceof Date && !isNaN(val.getTime())) return val;
+    var s = String(val).trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      var d = new Date(s.slice(0, 10));
+      return isNaN(d.getTime()) ? null : d;
+    }
+    var m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{2,4})/);
+    if (m) {
+      var dd = +m[1], mm = +m[2], yy = +m[3];
+      if (yy < 100) yy += 2000;
+      var d2 = new Date(yy, mm - 1, dd);
+      return isNaN(d2.getTime()) ? null : d2;
+    }
+    var tryNum = parseFloat(s);
+    if (!isNaN(tryNum) && tryNum > 20000) return excelSerialToDate(tryNum);
+    var d3 = new Date(s);
+    return isNaN(d3.getTime()) ? null : d3;
+  }
+
+  function normHeader(h) {
+    return String(h || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  }
+
+  function normSrcKey(s) {
+    return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+  /** Aligns with Command Centre: Channel_Partner, broker, CP, etc. */
+  function isBrokerSource(s) {
+    var n = normSrcKey(s);
+    if (!n) return false;
+    if (n.indexOf('channelpartner') >= 0) return true;
+    if (n === 'cp' || n.indexOf('cplead') >= 0 || n.indexOf('cp_') === 0) return true;
+    if (n.indexOf('broker') >= 0) return true;
+    if (n.indexOf('chpartner') >= 0) return true;
+    if (n.indexOf('partner') >= 0 && (n.indexOf('channel') >= 0 || n.indexOf('sales') >= 0)) return true;
+    return false;
+  }
+
+  function mapRow(row, headers) {
+    var o = {};
+    headers.forEach(function (h, i) {
+      var key = normHeader(h);
+      var aliases = {
+        'created at': 'createdAt', 'created': 'createdAt', 'lead date': 'createdAt',
+        'updated at': 'updatedAt', 'updated': 'updatedAt',
+        'status': 'status', 'first name': 'firstName', 'phone': 'phone', 'email': 'email',
+        'source name': 'sourceName', 'source': 'sourceName',
+        'sub source': 'subSource', 'sub_source': 'subSource', 'sub-source': 'subSource',
+        'reference projects name': 'projectName', 'project': 'projectName',
+        'employees': 'owner', 'owner': 'owner', 'lead comments': 'comments', 'comments': 'comments',
+        'next call date': 'nextCall', 'visit count': 'visitCount',
+        'configuration name': 'configName', 'presale stage': 'presaleStage',
+        'campaign ad name': 'campaign', 'lead stage': 'leadStage',
+        'tentative visit date': 'tentativeVisit'
+      };
+      var k = aliases[key] || key.replace(/\s+/g, '');
+      o[k] = row[i];
+    });
+    return o;
+  }
+
+  function safeComment(s) {
+    if (!s) return '';
+    var t = String(s);
+    try {
+      if (t.trim().charAt(0) === '{' || t.trim().charAt(0) === '[') {
+        var j = JSON.parse(t);
+        if (j && typeof j === 'object') return JSON.stringify(j).slice(0, 500);
+      }
+    } catch (e) {}
+    return t.slice(0, 2000);
+  }
+
+  function classifyJourney(r) {
+    var st = String(r.status || r.leadStage || '').toLowerCase();
+    var ls = String(r.leadStage || '').toLowerCase();
+    var ps = String(r.presaleStage || '').toLowerCase();
+    var combined = st + ' ' + ls + ' ' + ps;
+    if (/booking|won|closed|token/.test(combined)) return { journey: 'Booking / Won', key: 'won', intermediate: null };
+    if (/negotiat/.test(combined)) return { journey: 'Negotiation', key: 'neg', intermediate: null };
+    if (/revisit.*complet|completed.*revisit/.test(combined)) return { journey: 'Revisit Completed', key: 'rvc', intermediate: null };
+    if (/revisit.*book|booked.*revisit/.test(combined)) return { journey: 'Revisit Booked', key: 'rvb', intermediate: null };
+    if (/site visit.*complet|visit.*complet/.test(combined)) return { journey: 'Site Visit Completed', key: 'svc', intermediate: null };
+    if (/site visit.*book|visit.*book|svb/.test(combined)) return { journey: 'Site Visit Booked', key: 'svb', intermediate: null };
+    if (/lost|dead|closed lost/.test(combined)) return { journey: 'New Lead', key: 'new', intermediate: 'Lost' };
+    if (/follow|no response|no answer/.test(combined)) return { journey: 'New Lead', key: 'new', intermediate: 'Follow-up / no response' };
+    if (/reschedule/.test(combined)) return { journey: 'New Lead', key: 'new', intermediate: 'Reschedule' };
+    if (/open|new lead|^new$/.test(combined)) return { journey: 'New Lead', key: 'new', intermediate: 'Open' };
+    return { journey: 'New Lead', key: 'new', intermediate: null };
+  }
+
+  function daysBetween(a, b) {
+    if (!a || !b) return null;
+    return Math.floor((b.getTime() - a.getTime()) / 86400000);
+  }
+
+  function ageBucket(days) {
+    if (days == null || isNaN(days)) return '';
+    if (days <= 2) return '0-2';
+    if (days <= 5) return '3-5';
+    if (days <= 10) return '6-10';
+    return '10+';
+  }
+
+  function textIntel(comments) {
+    var t = safeComment(comments).toLowerCase();
+    var out = { demand: [], friction: [], action: [] };
+    var rules = [
+      { k: 'demand', re: /\b(2|3|4)\s*bhk\b|bhk|visit|interested|positive|budget|configuration|sq\.?\s*ft/i, label: 'Unit / visit interest' },
+      { k: 'friction', re: /\bprice|expensive|family|decision|not reachable|busy|compare|competitor/i, label: 'Price / family / reachability' },
+      { k: 'action', re: /\bcallback|call back|revisit|negotiat|tomorrow|evening|monday|friday/i, label: 'Timing / negotiation cue' }
+    ];
+    rules.forEach(function (rule) {
+      if (rule.re.test(t)) out[rule.k].push(rule.label);
+    });
+    return out;
+  }
+
+  function problemFlags(L) {
+    var p = [];
+    if (!L.nextCall && !L.tentativeVisit) p.push('No next action');
+    if (!L.comments || String(L.comments).length < 4) p.push('Low engagement signal');
+    if (!L.presaleStage) p.push('No presale classification');
+    var vc = parseInt(L.visitCount, 10) || 0;
+    var st = (L.journey || '').toLowerCase();
+    if (vc === 0 && /visit|site/.test(st)) p.push('Visit mismatch');
+    if (!L.configName) p.push('Missing configuration');
+    if (!L.email) p.push('Missing email');
+    var c = safeComment(L.comments).toLowerCase();
+    if (/negotiat|price|visit/.test(c) && !L.nextCall) p.push('Intent without follow-up');
+    return p;
+  }
+
+  function priorityScore(L) {
+    var s = 50;
+    var j = L.journeyKey || 'new';
+    if (j === 'won') s += 40;
+    else if (j === 'neg') s += 28;
+    else if (j === 'svc' || j === 'rvc') s += 18;
+    else if (j === 'svb' || j === 'rvb') s += 10;
+    if (L.nextCall || L.tentativeVisit) s += 12;
+    if (L.comments && String(L.comments).length > 20) s += 8;
+    if (L.presaleStage) s += 6;
+    if (!L.nextCall && !L.tentativeVisit) s -= 15;
+    if (!L.email) s -= 5;
+    return Math.max(0, Math.min(100, Math.round(s)));
+  }
+
+  function buildLead(raw, headers) {
+    var r = mapRow(raw, headers);
+    var created = parseDate(r.createdAt);
+    var updated = parseDate(r.updatedAt);
+    var nextCall = parseDate(r.nextCall);
+    var tent = parseDate(r.tentativeVisit);
+    var cls = classifyJourney(r);
+    var today = new Date();
+    var leadAge = daysBetween(created, today);
+    var lastAct = daysBetween(updated, today);
+    var bucket = ageBucket(leadAge);
+    var intel = textIntel(r.comments);
+    var L = {
+      id: String(r.phone || r.email || Math.random()) + '-' + (created ? created.getTime() : ''),
+      firstName: r.firstName || '',
+      phone: r.phone || '',
+      email: r.email || '',
+      sourceName: String(r.sourceName || 'Unknown').trim(),
+      subSource: String(r.subSource || '').trim(),
+      projectName: String(r.projectName || '').trim(),
+      owner: String(r.owner || 'Unassigned').trim(),
+      status: String(r.status || ''),
+      comments: safeComment(r.comments),
+      nextCall: nextCall,
+      tentativeVisit: tent,
+      visitCount: parseInt(r.visitCount, 10) || 0,
+      configName: r.configName || '',
+      presaleStage: r.presaleStage || '',
+      campaign: r.campaign || '',
+      leadStage: r.leadStage || '',
+      created: created,
+      updated: updated,
+      journey: cls.journey,
+      journeyKey: cls.key,
+      intermediate: cls.intermediate,
+      leadAge: leadAge,
+      lastActivityAge: lastAct,
+      ageBucket: bucket,
+      textIntel: intel,
+      problems: [],
+      priority: 0
+    };
+    L.problems = problemFlags(L);
+    L.priority = priorityScore(L);
+    L.isBroker = isBrokerSource(L.sourceName) || isBrokerSource(L.subSource);
+    return L;
+  }
+
+  function processRows(matrix) {
+    if (!matrix || matrix.length < 2) return [];
+    var headers = matrix[0].map(function (c) { return String(c || ''); });
+    var out = [];
+    for (var i = 1; i < matrix.length; i++) {
+      var row = matrix[i];
+      if (!row || !row.some(function (c) { return c != null && String(c).trim() !== ''; })) continue;
+      out.push(buildLead(row, headers));
+    }
+    return out;
+  }
+
+  function applyFilters(list) {
+    var fp = document.getElementById('f-project').value;
+    var fs = document.getElementById('f-source').value;
+    var fo = document.getElementById('f-owner').value;
+    var fj = document.getElementById('f-journey').value;
+    var fa = document.getElementById('f-age').value;
+    return list.filter(function (L) {
+      if (fp && L.projectName !== fp) return false;
+      if (fs && L.sourceName !== fs) return false;
+      if (fo && L.owner !== fo) return false;
+      if (fj && L.journey !== fj) return false;
+      if (fa && L.ageBucket !== fa) return false;
+      if (state.funnelStageFilter && L.journey !== state.funnelStageFilter) return false;
+      if (state.ageBucketFilter && L.ageBucket !== state.ageBucketFilter) return false;
+      return true;
+    });
+  }
+
+  function filtered() { return applyFilters(state.leads); }
+
+  function fillFilterDropdowns() {
+    var sets = { project: {}, source: {}, owner: {}, journey: {} };
+    state.leads.forEach(function (L) {
+      if (L.projectName) sets.project[L.projectName] = 1;
+      sets.source[L.sourceName] = 1;
+      sets.owner[L.owner] = 1;
+      sets.journey[L.journey] = 1;
+    });
+    function fill(selId, obj, extra) {
+      var sel = document.getElementById(selId);
+      if (!sel) return;
+      var v = sel.value;
+      sel.innerHTML = '<option value="">' + (extra || 'All') + '</option>';
+      Object.keys(obj).sort().forEach(function (k) {
+        var o = document.createElement('option');
+        o.value = k;
+        o.textContent = k;
+        sel.appendChild(o);
+      });
+      sel.value = v;
+    }
+    fill('f-project', sets.project);
+    fill('f-source', sets.source);
+    fill('f-owner', sets.owner);
+    fill('f-journey', sets.journey);
+  }
+
+  function kpiAggregate(rows) {
+    var n = rows.length;
+    var contacted = rows.filter(function (L) { return L.comments && L.comments.length > 5; }).length;
+    var visited = rows.filter(function (L) { return L.visitCount > 0; }).length;
+    var negVisit = rows.filter(function (L) { return L.visitCount > 0 && L.journeyKey === 'neg'; }).length;
+    var atNeg = rows.filter(function (L) { return L.journeyKey === 'neg'; }).length;
+    var booked = rows.filter(function (L) { return L.journeyKey === 'won'; }).length;
+    var withNext = rows.filter(function (L) { return L.nextCall || L.tentativeVisit; }).length;
+    var stale = rows.filter(function (L) { return (L.lastActivityAge || 0) > 7; }).length;
+    var pct = function (a) { return n ? Math.round((a / n) * 1000) / 10 : 0; };
+    var pctOf = function (num, den) { return den ? Math.round((num / den) * 1000) / 10 : 0; };
+    return {
+      n: n,
+      leadToContact: pct(contacted),
+      contactToVisit: pctOf(visited, contacted),
+      visitToNeg: pctOf(negVisit, Math.max(visited, 1)),
+      negToBook: pctOf(booked, Math.max(atNeg, 1)),
+      withNext: pct(withNext),
+      stale: pct(stale)
+    };
+  }
+
+  function brokerKpiMetrics(rows) {
+    var cp = rows.filter(function (L) { return L.isBroker; });
+    var n = cp.length;
+    var tot = Math.max(rows.length, 1);
+    var withVisit = cp.filter(function (L) { return L.visitCount > 0; }).length;
+    var atNeg = cp.filter(function (L) { return L.journeyKey === 'neg'; }).length;
+    var won = cp.filter(function (L) { return L.journeyKey === 'won'; }).length;
+    var progressed = cp.filter(function (L) { return ['svc', 'rvc', 'rvb', 'neg', 'won'].indexOf(L.journeyKey) >= 0; }).length;
+    var stale = cp.filter(function (L) { return (L.lastActivityAge || 0) > 7; }).length;
+    var withNext = cp.filter(function (L) { return L.nextCall || L.tentativeVisit; }).length;
+    var pct = function (a) { return n ? Math.round((a / n) * 1000) / 10 : 0; };
+    var partners = {};
+    cp.forEach(function (L) {
+      var p = (L.subSource && L.subSource.trim()) || L.sourceName || '—';
+      partners[p] = (partners[p] || 0) + 1;
+    });
+    return {
+      n: n,
+      share: Math.round((n / tot) * 1000) / 10,
+      visitPct: pct(withVisit),
+      progressedPct: pct(progressed),
+      negPct: pct(atNeg),
+      bookPct: pct(won),
+      stalePct: pct(stale),
+      nextPct: pct(withNext),
+      partnerCount: Object.keys(partners).length
+    };
+  }
+
+  function renderExec() {
+    var rows = filtered();
+    var K = kpiAggregate(rows);
+    var BK = brokerKpiMetrics(rows);
+    var el = document.getElementById('page-exec');
+    var actionNoNext = rows.filter(function (L) { return !L.nextCall && !L.tentativeVisit && L.journeyKey !== 'won'; }).length;
+    var highIntent = rows.filter(function (L) {
+      var c = (L.comments || '').toLowerCase();
+      return (/negotiat|3 bhk|visit|price/.test(c)) && !L.nextCall;
+    }).length;
+    var svbNotSvc = rows.filter(function (L) { return L.journeyKey === 'svb'; }).length;
+    var negNoNext = rows.filter(function (L) { return L.journeyKey === 'neg' && !L.nextCall && !L.tentativeVisit; }).length;
+    var staleLeads = rows.filter(function (L) { return (L.lastActivityAge || 0) > 10; }).length;
+    var top10 = rows.slice().sort(function (a, b) { return b.priority - a.priority; }).slice(0, 10);
+
+    var bucketCounts = { '0-2': 0, '3-5': 0, '6-10': 0, '10+': 0 };
+    rows.forEach(function (L) { if (bucketCounts[L.ageBucket] != null) bucketCounts[L.ageBucket]++; });
+
+    el.innerHTML =
+      '<div class="kpi-strip">' +
+      ['Total leads','Lead→Contact %','Contact→Visit %','Visit→Neg %','Neg→Booking %','With next action %','Stale (7d+) %'].map(function (lab, i) {
+        var vals = [
+          K.n,
+          K.leadToContact,
+          K.contactToVisit,
+          K.visitToNeg,
+          K.negToBook,
+          K.withNext,
+          K.stale
+        ];
+        var pct = i >= 1 && i <= 6;
+        return '<div class="kpi"><div class="v">' + vals[i] + (pct ? '%' : '') + '</div><div class="l">' + lab + '</div></div>';
+      }).join('') +
+      '</div>' +
+      '<div class="grid2">' +
+      '<div class="card"><h2>Action board</h2><div class="action-board">' +
+      [['No next action', actionNoNext],['High-intent, no follow-up', highIntent],['Site visit booked (not completed)', svbNotSvc],['Negotiation, no next step', negNoNext],['Stale (&gt;10d activity)', staleLeads]].map(function (x) {
+        return '<div class="ab-card"><div class="n">' + x[1] + '</div><div class="t">' + x[0] + '</div></div>';
+      }).join('') +
+      '</div></div>' +
+      '<div class="card"><h2>Executive narrative</h2><p class="narrative">' +
+      'Pipeline snapshot: <strong>' + K.n + '</strong> leads under current filters. Priority is clearing next actions on negotiation-stage opportunities and reducing stale touchpoints. Source mix should be reviewed on the Source page; owner load on the Team page.' +
+      '</p></div></div>' +
+      '<div class="card"><h2>Activity breakdown — Channel Partner (Broker)</h2>' +
+      (BK.n
+        ? '<p class="hint">Tagged when <strong>Source Name</strong> or <strong>Sub_Source</strong> matches broker / channel partner (same rules as the Command Centre Excel template). Use <strong>Sub_Source</strong> for the partner firm name.</p>' +
+        '<div class="action-board">' +
+        [['CP leads (in filter)', BK.n], ['Share of leads', BK.share + '%'], ['With site visit', BK.visitPct + '%'], ['Progressed (past new)', BK.progressedPct + '%'], ['At negotiation', BK.negPct + '%'], ['Booking / won', BK.bookPct + '%'], ['With next action', BK.nextPct + '%'], ['Stale (7d+)', BK.stalePct + '%'], ['Distinct partners (Sub_Source)', BK.partnerCount]].map(function (x) {
+          return '<div class="ab-card cp"><div class="n">' + x[1] + '</div><div class="t">' + x[0] + '</div></div>';
+        }).join('') +
+        '</div>'
+        : '<p class="hint">No broker-tagged leads in the current filter. Set <strong>Lead_Source</strong> to <code>Channel_Partner</code> (or tag <strong>Sub_Source</strong> with the partner name) in your Excel export.</p>') +
+      '</div>' +
+      '<div class="card"><h2>Ageing distribution</h2><div id="plot-age-exec" class="plot plot-sm"></div></div>' +
+      '<div class="card"><h2>Top 10 priority leads</h2><table class="data"><thead><tr><th>Priority</th><th>Name</th><th>Stage</th><th>Source</th><th>Sub_Source</th><th>Owner</th><th>Issue summary</th></tr></thead><tbody>' +
+      top10.map(function (L) {
+        return '<tr><td class="score">' + L.priority + '</td><td>' + esc(L.firstName) + '</td><td>' + esc(L.journey) + '</td><td>' + esc(L.sourceName) + '</td><td>' + esc(L.subSource || '—') + '</td><td>' + esc(L.owner) + '</td><td>' + esc(L.problems.slice(0, 2).join('; ') || '—') + '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>';
+
+    Plotly.newPlot('plot-age-exec', [{
+      type: 'bar',
+      x: Object.keys(bucketCounts),
+      y: Object.values(bucketCounts),
+      marker: { color: '#5b8def' }
+    }], darkPlotLayout({
+      margin: { t: 20, r: 20, b: 40, l: 40 },
+      yaxis: { title: 'Leads' },
+      xaxis: { title: 'Age bucket (days since create)' }
+    }), { responsive: true, displayModeBar: false });
+  }
+
+  function renderFunnel() {
+    var rows = filtered();
+    var stageCount = {};
+    JOURNEY.forEach(function (s) { stageCount[s] = 0; });
+    rows.forEach(function (L) {
+      if (stageCount[L.journey] != null) stageCount[L.journey]++;
+    });
+    var stages = JOURNEY;
+    var counts = stages.map(function (s) { return stageCount[s]; });
+    var ages = stages.map(function (s) {
+      var at = rows.filter(function (L) { return L.journey === s; });
+      if (!at.length) return { avg: 0, med: 0, old: 0 };
+      var agesArr = at.map(function (L) { return L.leadAge || 0; }).sort(function (a, b) { return a - b; });
+      var sum = agesArr.reduce(function (a, b) { return a + b; }, 0);
+      var med = agesArr[Math.floor(agesArr.length / 2)];
+      return { avg: Math.round(sum / at.length), med: med, old: Math.max.apply(null, agesArr) };
+    });
+
+    var el = document.getElementById('page-funnel');
+    el.innerHTML =
+      '<div class="card"><h2>Customer journey funnel</h2><p class="hint">Snapshot counts by current stage. Tooltip shows median and oldest lead age (days since creation).</p><div id="plot-funnel" class="plot"></div></div>' +
+      '<div class="card"><h2>Intermediate statuses</h2><div class="chips" id="int-chips"></div></div>' +
+      '<div class="card"><h2>Stage leakage (sequential view)</h2><table class="data" id="leak-table"><thead><tr><th>From</th><th>To</th><th>At &quot;to&quot; stage</th><th>Conv. index</th><th>Likely blocker</th></tr></thead><tbody></tbody></table></div>' +
+      '<div class="card"><h2>Stage ageing</h2><div id="plot-stage-age" class="plot plot-sm"></div></div>' +
+      '<div class="card"><h2>Leads (click a funnel segment to filter — use chart)</h2><div id="funnel-leads"></div></div>';
+
+    var text = stages.map(function (s, i) {
+      return counts[i] + ' · avg ' + ages[i].avg + 'd';
+    });
+    Plotly.newPlot('plot-funnel', [{
+      type: 'funnel',
+      y: stages,
+      x: counts,
+      textinfo: 'text',
+      textposition: 'inside',
+      text: text,
+      hovertemplate: '<b>%{y}</b><br>Count: %{x}<br>Median age: %{customdata[0]}d<br>Oldest: %{customdata[1]}d<extra></extra>',
+      customdata: ages.map(function (a) { return [a.med, a.old]; }),
+      marker: { color: stages.map(function (_, i) { return 'rgba(91,141,239,' + (0.45 + i * 0.07) + ')'; }) }
+    }], darkPlotLayout({
+      margin: { l: 160, r: 40, t: 20, b: 40 },
+      funnelmode: 'stack'
+    }), { responsive: true, displayModeBar: false });
+
+    var plotEl = document.getElementById('plot-funnel');
+    plotEl.on('plotly_click', function (d) {
+      if (!d.points || !d.points[0]) return;
+      var lab = d.points[0].y || d.points[0].label;
+      state.funnelStageFilter = state.funnelStageFilter === lab ? null : lab;
+      fillFilterDropdowns();
+      var fj = document.getElementById('f-journey');
+      if (fj) fj.value = state.funnelStageFilter || '';
+      refreshAll();
+    });
+
+    var inter = {};
+    rows.forEach(function (L) {
+      var k = L.intermediate || '—';
+      inter[k] = (inter[k] || 0) + 1;
+    });
+    document.getElementById('int-chips').innerHTML = Object.keys(inter).map(function (k) {
+      return '<span class="chip' + (k === '—' ? ' dim' : '') + '">' + esc(k) + ' · ' + inter[k] + '</span>';
+    }).join('');
+
+    var tbody = el.querySelector('#leak-table tbody');
+    for (var i = 0; i < stages.length - 1; i++) {
+      var from = stages[i], to = stages[i + 1];
+      var nFrom = stageCount[from], nTo = stageCount[to];
+      var conv = nFrom ? Math.round((nTo / nFrom) * 1000) / 10 : 0;
+      var blocker = nTo < nFrom * 0.3 ? 'Strong drop — check SLA & follow-up' : 'Monitor progression';
+      var tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + esc(from) + '</td><td>' + esc(to) + '</td><td>' + nTo + '</td><td>' + conv + '%</td><td>' + blocker + '</td>';
+      tbody.appendChild(tr);
+    }
+
+    Plotly.newPlot('plot-stage-age', [{
+      type: 'bar',
+      x: stages,
+      y: ages.map(function (a) { return a.avg; }),
+      marker: { color: '#7dd3fc' }
+    }], darkPlotLayout({
+      margin: { t: 20, r: 20, b: 80, l: 50 },
+      xaxis: { tickangle: -35 },
+      yaxis: { title: 'Avg age (days)' }
+    }), { responsive: true, displayModeBar: false });
+
+    var sub = state.funnelStageFilter ? rows.filter(function (L) { return L.journey === state.funnelStageFilter; }) : rows;
+    document.getElementById('funnel-leads').innerHTML = '<table class="data"><thead><tr><th>Name</th><th>Stage</th><th>Age</th><th>Owner</th></tr></thead><tbody>' +
+      sub.slice(0, 40).map(function (L) {
+        return '<tr><td>' + esc(L.firstName) + '</td><td>' + esc(L.journey) + '</td><td>' + (L.leadAge != null ? L.leadAge + 'd' : '—') + '</td><td>' + esc(L.owner) + '</td></tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  function renderSource() {
+    var rows = filtered();
+    var by = {};
+    rows.forEach(function (L) {
+      var s = L.sourceName || 'Unknown';
+      if (!by[s]) by[s] = { n: 0, prog: 0, vis: 0, book: 0, prob: 0 };
+      by[s].n++;
+      if (['svc', 'rvc', 'rvb', 'neg', 'won'].indexOf(L.journeyKey) >= 0) by[s].prog++;
+      if (L.visitCount > 0) by[s].vis++;
+      if (L.journeyKey === 'won') by[s].book++;
+      if (L.problems.length) by[s].prob++;
+    });
+    var el = document.getElementById('page-source');
+    var names = Object.keys(by).sort();
+    el.innerHTML =
+      '<div class="card"><h2>Source volume</h2><div id="plot-src-vol" class="plot plot-sm"></div></div>' +
+      '<div class="grid2">' +
+      '<div class="card"><h2>Progressed %</h2><div id="plot-src-prog" class="plot plot-sm"></div></div>' +
+      '<div class="card"><h2>Visit %</h2><div id="plot-src-vis" class="plot plot-sm"></div></div></div>' +
+      '<div class="card"><h2>Source quality matrix</h2><table class="data"><thead><tr><th>Source</th><th>Leads</th><th>Progressed %</th><th>Visit %</th><th>Booking %</th><th>Problem %</th></tr></thead><tbody>' +
+      names.map(function (n) {
+        var o = by[n];
+        var pProg = o.n ? Math.round(o.prog / o.n * 1000) / 10 : 0;
+        var pVis = o.n ? Math.round(o.vis / o.n * 1000) / 10 : 0;
+        var pBook = o.n ? Math.round(o.book / o.n * 1000) / 10 : 0;
+        var pProb = o.n ? Math.round(o.prob / o.n * 1000) / 10 : 0;
+        return '<tr><td>' + esc(n) + '</td><td>' + o.n + '</td><td>' + pProg + '%</td><td>' + pVis + '%</td><td>' + pBook + '%</td><td>' + pProb + '%</td></tr>';
+      }).join('') +
+      '</tbody></table></div>';
+
+    Plotly.newPlot('plot-src-vol', [{ type: 'bar', x: names, y: names.map(function (n) { return by[n].n; }), marker: { color: '#5b8def' } }], darkPlotLayout({ margin: { t: 10, b: 60 }, xaxis: { tickangle: -30 }, yaxis: { title: 'Leads' } }), { responsive: true, displayModeBar: false });
+    Plotly.newPlot('plot-src-prog', [{ type: 'bar', x: names, y: names.map(function (n) { var o = by[n]; return o.n ? Math.round(o.prog / o.n * 1000) / 10 : 0; }), marker: { color: '#94a3b8' } }], darkPlotLayout({ margin: { t: 10, b: 60 }, xaxis: { tickangle: -30 }, yaxis: { title: '%' } }), { responsive: true, displayModeBar: false });
+    Plotly.newPlot('plot-src-vis', [{ type: 'bar', x: names, y: names.map(function (n) { var o = by[n]; return o.n ? Math.round(o.vis / o.n * 1000) / 10 : 0; }), marker: { color: '#34d399' } }], darkPlotLayout({ margin: { t: 10, b: 60 }, xaxis: { tickangle: -30 }, yaxis: { title: '%' } }), { responsive: true, displayModeBar: false });
+  }
+
+  function renderOwner() {
+    var rows = filtered();
+    var by = {};
+    rows.forEach(function (L) {
+      var o = L.owner || 'Unassigned';
+      if (!by[o]) by[o] = { n: 0, next: 0, prog: 0, prob: 0, age: [], stale: 0 };
+      by[o].n++;
+      if (L.nextCall || L.tentativeVisit) by[o].next++;
+      if (['svc', 'rvc', 'neg', 'won'].indexOf(L.journeyKey) >= 0) by[o].prog++;
+      if (L.problems.length) by[o].prob++;
+      if (L.leadAge != null) by[o].age.push(L.leadAge);
+      if ((L.lastActivityAge || 0) > 7) by[o].stale++;
+    });
+    var owners = Object.keys(by).sort();
+    var el = document.getElementById('page-owner');
+    el.innerHTML =
+      '<div class="grid2">' +
+      '<div class="card"><h2>Lead load by owner</h2><div id="plot-own-load" class="plot plot-sm"></div></div>' +
+      '<div class="card"><h2>Action coverage %</h2><div id="plot-own-next" class="plot plot-sm"></div></div></div>' +
+      '<div class="card"><h2>Owner leaderboard</h2><table class="data"><thead><tr><th>Owner</th><th>Leads</th><th>Next action %</th><th>Progressed %</th><th>Problem %</th><th>Avg age</th><th>Stale</th></tr></thead><tbody>' +
+      owners.map(function (name) {
+        var o = by[name];
+        var pNext = o.n ? Math.round(o.next / o.n * 1000) / 10 : 0;
+        var pProg = o.n ? Math.round(o.prog / o.n * 1000) / 10 : 0;
+        var pProb = o.n ? Math.round(o.prob / o.n * 1000) / 10 : 0;
+        var avg = o.age.length ? Math.round(o.age.reduce(function (a, b) { return a + b; }, 0) / o.age.length) : 0;
+        return '<tr><td>' + esc(name) + '</td><td>' + o.n + '</td><td>' + pNext + '%</td><td>' + pProg + '%</td><td>' + pProb + '%</td><td>' + avg + 'd</td><td>' + o.stale + '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>';
+
+    Plotly.newPlot('plot-own-load', [{ type: 'bar', x: owners, y: owners.map(function (n) { return by[n].n; }), marker: { color: '#5b8def' } }], darkPlotLayout({ margin: { t: 10, b: 60 }, xaxis: { tickangle: -25 } }), { responsive: true, displayModeBar: false });
+    Plotly.newPlot('plot-own-next', [{ type: 'bar', x: owners, y: owners.map(function (n) { var o = by[n]; return o.n ? Math.round(o.next / o.n * 1000) / 10 : 0; }), marker: { color: '#34d399' } }], darkPlotLayout({ margin: { t: 10, b: 60 }, xaxis: { tickangle: -25 }, yaxis: { title: '%' } }), { responsive: true, displayModeBar: false });
+  }
+
+  function renderOps() {
+    var rows = filtered();
+    var BK = brokerKpiMetrics(rows);
+    var cpRows = rows.filter(function (L) { return L.isBroker; });
+    var nonCp = rows.filter(function (L) { return !L.isBroker; });
+    var avgAge = function (list) {
+      var ages = list.map(function (L) { return L.leadAge; }).filter(function (x) { return x != null; });
+      return ages.length ? Math.round(ages.reduce(function (a, b) { return a + b; }, 0) / ages.length) : 0;
+    };
+    var byPartner = {};
+    cpRows.forEach(function (L) {
+      var k = (L.subSource && L.subSource.trim()) || L.sourceName || '—';
+      if (!byPartner[k]) byPartner[k] = { n: 0, won: 0, vis: 0 };
+      byPartner[k].n++;
+      if (L.journeyKey === 'won') byPartner[k].won++;
+      if (L.visitCount > 0) byPartner[k].vis++;
+    });
+    var partnerRows = Object.keys(byPartner).sort(function (a, b) { return byPartner[b].n - byPartner[a].n; });
+    var el = document.getElementById('page-ops');
+    if (!el) return;
+    el.innerHTML =
+      '<div class="kpi-strip">' +
+      ['Total leads', 'CP lead share %', 'CP → visit %', 'CP → booking %', 'Distinct partners', 'Avg age CP (d)', 'Avg age non-CP (d)'].map(function (lab, i) {
+        var vals = [rows.length, BK.share, BK.visitPct, BK.bookPct, BK.partnerCount, avgAge(cpRows), avgAge(nonCp)];
+        var pct = i >= 1 && i <= 3;
+        return '<div class="kpi"><div class="v">' + vals[i] + (pct ? '%' : '') + '</div><div class="l">' + lab + '</div></div>';
+      }).join('') +
+      '</div>' +
+      '<div class="grid2">' +
+      '<div class="card"><h2>Operations — backlog &amp; risk</h2><div class="action-board">' +
+      [
+        ['No next action (excl. won)', rows.filter(function (L) { return !L.nextCall && !L.tentativeVisit && L.journeyKey !== 'won'; }).length],
+        ['Stale touch (7d+)', rows.filter(function (L) { return (L.lastActivityAge || 0) > 7; }).length],
+        ['CP stale (7d+)', cpRows.filter(function (L) { return (L.lastActivityAge || 0) > 7; }).length],
+        ['CP with no next step', cpRows.filter(function (L) { return !L.nextCall && !L.tentativeVisit && L.journeyKey !== 'won'; }).length]
+      ].map(function (x) {
+        return '<div class="ab-card"><div class="n">' + x[1] + '</div><div class="t">' + x[0] + '</div></div>';
+      }).join('') +
+      '</div></div>' +
+      '<div class="card"><h2>Throughput</h2><p class="hint">Snapshot counts for the selected filters — use with the funnel page for stage mix.</p>' +
+      '<table class="data"><thead><tr><th>Metric</th><th>Value</th></tr></thead><tbody>' +
+      [
+        ['Leads with visit recorded', rows.filter(function (L) { return L.visitCount > 0; }).length],
+        ['In negotiation', rows.filter(function (L) { return L.journeyKey === 'neg'; }).length],
+        ['Booked / won', rows.filter(function (L) { return L.journeyKey === 'won'; }).length],
+        ['CP leads with visit', cpRows.filter(function (L) { return L.visitCount > 0; }).length]
+      ].map(function (x) {
+        return '<tr><td>' + x[0] + '</td><td>' + x[1] + '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>' +
+      '</div>' +
+      '<div class="card"><h2>Channel partner (Sub_Source)</h2>' +
+      (partnerRows.length
+        ? '<table class="data"><thead><tr><th>Partner</th><th>Leads</th><th>Visits %</th><th>Won</th></tr></thead><tbody>' +
+        partnerRows.map(function (name) {
+          var o = byPartner[name];
+          var vp = o.n ? Math.round(o.vis / o.n * 1000) / 10 : 0;
+          return '<tr><td>' + esc(name) + '</td><td>' + o.n + '</td><td>' + vp + '%</td><td>' + o.won + '</td></tr>';
+        }).join('') +
+        '</tbody></table>'
+        : '<p class="hint">No CP-tagged leads.</p>') +
+      '</div>';
+  }
+
+  function renderIntel() {
+    var rows = filtered().slice().sort(function (a, b) { return b.priority - a.priority; });
+    var el = document.getElementById('intel-dynamic');
+    if (!el) return;
+    var q = state.intelSearch || '';
+    if (q) {
+      var ql = q.toLowerCase();
+      rows = rows.filter(function (L) {
+        return (L.firstName + L.phone + L.comments + L.owner + L.sourceName + (L.subSource || '')).toLowerCase().indexOf(ql) >= 0;
+      });
+    }
+    el.innerHTML =
+      '<div class="card"><h2>Lead explorer</h2><table class="data"><thead><tr><th>Pri</th><th>Name</th><th>Stage</th><th>Source</th><th>Sub_Source</th><th>Owner</th><th>Age</th><th>Issues</th></tr></thead><tbody>' +
+      rows.slice(0, 200).map(function (L) {
+        return '<tr><td class="score">' + L.priority + '</td><td>' + esc(L.firstName) + '</td><td>' + esc(L.journey) + '</td><td>' + esc(L.sourceName) + '</td><td>' + esc(L.subSource || '—') + '</td><td>' + esc(L.owner) + '</td><td>' + (L.leadAge != null ? L.leadAge + 'd' : '—') + '</td><td>' + esc(L.problems.join(', ') || '—') + '</td></tr>';
+      }).join('') +
+      '</tbody></table></div>' +
+      '<div class="card"><h2>Comment intelligence</h2><div class="tabs">' +
+      ['demand', 'friction', 'action'].map(function (k, i) {
+        return '<button type="button" class="' + (i === 0 ? 'on' : '') + '" data-tab="' + k + '">' + (k === 'demand' ? 'Demand' : k === 'friction' ? 'Friction' : 'Action') + ' signals</button>';
+      }).join('') +
+      '</div>' +
+      '<div id="intel-panels">' +
+      ['demand', 'friction', 'action'].map(function (k, i) {
+        var themes = {};
+        filtered().forEach(function (L) {
+          (L.textIntel[k] || []).forEach(function (t) { themes[t] = (themes[t] || 0) + 1; });
+        });
+        var rowsT = Object.keys(themes).sort(function (a, b) { return themes[b] - themes[a]; });
+        return '<div class="tab-panel' + (i === 0 ? ' on' : '') + '" data-panel="' + k + '"><p class="hint">Rule-based themes from lead comments — executive summary.</p><table class="data"><thead><tr><th>Theme</th><th>Leads</th></tr></thead><tbody>' +
+          rowsT.map(function (t) { return '<tr><td>' + esc(t) + '</td><td>' + themes[t] + '</td></tr>'; }).join('') +
+          '</tbody></table><p class="narrative" style="margin-top:12px">Focus sales playbooks on the highest-count themes; align site visits for demand signals and remove friction on price or family decision where counts are rising.</p></div>';
+      }).join('') +
+      '</div></div>';
+
+  }
+
+  function debounce(fn, ms) {
+    var t;
+    return function () {
+      clearTimeout(t);
+      var a = arguments;
+      t = setTimeout(function () { fn.apply(null, a); }, ms);
+    };
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s == null ? '' : String(s);
+    return d.innerHTML;
+  }
+
+  function refreshAll() {
+    fillFilterDropdowns();
+    renderExec();
+    renderFunnel();
+    renderSource();
+    renderOwner();
+    renderOps();
+    renderIntel();
+  }
+
+  function loadDemo() {
+    var hdr = ['Created At', 'Updated At', 'Status', 'First Name', 'Phone', 'Email', 'Source Name', 'Sub_Source', 'Reference Projects Name', 'Employees', 'Lead Comments', 'Next Call Date', 'Visit Count', 'Configuration Name', 'Presale Stage', 'Campaign Ad Name', 'Lead Stage', 'Tentative Visit Date'];
+    var matrix = [hdr];
+    DEMO_JSON.forEach(function (o) {
+      matrix.push([
+        o['Created At'], o['Updated At'], o['Status'], o['First Name'], o['Phone'], o['Email'],
+        o['Source Name'] || '', o['Sub_Source'] || '', o['Reference Projects Name'], o['Employees'], o['Lead Comments'],
+        o['Next Call Date'], o['Visit Count'], o['Configuration Name'], o['Presale Stage'],
+        o['Campaign Ad Name'], o['Lead Stage'], o['Tentative Visit Date']
+      ]);
+    });
+    var stages = ['New Lead', 'Site Visit Booked', 'Site Visit Completed', 'Negotiation', 'Revisit Completed'];
+    var srcs = ['Meta', 'Google', 'Referral', 'Walk-in'];
+    for (var j = 0; j < 22; j++) {
+      var day = 3 + (j % 12);
+      var isCp = j % 5 === 0;
+      matrix.push([
+        '2025-01-' + (day < 10 ? '0' : '') + day,
+        '2025-01-' + (Math.min(day + 2, 28) < 10 ? '0' : '') + Math.min(day + 2, 28),
+        stages[j % stages.length],
+        'Lead ' + (j + 11),
+        '99' + String(1000 + j),
+        j % 3 === 0 ? '' : 'l' + j + '@ex.com',
+        isCp ? 'Channel_Partner' : srcs[j % 4],
+        isCp ? 'Partner ' + (1 + (j % 3)) : '',
+        j % 2 ? 'Proj A' : 'Proj B',
+        j % 2 ? 'Ravi' : 'Sneha',
+        j % 5 === 0 ? 'Interested in 3 BHK, callback needed' : 'Follow up on visit',
+        '',
+        String(j % 4),
+        j % 2 ? '3 BHK' : '',
+        j % 4 === 0 ? 'Warm' : '',
+        j % 3 === 0 ? 'Ad' + j : '',
+        '',
+        ''
+      ]);
+    }
+    state.leads = processRows(matrix);
+    state.funnelStageFilter = null;
+    state.ageBucketFilter = null;
+    refreshAll();
+  }
+
+  function handleFile(f) {
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      try {
+        var data = new Uint8Array(e.target.result);
+        var wb = XLSX.read(data, { type: 'array', cellDates: true });
+        var first = wb.SheetNames[0];
+        var matrix = XLSX.utils.sheet_to_json(wb.Sheets[first], { header: 1, defval: '', raw: true });
+        state.leads = processRows(matrix);
+        state.funnelStageFilter = null;
+        refreshAll();
+      } catch (err) {
+        alert('Could not parse Excel: ' + err.message);
+      }
+    };
+    reader.readAsArrayBuffer(f);
+  }
+
+  document.querySelectorAll('.nav-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var p = btn.getAttribute('data-page');
+      document.querySelectorAll('.nav-btn').forEach(function (b) { b.classList.toggle('on', b === btn); });
+      document.querySelectorAll('.page').forEach(function (pg) { pg.classList.toggle('active', pg.id === 'page-' + p); });
+      var titles = { exec: 'Executive Overview', funnel: 'Funnel & Leakage', source: 'Source / Campaign', owner: 'Owner / Team', ops: 'Operations', intel: 'Lead Intelligence' };
+      document.getElementById('page-title').textContent = titles[p] || '';
+    });
+  });
+
+  ['f-project', 'f-source', 'f-owner', 'f-journey', 'f-age'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('change', function () {
+        if (id === 'f-journey') state.funnelStageFilter = null;
+        refreshAll();
+      });
+    }
+  });
+
+  document.getElementById('btn-upload').addEventListener('click', function () { document.getElementById('file-xlsx').click(); });
+  document.getElementById('file-xlsx').addEventListener('change', function (e) {
+    var f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (f) handleFile(f);
+  });
+  document.getElementById('btn-demo').addEventListener('click', loadDemo);
+  document.getElementById('btn-clear').addEventListener('click', function () {
+    state.leads = [];
+    state.intelSearch = '';
+    var iq = document.getElementById('intel-q');
+    if (iq) iq.value = '';
+    refreshAll();
+  });
+
+  var intelInputTimer;
+  document.addEventListener('input', function (e) {
+    if (!e.target || e.target.id !== 'intel-q') return;
+    state.intelSearch = e.target.value;
+    clearTimeout(intelInputTimer);
+    intelInputTimer = setTimeout(function () { renderIntel(); }, 280);
+  });
+  document.getElementById('page-intel').addEventListener('click', function (e) {
+    var btn = e.target.closest && e.target.closest('button[data-tab]');
+    if (!btn) return;
+    var k = btn.getAttribute('data-tab');
+    var root = document.getElementById('page-intel');
+    if (!root) return;
+    root.querySelectorAll('.tabs button').forEach(function (b) { b.classList.toggle('on', b === btn); });
+    root.querySelectorAll('#intel-panels .tab-panel').forEach(function (p) {
+      p.classList.toggle('on', p.getAttribute('data-panel') === k);
+    });
+  });
+
+  loadDemo();
+})();
+</script>
+</body>
+</html>
