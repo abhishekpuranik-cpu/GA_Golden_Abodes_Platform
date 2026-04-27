@@ -1,0 +1,280 @@
+import { Router } from 'express';
+import { ObjectId } from 'mongodb';
+import { withDb } from '../lib/mongo.js';
+
+export const appStatesRouter = Router();
+
+const APP_ID_RE = /^[a-z0-9][a-z0-9_-]{1,63}$/i;
+const LEGACY_KEYSETS = {
+  v1_cashflow: ['ga_cf_v1', 'ga_v1_building_filter', 'ga_cf_tally_settings', 'ga_v1_show_prior_years', 'ga_cloud_url', 'ga_user_name'],
+  v2_resource_planner: [
+    'ga_rp_state_v1',
+    'ga_v2_proj_costs',
+    'ga_jd_data',
+    'ga_pnl_mktg',
+    'ga_team_snapshots',
+    'ga_rp_projects',
+    'ga_cloud_url',
+    'ga_user_name'
+  ],
+  v3_org_planner: [
+    'ga_planner_state_v1',
+    'ga_rp_projects',
+    'ga_v3_cf_sync',
+    'ga_v3_money_crores',
+    'ga_v3_last_manual_save',
+    'ga_cloud_url',
+    'ga_user_name'
+  ]
+};
+
+function normalizeAppId(raw) {
+  return String(raw || '').trim().toLowerCase();
+}
+
+function ensureAppId(req, res) {
+  const appId = normalizeAppId(req.params.appId);
+  if (!APP_ID_RE.test(appId)) {
+    res.status(400).json({ error: 'Invalid appId (use letters, numbers, _, -)' });
+    return null;
+  }
+  return appId;
+}
+
+function normalizeData(raw) {
+  const data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) {
+    throw new Error('body.data must be a JSON object');
+  }
+  return data;
+}
+
+async function migrateLegacyWorkspaceForApp(db, appId) {
+  const keys = LEGACY_KEYSETS[appId];
+  if (!keys) return null;
+  const legacy = await db.collection('workspace_kv').findOne({ _id: 'main' });
+  if (!legacy?.keys || typeof legacy.keys !== 'object') return null;
+  const data = {};
+  for (const k of keys) {
+    if (typeof legacy.keys[k] === 'string') data[k] = legacy.keys[k];
+  }
+  if (!Object.keys(data).length) return null;
+  const now = new Date();
+  const doc = { _id: appId, appId, data, version: 1, updatedAt: now, updatedBy: 'legacy-migration' };
+  await db.collection('app_states').updateOne({ _id: appId }, { $set: doc }, { upsert: true });
+  return doc;
+}
+
+appStatesRouter.get(
+  '/apps/:appId/meta',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      const row = await db.collection('app_states').findOne({ _id: appId }, { projection: { version: 1, updatedAt: 1, updatedBy: 1 } });
+      if (!row) return res.status(404).json({ error: `No saved state for app "${appId}"` });
+      res.json({ appId, version: row.version || 1, updatedAt: row.updatedAt || null, updatedBy: row.updatedBy || null });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+appStatesRouter.get(
+  '/apps/:appId/state',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      const states = db.collection('app_states');
+      let row = await states.findOne({ _id: appId });
+      if (!row) row = await migrateLegacyWorkspaceForApp(db, appId);
+      if (!row?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
+      res.json({
+        appId,
+        data: row.data,
+        version: row.version || 1,
+        updatedAt: row.updatedAt || null,
+        updatedBy: row.updatedBy || null
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+appStatesRouter.put(
+  '/apps/:appId/state',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      const { data: rawData, expectedVersion, updatedBy } = req.body || {};
+      const data = normalizeData(rawData);
+      const states = db.collection('app_states');
+      const now = new Date();
+      const existing = await states.findOne({ _id: appId });
+      const currentVersion = existing?.version || 0;
+      if (expectedVersion !== undefined && Number(expectedVersion) !== currentVersion) {
+        return res.status(409).json({
+          error: 'Version conflict',
+          appId,
+          expectedVersion: Number(expectedVersion),
+          currentVersion,
+          updatedAt: existing?.updatedAt || null,
+          updatedBy: existing?.updatedBy || null
+        });
+      }
+      const nextVersion = currentVersion + 1;
+      await states.updateOne(
+        { _id: appId },
+        {
+          $set: {
+            appId,
+            data,
+            version: nextVersion,
+            updatedAt: now,
+            updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'
+          }
+        },
+        { upsert: true }
+      );
+      res.json({ ok: true, appId, version: nextVersion, updatedAt: now });
+    } catch (e) {
+      if (e instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON in body.data string' });
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+appStatesRouter.post(
+  '/apps/:appId/import',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      const { data: rawData, mode = 'replace', updatedBy, note } = req.body || {};
+      const incoming = normalizeData(rawData);
+      const states = db.collection('app_states');
+      const snaps = db.collection('app_state_snapshots');
+      const now = new Date();
+      const existing = await states.findOne({ _id: appId });
+
+      if (existing?.data) {
+        await snaps.insertOne({
+          appId,
+          sourceVersion: existing.version || 1,
+          data: existing.data,
+          createdAt: now,
+          createdBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system',
+          label: `Auto-snapshot before import (v${existing.version || 1})`,
+          note: typeof note === 'string' ? note : ''
+        });
+      }
+
+      const merged = mode === 'merge' && existing?.data ? { ...existing.data, ...incoming } : incoming;
+      const nextVersion = (existing?.version || 0) + 1;
+      await states.updateOne(
+        { _id: appId },
+        {
+          $set: {
+            appId,
+            data: merged,
+            version: nextVersion,
+            updatedAt: now,
+            updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'
+          }
+        },
+        { upsert: true }
+      );
+      res.json({ ok: true, appId, version: nextVersion, updatedAt: now, mode });
+    } catch (e) {
+      if (e instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON in body.data string' });
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+appStatesRouter.get(
+  '/apps/:appId/snapshots',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+      const rows = await db
+        .collection('app_state_snapshots')
+        .find({ appId })
+        .project({ appId: 1, sourceVersion: 1, createdAt: 1, createdBy: 1, label: 1, note: 1 })
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .toArray();
+      res.json({
+        snapshots: rows.map((r) => ({
+          id: r._id.toString(),
+          appId: r.appId,
+          sourceVersion: r.sourceVersion,
+          createdAt: r.createdAt,
+          createdBy: r.createdBy,
+          label: r.label,
+          note: r.note
+        }))
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+appStatesRouter.post(
+  '/apps/:appId/restore/:snapshotId',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      let snapshotOid;
+      try {
+        snapshotOid = new ObjectId(req.params.snapshotId);
+      } catch {
+        return res.status(400).json({ error: 'Invalid snapshot id' });
+      }
+      const { updatedBy, note } = req.body || {};
+      const states = db.collection('app_states');
+      const snaps = db.collection('app_state_snapshots');
+      const now = new Date();
+      const target = await snaps.findOne({ _id: snapshotOid, appId });
+      if (!target?.data) return res.status(404).json({ error: 'Snapshot not found' });
+
+      const existing = await states.findOne({ _id: appId });
+      if (existing?.data) {
+        await snaps.insertOne({
+          appId,
+          sourceVersion: existing.version || 1,
+          data: existing.data,
+          createdAt: now,
+          createdBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system',
+          label: `Auto-snapshot before restore (v${existing.version || 1})`,
+          note: typeof note === 'string' ? note : ''
+        });
+      }
+
+      const nextVersion = (existing?.version || 0) + 1;
+      await states.updateOne(
+        { _id: appId },
+        {
+          $set: {
+            appId,
+            data: target.data,
+            version: nextVersion,
+            updatedAt: now,
+            updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'
+          }
+        },
+        { upsert: true }
+      );
+      res.json({ ok: true, appId, version: nextVersion, updatedAt: now });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
