@@ -25,16 +25,54 @@ function externalUrl(envKey) {
   return typeof v === 'string' && v.trim() ? v.trim() : '';
 }
 
+function localUrl(key) {
+  try {
+    const v = window.localStorage.getItem(key);
+    return typeof v === 'string' && v.trim() ? v.trim() : '';
+  } catch {
+    return '';
+  }
+}
+
 /** Keep empty by default in cloud; set explicit URLs via env vars when those apps are deployed. */
 const DEFAULT_EXECUTION_DASHBOARD_URL = '';
 const DEFAULT_PRECONSTRUCTION_URL = '';
+const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
+const PRE_URL_LS_KEY = 'ga_preconstruction_url';
 
 export default function VaultHome() {
-  const execUrl = externalUrl('VITE_EXECUTION_DASHBOARD_URL') || DEFAULT_EXECUTION_DASHBOARD_URL;
-  const preUrl = externalUrl('VITE_PRECONSTRUCTION_URL') || DEFAULT_PRECONSTRUCTION_URL;
+  const [execCustomUrl, setExecCustomUrl] = useState(() => localUrl(EXEC_URL_LS_KEY));
+  const [preCustomUrl, setPreCustomUrl] = useState(() => localUrl(PRE_URL_LS_KEY));
+  const execUrl = externalUrl('VITE_EXECUTION_DASHBOARD_URL') || execCustomUrl || DEFAULT_EXECUTION_DASHBOARD_URL;
+  const preUrl = externalUrl('VITE_PRECONSTRUCTION_URL') || preCustomUrl || DEFAULT_PRECONSTRUCTION_URL;
   const execEnabled = !!execUrl;
   const preEnabled = !!preUrl;
   const [apiOk, setApiOk] = useState(null);
+
+  function setCustomDashboardUrl(label, lsKey, setValue) {
+    const next = window.prompt(`${label} URL\n\nExample: https://your-app.onrender.com`, localUrl(lsKey) || 'https://');
+    if (next == null) return;
+    const clean = String(next).trim();
+    if (!clean) {
+      try {
+        window.localStorage.removeItem(lsKey);
+      } catch {
+        /* ignore */
+      }
+      setValue('');
+      return;
+    }
+    if (!/^https?:\/\//i.test(clean)) {
+      window.alert('Please enter a full URL starting with http:// or https://');
+      return;
+    }
+    try {
+      window.localStorage.setItem(lsKey, clean);
+    } catch {
+      /* ignore */
+    }
+    setValue(clean);
+  }
 
   useEffect(() => {
     let alive = true;
@@ -140,6 +178,15 @@ export default function VaultHome() {
               Override with <code style={{ color: 'var(--gold)' }}>VITE_EXECUTION_DASHBOARD_URL</code> in{' '}
               <code style={{ color: 'var(--gold)' }}>client/.env</code> if the app runs elsewhere.
             </p>
+            <p style={{ margin: '8px 0 0' }}>
+              <button
+                type="button"
+                onClick={() => setCustomDashboardUrl('Construction Execution Dashboard', EXEC_URL_LS_KEY, setExecCustomUrl)}
+                style={miniBtn}
+              >
+                Set URL for this browser
+              </button>
+            </p>
           </a>
           <a href={preEnabled ? preUrl : '#'} target={preEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--teal)', fontSize: 13 }}>React</strong>
@@ -156,6 +203,15 @@ export default function VaultHome() {
             <p style={{ color: 'var(--muted)', fontSize: 12, margin: '8px 0 0', lineHeight: 1.4 }}>
               Override with <code style={{ color: 'var(--gold)' }}>VITE_PRECONSTRUCTION_URL</code> in{' '}
               <code style={{ color: 'var(--gold)' }}>client/.env</code>.
+            </p>
+            <p style={{ margin: '8px 0 0' }}>
+              <button
+                type="button"
+                onClick={() => setCustomDashboardUrl('PreConstruction', PRE_URL_LS_KEY, setPreCustomUrl)}
+                style={miniBtn}
+              >
+                Set URL for this browser
+              </button>
             </p>
           </a>
         </div>
@@ -187,3 +243,14 @@ export default function VaultHome() {
     </div>
   );
 }
+
+const miniBtn = {
+  border: '1px solid rgba(148, 163, 184, 0.7)',
+  background: 'rgba(15, 23, 42, 0.2)',
+  color: '#e2e8f0',
+  padding: '6px 10px',
+  borderRadius: 8,
+  cursor: 'pointer',
+  fontSize: 12,
+  fontWeight: 600
+};
