@@ -25,13 +25,15 @@ function externalUrl(envKey) {
   return typeof v === 'string' && v.trim() ? v.trim() : '';
 }
 
-/** Default dev URLs (override in `client/.env` / `.env.development` for production or other ports). */
-const DEFAULT_EXECUTION_DASHBOARD_URL = 'http://localhost:5173/';
-const DEFAULT_PRECONSTRUCTION_URL = 'http://localhost:5181/';
+/** Keep empty by default in cloud; set explicit URLs via env vars when those apps are deployed. */
+const DEFAULT_EXECUTION_DASHBOARD_URL = '';
+const DEFAULT_PRECONSTRUCTION_URL = '';
 
 export default function VaultHome() {
   const execUrl = externalUrl('VITE_EXECUTION_DASHBOARD_URL') || DEFAULT_EXECUTION_DASHBOARD_URL;
   const preUrl = externalUrl('VITE_PRECONSTRUCTION_URL') || DEFAULT_PRECONSTRUCTION_URL;
+  const execEnabled = !!execUrl;
+  const preEnabled = !!preUrl;
   const [apiOk, setApiOk] = useState(null);
 
   useEffect(() => {
@@ -122,22 +124,34 @@ export default function VaultHome() {
           Construction dashboards (standalone React)
         </h2>
         <div style={grid}>
-          <a href={execUrl} target="_blank" rel="noopener noreferrer" style={card}>
+          <a href={execEnabled ? execUrl : '#'} target={execEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--blue)', fontSize: 13 }}>React</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Construction Execution Dashboard</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
-              Default: port 5173. Opens in a new tab: <span style={{ wordBreak: 'break-all' }}>{execUrl}</span>
+              {execUrl ? (
+                <>
+                  Opens in a new tab: <span style={{ wordBreak: 'break-all' }}>{execUrl}</span>
+                </>
+              ) : (
+                'Set VITE_EXECUTION_DASHBOARD_URL in Render env to enable this link.'
+              )}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 12, margin: '8px 0 0', lineHeight: 1.4 }}>
               Override with <code style={{ color: 'var(--gold)' }}>VITE_EXECUTION_DASHBOARD_URL</code> in{' '}
               <code style={{ color: 'var(--gold)' }}>client/.env</code> if the app runs elsewhere.
             </p>
           </a>
-          <a href={preUrl} target="_blank" rel="noopener noreferrer" style={card}>
+          <a href={preEnabled ? preUrl : '#'} target={preEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--teal)', fontSize: 13 }}>React</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>PreConstruction</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
-              Default: port 5181. Opens: <span style={{ wordBreak: 'break-all' }}>{preUrl}</span>
+              {preUrl ? (
+                <>
+                  Opens: <span style={{ wordBreak: 'break-all' }}>{preUrl}</span>
+                </>
+              ) : (
+                'Set VITE_PRECONSTRUCTION_URL in Render env to enable this link.'
+              )}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 12, margin: '8px 0 0', lineHeight: 1.4 }}>
               Override with <code style={{ color: 'var(--gold)' }}>VITE_PRECONSTRUCTION_URL</code> in{' '}

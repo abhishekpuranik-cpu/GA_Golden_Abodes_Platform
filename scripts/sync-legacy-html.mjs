@@ -15,6 +15,8 @@ const outDir = path.join(platformRoot, 'client', 'public', 'legacy');
 
 const files = [
   'GA_Cashflow_V1.html',
+  'GA_ResourcePlanner_V2.html',
+  'GA_OrgResourcePlanner_V3.html',
   'ga_sales_dashboard.html',
   'GA_MarketingSales_KPI_Dashboard.html',
   'Golden_Abodes_App_Vault.html',

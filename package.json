@@ -14,14 +14,14 @@
     "start": "node server/index.js"
   },
   "dependencies": {
-    "pptxgenjs": "^3.12.0",
-    "xlsx": "^0.18.5",
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "mongodb": "^6.12.0",
+    "mongodb": "^6.21.0",
+    "pptxgenjs": "^3.12.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
-    "react-router-dom": "^6.28.0"
+    "react-router-dom": "^6.28.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
@@ -29,4 +29,3 @@
     "vite": "^6.2.0"
   }
 }
-

@@ -1845,40 +1845,6 @@ function readV2Costs(){
   }catch(e){}
 }
 
-/** When this page is served from the platform (/legacy/…), pull shared keys from last cloud save so syncFromV3 works without opening V3/V2 first. */
-function hydratePlannerBridgeKeys(){
-  function needs(k){
-    try{
-      var v=localStorage.getItem(k);
-      return v==null||v==='';
-    }catch(e){ return true; }
-  }
-  function fetchJson(path){
-    return fetch(path).then(function(r){
-      if(r.status===404) return null;
-      if(!r.ok) return null;
-      return r.json().then(function(body){ return { ok:true, body:body }; });
-    }).catch(function(){ return null; });
-  }
-  function applyData(data){
-    if(!data||typeof data!=='object') return;
-    try{
-      if(needs('ga_rp_projects')&&typeof data.ga_rp_projects==='string'&&data.ga_rp_projects.length) localStorage.setItem('ga_rp_projects',data.ga_rp_projects);
-      if(needs('ga_v3_cf_sync')&&typeof data.ga_v3_cf_sync==='string'&&data.ga_v3_cf_sync.length) localStorage.setItem('ga_v3_cf_sync',data.ga_v3_cf_sync);
-      if(needs('ga_v2_proj_costs')&&typeof data.ga_v2_proj_costs==='string'&&data.ga_v2_proj_costs.length) localStorage.setItem('ga_v2_proj_costs',data.ga_v2_proj_costs);
-    }catch(e){}
-  }
-  if(window.location.protocol!=='http:'&&window.location.protocol!=='https:') return Promise.resolve(false);
-  return fetchJson('/api/apps/v3_org_planner/state').then(function(res){
-    if(res&&res.body) applyData((res.body&&res.body.data)||{});
-    if(!needs('ga_rp_projects')&&!needs('ga_v3_cf_sync')&&!needs('ga_v2_proj_costs')) return true;
-    return fetchJson('/api/apps/v2_resource_planner/state').then(function(res2){
-      if(res2&&res2.body) applyData((res2.body&&res2.body.data)||{});
-      return true;
-    });
-  }).catch(function(){ return false; });
-}
-
 function setSS(msg,col){
   var el=document.getElementById('sync-msg');
   if(el){el.textContent=msg;el.style.color=col==='green'?'#1A7244':col==='red'?'#A8301E':'#A07800';}
@@ -7289,9 +7255,7 @@ document.addEventListener('click',function(e){
 // INIT
 // ══════════════════════════════════════════════════════════════
 document.getElementById('today-date').textContent=new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-hydratePlannerBridgeKeys().finally(function(){
-  return loadAll();
-}).finally(function(){
+loadAll().finally(function(){
   try{
     var _cu=localStorage.getItem(CF_CLOUD_CONF_KEY)||'';
     if(_cu.indexOf('script.google.com')>=0) setCfCloudStatus('Drive merge: on (same URL as V3)');

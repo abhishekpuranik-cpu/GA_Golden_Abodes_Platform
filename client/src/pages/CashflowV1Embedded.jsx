@@ -49,12 +49,24 @@ function V1LoadFallback() {
 
 export default function CashflowV1Embedded() {
   const [appKey, setAppKey] = useState(0);
-  const { status, mongoAt, autoSave, setAutoSave, pushToCloud, restoreFromCloud, hasRemoteUpdate, version } = usePlannerWindowSync({
-    appId: APP_IDS.V1_CASHFLOW,
-    keysList,
-    autoSaveMs: 60_000,
-    onAfterRestore: () => setAppKey((k) => k + 1)
-  });
+  const {
+    status,
+    mongoAt,
+    autoSave,
+    setAutoSave,
+    pushToCloud,
+    restoreFromCloud,
+    hasRemoteUpdate,
+    version,
+    workspaceReady,
+    snapshots,
+    restoreSnapshotById
+  } = usePlannerWindowSync({
+      appId: APP_IDS.V1_CASHFLOW,
+      keysList,
+      autoSaveMs: 60_000,
+      onAfterRestore: () => setAppKey((k) => k + 1)
+    });
   const statusColor = status?.level === 'err' ? '#b91c1c' : status?.level === 'ok' ? '#166534' : '#475569';
 
   return (
@@ -98,6 +110,24 @@ export default function CashflowV1Embedded() {
         <button type="button" onClick={() => void restoreFromCloud()} style={btnGhost}>
           Restore from cloud
         </button>
+        <select
+          defaultValue=""
+          onChange={(e) => {
+            const id = e.target.value;
+            if (!id) return;
+            void restoreSnapshotById(id);
+            e.target.value = '';
+          }}
+          style={btnGhost}
+          title="Restore one of the latest 2 snapshots"
+        >
+          <option value="">Restore snapshot (last 2)</option>
+          {snapshots.map((s) => (
+            <option key={s.id} value={s.id}>
+              {new Date(s.createdAt).toLocaleString()}
+            </option>
+          ))}
+        </select>
         <button type="button" onClick={() => void pushToCloud()} style={btnPrimary}>
           Save to cloud now
         </button>
@@ -117,9 +147,13 @@ export default function CashflowV1Embedded() {
         </div>
       ) : null}
       <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-        <Suspense fallback={<V1LoadFallback />}>
-          <V1App key={appKey} />
-        </Suspense>
+        {!workspaceReady ? (
+          <V1LoadFallback />
+        ) : (
+          <Suspense fallback={<V1LoadFallback />}>
+            <V1App key={appKey} />
+          </Suspense>
+        )}
       </div>
     </div>
   );

@@ -4,12 +4,13 @@ import { usePlannerIframeSync } from '../hooks/usePlannerIframeSync.js';
 
 export default function LegacyAppShell({ title, htmlFile, appId, keysList, iframeSrc }) {
   const iframeRef = useRef(null);
-  const { status, mongoAt, autoSave, setAutoSave, pushToCloud, restoreFromCloud, hasRemoteUpdate, version } = usePlannerIframeSync({
+  const { status, mongoAt, autoSave, setAutoSave, pushToCloud, restoreFromCloud, hasRemoteUpdate, version, snapshots, restoreSnapshotById } =
+    usePlannerIframeSync({
     iframeRef,
     appId,
     keysList,
     autoSaveMs: 60_000
-  });
+    });
 
   /** e.g. `/v1/index.html` for React GA_Cashflow_V1 built with base `/v1/`; otherwise legacy single-file under `/legacy/`. */
   const src = iframeSrc?.trim() || `/legacy/${encodeURI(htmlFile || '')}`;
@@ -53,6 +54,24 @@ export default function LegacyAppShell({ title, htmlFile, appId, keysList, ifram
         <button type="button" onClick={() => void restoreFromCloud()} style={btnGhost}>
           Restore from cloud
         </button>
+        <select
+          defaultValue=""
+          onChange={(e) => {
+            const id = e.target.value;
+            if (!id) return;
+            void restoreSnapshotById(id);
+            e.target.value = '';
+          }}
+          style={selectStyle}
+          title="Restore one of the latest 2 snapshots"
+        >
+          <option value="">Restore snapshot (last 2)</option>
+          {snapshots.map((s) => (
+            <option key={s.id} value={s.id}>
+              {new Date(s.createdAt).toLocaleString()}
+            </option>
+          ))}
+        </select>
         <button type="button" onClick={() => void pushToCloud()} style={btnPrimary}>
           Save to cloud now
         </button>
@@ -96,4 +115,14 @@ const btnGhost = {
   fontWeight: 600,
   fontSize: 12,
   cursor: 'pointer'
+};
+
+const selectStyle = {
+  padding: '7px 10px',
+  borderRadius: 8,
+  background: '#fff',
+  border: '1.5px solid #cbd5e1',
+  color: '#0a3266',
+  fontWeight: 600,
+  fontSize: 12
 };

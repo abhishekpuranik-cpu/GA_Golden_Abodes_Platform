@@ -27,17 +27,38 @@ function writeKeysToWindow(win, map) {
   }
 }
 
+function isEmptyForHydrate(win, keysList) {
+  const skip = new Set(['ga_user_name', 'ga_cloud_url']);
+  if (!win?.localStorage) return true;
+  for (const k of keysList) {
+    if (skip.has(k)) continue;
+    try {
+      const v = win.localStorage.getItem(k);
+      if (v != null && v !== '') return false;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
 /**
  * Embeds a planner app in the same document (not iframe) — same localStorage as the vault, Mongo mirror via `keysList`.
  * On restore, call `onAfterRestore` to remount the child app instead of `location.reload` (avoids nuking the shell).
  */
 export function usePlannerWindowSync({ appId, keysList, autoSaveMs = 60_000, onAfterRestore }) {
+  const [workspaceReady, setWorkspaceReady] = useState(() =>
+    typeof window !== 'undefined' ? !isEmptyForHydrate(window, keysList) : false
+  );
   const [status, setStatus] = useState(/** @type {{ level: 'ok' | 'err' | 'info', text: string } | null} */ (null));
   const [mongoAt, setMongoAt] = useState(/** @type {string | null} */ (null));
   const [autoSave, setAutoSave] = useState(true);
   const [version, setVersion] = useState(0);
   const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
+  const [snapshots, setSnapshots] = useState([]);
   const saving = useRef(false);
+  const onAfterRestoreRef = useRef(onAfterRestore);
+  onAfterRestoreRef.current = onAfterRestore;
   const userName = useMemo(() => {
     try {
       return window.localStorage.getItem('ga_user_name') || 'User';
@@ -47,6 +68,15 @@ export function usePlannerWindowSync({ appId, keysList, autoSaveMs = 60_000, onA
   }, []);
 
   const getWin = useCallback(() => window, []);
+
+  const refreshSnapshots = useCallback(async () => {
+    try {
+      const body = await appStateApi.listSnapshots(appId, 2);
+      setSnapshots(Array.isArray(body?.snapshots) ? body.snapshots : []);
+    } catch {
+      setSnapshots([]);
+    }
+  }, [appId]);
 
   const pushToCloud = useCallback(async () => {
     const win = getWin();
@@ -68,6 +98,7 @@ export function usePlannerWindowSync({ appId, keysList, autoSaveMs = 60_000, onA
       setMongoAt(body.updatedAt || null);
       setVersion(body.version || 0);
       setHasRemoteUpdate(false);
+      void refreshSnapshots();
       setStatus({ level: 'ok', text: `Saved ${Object.keys(data).length} keys to ${appId}` });
     } catch (e) {
       if (e?.status === 409) {
@@ -77,7 +108,7 @@ export function usePlannerWindowSync({ appId, keysList, autoSaveMs = 60_000, onA
     } finally {
       saving.current = false;
     }
-  }, [appId, getWin, keysList, userName, version]);
+  }, [appId, getWin, keysList, refreshSnapshots, userName, version]);
 
   const restoreFromCloud = useCallback(async () => {
     const win = getWin();
@@ -92,12 +123,58 @@ export function usePlannerWindowSync({ appId, keysList, autoSaveMs = 60_000, onA
       setMongoAt(updatedAt || null);
       setVersion(remoteVersion || 0);
       setHasRemoteUpdate(false);
+      void refreshSnapshots();
       setStatus({ level: 'ok', text: `Restored ${n} keys — rebuilding…` });
-      onAfterRestore?.();
+      onAfterRestoreRef.current?.();
     } catch (e) {
       setStatus({ level: 'err', text: e?.message || String(e) });
     }
-  }, [appId, getWin, onAfterRestore]);
+  }, [appId, getWin, refreshSnapshots]);
+
+  const restoreSnapshotById = useCallback(
+    async (snapshotId) => {
+      if (!snapshotId) return;
+      try {
+        await appStateApi.restoreSnapshot(appId, snapshotId, { updatedBy: userName, note: 'UI restore from snapshot' });
+        await restoreFromCloud();
+        await refreshSnapshots();
+      } catch (e) {
+        setStatus({ level: 'err', text: e?.message || String(e) });
+      }
+    },
+    [appId, refreshSnapshots, restoreFromCloud, userName]
+  );
+
+  /** First paint: if nothing substantive is in localStorage, load the last Mongo snapshot (no V3/V2 tab required). */
+  useEffect(() => {
+    let cancelled = false;
+    async function bootstrap() {
+      if (!isEmptyForHydrate(window, keysList)) {
+        if (!cancelled) setWorkspaceReady(true);
+        return;
+      }
+      try {
+        const { data, updatedAt, version: remoteVersion } = await appStateApi.getState(appId);
+        if (cancelled) return;
+        const n = Object.keys(data || {}).length;
+        if (n) {
+          writeKeysToWindow(window, data);
+          setMongoAt(updatedAt || null);
+          setVersion(remoteVersion || 0);
+          setHasRemoteUpdate(false);
+          onAfterRestoreRef.current?.();
+        }
+      } catch {
+        /* no snapshot / offline */
+      } finally {
+        if (!cancelled) setWorkspaceReady(true);
+      }
+    }
+    void bootstrap();
+    return () => {
+      cancelled = true;
+    };
+  }, [appId, keysList]);
 
   const checkRemoteMeta = useCallback(async () => {
     try {
@@ -135,5 +212,21 @@ export function usePlannerWindowSync({ appId, keysList, autoSaveMs = 60_000, onA
     return () => clearInterval(t);
   }, [checkRemoteMeta]);
 
-  return { status, mongoAt, autoSave, setAutoSave, pushToCloud, restoreFromCloud, hasRemoteUpdate, version };
+  useEffect(() => {
+    void refreshSnapshots();
+  }, [refreshSnapshots]);
+
+  return {
+    status,
+    mongoAt,
+    autoSave,
+    setAutoSave,
+    pushToCloud,
+    restoreFromCloud,
+    hasRemoteUpdate,
+    version,
+    workspaceReady,
+    snapshots,
+    restoreSnapshotById
+  };
 }

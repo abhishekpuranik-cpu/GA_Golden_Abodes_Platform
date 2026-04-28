@@ -27,6 +27,22 @@ function writeKeysToWindow(win, map) {
   }
 }
 
+/** True when no substantive keys are set (ignore display-only keys so we still hydrate after a name-only visit). */
+function isEmptyForHydrate(win, keysList) {
+  const skip = new Set(['ga_user_name', 'ga_cloud_url']);
+  if (!win?.localStorage) return true;
+  for (const k of keysList) {
+    if (skip.has(k)) continue;
+    try {
+      const v = win.localStorage.getItem(k);
+      if (v != null && v !== '') return false;
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
 /**
  * Same-origin iframe + Mongo workspace mirror.
  * @param {{ iframeRef: React.RefObject<HTMLIFrameElement | null>, autoSaveMs?: number }} opts
@@ -37,7 +53,9 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
   const [autoSave, setAutoSave] = useState(true);
   const [version, setVersion] = useState(0);
   const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
+  const [snapshots, setSnapshots] = useState([]);
   const saving = useRef(false);
+  const autoHydrateBusy = useRef(false);
   const userName = useMemo(() => {
     try {
       return window.localStorage.getItem('ga_user_name') || 'User';
@@ -45,6 +63,15 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
       return 'User';
     }
   }, []);
+
+  const refreshSnapshots = useCallback(async () => {
+    try {
+      const body = await appStateApi.listSnapshots(appId, 2);
+      setSnapshots(Array.isArray(body?.snapshots) ? body.snapshots : []);
+    } catch {
+      setSnapshots([]);
+    }
+  }, [appId]);
 
   const pushToCloud = useCallback(async () => {
     const win = iframeRef.current?.contentWindow;
@@ -71,6 +98,7 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
       setMongoAt(body.updatedAt || null);
       setVersion(body.version || 0);
       setHasRemoteUpdate(false);
+      void refreshSnapshots();
       setStatus({ level: 'ok', text: `Saved ${Object.keys(data).length} keys to ${appId}` });
     } catch (e) {
       if (e?.status === 409) {
@@ -80,7 +108,7 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
     } finally {
       saving.current = false;
     }
-  }, [appId, iframeRef, keysList, userName, version]);
+  }, [appId, iframeRef, keysList, refreshSnapshots, userName, version]);
 
   const restoreFromCloud = useCallback(async () => {
     const win = iframeRef.current?.contentWindow;
@@ -99,12 +127,27 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
       setMongoAt(updatedAt || null);
       setVersion(remoteVersion || 0);
       setHasRemoteUpdate(false);
+      void refreshSnapshots();
       setStatus({ level: 'ok', text: `Restored ${n} keys — reloading…` });
       win.location.reload();
     } catch (e) {
       setStatus({ level: 'err', text: e?.message || String(e) });
     }
-  }, [appId, iframeRef]);
+  }, [appId, iframeRef, refreshSnapshots]);
+
+  const restoreSnapshotById = useCallback(
+    async (snapshotId) => {
+      if (!snapshotId) return;
+      try {
+        await appStateApi.restoreSnapshot(appId, snapshotId, { updatedBy: userName, note: 'UI restore from snapshot' });
+        await restoreFromCloud();
+        await refreshSnapshots();
+      } catch (e) {
+        setStatus({ level: 'err', text: e?.message || String(e) });
+      }
+    },
+    [appId, refreshSnapshots, restoreFromCloud, userName]
+  );
 
   const checkRemoteMeta = useCallback(async () => {
     try {
@@ -148,5 +191,66 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
     };
   }, [checkRemoteMeta]);
 
-  return { status, mongoAt, autoSave, setAutoSave, pushToCloud, restoreFromCloud, hasRemoteUpdate, version };
+  useEffect(() => {
+    void refreshSnapshots();
+  }, [refreshSnapshots]);
+
+  /** On first load, if the iframe has no saved keys yet, pull the last cloud snapshot (same as manual Restore). */
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return undefined;
+
+    const tryAutoHydrate = async () => {
+      if (autoHydrateBusy.current) return;
+      autoHydrateBusy.current = true;
+      const win = iframeRef.current?.contentWindow;
+      if (!win || !isEmptyForHydrate(win, keysList)) {
+        autoHydrateBusy.current = false;
+        return;
+      }
+      try {
+        const { data, updatedAt, version: remoteVersion } = await appStateApi.getState(appId);
+        const n = Object.keys(data || {}).length;
+        if (!n) return;
+        writeKeysToWindow(win, data);
+        setMongoAt(updatedAt || null);
+        setVersion(remoteVersion || 0);
+        setHasRemoteUpdate(false);
+        setStatus({ level: 'ok', text: `Loaded last saved workspace — reloading…` });
+        win.location.reload();
+      } catch {
+        /* Offline or no snapshot — keep empty local behaviour; Restore / auto-save unchanged */
+      } finally {
+        autoHydrateBusy.current = false;
+      }
+    };
+
+    const onLoad = () => {
+      void tryAutoHydrate();
+    };
+    iframe.addEventListener('load', onLoad);
+    try {
+      if (iframe.contentDocument?.readyState === 'complete') {
+        queueMicrotask(() => {
+          void tryAutoHydrate();
+        });
+      }
+    } catch {
+      /* ignore */
+    }
+    return () => iframe.removeEventListener('load', onLoad);
+  }, [appId, iframeRef, keysList]);
+
+  return {
+    status,
+    mongoAt,
+    autoSave,
+    setAutoSave,
+    pushToCloud,
+    restoreFromCloud,
+    hasRemoteUpdate,
+    version,
+    snapshots,
+    restoreSnapshotById
+  };
 }

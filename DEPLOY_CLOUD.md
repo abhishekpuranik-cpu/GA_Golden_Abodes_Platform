@@ -44,7 +44,7 @@ If Execution/PreConstruction are separate deployments, set:
 
 in Render env and redeploy.
 
-If not set, Vault will use its default URLs.
+If not set, the cards stay visible but show a setup message (they no longer default to localhost in cloud).
 
 ## 5) Verify
 
@@ -57,5 +57,5 @@ Open:
 ## 6) Legacy HTML note
 
 `/legacy/*` is served from `client/public/legacy` (or `API_TOOL_PATH` if provided).  
-If you need legacy HTML routes in cloud, keep those files in `client/public/legacy`.
+Render build now runs `npm run build:all`, which copies legacy files (including V2/V3 HTML) into `client/public/legacy` before Vite build.
 
