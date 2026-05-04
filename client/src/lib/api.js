@@ -14,8 +14,12 @@ export async function parseJson(res) {
  * @param {RequestInit} [init]
  * @returns {Promise<{ ok: boolean, status: number, data: T }>}
  */
-export async function apiFetch(path, init) {
-  const res = await fetch(path, init);
+export async function apiFetch(path, init = {}) {
+  const res = await fetch(path, {
+    credentials: 'include',
+    ...init,
+    headers: { ...(init.headers || {}) }
+  });
   const data = await parseJson(res);
   return { ok: res.ok, status: res.status, data };
 }
@@ -88,6 +92,30 @@ export const appStateApi = {
       }
     );
     if (!ok) throw new Error(data?.error || `Restore failed (${status})`);
+    return data;
+  }
+};
+
+export const accessApi = {
+  async status() {
+    const { ok, data, status } = await apiFetch('/api/access/status');
+    if (!ok) throw new Error(data?.error || `GET access status failed (${status})`);
+    return data;
+  },
+  async login(code) {
+    const { ok, data, status } = await apiFetch('/api/access/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+    if (!ok) throw new Error(data?.error || `Login failed (${status})`);
+    return data;
+  },
+  async logout() {
+    const { ok, data, status } = await apiFetch('/api/access/logout', {
+      method: 'POST'
+    });
+    if (!ok) throw new Error(data?.error || `Logout failed (${status})`);
     return data;
   }
 };

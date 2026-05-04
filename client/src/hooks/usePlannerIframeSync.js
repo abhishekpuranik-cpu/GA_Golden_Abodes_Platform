@@ -15,15 +15,55 @@ function readKeysFromWindow(win, keysList) {
   return keys;
 }
 
+/** Mongo may round-trip numbers/booleans; localStorage values must be strings. */
+function encodeStorageValue(v) {
+  if (v == null) return null;
+  if (typeof v === 'string') return v;
+  if (typeof v === 'number' || typeof v === 'boolean') return String(v);
+  if (typeof v === 'object') {
+    try {
+      return JSON.stringify(v);
+    } catch {
+      return String(v);
+    }
+  }
+  return String(v);
+}
+
 function writeKeysToWindow(win, map) {
   if (!win?.localStorage || !map) return;
+  const errors = [];
   for (const [k, v] of Object.entries(map)) {
     if (v == null) continue;
+    const str = encodeStorageValue(v);
+    if (str == null) continue;
     try {
-      win.localStorage.setItem(k, typeof v === 'string' ? v : String(v));
-    } catch {
-      /* ignore */
+      win.localStorage.setItem(k, str);
+    } catch (e) {
+      errors.push(`${k}: ${e?.message || e}`);
     }
+  }
+  if (errors.length) {
+    throw new Error(`Could not write workspace to browser storage (${errors.join('; ')}). Try freeing disk space, closing other tabs, or use another browser profile.`);
+  }
+}
+
+/** Full planner snapshot JSON stored under ga_planner_state_v1 / ga_rp_state_v1 etc. */
+function isValidWorkspaceBlob(raw) {
+  if (typeof raw !== 'string' || raw.length < 25) return false;
+  try {
+    const o = JSON.parse(raw);
+    return o !== null && typeof o === 'object';
+  } catch {
+    return false;
+  }
+}
+
+function flushLegacyIframeSave(win) {
+  try {
+    if (typeof win?.gaAutoSave === 'function') win.gaAutoSave();
+  } catch (e) {
+    console.warn('[Vault] gaAutoSave before cloud push failed:', e);
   }
 }
 
@@ -44,13 +84,66 @@ function isEmptyForHydrate(win, keysList) {
 }
 
 /**
+ * V3/V2 always write ga_rp_projects on boot, so `isEmptyForHydrate` stays false and server pull never ran.
+ * When we know the canonical blob key, hydrate iff that blob is missing or corrupt.
+ */
+function needsHydrateFromServer(win, keysList, workspaceBlobKey) {
+  if (!win?.localStorage) return true;
+  if (workspaceBlobKey) {
+    try {
+      const blob = win.localStorage.getItem(workspaceBlobKey);
+      if (isValidWorkspaceBlob(blob)) return false;
+    } catch {
+      /* fall through */
+    }
+    return true;
+  }
+  return isEmptyForHydrate(win, keysList);
+}
+
+/** Parent-window marker so we know when Mongo has a newer save than this browser last applied (iframe blob can be valid but stale — e.g. only 2 projects). */
+function vaultSyncKey(appId) {
+  return `ga_vault_sync_${appId}`;
+}
+
+function readVaultSyncMarker(appId) {
+  try {
+    const raw = window.localStorage.getItem(vaultSyncKey(appId));
+    if (!raw) return null;
+    const o = JSON.parse(raw);
+    if (!o || typeof o !== 'object') return null;
+    return o;
+  } catch {
+    return null;
+  }
+}
+
+function writeVaultSyncMarker(appId, version, updatedAt) {
+  try {
+    window.localStorage.setItem(
+      vaultSyncKey(appId),
+      JSON.stringify({ version: Number(version) || 0, updatedAt: updatedAt || null })
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * Same-origin iframe + Mongo workspace mirror.
  * @param {{ iframeRef: React.RefObject<HTMLIFrameElement | null>, autoSaveMs?: number }} opts
  */
-export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 60_000 }) {
+export function usePlannerIframeSync({
+  iframeRef,
+  appId,
+  keysList,
+  workspaceBlobKey = null,
+  defaultAutoSave = true,
+  autoSaveMs = 60_000
+}) {
   const [status, setStatus] = useState(/** @type {{ level: 'ok' | 'err' | 'info', text: string } | null} */ (null));
   const [mongoAt, setMongoAt] = useState(/** @type {string | null} */ (null));
-  const [autoSave, setAutoSave] = useState(true);
+  const [autoSave, setAutoSave] = useState(defaultAutoSave);
   const [version, setVersion] = useState(0);
   const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
   const [snapshots, setSnapshots] = useState([]);
@@ -82,7 +175,18 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
     if (saving.current) return;
     saving.current = true;
     try {
+      flushLegacyIframeSave(win);
       const data = readKeysFromWindow(win, keysList);
+      if (workspaceBlobKey) {
+        const blob = data[workspaceBlobKey];
+        if (!isValidWorkspaceBlob(blob)) {
+          setStatus({
+            level: 'err',
+            text: `Save blocked: ${workspaceBlobKey} is missing or empty (the iframe had not finished saving its full state). Wait until the planner finishes loading, touch any field or scenario, then Save again.`
+          });
+          return;
+        }
+      }
       const write = async (expectedVersion) =>
         appStateApi.putState(appId, { data, expectedVersion, updatedBy: userName });
       let body;
@@ -97,6 +201,7 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
       }
       setMongoAt(body.updatedAt || null);
       setVersion(body.version || 0);
+      writeVaultSyncMarker(appId, body.version, body.updatedAt);
       setHasRemoteUpdate(false);
       void refreshSnapshots();
       setStatus({ level: 'ok', text: `Saved ${Object.keys(data).length} keys to ${appId}` });
@@ -108,7 +213,7 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
     } finally {
       saving.current = false;
     }
-  }, [appId, iframeRef, keysList, refreshSnapshots, userName, version]);
+  }, [appId, iframeRef, keysList, refreshSnapshots, userName, version, workspaceBlobKey]);
 
   const restoreFromCloud = useCallback(async () => {
     const win = iframeRef.current?.contentWindow;
@@ -117,15 +222,26 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
       return;
     }
     try {
-      const { data, updatedAt, version: remoteVersion } = await appStateApi.getState(appId);
-      const n = Object.keys(data || {}).length;
+      const body = await appStateApi.getState(appId);
+      const workspace = body?.data;
+      const updatedAt = body?.updatedAt ?? null;
+      const remoteVersion = body?.version ?? 0;
+      const n = Object.keys(workspace || {}).length;
       if (!n) {
         setStatus({ level: 'info', text: 'No data in MongoDB yet' });
         return;
       }
-      writeKeysToWindow(win, data);
+      writeKeysToWindow(win, workspace);
+      if (workspaceBlobKey && !isValidWorkspaceBlob(win.localStorage.getItem(workspaceBlobKey))) {
+        setStatus({
+          level: 'err',
+          text: `Cloud data has no usable ${workspaceBlobKey} (last upload may have been incomplete). Ask whoever saved last to open V3, confirm all projects show, then click Save to cloud again.`
+        });
+        return;
+      }
       setMongoAt(updatedAt || null);
       setVersion(remoteVersion || 0);
+      writeVaultSyncMarker(appId, remoteVersion, updatedAt);
       setHasRemoteUpdate(false);
       void refreshSnapshots();
       setStatus({ level: 'ok', text: `Restored ${n} keys — reloading…` });
@@ -133,7 +249,7 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
     } catch (e) {
       setStatus({ level: 'err', text: e?.message || String(e) });
     }
-  }, [appId, iframeRef, refreshSnapshots]);
+  }, [appId, iframeRef, refreshSnapshots, workspaceBlobKey]);
 
   const restoreSnapshotById = useCallback(
     async (snapshotId) => {
@@ -153,13 +269,15 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
     try {
       const meta = await appStateApi.getMeta(appId);
       const remoteVersion = Number(meta.version || 0);
-      if (remoteVersion > version) {
+      const marker = readVaultSyncMarker(appId);
+      const markerVer = marker?.version != null ? Number(marker.version) : -1;
+      if (remoteVersion > markerVer) {
         setHasRemoteUpdate(true);
       }
     } catch {
       /* ignore while offline */
     }
-  }, [appId, version]);
+  }, [appId]);
 
   useEffect(() => {
     if (!autoSave) return undefined;
@@ -204,22 +322,71 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
       if (autoHydrateBusy.current) return;
       autoHydrateBusy.current = true;
       const win = iframeRef.current?.contentWindow;
-      if (!win || !isEmptyForHydrate(win, keysList)) {
+      if (!win) {
         autoHydrateBusy.current = false;
         return;
       }
+
+      let hasServerDoc = false;
+      let metaVer = 0;
+      let metaAt = null;
       try {
-        const { data, updatedAt, version: remoteVersion } = await appStateApi.getState(appId);
-        const n = Object.keys(data || {}).length;
-        if (!n) return;
-        writeKeysToWindow(win, data);
+        const meta = await appStateApi.getMeta(appId);
+        hasServerDoc = true;
+        metaVer = Number(meta.version || 0);
+        metaAt = meta.updatedAt || null;
+      } catch {
+        hasServerDoc = false;
+      }
+
+      const marker = readVaultSyncMarker(appId);
+      const markerVer = marker?.version != null ? Number(marker.version) : -1;
+      const serverAhead = hasServerDoc && metaVer > markerVer;
+      const needsBlob = needsHydrateFromServer(win, keysList, workspaceBlobKey);
+
+      if (!needsBlob && !serverAhead) {
+        autoHydrateBusy.current = false;
+        return;
+      }
+
+      try {
+        const body = await appStateApi.getState(appId);
+        const workspace = body?.data;
+        const updatedAt = body?.updatedAt ?? null;
+        const remoteVersion = body?.version ?? 0;
+        const n = Object.keys(workspace || {}).length;
+        if (!n) {
+          setStatus({
+            level: 'info',
+            text: `Server has no saved keys for ${appId} yet — use Save to cloud once from a machine that has the full planner.`
+          });
+          return;
+        }
+        writeKeysToWindow(win, workspace);
+        if (workspaceBlobKey && !isValidWorkspaceBlob(win.localStorage.getItem(workspaceBlobKey))) {
+          setStatus({
+            level: 'err',
+            text: `Server copy has no usable ${workspaceBlobKey}. Re-save from Vault (Save to cloud) after the planner fully loads.`
+          });
+          return;
+        }
+        writeVaultSyncMarker(appId, remoteVersion, updatedAt);
         setMongoAt(updatedAt || null);
         setVersion(remoteVersion || 0);
         setHasRemoteUpdate(false);
-        setStatus({ level: 'ok', text: `Loaded last saved workspace — reloading…` });
+        setStatus({
+          level: 'ok',
+          text: serverAhead
+            ? `Applying team workspace v${remoteVersion} — reloading…`
+            : `Loaded last saved workspace — reloading…`
+        });
         win.location.reload();
-      } catch {
-        /* Offline or no snapshot — keep empty local behaviour; Restore / auto-save unchanged */
+      } catch (e) {
+        const msg = e?.message || String(e);
+        setStatus({
+          level: 'err',
+          text: `Could not load workspace from server: ${msg}`
+        });
       } finally {
         autoHydrateBusy.current = false;
       }
@@ -238,8 +405,13 @@ export function usePlannerIframeSync({ iframeRef, appId, keysList, autoSaveMs = 
     } catch {
       /* ignore */
     }
-    return () => iframe.removeEventListener('load', onLoad);
-  }, [appId, iframeRef, keysList]);
+    /** Retry once — iframe storage + meta can settle a moment after `load`. */
+    const retryT = window.setTimeout(() => void tryAutoHydrate(), 900);
+    return () => {
+      iframe.removeEventListener('load', onLoad);
+      window.clearTimeout(retryT);
+    };
+  }, [appId, iframeRef, keysList, workspaceBlobKey]);
 
   return {
     status,

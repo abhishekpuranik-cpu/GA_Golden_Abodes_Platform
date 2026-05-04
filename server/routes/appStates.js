@@ -1,6 +1,16 @@
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { withDb } from '../lib/mongo.js';
+import {
+  packV1CashflowRowData,
+  unpackV1CashflowRowData,
+  V1_CASHFLOW_APP_ID
+} from '../lib/v1CashflowMongoPack.js';
+import {
+  mergeV3OrgPlannerForPut,
+  repairV3OrgPlannerForRead,
+  V3_ORG_PLANNER_APP_ID
+} from '../lib/v3OrgPlannerMerge.js';
 
 export const appStatesRouter = Router();
 
@@ -90,9 +100,13 @@ appStatesRouter.get(
       let row = await states.findOne({ _id: appId });
       if (!row) row = await migrateLegacyWorkspaceForApp(db, appId);
       if (!row?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
+      let outData = row.data;
+      if (appId === V3_ORG_PLANNER_APP_ID) {
+        outData = repairV3OrgPlannerForRead(row.data);
+      }
       res.json({
         appId,
-        data: row.data,
+        data: outData,
         version: row.version || 1,
         updatedAt: row.updatedAt || null,
         updatedBy: row.updatedBy || null
@@ -126,12 +140,21 @@ appStatesRouter.put(
         });
       }
       const nextVersion = currentVersion + 1;
+      let toSave = data;
+      if (appId === V1_CASHFLOW_APP_ID) {
+        toSave = await packV1CashflowRowData(db, data, {
+          version: nextVersion,
+          updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'
+        });
+      } else if (appId === V3_ORG_PLANNER_APP_ID) {
+        toSave = mergeV3OrgPlannerForPut(existing?.data, data);
+      }
       await states.updateOne(
         { _id: appId },
         {
           $set: {
             appId,
-            data,
+            data: toSave,
             version: nextVersion,
             updatedAt: now,
             updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'
@@ -172,14 +195,28 @@ appStatesRouter.post(
         });
       }
 
-      const merged = mode === 'merge' && existing?.data ? { ...existing.data, ...incoming } : incoming;
+      let merged = incoming;
+      if (mode === 'merge' && existing?.data) {
+        const base =
+          appId === V1_CASHFLOW_APP_ID ? await unpackV1CashflowRowData(db, existing.data) : existing.data;
+        merged = { ...base, ...incoming };
+      }
       const nextVersion = (existing?.version || 0) + 1;
+      let toSave = merged;
+      if (appId === V1_CASHFLOW_APP_ID) {
+        toSave = await packV1CashflowRowData(db, merged, {
+          version: nextVersion,
+          updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'
+        });
+      } else if (appId === V3_ORG_PLANNER_APP_ID) {
+        toSave = mergeV3OrgPlannerForPut(existing?.data, merged);
+      }
       await states.updateOne(
         { _id: appId },
         {
           $set: {
             appId,
-            data: merged,
+            data: toSave,
             version: nextVersion,
             updatedAt: now,
             updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'

@@ -2,13 +2,24 @@ import { useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { usePlannerIframeSync } from '../hooks/usePlannerIframeSync.js';
 
-export default function LegacyAppShell({ title, htmlFile, appId, keysList, iframeSrc }) {
+export default function LegacyAppShell({
+  title,
+  htmlFile,
+  appId,
+  keysList,
+  iframeSrc,
+  workspaceBlobKey,
+  /** Off by default for V3 — periodic save was overwriting Mongo with stale 2-project tabs; server merge fixes that, but disabling avoids noise. */
+  defaultAutoSave = true
+}) {
   const iframeRef = useRef(null);
   const { status, mongoAt, autoSave, setAutoSave, pushToCloud, restoreFromCloud, hasRemoteUpdate, version, snapshots, restoreSnapshotById } =
     usePlannerIframeSync({
     iframeRef,
     appId,
     keysList,
+    workspaceBlobKey,
+    defaultAutoSave,
     autoSaveMs: 60_000
     });
 
