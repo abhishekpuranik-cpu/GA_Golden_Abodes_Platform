@@ -3,7 +3,8 @@ services:
     name: ga-golden-abodes-platform
     runtime: node
     rootDir: .
-    buildCommand: npm ci && npm run build:all
+    # build:all needs sibling GA_Cashflow_V1_React + local XLSX — use build:render on Render only.
+    buildCommand: npm ci && npm run build:render
     startCommand: npm run start
     healthCheckPath: /api/health
     envVars:
@@ -17,3 +18,16 @@ services:
         value: golden_abodes
       - key: API_TOOL_PATH
         value: /opt/render/project/src/client/public/legacy
+      # Vault → Construction Execution + PreConstruction (full URLs). No client rebuild needed.
+      - key: EXECUTION_DASHBOARD_URL
+        sync: false
+      - key: PRECONSTRUCTION_APP_URL
+        sync: false
+      # Optional: simplest shared lock for only V2/V3 pages (/app/org-planner and /app/resource-planner).
+      - key: V2V3_ACCESS_CODE
+        sync: false
+      # Optional: same as above but only applied at Vite build time.
+      - key: VITE_EXECUTION_DASHBOARD_URL
+        sync: false
+      - key: VITE_PRECONSTRUCTION_URL
+        sync: false
