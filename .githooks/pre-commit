@@ -1,0 +1,5 @@
+#!/bin/sh
+# Auto-stage server files imported by server/routes/appStates.js if they exist but are untracked.
+ROOT="$(CDPATH= cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT" || exit 1
+node scripts/git-track-app-states-imports.mjs --fix || exit 1
