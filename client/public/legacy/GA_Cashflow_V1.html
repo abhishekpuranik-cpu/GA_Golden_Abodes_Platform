@@ -100,6 +100,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
   <button class="tab-btn"     id="tab-debt"      onclick="showTab('debt')">&#127970; Debt Service</button>
   <button class="tab-btn"     id="tab-ga"        onclick="showTab('ga')">&#127760; GA Consolidated</button>
   <div style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 0">
+    <select id="proj-select" onchange="selectProj(this.value)"
+      style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:160px">
+      <option value="">No projects</option>
+    </select>
     <select id="phase-select" onchange="selectPhase(this.value)"
       style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:130px">
       <option value="__all__">All Phases</option>
@@ -107,10 +111,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
     <select id="building-select" onchange="selectBuilding(this.value)"
       style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:130px">
       <option value="__all__">All Buildings</option>
-    </select>
-    <select id="proj-select" onchange="selectProj(this.value)"
-      style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:160px">
-      <option value="">No projects</option>
     </select>
     <button class="btn btn-outline" onclick="syncFromV3()"
       style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)">&#8635; Sync V3</button>
@@ -266,6 +266,51 @@ function cfDisplayOutflowCols(){
   ensureGaL1CashflowCols();
   return (CF_OUTFLOW_L1_COLS && CF_OUTFLOW_L1_COLS.length) ? CF_OUTFLOW_L1_COLS : OUTFLOW_CATS;
 }
+/** Resolve legacy expense cat1 (keyword / schedule) → chart / cashflow OUTFLOW column keys (usually workbook L1 Category name). */
+function legacyCashflowCat1ToDisplayGaL1(cat1){
+  var leg=String(cat1||'').trim();
+  if(!leg) return '';
+  ensureGaL1CashflowCols();
+  var cols=CF_OUTFLOW_L1_COLS||[];
+  var inCol='', fb='';
+  if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE){
+    Object.keys(GA_ACCT_L3_BY_CODE).forEach(function(k){
+      var g=GA_ACCT_L3_BY_CODE[k];
+      if(!g||String(g.flow||'')!=='out'||String(g.legacyCat1||'')!==leg) return;
+      var nm=String(g.l1Name||'').trim();
+      if(!nm) return;
+      if(!fb) fb=nm;
+      if(cols.indexOf(nm)>=0) inCol=nm;
+    });
+    if(inCol) return inCol;
+    if(fb&&cols.indexOf(fb)>=0) return fb;
+  }
+  if(cols.indexOf(leg)>=0) return leg;
+  var alias={
+    'Land':'Project Acquisition','NOC':'Project Acquisition','Consultant':'Project Acquisition',
+    'Regulatory & Consulting':'Regulatory & Consulting','Construction':'Construction Cost','Marketing':'Marketing Cost',
+    'GA DM Fee':'G&A Cost','Contingency':'Construction Cost','Interest Paid':'Interest & Panelty Cost','Principal Repaid':'Principal Repaid'
+  };
+  var d=alias[leg];
+  if(d&&cols.indexOf(d)>=0) return d;
+  if(leg==='Principal Repaid'&&cols.indexOf('Principal Repaid')<0&&cols.indexOf('Interest & Panelty Cost')>=0) return 'Interest & Panelty Cost';
+  return '';
+}
+
+/** Charts & rollups compare against CF_OUTFLOW_L1_COLS; prefer gaL1 when it hits a column, else map legacy cat1. */
+function effectiveGaL1ForActualLine(cat1, gaL1){
+  ensureGaL1CashflowCols();
+  var cols=CF_OUTFLOW_L1_COLS||[];
+  var g=String(gaL1||'').trim();
+  if(g){
+    if(cols.indexOf(g)>=0) return g;
+    var gl=g.toLowerCase();
+    for(var i=0;i<cols.length;i++){
+      if(String(cols[i]).toLowerCase()===gl) return cols[i];
+    }
+  }
+  return legacyCashflowCat1ToDisplayGaL1(String(cat1||'').trim())||g||'';
+}
 /** Narrow table headers: break on every space (e.g. GA / DM / Fee). */
 function cfCatThLabel(c){ return String(c).replace(/ /g,'<br/>'); }
 /** Outflow column header: L1 category name only (no L2/L3 subtitle row). */
@@ -326,7 +371,7 @@ function actualOutflowSumByGaL1(cfg){
     if(!includeActualInCashflowSums(a)) return;
     var mag=Math.abs(coerceMoney(a.amount));
     if(mag<=0) return;
-    var l1=String(a.gaL1||'').trim();
+    var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1);
     if(l1&&sums.hasOwnProperty(l1)) sums[l1]+=mag;
   });
   return sums;
@@ -801,12 +846,49 @@ function lookupGAAccountingByLedgerName(ledgerName){
   }
   return null;
 }
+/** Try to read an L3 code at the start of a string (e.g. "K3-2 Reimbursement …") and walk parent codes. */
+function lookupGAAccountingByLeadingCodeToken(s){
+  if(typeof GA_ACCT_L3_BY_CODE==='undefined'||!GA_ACCT_L3_BY_CODE) return null;
+  var t=String(s||'').trim();
+  if(!t) return null;
+  var m=t.match(/^([A-Za-z]\d+(?:-\d+)*)\b/);
+  var first=(m&&m[1])?m[1]:(t.replace(/^[|\s/:]+/,'').split(/[\s|/:]+/)[0]||'');
+  var c=first;
+  while(c){
+    if(GA_ACCT_L3_BY_CODE[c]) return GA_ACCT_L3_BY_CODE[c];
+    var p=c.lastIndexOf('-');
+    if(p<0) break;
+    c=c.slice(0,p);
+  }
+  return null;
+}
+/** Resolve GA chart row from party and/or full line text (party, narration, voucher text). */
+function resolveGAAccountingChartRow(fullText, party){
+  var g=lookupGAAccountingByLedgerName(party); if(g) return g;
+  g=lookupGAAccountingByLedgerName(String(party||'').trim().split(/[\s|:/]+/)[0]); if(g) return g;
+  g=lookupGAAccountingByLeadingCodeToken(String(party||'')); if(g) return g;
+  g=lookupGAAccountingByLeadingCodeToken(String(fullText||'')); if(g) return g;
+  var blob=String(party||'')+' '+String(fullText||'');
+  var found=blob.match(/\b([A-Za-z]\d+(?:-\d+)*)\b/g);
+  if(found){
+    for(var i=0;i<found.length;i++){
+      var tok=found[i], w=tok;
+      while(w){
+        if(GA_ACCT_L3_BY_CODE[w]) return GA_ACCT_L3_BY_CODE[w];
+        var p=w.lastIndexOf('-');
+        if(p<0) break;
+        w=w.slice(0,p);
+      }
+    }
+  }
+  return null;
+}
 /**
  * @returns {{cat1:string,gaL1:string,gaL2:string,gaL3:string,gaL3Name:string,flow?:string,tallyMapSrc:string}}
  */
 function classifyTallyLineFromText(fullText, party, rawAmount){
   var text=String(fullText||'').toLowerCase();
-  var g=lookupGAAccountingByLedgerName(party);
+  var g=resolveGAAccountingChartRow(fullText, party);
   if(g){
     return {
       cat1:g.legacyCat1,
@@ -818,19 +900,15 @@ function classifyTallyLineFromText(fullText, party, rawAmount){
       tallyMapSrc:'l3-book',
     };
   }
-  g=lookupGAAccountingByLedgerName(String(party||'').trim().split(/[\s|:/]+/)[0]);
-  if(g){
-    return {cat1:g.legacyCat1,gaL1:g.l1Name||'',gaL2:(g.l2Name||'')+' ('+(g.l2||'')+')',gaL3:g.l3||'',gaL3Name:g.l3Name||'',flow:g.flow,tallyMapSrc:'l3-book'};
-  }
   var kw=guessTallyCategoryKey(fullText);
   if(!kw) kw=guessTallyCategoryKey(String(party||''));
   if(kw){
-    return {cat1:kw,gaL1:'',gaL2:'',gaL3:'',gaL3Name:'',tallyMapSrc:'keyword'};
+    return {cat1:kw,gaL1:legacyCashflowCat1ToDisplayGaL1(kw),gaL2:'',gaL3:'',gaL3Name:'',tallyMapSrc:'keyword'};
   }
   if(/customer|collection|booking|milestone|possession|receipt|sale|unit|flat|parking|amenity|demand|installment|allotment/i.test(text)){
     return {cat1:'Other Inflow',gaL1:'',gaL2:'',gaL3:'',gaL3Name:'(heuristic inflow)',tallyMapSrc:'heuristic-in'};
   }
-  return {cat1:'Construction',gaL1:'',gaL2:'',gaL3:'',gaL3Name:'(unmapped — reclassify if needed)',tallyMapSrc:'unmapped-out'};
+  return {cat1:'Construction',gaL1:legacyCashflowCat1ToDisplayGaL1('Construction'),gaL2:'',gaL3:'',gaL3Name:'(unmapped — reclassify if needed)',tallyMapSrc:'unmapped-out'};
 }
 function legacyCat1ToExpenseScheduleKey(leg){
   var m={'Land':'landSchedule','NOC':'nocSchedule','Consultant':'consultantSchedule','Regulatory & Consulting':'regulatoryConsultingSchedule','Construction':'constructionSchedule','Marketing':'marketingSchedule'};
@@ -1309,6 +1387,8 @@ var PROJS = [];
 var _cfData = {};
 var _curPid = null;
 var _curProjectGroup = '__all__';
+/** Distinct portfolio project name (first segment); drives Phase / Building dropdown scopes. */
+var _curProjRoot = '__all__';
 var _curPhase = '__all__';
 var _curBuilding = '__all__';
 var _curTab = 'cashflow';
@@ -1336,7 +1416,7 @@ function collectExpenseGATreeKeys(acts){
     var mag=Math.abs(coerceMoney(a.amount));
     if(mag<=0) return;
     if(coerceMoney(a.amount)>=0) return;
-    var l1=String(a.gaL1||'').trim()||'— (cashflow: '+(a.cat1||'—')+')';
+    var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1)||String(a.cat1||'').trim()||'—';
     var l2=String(a.gaL2||'').trim()||'—';
     var l3k=(a.gaL3?String(a.gaL3).trim()+' — ':'')+String(a.gaL3Name||'').trim();
     if(!l3k||l3k==='—') l3k='— (see party / note)';
@@ -1414,6 +1494,7 @@ function cfStatePayload(){
     data:_cfData,
     manualProjs:manual,
     ui:{
+      projRoot:_curProjRoot||'__all__',
       phase:_curPhase||'__all__',
       building:_curBuilding||'__all__',
       projectGroup:'__all__'
@@ -1548,6 +1629,7 @@ function saveAll(){
     try{
       localStorage.setItem('ga_cf_v1',JSON.stringify(cfStatePayload()));
       localStorage.setItem('ga_v1_project_group_filter','__all__');
+      localStorage.setItem('ga_v1_proj_root_filter',_curProjRoot||'__all__');
       localStorage.setItem('ga_v1_phase_filter',_curPhase||'__all__');
       localStorage.setItem('ga_v1_building_filter',_curBuilding||'__all__');
     }catch(e){}
@@ -1603,6 +1685,23 @@ function scheduleMongoStateSave(delayMs){
     mongoStatePutNow();
   }, Math.max(200, delayMs||1300));
 }
+/** PROJS drives the header dropdown; _cfData holds rows. After Mongo load, add any missing ids so V3 localStorage cannot hide cloud-only projects. */
+function mergeProjectsFromCfData(){
+  try{
+    var seen={};
+    (PROJS||[]).forEach(function(p){
+      if(p&&p.id!=null) seen[String(p.id)]=1;
+    });
+    Object.keys(_cfData||{}).forEach(function(pid){
+      if(seen[pid]) return;
+      var cfg=_cfData[pid];
+      if(!cfg||typeof cfg!=='object') return;
+      var name=(cfg.projName&&String(cfg.projName).trim())||pid;
+      PROJS.push({id:pid,name:name});
+      seen[pid]=1;
+    });
+  }catch(e){}
+}
 function loadAllFromMongo(){
   if(!canUseMongoState()) return Promise.resolve(false);
   return fetch(mongoStateApiUrl())
@@ -1621,7 +1720,9 @@ function loadAllFromMongo(){
           if(!PROJS.find(function(p){return p.id===mp.id;})) PROJS.push(mp);
         });
       }
+      mergeProjectsFromCfData();
       _curProjectGroup='__all__';
+      _curProjRoot=(d.ui&&d.ui.projRoot)||'__all__';
       _curPhase=(d.ui&&d.ui.phase)||'__all__';
       _curBuilding=(d.ui&&d.ui.building)||'__all__';
       _mongoStateVersion=Number(res.body.version)||0;
@@ -1758,10 +1859,13 @@ function loadAll(){
         var r=localStorage.getItem('ga_cf_v1');
         if(r){var d=JSON.parse(r);_cfData=d.data||{};
           if(d.manualProjs) d.manualProjs.forEach(function(mp){if(!PROJS.find(function(p){return p.id===mp.id;}))PROJS.push(mp);});
+          mergeProjectsFromCfData();
+          if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
           var needVersionBump=!d.v||d.v<CF_VERSION;
           if(migrateCfCategoryLabels()||needVersionBump) saveAll();
         }
         _curProjectGroup='__all__';
+        if(_curProjRoot==='__all__') _curProjRoot=localStorage.getItem('ga_v1_proj_root_filter')||'__all__';
         _curPhase=localStorage.getItem('ga_v1_phase_filter')||'__all__';
         _curBuilding=localStorage.getItem('ga_v1_building_filter')||'__all__';
       }catch(e){}
@@ -1772,11 +1876,14 @@ function loadAll(){
     var r=localStorage.getItem('ga_cf_v1');
     if(r){var d=JSON.parse(r);_cfData=d.data||{};
       if(d.manualProjs) d.manualProjs.forEach(function(mp){if(!PROJS.find(function(p){return p.id===mp.id;}))PROJS.push(mp);});
+      mergeProjectsFromCfData();
+      if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
       var needVersionBump=!d.v||d.v<CF_VERSION;
       if(migrateCfCategoryLabels()||needVersionBump) saveAll();
     }
     _curProjectGroup='__all__';
     try{ localStorage.setItem('ga_v1_project_group_filter','__all__'); }catch(x){}
+    if(_curProjRoot==='__all__') _curProjRoot=localStorage.getItem('ga_v1_proj_root_filter')||'__all__';
     _curPhase=localStorage.getItem('ga_v1_phase_filter')||'__all__';
     _curBuilding=localStorage.getItem('ga_v1_building_filter')||'__all__';
   }catch(e){}
@@ -1797,6 +1904,7 @@ function syncFromV3(){
         PROJS=PROJS.filter(function(p){return p._manual&&!v3ids.includes(p.id);});
         pp.forEach(function(p){PROJS.push(p);});
         _lastProjHash=raw;
+        mergeProjectsFromCfData();
         PROJS.forEach(function(p){var d=getCF(p.id);d.projName=p.name;if(p._projMonths)d.totalMonths=p._projMonths;});
         buildProjectGroupSelect();
         buildPhaseSelect();
@@ -1810,6 +1918,7 @@ function syncFromV3(){
     mergeV3CashflowHints();
     // Read V2 cost push
     readV2Costs();
+    mergeProjectsFromCfData();
     setSS(PROJS.length?'Ready — '+PROJS.length+' project(s)':'Open V3 → Push to RP to sync projects','gold');
     renderAll();
   }catch(e){setSS('Sync error: '+e.message,'red');}
@@ -1886,14 +1995,30 @@ function getProjectHierarchy(pid){
     building: inferBuildingFromProject(p)
   };
 }
+/** Projects matching current Project (root) + Phase + Building filters. */
+function projectMatchesHierarchy(p){
+  if(!p) return false;
+  if(_curProjRoot && _curProjRoot!=='__all__' && inferProjectGroupFromProject(p)!==_curProjRoot) return false;
+  if(_curPhase!=='__all__' && inferPhaseFromProject(p)!==_curPhase) return false;
+  if(_curBuilding!=='__all__' && inferBuildingFromProject(p)!==_curBuilding) return false;
+  return true;
+}
 function getVisibleProjects(){
-  return PROJS.filter(function(p){
-    var okPhase=_curPhase==='__all__'||inferPhaseFromProject(p)===_curPhase;
-    var okBld=_curBuilding==='__all__'||inferBuildingFromProject(p)===_curBuilding;
-    return okPhase&&okBld;
+  return PROJS.filter(projectMatchesHierarchy);
+}
+/** Keep portfolio root sensible when V3 pushes many rows. */
+function ensureProjRootCoherent(){
+  if(!PROJS.length){ _curProjRoot='__all__'; return; }
+  var uniq=[],seen={};
+  PROJS.forEach(function(p){
+    var r=inferProjectGroupFromProject(p);
+    if(r && !seen[r]){ seen[r]=1; uniq.push(r); }
   });
+  if(!uniq.length) return;
+  if(_curProjRoot==='__all__' || uniq.indexOf(_curProjRoot)<0) _curProjRoot=uniq[0];
 }
 function ensureCurrentProjectVisible(){
+  if(_curPid==='__rollup__') return;
   var vis=getVisibleProjects();
   if(!vis.length){ _curPid=null; return; }
   if(!_curPid || !vis.some(function(p){return p.id===_curPid;})) _curPid=vis[0].id;
@@ -1911,25 +2036,28 @@ function buildProjectGroupSelect(){
 function buildPhaseSelect(){
   var sel=document.getElementById('phase-select'); if(!sel) return;
   var set={}, opts=['__all__'];
-  PROJS.forEach(function(p){
-    set[inferPhaseFromProject(p)]=1;
-  });
+  var pool=PROJS;
+  if(_curProjRoot && _curProjRoot!=='__all__')
+    pool=PROJS.filter(function(p){ return inferProjectGroupFromProject(p)===_curProjRoot; });
+  pool.forEach(function(p){ set[inferPhaseFromProject(p)]=1; });
   Object.keys(set).sort().forEach(function(x){ if(x&&x!=='Unassigned') opts.push(x); });
   if(set.Unassigned) opts.push('Unassigned');
-  sel.innerHTML=opts.map(function(v){ return '<option value="'+escHtml(v)+'">'+(v==='__all__'?'All Phases':'Phase: '+v)+'</option>'; }).join('');
+  sel.innerHTML=opts.map(function(v){ return '<option value="'+escHtml(v)+'">'+(v==='__all__'?'All phases':escHtml(v))+'</option>'; }).join('');
   if(opts.indexOf(_curPhase)<0) _curPhase='__all__';
   sel.value=_curPhase;
 }
 function buildBuildingSelect(){
   var sel=document.getElementById('building-select'); if(!sel) return;
   var set={}, opts=['__all__'];
-  PROJS.forEach(function(p){
-    if(_curPhase!=='__all__'&&inferPhaseFromProject(p)!==_curPhase) return;
-    set[inferBuildingFromProject(p)]=1;
-  });
+  var pool=PROJS;
+  if(_curProjRoot && _curProjRoot!=='__all__')
+    pool=pool.filter(function(p){ return inferProjectGroupFromProject(p)===_curProjRoot; });
+  if(_curPhase!=='__all__')
+    pool=pool.filter(function(p){ return inferPhaseFromProject(p)===_curPhase; });
+  pool.forEach(function(p){ set[inferBuildingFromProject(p)]=1; });
   Object.keys(set).sort().forEach(function(x){ if(x&&x!=='Unassigned') opts.push(x); });
   if(set.Unassigned) opts.push('Unassigned');
-  sel.innerHTML=opts.map(function(v){ return '<option value="'+escHtml(v)+'">'+(v==='__all__'?'All Buildings':'Building: '+v)+'</option>'; }).join('');
+  sel.innerHTML=opts.map(function(v){ return '<option value="'+escHtml(v)+'">'+(v==='__all__'?'All buildings':escHtml(v))+'</option>'; }).join('');
   if(opts.indexOf(_curBuilding)<0) _curBuilding='__all__';
   sel.value=_curBuilding;
 }
@@ -1969,16 +2097,22 @@ function selectBuilding(v){
 
 function buildProjSelect(){
   var sel=document.getElementById('proj-select'); if(!sel) return;
+  if(!PROJS.length){ sel.innerHTML='<option value="">No projects</option>'; return; }
+  var rootsMap={};
+  PROJS.forEach(function(p){
+    var r=inferProjectGroupFromProject(p);
+    if(r) rootsMap[r]=1;
+  });
+  var roots=Object.keys(rootsMap).sort();
   var vis=getVisibleProjects();
-  if(!vis.length){sel.innerHTML='<option value="">No projects</option>';return;}
-  var roll=(vis.length>1)?'<option value="__rollup__">📊 Hierarchy Rollup (filtered)</option>':'';
-  sel.innerHTML='<option value="__ga__">&#127760; GA Consolidated</option>'+roll+
-    vis.map(function(p){
-      var phase=inferPhaseFromProject(p), bld=inferBuildingFromProject(p);
-      var tag=((phase&&phase!=='Unassigned')?(' · '+phase):'')+((bld&&bld!=='Unassigned')?(' · '+bld):'');
-      return '<option value="'+p.id+'"'+(p.id===_curPid?' selected':'')+'>'+p.name+tag+(p._manual?' ✎':'')+'</option>';
-    }).join('');
-  if(_curPid) sel.value=_curPid;
+  var roll=(vis.length>1)?'<option value="__rollup__"'+(_curPid==='__rollup__'?' selected':'')+'>📊 Hierarchy Rollup (filtered)</option>':'';
+  var h='<option value="__ga__">&#127760; GA Consolidated</option>'+roll;
+  roots.forEach(function(r){
+    var enc=encodeURIComponent(r);
+    var selAttr=(r===_curProjRoot)?' selected':'';
+    h+='<option value="__root__|'+enc+'"'+selAttr+'>'+escHtml(r)+'</option>';
+  });
+  sel.innerHTML=h;
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -2927,8 +3061,9 @@ function isAutosweepBankLine(a){
   var n=String(a.note||a.narration||'').toLowerCase();
   var c=String(a.cat1||a.gaL1||'').toLowerCase();
   var b=p+' '+n+' '+c;
-  if(/\bautosweep\b|\bauto\s*sweep\b/i.test(b)) return true;
+  if(/\bautosweep\b|\bauto[\s\-_]*sweep\b/i.test(b)) return true;
   if(/\b(sweep\s*in|sweep\s*out|cas\s*to|to\s*cas|liquidity\s*sweep|pooling)\b/i.test(b)) return true;
+  if(/\b(sweep\s*trf|sweep\s*xfer|fd\s*sweep|od\s*sweep)\b/i.test(b)) return true;
   if(/sweep.*transfer|transfer.*sweep/i.test(b)) return true;
   return false;
 }
@@ -3397,6 +3532,7 @@ function renderTab(t){
   else if(t==='ga') renderGA();
 }
 function renderAll(){
+  ensureProjRootCoherent();
   buildProjectGroupSelect();
   buildPhaseSelect();
   buildBuildingSelect();
@@ -3415,15 +3551,31 @@ function refreshProjectCashflowViews(){
 function selectProj(pid){
   if(pid==='__ga__'){showTab('ga');return;}
   if(pid==='__rollup__'){ _curPid='__rollup__'; saveAll(); showTab('ga'); return; }
+  if(String(pid).indexOf('__root__|')===0){
+    try{ _curProjRoot=decodeURIComponent(pid.slice('__root__|'.length)); }
+    catch(eR){ _curProjRoot=(PROJS[0]?inferProjectGroupFromProject(PROJS[0]):'__all__'); }
+    _curPhase='__all__';
+    _curBuilding='__all__';
+    var fst=PROJS.find(function(p){ return inferProjectGroupFromProject(p)===_curProjRoot; });
+    _curPid=fst?fst.id:null;
+    saveAll();
+    buildPhaseSelect();
+    buildBuildingSelect();
+    ensureCurrentProjectVisible();
+    buildProjSelect();
+    showTab(_curTab==='ga'?'cashflow':_curTab);
+    return;
+  }
   var p=(PROJS||[]).find(function(x){ return x&&x.id===pid; })||null;
   if(p){
+    _curProjRoot=inferProjectGroupFromProject(p);
     _curPhase=inferPhaseFromProject(p);
     _curBuilding=inferBuildingFromProject(p);
   }
   _curPid=pid; saveAll();
-  buildProjectGroupSelect();
   buildPhaseSelect();
   buildBuildingSelect();
+  ensureCurrentProjectVisible();
   buildProjSelect();
   showTab(_curTab==='ga'?'cashflow':_curTab);
 }
@@ -4729,7 +4881,7 @@ function renderExpenses(){
       byCat[c]=(byCat[c]||0)+mag;
       if(coerceMoney(a.amount)<0){
         byCC[cc]=(byCC[cc]||0)+mag;
-        var l1=String(a.gaL1||'').trim()||'— (cashflow: '+(a.cat1||'—')+')';
+        var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1)||String(a.cat1||'').trim()||'—';
         var l2=String(a.gaL2||'').trim()||'—';
         var l3k=(a.gaL3?String(a.gaL3).trim()+' — ':'')+String(a.gaL3Name||'').trim();
         if(!l3k||l3k==='—') l3k='— (see party / note)';
@@ -7283,6 +7435,7 @@ setInterval(function(){
       PROJS=PROJS.filter(function(p){return p._manual&&!v3ids.includes(p.id);});
       pp.forEach(function(p){PROJS.push(p);});
       _lastProjHash=raw;
+      mergeProjectsFromCfData();
       PROJS.forEach(function(p){var d=getCF(p.id);d.projName=p.name;if(p._projMonths)d.totalMonths=p._projMonths;});
       buildProjectGroupSelect();
       buildPhaseSelect();
