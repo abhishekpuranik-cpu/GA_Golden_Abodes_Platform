@@ -43,8 +43,17 @@ const PRE_URL_LS_KEY = 'ga_preconstruction_url';
 export default function VaultHome() {
   const [execCustomUrl, setExecCustomUrl] = useState(() => localUrl(EXEC_URL_LS_KEY));
   const [preCustomUrl, setPreCustomUrl] = useState(() => localUrl(PRE_URL_LS_KEY));
-  const execUrl = externalUrl('VITE_EXECUTION_DASHBOARD_URL') || execCustomUrl || DEFAULT_EXECUTION_DASHBOARD_URL;
-  const preUrl = externalUrl('VITE_PRECONSTRUCTION_URL') || preCustomUrl || DEFAULT_PRECONSTRUCTION_URL;
+  const [vaultFromApi, setVaultFromApi] = useState(() => ({ execution: '', pre: '' }));
+  const execUrl =
+    String(execCustomUrl || '').trim() ||
+    String(vaultFromApi.execution || '').trim() ||
+    externalUrl('VITE_EXECUTION_DASHBOARD_URL') ||
+    DEFAULT_EXECUTION_DASHBOARD_URL;
+  const preUrl =
+    String(preCustomUrl || '').trim() ||
+    String(vaultFromApi.pre || '').trim() ||
+    externalUrl('VITE_PRECONSTRUCTION_URL') ||
+    DEFAULT_PRECONSTRUCTION_URL;
   const execEnabled = !!execUrl;
   const preEnabled = !!preUrl;
   const [apiOk, setApiOk] = useState(null);
@@ -79,7 +88,13 @@ export default function VaultHome() {
     fetch('/api/health')
       .then((r) => r.json())
       .then((j) => {
-        if (alive) setApiOk(!!j?.ok && !!j?.mongo);
+        if (!alive) return;
+        setApiOk(!!j?.ok && !!j?.mongo);
+        const v = j?.vault || {};
+        setVaultFromApi({
+          execution: typeof v.executionDashboardUrl === 'string' ? v.executionDashboardUrl : '',
+          pre: typeof v.preconstructionUrl === 'string' ? v.preconstructionUrl : ''
+        });
       })
       .catch(() => {
         if (alive) setApiOk(false);
@@ -147,7 +162,7 @@ export default function VaultHome() {
               Capacity, allocations, and links to V3 project list via shared storage keys.
             </p>
           </Link>
-          <a href="/legacy/GA_Cashflow_V1.html" target="_blank" rel="noopener noreferrer" style={card}>
+          <a href="/legacy/GA_Cashflow_V1.html?v=8" target="_blank" rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V1</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Cashflow Tracker</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
@@ -171,12 +186,13 @@ export default function VaultHome() {
                   Opens in a new tab: <span style={{ wordBreak: 'break-all' }}>{execUrl}</span>
                 </>
               ) : (
-                'Set VITE_EXECUTION_DASHBOARD_URL in Render env to enable this link.'
+                'Ask your admin to set EXECUTION_DASHBOARD_URL or VITE_EXECUTION_DASHBOARD_URL on Render, or use “Set URL for this browser”.'
               )}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 12, margin: '8px 0 0', lineHeight: 1.4 }}>
-              Override with <code style={{ color: 'var(--gold)' }}>VITE_EXECUTION_DASHBOARD_URL</code> in{' '}
-              <code style={{ color: 'var(--gold)' }}>client/.env</code> if the app runs elsewhere.
+              Team-wide URLs: server env <code style={{ color: 'var(--gold)' }}>EXECUTION_DASHBOARD_URL</code> (no redeploy needed) or
+              build-time <code style={{ color: 'var(--gold)' }}>VITE_EXECUTION_DASHBOARD_URL</code> in{' '}
+              <code style={{ color: 'var(--gold)' }}>client/.env</code>.
             </p>
             <p style={{ margin: '8px 0 0' }}>
               <button
@@ -197,11 +213,12 @@ export default function VaultHome() {
                   Opens: <span style={{ wordBreak: 'break-all' }}>{preUrl}</span>
                 </>
               ) : (
-                'Set VITE_PRECONSTRUCTION_URL in Render env to enable this link.'
+                'Ask your admin to set PRECONSTRUCTION_APP_URL or VITE_PRECONSTRUCTION_URL on Render, or use “Set URL for this browser”.'
               )}
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 12, margin: '8px 0 0', lineHeight: 1.4 }}>
-              Override with <code style={{ color: 'var(--gold)' }}>VITE_PRECONSTRUCTION_URL</code> in{' '}
+              Team-wide URL: server env <code style={{ color: 'var(--gold)' }}>PRECONSTRUCTION_APP_URL</code> or build-time{' '}
+              <code style={{ color: 'var(--gold)' }}>VITE_PRECONSTRUCTION_URL</code> in{' '}
               <code style={{ color: 'var(--gold)' }}>client/.env</code>.
             </p>
             <p style={{ margin: '8px 0 0' }}>

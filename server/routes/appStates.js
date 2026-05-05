@@ -3,7 +3,9 @@ import { ObjectId } from 'mongodb';
 import { withDb } from '../lib/mongo.js';
 import {
   packV1CashflowRowData,
-  unpackV1CashflowRowData,
+  mergeV1CashflowForPut,
+  mergeV1CashflowEnvelopes,
+  repairV1CashflowForRead,
   V1_CASHFLOW_APP_ID
 } from '../lib/v1CashflowMongoPack.js';
 import {
@@ -103,6 +105,8 @@ appStatesRouter.get(
       let outData = row.data;
       if (appId === V3_ORG_PLANNER_APP_ID) {
         outData = repairV3OrgPlannerForRead(row.data);
+      } else if (appId === V1_CASHFLOW_APP_ID) {
+        outData = await repairV1CashflowForRead(db, row.data);
       }
       res.json({
         appId,
@@ -129,7 +133,8 @@ appStatesRouter.put(
       const now = new Date();
       const existing = await states.findOne({ _id: appId });
       const currentVersion = existing?.version || 0;
-      if (expectedVersion !== undefined && Number(expectedVersion) !== currentVersion) {
+      const hasVersionConflict = expectedVersion !== undefined && Number(expectedVersion) !== currentVersion;
+      if (hasVersionConflict && appId !== V1_CASHFLOW_APP_ID) {
         return res.status(409).json({
           error: 'Version conflict',
           appId,
@@ -139,10 +144,15 @@ appStatesRouter.put(
           updatedBy: existing?.updatedBy || null
         });
       }
+      if (hasVersionConflict && appId === V1_CASHFLOW_APP_ID) {
+        // For v1 cashflow, resolve conflicts by merging with latest server envelope
+        // so concurrent users don't lose saves on stale expectedVersion.
+      }
       const nextVersion = currentVersion + 1;
       let toSave = data;
       if (appId === V1_CASHFLOW_APP_ID) {
-        toSave = await packV1CashflowRowData(db, data, {
+        const merged = await mergeV1CashflowForPut(db, existing?.data, data);
+        toSave = await packV1CashflowRowData(db, merged, {
           version: nextVersion,
           updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'
         });
@@ -197,9 +207,12 @@ appStatesRouter.post(
 
       let merged = incoming;
       if (mode === 'merge' && existing?.data) {
-        const base =
-          appId === V1_CASHFLOW_APP_ID ? await unpackV1CashflowRowData(db, existing.data) : existing.data;
-        merged = { ...base, ...incoming };
+        if (appId === V1_CASHFLOW_APP_ID) {
+          const base = await repairV1CashflowForRead(db, existing.data);
+          merged = mergeV1CashflowEnvelopes(base, incoming);
+        } else {
+          merged = { ...existing.data, ...incoming };
+        }
       }
       const nextVersion = (existing?.version || 0) + 1;
       let toSave = merged;

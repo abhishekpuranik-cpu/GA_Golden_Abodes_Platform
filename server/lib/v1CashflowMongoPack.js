@@ -72,6 +72,108 @@ export async function unpackV1CashflowRowData(db, rowData) {
   };
 }
 
+function mergeManualProjsList(existing, incoming) {
+  const byId = new Map();
+  for (const p of existing || []) {
+    if (p && p.id != null) byId.set(String(p.id), p);
+  }
+  for (const p of incoming || []) {
+    if (p && p.id != null) byId.set(String(p.id), p);
+  }
+  return Array.from(byId.values());
+}
+function isPlainObject(v) {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+/**
+ * Recursive merge for workbook JSON objects.
+ * Arrays are replaced (not index-merged) to avoid corrupting row order.
+ */
+function deepMergeWorkbook(existing, incoming) {
+  if (!isPlainObject(existing)) return incoming;
+  if (!isPlainObject(incoming)) return incoming;
+  const out = { ...existing };
+  for (const k of Object.keys(incoming)) {
+    const ev = existing[k];
+    const iv = incoming[k];
+    if (isPlainObject(ev) && isPlainObject(iv)) out[k] = deepMergeWorkbook(ev, iv);
+    else out[k] = iv;
+  }
+  return out;
+}
+
+/**
+ * Union-merge per-project workbook keys so a short client save cannot drop projects
+ * that exist only in Mongo.
+ * @param {object | null} existingEnv
+ * @param {object} incomingEnv
+ */
+export function mergeV1CashflowEnvelopes(existingEnv, incomingEnv) {
+  if (!incomingEnv || typeof incomingEnv !== 'object') {
+    throw new Error('v1_cashflow merge requires incoming envelope');
+  }
+  const ex = existingEnv && typeof existingEnv === 'object' ? existingEnv : null;
+  const exData = ex && ex.data && typeof ex.data === 'object' && !Array.isArray(ex.data) ? ex.data : {};
+  const inData =
+    incomingEnv.data && typeof incomingEnv.data === 'object' && !Array.isArray(incomingEnv.data)
+      ? incomingEnv.data
+      : {};
+  const mergedData = { ...exData };
+  for (const pid of Object.keys(inData)) {
+    const incomingPid = inData[pid];
+    const existingPid = exData[pid];
+    if (isPlainObject(existingPid) && isPlainObject(incomingPid)) mergedData[pid] = deepMergeWorkbook(existingPid, incomingPid);
+    else mergedData[pid] = incomingPid;
+  }
+  return {
+    v: incomingEnv.v,
+    ts: Date.now(),
+    data: mergedData,
+    manualProjs: mergeManualProjsList(ex?.manualProjs, incomingEnv.manualProjs),
+    ui: {
+      ...(ex?.ui && typeof ex.ui === 'object' && !Array.isArray(ex.ui) ? ex.ui : {}),
+      ...(incomingEnv.ui && typeof incomingEnv.ui === 'object' && !Array.isArray(incomingEnv.ui) ? incomingEnv.ui : {})
+    }
+  };
+}
+
+/**
+ * Unpack + legacy shapes so API clients always receive { v, ts, data, manualProjs, ui }.
+ * @param {import('mongodb').Db} db
+ * @param {object} rowData app_states.data for v1_cashflow
+ */
+export async function repairV1CashflowForRead(db, rowData) {
+  if (!rowData || typeof rowData !== 'object') return rowData;
+  if (rowData._cfMongoPack === CF_MONGO_PACK_VER) {
+    return unpackV1CashflowRowData(db, rowData);
+  }
+  if (typeof rowData.ga_cf_v1 === 'string') {
+    try {
+      const parsed = JSON.parse(rowData.ga_cf_v1);
+      if (parsed && typeof parsed === 'object' && parsed.data != null) return parsed;
+    } catch (_) {
+      // fall through
+    }
+  }
+  if (rowData.data !== undefined && typeof rowData.data === 'object' && !Array.isArray(rowData.data)) {
+    return rowData;
+  }
+  return rowData;
+}
+
+/**
+ * @param {import('mongodb').Db} db
+ * @param {object | undefined} existingStored
+ * @param {object} incomingEnvelope
+ */
+export async function mergeV1CashflowForPut(db, existingStored, incomingEnvelope) {
+  let existingEnv = null;
+  if (existingStored) {
+    existingEnv = await repairV1CashflowForRead(db, existingStored);
+  }
+  return mergeV1CashflowEnvelopes(existingEnv, incomingEnvelope);
+}
+
 async function clearV1Blobs(db) {
   await db.collection('app_state_blobs').deleteMany({ appId: V1_CASHFLOW_APP_ID, scope: BLOB_SCOPE });
 }

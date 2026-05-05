@@ -27,7 +27,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tab-btn.on{color:#fff;border-bottom-color:#62C5FF}
 .tab-btn:hover{color:#fff}
 /* Sync bar */
-#sync-bar{background:var(--blue-l);border-bottom:1.5px solid var(--border);padding:5px 14px;display:flex;align-items:center;gap:10px;font-size:10px}
+#sync-bar{background:var(--blue-l);border-bottom:1.5px solid var(--border);padding:8px 14px;display:flex;flex-direction:column;align-items:stretch;gap:8px;font-size:10px}
+#sync-bar-row1{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+#sync-bar-row2{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding-top:2px;border-top:1px solid var(--border)}
 /* Pages */
 .page{padding:12px 14px;max-width:1800px;margin:0 auto}
 /* Cards */
@@ -86,6 +88,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .fld-note{font-size:9px;color:var(--muted);font-weight:400;margin-top:1px}
 .field input,.field select,.cap-inp{padding:6px 8px;border:1.5px solid var(--border);border-radius:5px;font-size:11px;background:var(--card);width:100%}
 .field input:focus,.cap-inp:focus{border-color:var(--blue);outline:none}
+/* Native calendar picker for capital / schedules (some layouts were too narrow to show as date) */
+input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:auto;max-width:100%}
 </style>
 </head>
 <body>
@@ -118,30 +122,35 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
       style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)" title="Add project manually">+ Manual</button>
     <button class="btn btn-outline" data-action="hierarchy-modal"
       style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)" title="Edit project hierarchy">⚙ Hierarchy</button>
+    <button class="btn btn-outline" data-action="remove-proj-cf"
+      style="font-size:10px;padding:4px 8px;color:#fecaca;border-color:rgba(254,202,202,.5)" title="Remove the selected project from this workbook (and Mongo if server save is on). V3 projects can reappear after Sync until removed in V3.">− Remove project</button>
   </div>
 </div>
 
-<!-- Sync bar -->
+<!-- Sync bar: row 2 keeps Server/Mongo controls visible (was clipped on one wide flex row). -->
 <div id="sync-bar">
-  <span id="sync-msg" style="color:var(--muted)">Loading&#8230;</span>
-  <span style="margin-left:12px;padding-left:12px;border-left:1.5px solid var(--border);display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap">
-    <span style="font-weight:700;color:var(--blue-b)">Tally</span>
-    <button type="button" class="btn btn-primary" data-action="tally-sync-modal" style="font-size:10px;padding:4px 10px">Live sync (local)</button>
-  </span>
-  <span style="margin-left:12px;padding-left:12px;border-left:1.5px solid var(--border);display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
-    <span style="font-weight:700;color:var(--blue-b)">Drive</span>
-    <button type="button" class="btn btn-outline" data-action="cf-cloud-setup" style="font-size:10px;padding:4px 8px" title="Same Web App URL as GA Planner V3 (localStorage ga_cloud_url)">Apps Script URL</button>
-    <button type="button" class="btn btn-primary" data-action="cf-cloud-save" style="font-size:10px;padding:4px 8px">Save to cloud</button>
-    <span id="cf-cloud-status" style="font-size:10px;color:var(--muted);max-width:220px"></span>
-  </span>
-  <span style="margin-left:12px;padding-left:12px;border-left:1.5px solid var(--border);display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap" title="Requires a small backend that stores one JSON state document in MongoDB. Not the same as Drive / Apps Script.">
+  <div id="sync-bar-row1">
+    <span id="sync-msg" style="color:var(--muted)">Loading&#8230;</span>
+    <span style="margin-left:12px;padding-left:12px;border-left:1.5px solid var(--border);display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-weight:700;color:var(--blue-b)">Tally</span>
+      <button type="button" class="btn btn-primary" data-action="tally-sync-modal" style="font-size:10px;padding:4px 10px">Live sync (local)</button>
+    </span>
+    <span style="margin-left:12px;padding-left:12px;border-left:1.5px solid var(--border);display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap">
+      <span style="font-weight:700;color:var(--blue-b)">Drive</span>
+      <button type="button" class="btn btn-outline" data-action="cf-cloud-setup" style="font-size:10px;padding:4px 8px" title="Same Web App URL as GA Planner V3 (localStorage ga_cloud_url)">Apps Script URL</button>
+      <button type="button" class="btn btn-primary" data-action="cf-cloud-save" style="font-size:10px;padding:4px 8px">Save to cloud</button>
+      <span id="cf-cloud-status" style="font-size:10px;color:var(--muted);max-width:220px"></span>
+    </span>
+    <span style="margin-left:auto;color:var(--muted);font-size:10px">Today: <strong id="today-date"></strong></span>
+  </div>
+  <div id="sync-bar-row2" title="Requires a small backend that stores one JSON state document in MongoDB. Not the same as Drive / Apps Script.">
     <span style="font-weight:700;color:var(--blue-b)">Server / Mongo</span>
     <button type="button" class="btn btn-outline" data-action="mongo-server-setup" style="font-size:10px;padding:4px 8px">Set API + enable</button>
     <button type="button" class="btn btn-primary" data-action="mongo-save-now" style="font-size:10px;padding:4px 8px" title="PUT state now">Save to server</button>
     <button type="button" class="btn btn-outline" data-action="mongo-load-now" style="font-size:10px;padding:4px 8px" title="GET state from server">Load from server</button>
-    <span id="mongo-cf-status" style="font-size:10px;color:var(--muted);max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
-  </span>
-  <span style="margin-left:auto;color:var(--muted);font-size:10px">Today: <strong id="today-date"></strong></span>
+    <button type="button" class="btn btn-primary" data-action="mongo-import-v3-projects" style="font-size:10px;padding:4px 10px" title="Load ga_rp_projects from v3_org_planner in Mongo, apply here, then save Cashflow to the server">Import V3 list from server</button>
+    <span id="mongo-cf-status" style="font-size:10px;color:var(--muted);flex:1;min-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
+  </div>
 </div>
 
 <!-- Pages -->
@@ -170,7 +179,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 4;
+var CF_VERSION = 8;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1454,7 +1463,10 @@ var _mongoStateVersion = 0;
 var _mongoSaveTimer = null;
 var _mongoSaveBusy = false;
 var _mongoSaveQueued = false;
+var _mongoDirtyPids = {};
+var _mongoForceFullSave = false;
 var MONGO_APP_ID = 'v1_cashflow';
+var MONGO_V3_APP_ID = 'v3_org_planner';
 var GA_MONGO_ENABLE_KEY = 'ga_mongo_state_enable';
 var GA_MONGO_API_BASE_KEY = 'ga_mongo_api_base';
 /** Same-origin /api/... or optional base URL in localStorage (for static front + API on another host; CORS must allow the page origin). */
@@ -1464,6 +1476,47 @@ function mongoStateApiUrl(){
   try{ base=String(localStorage.getItem(GA_MONGO_API_BASE_KEY)||'').trim().replace(/\/$/,''); }catch(e){}
   if(base) return base+'/'+path;
   return '/'+path;
+}
+function v3StateApiUrl(){
+  var path='api/apps/'+MONGO_V3_APP_ID+'/state';
+  var base='';
+  try{ base=String(localStorage.getItem(GA_MONGO_API_BASE_KEY)||'').trim().replace(/\/$/,''); }catch(e){}
+  if(base) return base+'/'+path;
+  return '/'+path;
+}
+/** Pull V3 project list from Mongo (ga_rp_projects) and sync into Cashflow, then PUT v1_cashflow. */
+function importV3ProjectListFromServer(){
+  if(!canUseMongoState()){ setSS('Open Set API + enable (or use localhost) first','red'); return; }
+  setSS('Loading V3 project list from server…','gold');
+  fetch(v3StateApiUrl(),{ credentials:'include' })
+    .then(function(r){
+      if(r.status===404) throw new Error('No V3 org planner in Mongo — open V3, save to server, then retry');
+      return r.json().then(function(j){ return {ok:r.ok, body:j}; });
+    })
+    .then(function(res){
+      if(!res.ok) throw new Error((res.body&&res.body.error)||'V3 state request failed');
+      var data=(res.body&&res.body.data)||{};
+      var pp=null;
+      var rp=data.ga_rp_projects;
+      if(typeof rp==='string'){
+        try{ pp=JSON.parse(rp); }catch(e1){ throw new Error('ga_rp_projects is not valid JSON'); }
+      } else if(Array.isArray(rp)){
+        pp=rp;
+      }
+      if(!pp||!pp.length){
+        try{
+          var st=typeof data.ga_planner_state_v1==='string'?JSON.parse(data.ga_planner_state_v1):null;
+          if(st&&Array.isArray(st.projs)&&st.projs.length) pp=st.projs;
+        }catch(e2){}
+      }
+      if(!pp||!pp.length) throw new Error('No projects in V3 server state');
+      try{ localStorage.setItem('ga_rp_projects',JSON.stringify(pp)); }catch(ls){}
+      _lastProjHash='';
+      syncFromV3();
+      mongoStatePutNow();
+      setSS('Imported '+pp.length+' project(s) from V3 · saving Cashflow to server…','green');
+    })
+    .catch(function(e){ setSS(String(e.message||e).slice(0,120),'red'); });
 }
 function updateMongoStatusLabel(msg){
   var el=document.getElementById('mongo-cf-status');
@@ -1501,6 +1554,65 @@ function cfStatePayload(){
     }
   };
 }
+function markMongoDirtyPid(pid){
+  if(!pid || pid==='__rollup__' || String(pid)==='__ga__') return;
+  _mongoDirtyPids[String(pid)] = 1;
+}
+function localSnapshotSave(){
+  try{
+    localStorage.setItem('ga_cf_v1',JSON.stringify(cfStatePayload()));
+    localStorage.setItem('ga_v1_project_group_filter','__all__');
+    localStorage.setItem('ga_v1_proj_root_filter',_curProjRoot||'__all__');
+    localStorage.setItem('ga_v1_phase_filter',_curPhase||'__all__');
+    localStorage.setItem('ga_v1_building_filter',_curBuilding||'__all__');
+  }catch(e){}
+}
+function mongoPayloadForSave(){
+  var full=cfStatePayload();
+  if(_mongoForceFullSave) return {payload:full, dirtyKeys:[]};
+  var ids=Object.keys(_mongoDirtyPids||{});
+  if(!ids.length) return {payload:full, dirtyKeys:[]};
+  var slim={};
+  ids.forEach(function(pid){
+    if(full.data && Object.prototype.hasOwnProperty.call(full.data,pid)) slim[pid]=full.data[pid];
+  });
+  if(!Object.keys(slim).length) return {payload:full, dirtyKeys:[]};
+  return {
+    payload:{v:full.v,ts:full.ts,data:slim,manualProjs:full.manualProjs,ui:full.ui},
+    dirtyKeys:ids
+  };
+}
+function mergeV1CashflowEnvelopeClient(existingEnv, incomingEnv){
+  var ex=(existingEnv&&typeof existingEnv==='object')?existingEnv:{};
+  var exData=(ex.data&&typeof ex.data==='object')?ex.data:{};
+  var inData=(incomingEnv&&incomingEnv.data&&typeof incomingEnv.data==='object')?incomingEnv.data:{};
+  var byId={};
+  (ex.manualProjs||[]).forEach(function(p){ if(p&&p.id!=null) byId[String(p.id)]=p; });
+  (incomingEnv.manualProjs||[]).forEach(function(p){ if(p&&p.id!=null) byId[String(p.id)]=p; });
+  var mergedManual=Object.keys(byId).map(function(k){ return byId[k]; });
+  return {
+    v: incomingEnv.v,
+    ts: Date.now(),
+    data: Object.assign({}, exData, inData),
+    manualProjs: mergedManual,
+    ui: Object.assign({}, (ex.ui&&typeof ex.ui==='object')?ex.ui:{}, (incomingEnv.ui&&typeof incomingEnv.ui==='object')?incomingEnv.ui:{})
+  };
+}
+function fetchMongoEnvelope(){
+  return fetch(mongoStateApiUrl(),{ credentials:'include', cache:'no-store' })
+    .then(function(r){
+      if(r.status===404) return null;
+      return r.json().then(function(j){ return {ok:r.ok, body:j}; });
+    })
+    .then(function(res){
+      if(!res) return null;
+      if(!res.ok) throw new Error((res.body&&res.body.error)||'Load failed');
+      return { version:Number(res.body.version)||0, data:(res.body&&res.body.data)||{} };
+    });
+}
+function isV1EnvelopeLike(d){
+  return !!(d && typeof d==='object' && !Array.isArray(d) && d.data && typeof d.data==='object' && !Array.isArray(d.data));
+}
 
 // Per-project empty config
 function emptyProjData(pid){
@@ -1511,7 +1623,7 @@ function emptyProjData(pid){
     // Capital structure
     dealType:'JV', devSharePct:50,
     landCost:0, landDeposit:0, partnerBuyout:0, partnerBuyoutNote:'',
-    investors:[],      // {id,name,amount,drawMonth,ratePct,type,termYrs}
+    investors:[],      // {id,name,amount,drawDate (ISO),drawMonth (legacy 1-based),ratePct,type,termYrs}
     unsecuredLoans:[], // {id,name,amount,drawDate,ratePct}
     debtTranches:[],   // {id,lender,drawAmount,drawDate,ratePct,repaySchedule[]}
     customerUL:[],     // {id,name,amount,date}
@@ -1523,7 +1635,7 @@ function emptyProjData(pid){
     regulatoryConsultingSchedule:[], // GA L1 — statutory + professional (separate from NOC / Consultant rows if used)
     constructionSchedule:[], // [{month,amount}] month = 1-based offset from start
     marketingSchedule:[],  // [{month,amount}]
-    gaMonthly:500000,      // fixed G&A per month (from V2 resource plan)
+    gaMonthly:0,           // set in Expense schedule → ⑥ GA DM Fee — Monthly Fixed Cost (or V2 annual override)
     gaMktgAnnual:0,        // marketing from V2 P&L push
     gaGAAnnual:0,          // G&A from V2 P&L push
     contingencyPct:2,      // % of construction cost per month
@@ -1623,19 +1735,23 @@ function getCF(pid){
   (_cfData[pid].units||[]).forEach(ensureUnitPaymentFields);
   return _cfData[pid];
 }
+/** Monthly GA DM for portfolio KPIs: Expense schedule ⑥ (V2 annual ÷12, else GA DM monthly); falls back to legacy _dmFee. */
+function dmFeeMonthlyFromExpenseSchedule(p){
+  if(!p||!p.id) return 0;
+  try{
+    var cfg=getCF(p.id);
+    if(cfg&&(parseFloat(cfg.gaGAAnnual)||0)>0) return (parseFloat(cfg.gaGAAnnual)||0)/12;
+    var m=parseFloat(cfg.gaMonthly);
+    if(isFinite(m)) return m;
+  }catch(e){}
+  var leg=parseFloat(p._dmFee);
+  return isFinite(leg)?leg:0;
+}
 
 function saveAll(){
-  if(!canUseMongoState()){
-    try{
-      localStorage.setItem('ga_cf_v1',JSON.stringify(cfStatePayload()));
-      localStorage.setItem('ga_v1_project_group_filter','__all__');
-      localStorage.setItem('ga_v1_proj_root_filter',_curProjRoot||'__all__');
-      localStorage.setItem('ga_v1_phase_filter',_curPhase||'__all__');
-      localStorage.setItem('ga_v1_building_filter',_curBuilding||'__all__');
-    }catch(e){}
-  }else{
-    scheduleMongoStateSave();
-  }
+  markMongoDirtyPid(_curPid);
+  localSnapshotSave();
+  if(canUseMongoState()) scheduleMongoStateSave();
   scheduleCfCloudPush();
 }
 function mongoStateStatus(msg,col){
@@ -1646,14 +1762,33 @@ function mongoStatePutNow(){
   if(_mongoSaveBusy){ _mongoSaveQueued=true; return Promise.resolve(false); }
   _mongoSaveBusy=true;
   var expected=_mongoStateVersion;
-  var payload=cfStatePayload();
+  var payloadInfo=mongoPayloadForSave();
+  var payload=payloadInfo.payload;
+  var dirtyKeys=payloadInfo.dirtyKeys||[];
   var user='User';
   try{ user=(localStorage.getItem('ga_user_name')||'User').trim()||'User'; }catch(e){}
-  return fetch(mongoStateApiUrl(),{
-    method:'PUT',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({data:payload, expectedVersion:expected, updatedBy:user})
-  }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok,body:j}; }); })
+  function sendPut(data, exp){
+    return fetch(mongoStateApiUrl(),{
+      method:'PUT',
+      credentials:'include',
+      cache:'no-store',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({data:data, expectedVersion:exp, updatedBy:user})
+    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok,body:j}; }); });
+  }
+  return sendPut(payload, expected)
+  .then(function(res){
+    if(res.ok) return res;
+    if(res.body && res.body.currentVersion!==undefined && String(res.body.error||'').toLowerCase().indexOf('version conflict')>=0){
+      _mongoStateVersion=Number(res.body.currentVersion)||_mongoStateVersion;
+      return fetchMongoEnvelope().then(function(latest){
+        if(!latest) return res;
+        var rebased=mergeV1CashflowEnvelopeClient((latest.data&&typeof latest.data==='object')?latest.data:{}, payload);
+        return sendPut(rebased, latest.version);
+      });
+    }
+    return res;
+  })
   .then(function(res){
     if(!res.ok){
       if(res.body && res.body.currentVersion!==undefined){
@@ -1662,6 +1797,12 @@ function mongoStatePutNow(){
       throw new Error((res.body&&res.body.error)||'Mongo save failed');
     }
     _mongoStateVersion=Number(res.body.version)||_mongoStateVersion;
+    if(dirtyKeys.length){
+      dirtyKeys.forEach(function(pid){ delete _mongoDirtyPids[pid]; });
+    } else {
+      _mongoDirtyPids={};
+    }
+    _mongoForceFullSave=false;
     mongoStateStatus('MongoDB save OK · v'+_mongoStateVersion,'green');
     updateMongoStatusLabel();
     return true;
@@ -1702,9 +1843,37 @@ function mergeProjectsFromCfData(){
     });
   }catch(e){}
 }
+/** Drop one project from PROJS + _cfData; save (Mongo if enabled). V3 can re-add the row if that id still exists in ga_rp_projects. */
+function removeCurrentProjectFromCashflowWorkbook(){
+  if(!_curPid || _curPid==='__rollup__' || String(_curPid)==='__ga__'){
+    alert('Pick a single project in the header dropdown first (not GA Consolidated or rollup).');
+    return;
+  }
+  var p=(PROJS||[]).find(function(x){return x&&x.id===_curPid;});
+  if(!p){
+    alert('No matching project in the list.');
+    return;
+  }
+  var nm=(p.name||p.id||_curPid).toString();
+  if(!window.confirm('Remove "'+nm+'" from this Cashflow workbook?\n\nThis deletes saved cashflow/sales rows for that project here. If it still exists in V3, it can show again after Sync V3 — delete it in V3 to remove it for the whole team.')) return;
+  PROJS=(PROJS||[]).filter(function(x){return !x||x.id!==_curPid;});
+  try{ delete _cfData[_curPid]; }catch(eD){}
+  _mongoForceFullSave=true;
+  _mongoDirtyPids={};
+  _curPid=(PROJS[0]&&PROJS[0].id)||null;
+  ensureProjRootCoherent();
+  buildProjectGroupSelect();
+  buildPhaseSelect();
+  buildBuildingSelect();
+  ensureCurrentProjectVisible();
+  buildProjSelect();
+  saveAll();
+  renderAll();
+  setSS('Removed "'+nm+'" from workbook','gold');
+}
 function loadAllFromMongo(){
   if(!canUseMongoState()) return Promise.resolve(false);
-  return fetch(mongoStateApiUrl())
+  return fetch(mongoStateApiUrl(),{ credentials:'include', cache:'no-store' })
     .then(function(r){
       if(r.status===404) return null;
       return r.json().then(function(j){ return {ok:r.ok, body:j}; });
@@ -1713,7 +1882,7 @@ function loadAllFromMongo(){
       if(!res) return false;
       if(!res.ok) throw new Error((res.body&&res.body.error)||'Load failed');
       var d=(res.body&&res.body.data)||{};
-      if(!d||typeof d!=='object') return false;
+      if(!isV1EnvelopeLike(d)) throw new Error('Server payload invalid for v1_cashflow');
       _cfData=d.data||{};
       if(Array.isArray(d.manualProjs)){
         d.manualProjs.forEach(function(mp){
@@ -1726,7 +1895,8 @@ function loadAllFromMongo(){
       _curPhase=(d.ui&&d.ui.phase)||'__all__';
       _curBuilding=(d.ui&&d.ui.building)||'__all__';
       _mongoStateVersion=Number(res.body.version)||0;
-      if(migrateCfCategoryLabels()) scheduleMongoStateSave(200);
+      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()) scheduleMongoStateSave(200);
+      localSnapshotSave();
       mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion,'green');
       updateMongoStatusLabel();
       return true;
@@ -1736,6 +1906,32 @@ function loadAllFromMongo(){
       updateMongoStatusLabel('Load failed');
       return false;
     });
+}
+function autoPullMongoIfNewer(){
+  if(!canUseMongoState()) return;
+  if(_mongoSaveBusy || _mongoSaveQueued) return;
+  if(Object.keys(_mongoDirtyPids||{}).length) return;
+  if(_mongoForceFullSave) return;
+  fetchMongoEnvelope().then(function(latest){
+    if(!latest || !latest.data || !isV1EnvelopeLike(latest.data)) return;
+    if((latest.version||0)<=(_mongoStateVersion||0)) return;
+    var d=latest.data;
+    _cfData=d.data||{};
+    if(Array.isArray(d.manualProjs)){
+      d.manualProjs.forEach(function(mp){
+        if(!PROJS.find(function(p){return p.id===mp.id;})) PROJS.push(mp);
+      });
+    }
+    mergeProjectsFromCfData();
+    _curProjRoot=(d.ui&&d.ui.projRoot)||_curProjRoot||'__all__';
+    _curPhase=(d.ui&&d.ui.phase)||_curPhase||'__all__';
+    _curBuilding=(d.ui&&d.ui.building)||_curBuilding||'__all__';
+    _mongoStateVersion=latest.version||_mongoStateVersion;
+    localSnapshotSave();
+    buildProjectGroupSelect(); buildPhaseSelect(); buildBuildingSelect(); buildProjSelect(); ensureCurrentProjectVisible(); renderAll();
+    mongoStateStatus('Auto-refreshed newer Mongo data · v'+_mongoStateVersion,'green');
+    updateMongoStatusLabel();
+  }).catch(function(){});
 }
 /** Same key as GA_OrgResourcePlanner_V3.html (GA_CONF_KEY). */
 var CF_CLOUD_CONF_KEY='ga_cloud_url';
@@ -1851,6 +2047,22 @@ function migrateCfCategoryLabels(){
   }catch(e){}
   return touched;
 }
+/** Legacy default was ₹5L/mo (0.05 Cr) — clear if still exact default and no V2 annual override. */
+function migrateLegacyGaMonthlyDefault(){
+  var touched=false;
+  try{
+    Object.keys(_cfData||{}).forEach(function(pid){
+      var cfg=_cfData[pid];
+      if(!cfg) return;
+      var g=parseFloat(cfg.gaMonthly), ann=parseFloat(cfg.gaGAAnnual);
+      if(Number.isFinite(g)&&g===500000&&!(Number.isFinite(ann)&&ann>0)){
+        cfg.gaMonthly=0;
+        touched=true;
+      }
+    });
+  }catch(e){}
+  return touched;
+}
 function loadAll(){
   if(canUseMongoState()){
     return loadAllFromMongo().then(function(ok){
@@ -1862,7 +2074,7 @@ function loadAll(){
           mergeProjectsFromCfData();
           if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
           var needVersionBump=!d.v||d.v<CF_VERSION;
-          if(migrateCfCategoryLabels()||needVersionBump) saveAll();
+          if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
         }
         _curProjectGroup='__all__';
         if(_curProjRoot==='__all__') _curProjRoot=localStorage.getItem('ga_v1_proj_root_filter')||'__all__';
@@ -1879,7 +2091,7 @@ function loadAll(){
       mergeProjectsFromCfData();
       if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
       var needVersionBump=!d.v||d.v<CF_VERSION;
-      if(migrateCfCategoryLabels()||needVersionBump) saveAll();
+      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
     }
     _curProjectGroup='__all__';
     try{ localStorage.setItem('ga_v1_project_group_filter','__all__'); }catch(x){}
@@ -1893,7 +2105,7 @@ function loadAll(){
 // ══════════════════════════════════════════════════════════════
 // SYNC
 // ══════════════════════════════════════════════════════════════
-function syncFromV3(){
+function syncFromV3(noPersist){
   try{
     var raw=localStorage.getItem('ga_rp_projects');
     if(raw&&raw!==_lastProjHash){
@@ -1912,6 +2124,9 @@ function syncFromV3(){
         ensureCurrentProjectVisible();
         mergeV3CashflowHints();
         setSS('Synced '+pp.length+' project(s) from V3','green');
+        if(noPersist){ buildProjSelect(); renderAll(); return; }
+        _mongoForceFullSave=true;
+        _mongoDirtyPids={};
         saveAll(); buildProjSelect(); renderAll(); return;
       }
     }
@@ -2166,34 +2381,29 @@ function buildCashflow(pid){
     actMap[mo][a.cat1]=(actMap[mo][a.cat1]||0)+coerceMoney(a.amount);
   });
 
-  // Build capital inflow schedules
-  var invFlowMap={};
+  // Build capital inflow schedules — equity vs investor columns
+  var equityInfMap={}, invFlowMap={};
   (cfg.investors||[]).forEach(function(inv){
-    if(inv.drawMonth&&inv.amount>0){
-      var mo=offsetMonth(startDate,inv.drawMonth-1);
-      invFlowMap[mo]=(invFlowMap[mo]||0)+inv.amount;
-    }
+    var moK=monthKeyFromInvestorDraw(inv,startDate);
+    if(!moK||coerceMoney(inv.amount)<=0) return;
+    var add=coerceMoney(inv.amount);
+    if(inv.type==='equity') equityInfMap[moK]=(equityInfMap[moK]||0)+add;
+    else invFlowMap[moK]=(invFlowMap[moK]||0)+add;
   });
   var ulFlowMap={};
   (cfg.unsecuredLoans||[]).forEach(function(ul){
-    if(ul.drawDate&&ul.amount>0){
-      var mo=ul.drawDate.slice(0,7);
-      ulFlowMap[mo]=(ulFlowMap[mo]||0)+ul.amount;
-    }
+    var moU=monthKeyFromFlexibleDate(ul.drawDate);
+    if(moU&&coerceMoney(ul.amount)>0) ulFlowMap[moU]=(ulFlowMap[moU]||0)+coerceMoney(ul.amount);
   });
   var culFlowMap={};
   (cfg.customerUL||[]).forEach(function(cu){
-    if(cu.date&&cu.amount>0){
-      var mo=cu.date.slice(0,7);
-      culFlowMap[mo]=(culFlowMap[mo]||0)+cu.amount;
-    }
+    var moC=monthKeyFromFlexibleDate(cu.date);
+    if(moC&&coerceMoney(cu.amount)>0) culFlowMap[moC]=(culFlowMap[moC]||0)+coerceMoney(cu.amount);
   });
   var otherFlowMap={};
   (cfg.otherInflows||[]).forEach(function(oi){
-    if(oi.date&&oi.amount>0){
-      var mo=oi.date.slice(0,7);
-      otherFlowMap[mo]=(otherFlowMap[mo]||0)+oi.amount;
-    }
+    var moO=monthKeyFromFlexibleDate(oi.date);
+    if(moO&&coerceMoney(oi.amount)>0) otherFlowMap[moO]=(otherFlowMap[moO]||0)+coerceMoney(oi.amount);
   });
 
   // Build customer collection schedule (CRM: due / realized / deficit meta by milestone month)
@@ -2257,6 +2467,8 @@ function buildCashflow(pid){
   var debtPrincipalMap={};
   var debtBalance={};
   (cfg.debtTranches||[]).forEach(function(dt){debtBalance[dt.id]={bal:0,rate:dt.ratePct||12};});
+  var ulBalance={};
+  (cfg.unsecuredLoans||[]).forEach(function(ul,ui){ ulBalance[ui]={bal:0,rate:coerceMoney(ul.ratePct)||0}; });
 
   var earliestAct=earliestActualsMonthKey(cfg);
   var floorMo=addMonthsToMonthKey(startKey,-120);
@@ -2302,7 +2514,7 @@ function buildCashflow(pid){
     var salesRealizedMo=bucketMo.salesRealized||0;
     var salesProjectedLine=(mo>curMo)?(bucketMo.sales||0):0;
     var salesDeficitMo=(mo===curMo)?(salesTimingMeta.salesDeficitTotal||0):0;
-    var equityInf   = ov.equityInf   !== undefined ? ov.equityInf   : (act['Equity Infusion']  || 0);
+    var equityInf   = ov.equityInf   !== undefined ? ov.equityInf   : (act['Equity Infusion']  || equityInfMap[mo] || 0);
     var invFunding  = ov.invFunding  !== undefined ? ov.invFunding  : (act['Investor Funding'] || invFlowMap[mo] || 0);
     var ulInflow    = ov.ulInflow    !== undefined ? ov.ulInflow    : (act['Unsecured Loan']    || ulFlowMap[mo]  || 0);
     var custColl    = ov.custColl    !== undefined ? ov.custColl    : (act['Customer Collections'] || 0);
@@ -2316,7 +2528,7 @@ function buildCashflow(pid){
     var regulatoryConsulting= ov.regulatoryConsulting!==undefined ? ov.regulatoryConsulting : (act['Regulatory & Consulting']||regConsultMap[mo]||0);
     var construction= ov.construction!== undefined ? ov.construction: (isActual ? (act['Construction']||0) : (consMap[mo]||0));
     // G&A from V2 push or manual monthly
-    var gaMonthly   = cfg.gaGAAnnual>0 ? cfg.gaGAAnnual/12 : (cfg.gaMonthly||500000);
+    var gaMonthly   = cfg.gaGAAnnual>0 ? cfg.gaGAAnnual/12 : (parseFloat(cfg.gaMonthly)||0);
     var gaDmAct     = act['GA DM Fee'];
     if(gaDmAct===undefined||gaDmAct===null) gaDmAct=act['GA-DM'];
     if(gaDmAct===undefined||gaDmAct===null) gaDmAct=act['G&A'];
@@ -2340,18 +2552,34 @@ function buildCashflow(pid){
     }
     var totInflows  = salesRev+equityInf+invFunding+ulInflow+custColl+custUL+otherIn;
 
-    // Debt: calculate interest on balances
+    // Debt: calculate interest on balances (monthly accrual on opening + draws this month before payment)
     var schedInt=0, debtDraw=0;
     (cfg.debtTranches||[]).forEach(function(dt){
       if(!debtBalance[dt.id]) debtBalance[dt.id]={bal:0,rate:dt.ratePct||12};
       var db=debtBalance[dt.id];
-      if(dt.drawDate&&dt.drawDate.slice(0,7)===mo){
-        db.bal+=(dt.drawAmount||0); debtDraw+=(dt.drawAmount||0);
+      var drawMk=monthKeyFromFlexibleDate(dt.drawDate);
+      if(drawMk===mo){
+        var add=coerceMoney(dt.drawAmount);
+        db.bal+=add; debtDraw+=add;
       }
       if(db.bal>0) schedInt+=db.bal*(db.rate/100/12);
     });
-    // Interest and principal from actuals if available, else scheduled
-    var intPaid     = act['Interest Paid']    || (isActual?0:schedInt);
+    // Unsecured loans: balance builds on draw; monthly interest at ratePct (additive to Interest Paid)
+    var ulSchedInt=0;
+    (cfg.unsecuredLoans||[]).forEach(function(ul,ui){
+      var st=ulBalance[ui];
+      if(!st) return;
+      var um=monthKeyFromFlexibleDate(ul.drawDate);
+      if(um===mo && coerceMoney(ul.amount)>0) st.bal+=coerceMoney(ul.amount);
+    });
+    (cfg.unsecuredLoans||[]).forEach(function(ul,ui){
+      var st=ulBalance[ui];
+      if(st&&st.bal>0 && st.rate>0) ulSchedInt+=st.bal*(st.rate/100/12);
+    });
+    schedInt+=ulSchedInt;
+    // Use Tally Interest Paid when present; otherwise model accrual (debt + unsecured) for all months
+    var actIntRaw=act['Interest Paid'];
+    var intPaid=(actIntRaw!==undefined && actIntRaw!==null && actIntRaw!=='')?coerceMoney(actIntRaw):schedInt;
     var principalPaid=act['Principal Repaid'] || 0;
 
     // Principal repayment from tranche schedules
@@ -2525,29 +2753,70 @@ function buildUnsoldPaceQueue(cfg){
   });
   return out;
 }
+/** Full CLP via project Sales-tab dates — default unsold row is lump in projected booking month. */
+function unsoldUsesConstScheduleSpread(uRef){
+  if(!uRef||typeof uRef!=='object') return false;
+  if(uRef.projectUnsoldAsClp===true) return true;
+  var m=uRef.milestonesDates;
+  if(!m||typeof m!=='object') return false;
+  for(var k in m){
+    if(Object.prototype.hasOwnProperty.call(m,k)&&(normalizeToISODate(m[k])||'')) return true;
+  }
+  return false;
+}
+function clampConstScheduleAmountsToTotal(sched,tv){
+  if(!sched||!sched.length) return sched;
+  var cap=coerceMoney(tv);
+  if(cap<=0) return sched;
+  var sum=0;
+  sched.forEach(function(x){ sum+=coerceMoney(x.amount); });
+  if(sum<=cap+0.02) return sched;
+  var f=cap/sum;
+  return sched.map(function(x){ return {date:x.date,amount:coerceMoney(x.amount*f),label:x.label}; });
+}
+function totalUnsoldBookValueFromQueue(cfg){
+  return buildUnsoldPaceQueue(cfg).reduce(function(s,x){ return s+coerceMoney(x.val); },0);
+}
+function scaleUnsoldMapToBookCap(map,cfg){
+  var cap=totalUnsoldBookValueFromQueue(cfg);
+  if(cap<=0||!map||typeof map!=='object') return map;
+  var tot=0;
+  Object.keys(map).forEach(function(k){ tot+=coerceMoney(map[k].sales); });
+  if(tot<=cap+0.02) return map;
+  var f=cap/tot;
+  Object.keys(map).forEach(function(k){
+    var mk=map[k];
+    mk.sales=coerceMoney(mk.sales*f);
+    (mk.items||[]).forEach(function(it){ it.amount=coerceMoney(coerceMoney(it.amount)*f); });
+  });
+  return map;
+}
 function addConstUnsoldToMap(map, cfg, bookingIso, totalValue, uRef){
   var tv=coerceMoney(totalValue);
   if(tv<=0) return;
   var bi=normalizeToISODate(bookingIso)||String(bookingIso);
   var pseudo={payType:'const',bookingDate:bi,totalValue:tv,milestonesDates:(uRef&&uRef.milestonesDates)||{}};
   var labelUnit=(uRef&&(uRef.unitNo||uRef.id))||'Pace (unsold)';
-  var sched=getConstSchedule(pseudo,cfg);
-  if(sched.length){
-    sched.forEach(function(it){
-      var iso=normalizeToISODate(it.date);
-      if(!iso) return;
-      var mKey=iso.slice(0,7);
-      if(!map[mKey]) map[mKey]={sales:0,items:[]};
-      var amt=coerceMoney(it.amount);
-      map[mKey].sales+=amt;
-      map[mKey].items.push({unit:labelUnit,amount:amt,milestone:it.label||'Milestone'});
-    });
-    return;
+  if(unsoldUsesConstScheduleSpread(uRef)){
+    var sched=getConstSchedule(pseudo,cfg);
+    sched=clampConstScheduleAmountsToTotal(sched,tv);
+    if(sched&&sched.length){
+      sched.forEach(function(it){
+        var iso=normalizeToISODate(it.date);
+        if(!iso) return;
+        var mKey=iso.slice(0,7);
+        if(!map[mKey]) map[mKey]={sales:0,items:[]};
+        var amt=coerceMoney(it.amount);
+        map[mKey].sales+=amt;
+        map[mKey].items.push({unit:labelUnit,amount:amt,milestone:it.label||'Milestone'});
+      });
+      return;
+    }
   }
   var m0=bi.slice(0,7);
   if(!map[m0]) map[m0]={sales:0,items:[]};
   map[m0].sales+=tv;
-  map[m0].items.push({unit:labelUnit,amount:tv,milestone:'Unsold (set milestone % in project CLP)'});
+  map[m0].items.push({unit:labelUnit,amount:tv,milestone:unsoldUsesConstScheduleSpread(uRef)?'Unsold CLP fallback (no dated tranches)':'Unsold projected sale (lump)'});
 }
 /** Revenue map for unsold: FIFO lots + same CLP as sold const-linked units. Optional `opts` for max(projectedSalePerMonth) path. */
 function buildUnsoldGlobalPaceRevenueMap(cfg, opts){
@@ -2584,7 +2853,7 @@ function buildUnsoldGlobalPaceRevenueMap(cfg, opts){
       }
       mi++;
     }
-    return map;
+    return scaleUnsoldMapToBookCap(map,cfg);
   }
   var remQ=queue.map(function(x){ return {row:x.row,area:coerceMoney(x.area),val:coerceMoney(x.val)}; });
   var mJ=0;
@@ -2609,7 +2878,7 @@ function buildUnsoldGlobalPaceRevenueMap(cfg, opts){
     }
     mJ++;
   }
-  return map;
+  return scaleUnsoldMapToBookCap(map,cfg);
 }
 function soldStatsForPaceCompare(cfg, sinceYM){
   var sq=0, val=0, n=0, miss=0;
@@ -2673,24 +2942,27 @@ function buildUnsoldRealization(cfg, startDate){
     if(val<=0) return;
     var saleIso=normalizeToISODate(u.projectedSaleDate)||'';
     if(saleIso){
-      var pseudo={payType:'const',bookingDate:saleIso,totalValue:val,milestonesDates:(u.milestonesDates&&typeof u.milestonesDates==='object')?u.milestonesDates:{}};
-      var sched=getConstSchedule(pseudo,cfg);
-      if(sched.length){
-        sched.forEach(function(it){
-          var iso=normalizeToISODate(it.date);
-          if(!iso) return;
-          var mo=iso.slice(0,7);
-          if(!map[mo]) map[mo]={sales:0,items:[]};
-          var amt=coerceMoney(it.amount);
-          map[mo].sales+=amt;
-          map[mo].items.push({unit:u.unitNo||'Unsold',amount:amt,milestone:it.label||'Milestone'});
-        });
-        return;
+      if(unsoldUsesConstScheduleSpread(u)){
+        var pseudo={payType:'const',bookingDate:saleIso,totalValue:val,milestonesDates:(u.milestonesDates&&typeof u.milestonesDates==='object')?u.milestonesDates:{}};
+        var schedU=getConstSchedule(pseudo,cfg);
+        schedU=clampConstScheduleAmountsToTotal(schedU,val);
+        if(schedU&&schedU.length){
+          schedU.forEach(function(it){
+            var iso2=normalizeToISODate(it.date);
+            if(!iso2) return;
+            var mo=iso2.slice(0,7);
+            if(!map[mo]) map[mo]={sales:0,items:[]};
+            var amt=coerceMoney(it.amount);
+            map[mo].sales+=amt;
+            map[mo].items.push({unit:u.unitNo||'Unsold',amount:amt,milestone:it.label||'Milestone'});
+          });
+          return;
+        }
       }
       var moSale=saleIso.slice(0,7);
       if(!map[moSale]) map[moSale]={sales:0,items:[]};
       map[moSale].sales+=val;
-      map[moSale].items.push({unit:u.unitNo||'Unsold',amount:val,milestone:'Projected Sale'});
+      map[moSale].items.push({unit:u.unitNo||'Unsold',amount:val,milestone:'Unsold projected sale (lump)'});
       return;
     }
     var m=parseInt(u.expectedMonth,10);
@@ -2700,7 +2972,7 @@ function buildUnsoldRealization(cfg, startDate){
     map[mo].sales+=val;
     map[mo].items.push({unit:u.unitNo||'Unsold',amount:val,milestone:'Projected Sale'});
   });
-  return map;
+  return scaleUnsoldMapToBookCap(map,cfg);
 }
 
 function getUnitSchedule(unit, cfg){
@@ -2863,6 +3135,36 @@ function buildGACashflow(cfByPid){
   }
   return agg;
 }
+function buildHierarchyRollup(vis, cfByPid){
+  var byRoot={};
+  (vis||[]).forEach(function(p){
+    if(!p) return;
+    var h=getProjectHierarchy(p.id);
+    var root=h.projectGroup||'Unassigned';
+    var phase=h.phase||'Unassigned';
+    var building=(h.building&&h.building!=='Unassigned')?h.building:(p.name||p.id||'Building');
+    var rows=(cfByPid&&cfByPid[p.id])||[];
+    var tin=rows.reduce(function(s,r){ return s+(r.totInflows||0); },0);
+    var tout=rows.reduce(function(s,r){ return s+(r.totOutflows||0); },0);
+    var close=rows.length?(rows[rows.length-1].closingCash||0):0;
+    if(!byRoot[root]) byRoot[root]={name:root,totIn:0,totOut:0,close:0,phases:{}};
+    var rr=byRoot[root];
+    rr.totIn+=tin; rr.totOut+=tout; rr.close+=close;
+    if(!rr.phases[phase]) rr.phases[phase]={name:phase,totIn:0,totOut:0,close:0,buildings:[]};
+    var ph=rr.phases[phase];
+    ph.totIn+=tin; ph.totOut+=tout; ph.close+=close;
+    ph.buildings.push({name:building,pid:p.id,totIn:tin,totOut:tout,close:close});
+  });
+  return Object.keys(byRoot).sort().map(function(k){
+    var r=byRoot[k];
+    var phases=Object.keys(r.phases).sort().map(function(pk){
+      var ph=r.phases[pk];
+      ph.buildings.sort(function(a,b){ return String(a.name).localeCompare(String(b.name)); });
+      return ph;
+    });
+    return {name:r.name,totIn:r.totIn,totOut:r.totOut,close:r.close,phases:phases};
+  });
+}
 
 // ══════════════════════════════════════════════════════════════
 // HELPERS
@@ -2878,6 +3180,33 @@ function offsetMonth(startDate, offset){
     d.setMonth(d.getMonth()+offset);
     return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
   }catch(e){ return ''; }
+}
+/** Value for HTML input type="date" (strict YYYY-MM-DD) or empty. */
+function normalizeDateInputValue(raw){
+  if(raw==null||raw==='') return '';
+  var iso=normalizeToISODate(String(raw).trim());
+  if(iso) return iso.slice(0,10);
+  var s=String(raw).trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  return '';
+}
+/** YYYY-MM for capital-schedule date fields (ISO, partial YYYY-MM, or parseable string). */
+function monthKeyFromFlexibleDate(raw){
+  if(raw==null||raw==='') return '';
+  var s=String(raw).trim();
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,7);
+  if(/^\d{4}-\d{2}$/.test(s)) return s;
+  var iso=normalizeToISODate(s);
+  return iso?iso.slice(0,7):'';
+}
+function monthKeyFromInvestorDraw(inv, startDate){
+  if(!inv) return '';
+  var mk=monthKeyFromFlexibleDate(inv.drawDate);
+  if(mk) return mk;
+  var dm=parseInt(inv.drawMonth,10);
+  if(!isFinite(dm)||dm<=0) return '';
+  var s=(startDate&&String(startDate).length>=7)?startDate:(new Date().toISOString().slice(0,10));
+  return offsetMonth(s,dm-1);
 }
 /** 1-based project month index for a calendar date vs project start (YYYY-MM or YYYY-MM-DD). */
 function dateToProjectMonth(startDate, isoDate){
@@ -3609,6 +3938,7 @@ function renderCashflow(){
   h+='<button class="btn btn-primary" data-action="tally-sync-modal" title="Requires Node bridge + Tally running">&#9889; Tally live</button>';
   h+='<button class="btn btn-outline" data-action="export-cf">⬇ Export TSV</button>';
   h+='<button class="btn btn-outline" data-action="export-ppt">📊 Investor PPT</button>';
+  h+='<button class="btn btn-outline" data-action="remove-proj-cf" style="color:var(--red-b);border-color:#fca5a5" title="Remove this project from the Cashflow workbook (and Mongo if server save is on)">Remove project</button>';
   h+='</div></div>';
   h+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-4px 0 10px">';
   h+='<span style="font-size:10px;color:var(--muted);font-weight:700">TIME:</span>';
@@ -4411,7 +4741,7 @@ function renderSales(){
   h+='<span style="color:var(--muted);max-width:280px">'+impliedStr+'</span>';
   h+='<button type="button" class="btn btn-outline" data-action="unsold-pace-baseline" style="font-size:10px;padding:4px 8px" title="Freeze today’s plan & inventory for variance tracking">Set as baseline</button>';
   h+='</div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.4">Upload or enter rows: <strong>Unit Number, Unit Type, Saleable Area, Rate/sq.ft, Planned Sale Value</strong>. Set the <strong>pace plan</strong> above: each month’s implied sale is booked on the 1st of that month and <strong>cash inflow is spread by your construction‑linked milestone % and dates</strong> (same logic as <strong>Construction-linked</strong> sold units). If pace is <strong>zero</strong>, row-level rules apply (projected sale date / expected month, etc.).</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.4">Upload or enter rows: <strong>Unit, Saleable Area, Planned Value</strong>, then <strong>Projected sale date</strong>. By default the <strong>full planned value lands in that month only</strong> (one flat ≠ repeated across the model). Tick <strong>Project CLP</strong> only if this unsold line should reuse <strong>Sales milestone dates</strong> like a booked construction-linked unit. With the <strong>pace plan</strong> above (&gt;0), FIFO lots still follow the same rule per row unless <strong>Project CLP</strong> is checked.</div>';
   var soldSet={};
   (cfg.units||[]).forEach(function(u){ soldSet[normalizeUnitNoKey(u&&u.unitNo)]=1; });
   var visUnsold=[];
@@ -4445,22 +4775,25 @@ function renderSales(){
   h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
   h+='<table style="width:100%;border-collapse:collapse;font-size:10px;min-width:720px">';
   h+='<thead><tr style="background:var(--blue-l)">';
-  ['Unit Number','Unit Type','Saleable Area','Planned Rate / Sq.Ft.','Planned Sale Value','Actions'].forEach(function(x){
-    h+='<th style="padding:6px 8px;text-align:'+(x==='Actions'?'center':'left')+'">'+x+'</th>';
+  ['Unit Number','Unit Type','Saleable Area','Planned Rate / Sq.Ft.','Planned Sale Value','Proj. sale','Project CLP','Actions'].forEach(function(x){
+    h+='<th style="padding:6px 8px;text-align:'+(x==='Actions'||x==='Project CLP'?'center':'left')+'">'+x+'</th>';
   });
   h+='</tr></thead><tbody>';
   if(!visUnsold.length){
-    h+='<tr><td colspan="6" style="padding:14px;text-align:center;color:var(--muted)">No unsold inventory yet. Upload unsold template or add rows manually.</td></tr>';
+    h+='<tr><td colspan="8" style="padding:14px;text-align:center;color:var(--muted)">No unsold inventory yet. Upload unsold template or add rows manually.</td></tr>';
   } else {
     visUnsold.forEach(function(row){
       var u=row.u, idx=row.ri;
       var val=coerceMoney(u.plannedSaleValue||u.totalValue||(coerceMoney(u.saleableArea)*coerceMoney(u.plannedRatePerSqft)));
+      var pIso=(normalizeToISODate(u.projectedSaleDate)||'').slice(0,10);
       h+='<tr style="border-bottom:1px solid var(--border)">';
       h+='<td style="padding:4px 6px"><input data-action="unsold-edit" data-idx="'+idx+'" data-key="unitNo" value="'+escHtml(u.unitNo||'')+'" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:5px"/></td>';
       h+='<td style="padding:4px 6px"><input data-action="unsold-edit" data-idx="'+idx+'" data-key="unitType" value="'+escHtml(u.unitType||'')+'" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:5px"/></td>';
       h+='<td style="padding:4px 6px"><input type="number" step="0.01" data-action="unsold-edit" data-idx="'+idx+'" data-key="saleableArea" value="'+(coerceMoney(u.saleableArea)||'')+'" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:5px"/></td>';
       h+='<td style="padding:4px 6px"><input type="number" step="0.01" data-action="unsold-edit" data-idx="'+idx+'" data-key="plannedRatePerSqft" value="'+(coerceMoney(u.plannedRatePerSqft)||'')+'" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:5px"/></td>';
       h+='<td style="padding:4px 6px"><input type="number" step="0.01" data-action="unsold-edit" data-idx="'+idx+'" data-key="plannedSaleValue" value="'+(val||'')+'" style="width:100%;padding:5px;border:1px solid var(--border);border-radius:5px"/></td>';
+      h+='<td style="padding:4px 6px"><input type="date" data-action="unsold-edit" data-idx="'+idx+'" data-key="projectedSaleDate" value="'+escAttr(pIso)+'" title="Booking month — full value here unless Project CLP" style="max-width:128px;padding:5px;border:1px solid var(--border);border-radius:5px"/></td>';
+      h+='<td style="padding:4px 6px;text-align:center"><input type="checkbox" data-action="unsold-edit" data-idx="'+idx+'" data-key="projectUnsoldAsClp" '+((u.projectUnsoldAsClp)?'checked':'')+' title="Spread by Sales-tab milestone dates (CLP)" style="accent-color:var(--blue);cursor:pointer"/></td>';
       h+='<td style="padding:4px 6px;text-align:center"><button data-action="del-unsold-unit" data-idx="'+idx+'" style="background:none;border:none;color:var(--red);cursor:pointer">×</button></td>';
       h+='</tr>';
     });
@@ -4572,23 +4905,25 @@ function renderCapital(){
       +content+'</div>';
   }
 
-  // 1. Equity Infusion (partners, GA co-invest)
+  // 1. Equity Infusion (partners, GA co-invest) — use global index into cfg.investors for edit/delete
   var eqRows='';
-  (cfg.investors||[]).filter(function(i){return i.type==='equity';}).forEach(function(inv,i){
-    eqRows+=capitalRow(inv,i,'equity');
+  (cfg.investors||[]).forEach(function(inv,gidx){
+    if(inv.type==='equity') eqRows+=capitalRow(inv,gidx,'equity',cfg);
   });
   h+=capSection('① Equity Infusion','#0A3266',
     '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Capital contributed by partners/promoters. No return obligation — profit share only.</div>'
+    +'<div style="font-size:9px;font-weight:700;color:var(--muted);margin-bottom:4px;display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px"><span>Name</span><span>Amount (₹)</span><span>Draw date</span><span></span></div>'
     +'<div id="cap-equity-rows">'+eqRows+'</div>'
     +'<button class="btn btn-outline" data-action="add-inv" data-type="equity" style="font-size:10px;margin-top:6px">+ Add Equity Partner</button>');
 
   // 2. Investor Funding (external investors with return expectations)
   var invRows='';
-  (cfg.investors||[]).filter(function(i){return i.type!=='equity';}).forEach(function(inv,i){
-    invRows+=capitalRow(inv,i,'investor');
+  (cfg.investors||[]).forEach(function(inv,gidx){
+    if(inv.type!=='equity') invRows+=capitalRow(inv,gidx,'investor',cfg);
   });
   h+=capSection('② Investor Funding (External)','#542B8A',
-    '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">External investors expecting principal return + profit share. Typically drawn at a specific project month.</div>'
+    '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">External investors expecting principal return + profit share. Draw on calendar date below (legacy Month # still works in imports).</div>'
+    +'<div style="font-size:9px;font-weight:700;color:var(--muted);margin-bottom:4px;display:grid;grid-template-columns:2fr 1fr 1fr 1fr 1fr auto;gap:6px"><span>Name</span><span>Amount (₹)</span><span>Draw date</span><span>Rate %</span><span>Term (yrs)</span><span></span></div>'
     +'<div id="cap-inv-rows">'+invRows+'</div>'
     +'<button class="btn btn-outline" data-action="add-inv" data-type="investor" style="font-size:10px;margin-top:6px">+ Add Investor</button>');
 
@@ -4598,7 +4933,7 @@ function renderCapital(){
     ulRows+='<div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr auto;gap:6px;margin-bottom:6px;align-items:center">'
       +'<input type="text" value="'+ul.name+'" placeholder="Party / Lender name" data-action="upd-ul" data-idx="'+i+'" data-key="name" class="cap-inp"/>'
       +'<input type="number" value="'+ul.amount+'" placeholder="Amount ₹" data-action="upd-ul" data-idx="'+i+'" data-key="amount" class="cap-inp"/>'
-      +'<input type="date" value="'+ul.drawDate+'" data-action="upd-ul" data-idx="'+i+'" data-key="drawDate" class="cap-inp"/>'
+      +'<input type="date" value="'+escAttr(normalizeDateInputValue(ul.drawDate))+'" data-action="upd-ul" data-idx="'+i+'" data-key="drawDate" class="cap-inp" title="Pick calendar draw date"/>'
       +'<input type="number" value="'+ul.ratePct+'" placeholder="Rate %" data-action="upd-ul" data-idx="'+i+'" data-key="ratePct" class="cap-inp" style="width:70px"/>'
       +'<button data-action="del-ul" data-idx="'+i+'" class="btn btn-red" style="padding:3px 8px;font-size:10px">×</button>'
       +'</div>';
@@ -4615,12 +4950,13 @@ function renderCapital(){
     culRows+='<div style="display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px;margin-bottom:6px;align-items:center">'
       +'<input type="text" value="'+cu.name+'" placeholder="Customer name" data-action="upd-cul" data-idx="'+i+'" data-key="name" class="cap-inp"/>'
       +'<input type="number" value="'+cu.amount+'" placeholder="Amount ₹" data-action="upd-cul" data-idx="'+i+'" data-key="amount" class="cap-inp"/>'
-      +'<input type="date" value="'+cu.date+'" data-action="upd-cul" data-idx="'+i+'" data-key="date" class="cap-inp"/>'
+      +'<input type="date" value="'+escAttr(String(cu.date||'').slice(0,10))+'" data-action="upd-cul" data-idx="'+i+'" data-key="date" class="cap-inp"/>'
       +'<button data-action="del-cul" data-idx="'+i+'" class="btn btn-red" style="padding:3px 8px;font-size:10px">×</button>'
       +'</div>';
   });
   h+=capSection('④ Customer UL / Advance','#0B7070',
     '<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Advance payments from customers beyond normal payment schedule.</div>'
+    +'<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px;display:grid;grid-template-columns:2fr 1fr 1fr auto;gap:6px"><span>Name</span><span>Amount (₹)</span><span>Date</span><span></span></div>'
     +'<div id="cap-cul-rows">'+culRows+'</div>'
     +'<button class="btn btn-outline" data-action="add-cul" style="font-size:10px;margin-top:6px">+ Add Customer UL</button>');
 
@@ -4630,27 +4966,34 @@ function renderCapital(){
     otherRows+='<div style="display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:6px;margin-bottom:6px;align-items:center">'
       +'<input type="text" value="'+oi.name+'" placeholder="Description" data-action="upd-other" data-idx="'+i+'" data-key="name" class="cap-inp"/>'
       +'<input type="number" value="'+oi.amount+'" placeholder="Amount ₹" data-action="upd-other" data-idx="'+i+'" data-key="amount" class="cap-inp"/>'
-      +'<input type="date" value="'+oi.date+'" data-action="upd-other" data-idx="'+i+'" data-key="date" class="cap-inp"/>'
+      +'<input type="date" value="'+escAttr(normalizeDateInputValue(oi.date))+'" data-action="upd-other" data-idx="'+i+'" data-key="date" class="cap-inp"/>'
       +'<input type="text" value="'+oi.note+'" placeholder="Notes" data-action="upd-other" data-idx="'+i+'" data-key="note" class="cap-inp"/>'
       +'<button data-action="del-other" data-idx="'+i+'" class="btn btn-red" style="padding:3px 8px;font-size:10px">×</button>'
       +'</div>';
   });
   h+=capSection('⑤ Other Inflows','#4A5568',
-    '<div id="cap-other-rows">'+otherRows+'</div>'
+    '<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px;display:grid;grid-template-columns:2fr 1fr 1fr 2fr auto;gap:6px"><span>Description</span><span>Amount (₹)</span><span>Date</span><span>Notes</span><span></span></div>'
+    +'<div id="cap-other-rows">'+otherRows+'</div>'
     +'<button class="btn btn-outline" data-action="add-other" style="font-size:10px;margin-top:6px">+ Add Other Inflow</button>');
 
   el.innerHTML=h;
 }
 
-function capitalRow(inv,i,type){
+function capitalRow(inv,i,type,cfg){
   var isEq=type==='equity';
+  var dd=normalizeDateInputValue(inv.drawDate);
+  if(!dd && inv.drawMonth!=null && inv.drawMonth!==''){
+    var startB=(cfg&&cfg.startDate&&String(cfg.startDate).length>=7)?cfg.startDate:(new Date().toISOString().slice(0,10));
+    var mk=offsetMonth(startB,(parseInt(inv.drawMonth,10)||1)-1);
+    if(mk) dd=mk+'-01';
+  }
   return '<div style="display:grid;grid-template-columns:'+(isEq?'2fr 1fr 1fr':'2fr 1fr 1fr 1fr 1fr')+' auto;gap:6px;margin-bottom:6px;align-items:center">'
-    +'<input type="text" value="'+inv.name+'" placeholder="'+(isEq?'Partner name':'Investor name')+'" data-action="upd-inv" data-idx="'+i+'" data-key="name" data-type="'+type+'" class="cap-inp"/>'
+    +'<input type="text" value="'+escAttr(inv.name)+'" placeholder="'+(isEq?'Partner name':'Investor name')+'" data-action="upd-inv" data-idx="'+i+'" data-key="name" data-type="'+type+'" class="cap-inp"/>'
     +'<input type="number" value="'+inv.amount+'" placeholder="Amount ₹" data-action="upd-inv" data-idx="'+i+'" data-key="amount" data-type="'+type+'" class="cap-inp"/>'
-    +(isEq?'<input type="number" value="'+(inv.drawMonth||1)+'" placeholder="Draw month#" data-action="upd-inv" data-idx="'+i+'" data-key="drawMonth" data-type="'+type+'" class="cap-inp" style="width:90px"/>'
-          :'<input type="number" value="'+(inv.drawMonth||1)+'" placeholder="Draw month#" data-action="upd-inv" data-idx="'+i+'" data-key="drawMonth" data-type="'+type+'" class="cap-inp" style="width:80px"/>'
-           +'<input type="number" value="'+(inv.ratePct||18)+'" placeholder="Rate %" data-action="upd-inv" data-idx="'+i+'" data-key="ratePct" data-type="'+type+'" class="cap-inp" style="width:70px"/>'
-           +'<input type="number" value="'+(inv.termYrs||2)+'" placeholder="Term yrs" data-action="upd-inv" data-idx="'+i+'" data-key="termYrs" data-type="'+type+'" class="cap-inp" style="width:70px"/>')
+    +'<input type="date" value="'+escAttr(dd)+'" data-action="upd-inv" data-idx="'+i+'" data-key="drawDate" data-type="'+type+'" class="cap-inp" title="Pick calendar date (month numbers from imports map here)"/>'
+    +(isEq?''
+      :'<input type="number" value="'+(inv.ratePct||18)+'" placeholder="Rate %" data-action="upd-inv" data-idx="'+i+'" data-key="ratePct" data-type="'+type+'" class="cap-inp" style="width:70px"/>'
+      +'<input type="number" value="'+(inv.termYrs||2)+'" placeholder="Term yrs" data-action="upd-inv" data-idx="'+i+'" data-key="termYrs" data-type="'+type+'" class="cap-inp" style="width:70px"/>')
     +'<button data-action="del-inv" data-idx="'+i+'" data-type="'+type+'" class="btn btn-red" style="padding:3px 8px;font-size:10px">×</button>'
     +'</div>';
 }
@@ -5160,7 +5503,7 @@ function renderExpenses(){
   h+='<div class="card">';
   h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:8px">⑥ GA DM Fee — Monthly Fixed Cost</div>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">';
-  h+='<div><label class="fld-lbl">GA DM Fee monthly (₹)<div class="fld-note">Fixed GA + DM overhead per month (people+shared+direct from V2)</div></label>';
+  h+='<div><label class="fld-lbl">GA DM Fee monthly (₹)<div class="fld-note">Drives projected <strong>GA DM Fee</strong> in Monthly Cashflow (no default). If <strong>V2 annual GA DM Fee</strong> is set, that overrides this as monthly ÷12.</div></label>';
   h+='<input type="number" value="'+cfg.gaMonthly+'" data-action="upd-cfg" data-key="gaMonthly" class="cap-inp" style="width:100%"/></div>';
   h+='<div><label class="fld-lbl">V2 annual GA DM Fee (₹)<div class="fld-note">Auto-pulled from V2 P&L push — overrides monthly if set</div></label>';
   h+='<input type="number" value="'+cfg.gaGAAnnual+'" data-action="upd-cfg" data-key="gaGAAnnual" class="cap-inp" style="width:100%"/></div>';
@@ -5340,10 +5683,48 @@ function renderGA(){
    {l:'Total Inflows',v:cr(totIn,'₹0'),c:'var(--green-b)'},
    {l:'Total Outflows',v:cr(totOut,'₹0'),c:'var(--red-b)'},
    {l:'Net Cashflow',v:cr(totIn-totOut,'₹0'),c:(totIn-totOut)>=0?'var(--green-b)':'var(--red-b)'},
-   {l:'GA DM Fee (Portfolio)',v:cr(vis.reduce(function(s,p){return s+(p._dmFee||0);},0)),c:'var(--teal)'},
+   {l:'GA DM Fee (Portfolio, mo.)',v:cr(vis.reduce(function(s,p){return s+dmFeeMonthlyFromExpenseSchedule(p);},0)),c:'var(--teal)'},
   ].forEach(function(k){
     h+='<div class="kpi" style="border-top:3px solid '+k.c+'"><div style="font-size:16px;font-weight:800;color:'+k.c+'">'+k.v+'</div><div style="font-size:9px;color:var(--muted);margin-top:2px">'+k.l+'</div></div>';
   });
+  h+='</div>';
+
+  // Hierarchy rollup: Building -> Phase -> Project
+  var hr=buildHierarchyRollup(vis, cfByPid);
+  h+='<div class="card" style="border-top:3px solid var(--blue);margin-bottom:12px">';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:8px">Hierarchy rollup (Building → Phase → Project)</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Building totals aggregate into each phase, and phase totals aggregate into each project root.</div>';
+  if(!hr.length){
+    h+='<div style="font-size:10px;color:var(--muted)">No visible projects for the selected filters.</div>';
+  }else{
+    hr.forEach(function(root){
+      h+='<div style="border:1px solid var(--border);border-radius:8px;padding:8px;margin-bottom:8px;background:#fff">';
+      h+='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px">';
+      h+='<div style="font-size:11px;font-weight:800;color:var(--blue-b)">Project: '+escHtml(root.name)+'</div>';
+      h+='<div style="font-size:10px;color:var(--muted)">In '+cr(root.totIn,'₹0')+' · Out '+cr(root.totOut,'₹0')+' · Closing '+cr(root.close,'₹0')+'</div>';
+      h+='</div>';
+      root.phases.forEach(function(ph){
+        h+='<div style="margin:6px 0 8px 0;padding:6px;border-left:3px solid #8AA9D6;background:#F8FBFF">';
+        h+='<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:4px">';
+        h+='<div style="font-size:10px;font-weight:700;color:#1F3B67">Phase: '+escHtml(ph.name)+'</div>';
+        h+='<div style="font-size:9px;color:var(--muted)">In '+cr(ph.totIn,'₹0')+' · Out '+cr(ph.totOut,'₹0')+' · Closing '+cr(ph.close,'₹0')+'</div>';
+        h+='</div>';
+        h+='<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:9px">';
+        h+='<thead><tr style="background:var(--blue-l)"><th style="padding:3px 6px;text-align:left">Building</th><th style="padding:3px 6px;text-align:right">Inflows</th><th style="padding:3px 6px;text-align:right">Outflows</th><th style="padding:3px 6px;text-align:right">Closing</th></tr></thead><tbody>';
+        ph.buildings.forEach(function(b){
+          h+='<tr style="border-bottom:1px solid var(--border)">';
+          h+='<td style="padding:3px 6px;cursor:pointer" data-action="goto-proj" data-pid="'+escAttr(b.pid)+'">'+escHtml(b.name)+'</td>';
+          h+='<td style="padding:3px 6px;text-align:right">'+cr(b.totIn,'₹0')+'</td>';
+          h+='<td style="padding:3px 6px;text-align:right">'+cr(b.totOut,'₹0')+'</td>';
+          h+='<td style="padding:3px 6px;text-align:right">'+cr(b.close,'₹0')+'</td>';
+          h+='</tr>';
+        });
+        h+='</tbody></table></div>';
+        h+='</div>';
+      });
+      h+='</div>';
+    });
+  }
   h+='</div>';
 
   // Per-project card strip
@@ -5358,7 +5739,7 @@ function renderGA(){
     h+='<div style="font-size:12px;font-weight:700;color:'+sc+';margin-bottom:8px">'+p.name+'</div>';
     h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;line-height:1.4">';
     h+='<div style="color:var(--muted)">GDV</div><div style="text-align:right;font-weight:700">'+cr(p._gdv||0,'—')+'</div>';
-    h+='<div style="color:var(--muted)">DM Fee</div><div style="text-align:right;font-weight:700;color:var(--teal)">'+cr(p._dmFee||0,'—')+'</div>';
+    h+='<div style="color:var(--muted)">GA DM (mo.)</div><div style="text-align:right;font-weight:700;color:var(--teal)">'+cr(dmFeeMonthlyFromExpenseSchedule(p),'—')+'</div>';
     h+='<div style="color:var(--muted)">Total In</div><div style="text-align:right;color:var(--green-b)">'+cr(pTotIn,'—')+'</div>';
     h+='<div style="color:var(--muted)">Total Out</div><div style="text-align:right;color:var(--red-b)">'+cr(pTotOut,'—')+'</div>';
     h+='<div style="color:var(--muted)">Closing Bal</div><div style="text-align:right;font-weight:700;color:'+(pClose>=0?'var(--green-b)':'var(--red-b)')+'">'+cr(pClose,'—')+'</div>';
@@ -5565,7 +5946,7 @@ function showAddProjModal(){
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
     +'<div class="field"><label>Status</label><select id="mp-status"><option>Active</option><option>Planned</option><option>Pipeline</option></select></div>'
     +'<div class="field"><label>GDV (₹)</label><input id="mp-gdv" type="number" step="1000000" placeholder="3481725894"/></div>'
-    +'<div class="field"><label>GA DM Fee (₹)</label><input id="mp-fee" type="number" step="100000"/></div>'
+    +'<div class="field"><label>GA DM Fee monthly (₹)</label><input id="mp-fee" type="number" step="100000" placeholder="0 — or set in Expense schedule ⑥"/></div>'
     +'<div class="field"><label>Duration (months)</label><input id="mp-months" type="number" value="48"/></div>'
     +'<div class="field" style="grid-column:1/-1"><label>Start Date</label><input id="mp-start" type="date"/></div>'
     +'</div>'
@@ -5613,18 +5994,21 @@ function saveManualProj(){
   var name=document.getElementById('mp-name').value.trim();
   if(!name){alert('Project name required.');return;}
   var id='MP_'+Date.now();
+  var feeMonthly=parseFloat(document.getElementById('mp-fee').value);
+  if(!isFinite(feeMonthly)) feeMonthly=0;
   PROJS.push({id:id,name:name,status:document.getElementById('mp-status').value,
     projectGroup:(document.getElementById('mp-project-group').value||'').trim(),
     phase:(document.getElementById('mp-phase').value||'').trim(),
     building:(document.getElementById('mp-building').value||'').trim(),
     _gdv:parseFloat(document.getElementById('mp-gdv').value)||0,
-    _dmFee:parseFloat(document.getElementById('mp-fee').value)||0,
+    _dmFee:feeMonthly,
     _projMonths:parseInt(document.getElementById('mp-months').value)||48,
     on:true,_manual:true});
   var cfg=getCF(id);
   cfg.projName=name;
   cfg.startDate=document.getElementById('mp-start').value||'';
   cfg.totalMonths=PROJS[PROJS.length-1]._projMonths;
+  cfg.gaMonthly=feeMonthly;
   saveAll(); closeModal(); buildProjectGroupSelect(); buildPhaseSelect(); buildBuildingSelect(); buildProjSelect(); selectProj(id);
 }
 
@@ -6904,8 +7288,11 @@ function formatCr(v){
 function dlCapitalTemplate(){
   if(!window.XLSX){alert('XLSX library not loaded.');return;}
   var cfg=getCF(_curPid);
-  var data=[['Type','Name / Party','Amount (₹)','Draw Date / Month#','Rate %','Term (Yrs)','Notes']];
-  (cfg.investors||[]).forEach(function(i){data.push(['Equity/Investor',i.name,i.amount,'Month '+i.drawMonth,i.ratePct,i.termYrs,'']);});
+  var data=[['Type','Name / Party','Amount (₹)','Draw date (YYYY-MM-DD or Month#)','Rate %','Term (Yrs)','Notes']];
+  (cfg.investors||[]).forEach(function(i){
+    var dcell=i.drawDate?String(i.drawDate).slice(0,10):('Month '+(i.drawMonth||1));
+    data.push(['Equity/Investor',i.name,i.amount,dcell,i.ratePct,i.termYrs,'']);
+  });
   (cfg.unsecuredLoans||[]).forEach(function(u){data.push(['Unsecured Loan',u.name,u.amount,u.drawDate,u.ratePct,'','']);});
   (cfg.customerUL||[]).forEach(function(c){data.push(['Customer UL',c.name,c.amount,c.date,'','','']);});
   (cfg.otherInflows||[]).forEach(function(o){data.push(['Other Inflow',o.name,o.amount,o.date,'','',o.note]);});
@@ -6971,20 +7358,23 @@ function importCapitalTemplate(input){
             note:(iNote>=0?(r[iNote]||'').toString().trim():'')
           });
         }else{
-          // Equity / Investor
+          // Equity / Investor — prefer calendar ISO date; else legacy "Month N"
           var drawRaw=(r[iDraw]||'').toString().trim();
+          var isoDraw=normalizeToISODate(drawRaw);
           var drawMonth=parseInt(drawRaw.replace(/\D/g,''),10)||1;
           var rate=parseFloat(r[iRate])||18;
           var term=parseFloat(r[iTerm])||2;
-          cfg.investors.push({
+          var invRow={
             id:uid(),
             name:name,
             amount:amt,
-            drawMonth:drawMonth,
             ratePct:rate,
             termYrs:term,
             type:(t.indexOf('equity')>=0?'equity':'investor')
-          });
+          };
+          if(isoDraw) invRow.drawDate=isoDraw.slice(0,10);
+          else invRow.drawMonth=drawMonth;
+          cfg.investors.push(invRow);
         }
       });
       saveAll();
@@ -7039,6 +7429,7 @@ document.addEventListener('click',function(e){
   if(a==='save-unit')              { saveUnit(); return; }
   if(a==='add-install')            { addInstallRow(); return; }
   if(a==='add-proj')               { showAddProjModal(); return; }
+  if(a==='remove-proj-cf')         { removeCurrentProjectFromCashflowWorkbook(); return; }
   if(a==='hierarchy-modal')        { showHierarchyModal(); return; }
   if(a==='save-hierarchy')         { saveHierarchyFromModal(); return; }
   if(a==='save-manual-proj')       { saveManualProj(); return; }
@@ -7131,6 +7522,10 @@ document.addEventListener('click',function(e){
     });
     return;
   }
+  if(a==='mongo-import-v3-projects'){
+    importV3ProjectListFromServer();
+    return;
+  }
   if(a==='mongo-save-now'){
     if(!canUseMongoState()){ setSS('Open Set API + enable first','red'); return; }
     mongoStatePutNow();
@@ -7200,7 +7595,7 @@ document.addEventListener('click',function(e){
   }
   if(a==='del-sched')              { var dsk=el.dataset.skey, dix=+el.dataset.idx; if(cfg[dsk]&&cfg[dsk][dix]!==undefined){cfg[dsk].splice(dix,1);saveAll();renderTab(_curTab);refreshProjectCashflowViews();} return; }
   if(a==='del-inv')                { cfg.investors.splice(+el.dataset.idx,1); saveAll(); renderTab(_curTab); return; }
-  if(a==='add-inv')                { if(!cfg.investors)cfg.investors=[]; cfg.investors.push({id:uid(),name:'',amount:0,drawMonth:1,ratePct:el.dataset.type==='equity'?0:18,termYrs:2,type:el.dataset.type||'investor'}); saveAll(); renderCapital(); return; }
+  if(a==='add-inv')                { if(!cfg.investors)cfg.investors=[]; cfg.investors.push({id:uid(),name:'',amount:0,drawDate:'',drawMonth:1,ratePct:el.dataset.type==='equity'?0:18,termYrs:2,type:el.dataset.type||'investor'}); saveAll(); renderCapital(); return; }
   if(a==='del-ul')                 { cfg.unsecuredLoans.splice(+el.dataset.idx,1); saveAll(); renderCapital(); return; }
   if(a==='add-ul')                 { if(!cfg.unsecuredLoans)cfg.unsecuredLoans=[]; cfg.unsecuredLoans.push({id:uid(),name:'',amount:0,drawDate:'',ratePct:0}); saveAll(); renderCapital(); return; }
   if(a==='del-cul')                { cfg.customerUL.splice(+el.dataset.idx,1); saveAll(); renderCapital(); return; }
@@ -7273,7 +7668,8 @@ document.addEventListener('change',function(e){
     var idx=+el.dataset.idx, key=el.dataset.key||'';
     if(!Array.isArray(cfg.unsoldUnits)||!cfg.unsoldUnits[idx]) return;
     var uu=cfg.unsoldUnits[idx];
-    if(key==='projectedSaleDate') uu.projectedSaleDate=normalizeToISODate(v)||'';
+    if(key==='projectUnsoldAsClp') uu.projectUnsoldAsClp=!!el.checked;
+    else if(key==='projectedSaleDate') uu.projectedSaleDate=normalizeToISODate(v)||'';
     else if(key==='saleableArea'||key==='plannedRatePerSqft'||key==='plannedSaleValue'||key==='projectedSalePerMonth'){
       uu[key]=parseFloat(v)||0;
     } else uu[key]=v;
@@ -7292,7 +7688,17 @@ document.addEventListener('change',function(e){
     saveAll(); renderCashflow(); refreshProjectCashflowViews(); return;
   }
   if(a==='upd-cfg')                { cfg[el.dataset.key]=isNum.indexOf(el.dataset.key)>=0?n:v; saveAll(); renderTab(_curTab); refreshProjectCashflowViews(); return; }
-  if(a==='upd-inv')                { var inv=cfg.investors[+el.dataset.idx]; if(inv){inv[el.dataset.key]=isNum.indexOf(el.dataset.key)>=0?n:v;} saveAll(); return; }
+  if(a==='upd-inv'){
+    var invI=cfg.investors[+el.dataset.idx];
+    if(invI){
+      var ikey=el.dataset.key||'';
+      if(ikey==='drawDate'){
+        invI.drawDate=normalizeToISODate(v)||'';
+        if(invI.drawDate&&cfg.startDate) invI.drawMonth=dateToProjectMonth(cfg.startDate,invI.drawDate);
+      }else invI[ikey]=isNum.indexOf(ikey)>=0?n:v;
+    }
+    saveAll(); renderCapital(); return;
+  }
   if(a==='upd-ul'){
     var ul=cfg.unsecuredLoans[+el.dataset.idx];
     if(ul){
@@ -7413,7 +7819,7 @@ loadAll().finally(function(){
     if(_cu.indexOf('script.google.com')>=0) setCfCloudStatus('Drive merge: on (same URL as V3)');
   }catch(e){}
   try{ updateMongoStatusLabel(); }catch(eM){}
-  syncFromV3();
+  syncFromV3(true);
 });
 (function gaApplyProjectFromUrl(){
   try{
@@ -7449,6 +7855,9 @@ setInterval(function(){
   var v2raw=localStorage.getItem('ga_v2_proj_costs');
   if(v2raw) readV2Costs();
 },2000);
+setInterval(function(){
+  autoPullMongoIfNewer();
+},15000);
 
 </script>
 </body>
