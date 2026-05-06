@@ -108,13 +108,20 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
       style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:160px">
       <option value="">No projects</option>
     </select>
-    <select id="phase-select" onchange="selectPhase(this.value)"
-      style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:130px">
-      <option value="__all__">All Phases</option>
+    <select id="proj-root-select" multiple size="3" onchange="selectProjectGroup()"
+      title="Project filter (multi-select)"
+      style="padding:4px 6px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:10px;font-weight:600;min-width:145px;max-height:66px">
+      <option value="__all__">All Projects</option>
     </select>
-    <select id="building-select" onchange="selectBuilding(this.value)"
-      style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:130px">
-      <option value="__all__">All Buildings</option>
+    <select id="phase-select" multiple size="3" onchange="selectPhase()"
+      title="Phase filter (multi-select)"
+      style="padding:4px 6px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:10px;font-weight:600;min-width:130px;max-height:66px">
+      <option value="__all__">All phases</option>
+    </select>
+    <select id="building-select" multiple size="3" onchange="selectBuilding()"
+      title="Building filter (multi-select)"
+      style="padding:4px 6px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:10px;font-weight:600;min-width:130px;max-height:66px">
+      <option value="__all__">All buildings</option>
     </select>
     <button class="btn btn-outline" onclick="syncFromV3()"
       style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)">&#8635; Sync V3</button>
@@ -124,6 +131,8 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
       style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)" title="Edit project hierarchy">⚙ Hierarchy</button>
     <button class="btn btn-outline" data-action="remove-proj-cf"
       style="font-size:10px;padding:4px 8px;color:#fecaca;border-color:rgba(254,202,202,.5)" title="Remove the selected project from this workbook (and Mongo if server save is on). V3 projects can reappear after Sync until removed in V3.">− Remove project</button>
+    <button class="btn btn-outline" data-action="restore-last-deleted-proj"
+      style="font-size:10px;padding:4px 8px;color:#bbf7d0;border-color:rgba(187,247,208,.5)" title="Restore the last deleted project from server snapshot">↺ Restore deleted</button>
   </div>
 </div>
 
@@ -179,7 +188,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 8;
+var CF_VERSION = 12;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -361,6 +370,43 @@ function principalRepaymentInMonthHtml(rs, mo, period){
   }
   if(rs.month===period) return amt;
   return 0;
+}
+function buildInvestorPayableSeries(cfg){
+  cfg=cfg||{};
+  var startDate=(cfg.startDate&&String(cfg.startDate).trim())||new Date().toISOString().slice(0,10);
+  var rowsByMo={};
+  (cfg.investors||[]).forEach(function(inv){
+    if(!inv||inv.type==='equity') return;
+    var principal=coerceMoney(inv.amount);
+    if(principal<=0) return;
+    var drawMo=monthKeyFromInvestorDraw(inv,startDate);
+    if(!drawMo) return;
+    var rate=Math.max(0, coerceMoney(inv.ratePct));
+    var termMonths=Math.max(1, Math.round((coerceMoney(inv.termYrs)||2)*12));
+    var monthlyInt=principal*(rate/100/12);
+    for(var i=0;i<termMonths;i++){
+      var mo=addMonthsToMonthKey(drawMo,i);
+      if(!rowsByMo[mo]) rowsByMo[mo]={interest:0,principal:0};
+      rowsByMo[mo].interest+=monthlyInt;
+    }
+    var dueMo=addMonthsToMonthKey(drawMo,termMonths-1);
+    if(!rowsByMo[dueMo]) rowsByMo[dueMo]={interest:0,principal:0};
+    rowsByMo[dueMo].principal+=principal;
+  });
+  var mos=Object.keys(rowsByMo).sort();
+  var cum=0, out=[];
+  mos.forEach(function(mo){
+    var r=rowsByMo[mo]||{interest:0,principal:0};
+    cum+=coerceMoney(r.interest);
+    out.push({
+      mo:mo,
+      interest:coerceMoney(r.interest),
+      principal:coerceMoney(r.principal),
+      total:coerceMoney(r.interest)+coerceMoney(r.principal),
+      cumulativeInterest:cum
+    });
+  });
+  return out;
 }
 /** Totals for planned-vs-actual L1 chart (same mapping as monthly row rollup). */
 function plannedTotalsFakeRowForL1(cfg){
@@ -1464,11 +1510,15 @@ var _mongoSaveTimer = null;
 var _mongoSaveBusy = false;
 var _mongoSaveQueued = false;
 var _mongoDirtyPids = {};
+var _mongoDirtyPidSections = {};
 var _mongoForceFullSave = false;
 var MONGO_APP_ID = 'v1_cashflow';
 var MONGO_V3_APP_ID = 'v3_org_planner';
 var GA_MONGO_ENABLE_KEY = 'ga_mongo_state_enable';
 var GA_MONGO_API_BASE_KEY = 'ga_mongo_api_base';
+var GA_REMOVE_PROJECT_PASSWORD_KEY = 'ga_cf_remove_project_password';
+var GA_REMOVE_PROJECT_DEFAULT_PASSWORD = 'ga@admin';
+var GA_LAST_DELETE_SNAPSHOT_KEY = 'ga_cf_last_deleted_snapshot';
 /** Same-origin /api/... or optional base URL in localStorage (for static front + API on another host; CORS must allow the page origin). */
 function mongoStateApiUrl(){
   var path='api/apps/'+MONGO_APP_ID+'/state';
@@ -1476,6 +1526,82 @@ function mongoStateApiUrl(){
   try{ base=String(localStorage.getItem(GA_MONGO_API_BASE_KEY)||'').trim().replace(/\/$/,''); }catch(e){}
   if(base) return base+'/'+path;
   return '/'+path;
+}
+function getRemoveProjectPassword(){
+  try{
+    var p=String(localStorage.getItem(GA_REMOVE_PROJECT_PASSWORD_KEY)||'').trim();
+    if(p) return p;
+  }catch(e){}
+  return GA_REMOVE_PROJECT_DEFAULT_PASSWORD;
+}
+function mongoSnapshotsApiUrl(snapshotId){
+  var base=mongoStateApiUrl().replace(/\/state$/,'/snapshots');
+  if(snapshotId) return base+'/'+encodeURIComponent(String(snapshotId));
+  return base;
+}
+function createDeleteSnapshot(pid, projectName){
+  if(!canUseMongoState()) return Promise.resolve(null);
+  return fetch(mongoSnapshotsApiUrl(),{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    credentials:'include',
+    cache:'no-store',
+    body:JSON.stringify({
+      updatedBy:'cashflow-user',
+      label:'Pre-delete snapshot · '+String(projectName||pid||'Project'),
+      note:'Project delete safeguard. pid='+String(pid||'')
+    })
+  }).then(function(r){
+    return r.json().then(function(j){ return {ok:r.ok, body:j}; });
+  }).then(function(res){
+    if(!res.ok) throw new Error((res.body&&res.body.error)||'Snapshot failed');
+    return (res.body&&res.body.snapshotId)||null;
+  });
+}
+function restoreLastDeletedProject(){
+  var recRaw='';
+  try{ recRaw=localStorage.getItem(GA_LAST_DELETE_SNAPSHOT_KEY)||''; }catch(e){}
+  if(!recRaw){ alert('No deleted-project backup found in this browser session.'); return; }
+  var rec=null;
+  try{ rec=JSON.parse(recRaw); }catch(eP){ rec=null; }
+  if(!rec||!rec.snapshotId||!rec.pid){ alert('Deleted-project backup metadata is invalid.'); return; }
+  var pid=String(rec.pid), nm=String(rec.projectName||pid);
+  if(!window.confirm('Restore "'+nm+'" from backup snapshot?\n\nThis restores project rows as they were right before delete and saves to server.')) return;
+  fetch(mongoSnapshotsApiUrl(rec.snapshotId),{ credentials:'include', cache:'no-store' })
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+    .then(function(res){
+      if(!res.ok) throw new Error((res.body&&res.body.error)||'Snapshot load failed');
+      var env=(res.body&&res.body.data)||null;
+      if(!isV1EnvelopeLike(env)) throw new Error('Snapshot data shape is invalid');
+      var pData=(env.data&&env.data[pid])||null;
+      if(!pData||typeof pData!=='object') throw new Error('Project data missing in snapshot');
+      _cfData[pid]=pData;
+      var fromManual=(env.manualProjs||[]).find(function(p){ return p&&String(p.id)===pid; })||null;
+      if(!PROJS.find(function(p){ return p&&String(p.id)===pid; })){
+        PROJS.push(fromManual||{id:pid,name:(pData.projName||nm)});
+      }
+      _curPid=pid;
+      _mongoForceFullSave=true;
+      _mongoDirtyPids={};
+      _mongoDirtyPidSections={};
+      saveAll();
+      renderAll();
+      setSS('Restored "'+nm+'" from snapshot','green');
+      alert('Project restored successfully.');
+    })
+    .catch(function(e){
+      alert('Restore failed: '+(e&&e.message?e.message:String(e)));
+    });
+}
+function verifyRemoveProjectPassword(projectName){
+  var msg='Enter admin password to remove "'+projectName+'".';
+  var entered=window.prompt(msg,'');
+  if(entered===null) return false;
+  if(String(entered)!==String(getRemoveProjectPassword())){
+    alert('Incorrect password. Project was not removed.');
+    return false;
+  }
+  return true;
 }
 function v3StateApiUrl(){
   var path='api/apps/'+MONGO_V3_APP_ID+'/state';
@@ -1558,6 +1684,21 @@ function markMongoDirtyPid(pid){
   if(!pid || pid==='__rollup__' || String(pid)==='__ga__') return;
   _mongoDirtyPids[String(pid)] = 1;
 }
+function markMongoDirtyPidSections(pid, sections){
+  if(!pid || pid==='__rollup__' || String(pid)==='__ga__') return;
+  pid=String(pid);
+  _mongoDirtyPids[pid]=1;
+  if(!Array.isArray(sections) || !sections.length){
+    _mongoDirtyPidSections[pid]=null;
+    return;
+  }
+  if(_mongoDirtyPidSections[pid]===null) return;
+  if(!_mongoDirtyPidSections[pid]) _mongoDirtyPidSections[pid]={};
+  sections.forEach(function(k){
+    k=String(k||'').trim();
+    if(k) _mongoDirtyPidSections[pid][k]=1;
+  });
+}
 function localSnapshotSave(){
   try{
     localStorage.setItem('ga_cf_v1',JSON.stringify(cfStatePayload()));
@@ -1573,13 +1714,39 @@ function mongoPayloadForSave(){
   var ids=Object.keys(_mongoDirtyPids||{});
   if(!ids.length) return {payload:full, dirtyKeys:[]};
   var slim={};
+  var hasSectionSlices=false;
   ids.forEach(function(pid){
-    if(full.data && Object.prototype.hasOwnProperty.call(full.data,pid)) slim[pid]=full.data[pid];
+    if(!full.data || !Object.prototype.hasOwnProperty.call(full.data,pid)) return;
+    var src=full.data[pid];
+    var sections=_mongoDirtyPidSections[pid];
+    if(!sections){
+      slim[pid]=src;
+      return;
+    }
+    var secKeys=Object.keys(sections||{});
+    if(!secKeys.length){
+      slim[pid]=src;
+      return;
+    }
+    hasSectionSlices=true;
+    var slice={};
+    secKeys.forEach(function(k){
+      if(Object.prototype.hasOwnProperty.call(src,k)) slice[k]=src[k];
+    });
+    if(!Object.keys(slice).length){
+      slim[pid]=src;
+      return;
+    }
+    // Keep identifiers on partial project saves so server merge remains deterministic.
+    if(Object.prototype.hasOwnProperty.call(src,'pid')) slice.pid=src.pid;
+    if(Object.prototype.hasOwnProperty.call(src,'projName')) slice.projName=src.projName;
+    slim[pid]=slice;
   });
   if(!Object.keys(slim).length) return {payload:full, dirtyKeys:[]};
   return {
     payload:{v:full.v,ts:full.ts,data:slim,manualProjs:full.manualProjs,ui:full.ui},
-    dirtyKeys:ids
+    dirtyKeys:ids,
+    partialBySections:hasSectionSlices
   };
 }
 function mergeV1CashflowEnvelopeClient(existingEnv, incomingEnv){
@@ -1748,8 +1915,21 @@ function dmFeeMonthlyFromExpenseSchedule(p){
   return isFinite(leg)?leg:0;
 }
 
-function saveAll(){
-  markMongoDirtyPid(_curPid);
+function saveAll(opts){
+  opts=opts||{};
+  if(opts.full){
+    _mongoForceFullSave=true;
+    _mongoDirtyPids={};
+    _mongoDirtyPidSections={};
+  }else if(opts.perPidSections && typeof opts.perPidSections==='object'){
+    Object.keys(opts.perPidSections).forEach(function(pid){
+      markMongoDirtyPidSections(pid, opts.perPidSections[pid]);
+    });
+  }else if(opts.pid || opts.sections){
+    markMongoDirtyPidSections(opts.pid||_curPid, opts.sections||[]);
+  }else{
+    markMongoDirtyPid(_curPid);
+  }
   localSnapshotSave();
   if(canUseMongoState()) scheduleMongoStateSave();
   scheduleCfCloudPush();
@@ -1798,9 +1978,13 @@ function mongoStatePutNow(){
     }
     _mongoStateVersion=Number(res.body.version)||_mongoStateVersion;
     if(dirtyKeys.length){
-      dirtyKeys.forEach(function(pid){ delete _mongoDirtyPids[pid]; });
+      dirtyKeys.forEach(function(pid){
+        delete _mongoDirtyPids[pid];
+        delete _mongoDirtyPidSections[pid];
+      });
     } else {
       _mongoDirtyPids={};
+      _mongoDirtyPidSections={};
     }
     _mongoForceFullSave=false;
     mongoStateStatus('MongoDB save OK · v'+_mongoStateVersion,'green');
@@ -1855,11 +2039,22 @@ function removeCurrentProjectFromCashflowWorkbook(){
     return;
   }
   var nm=(p.name||p.id||_curPid).toString();
+  if(!verifyRemoveProjectPassword(nm)) return;
   if(!window.confirm('Remove "'+nm+'" from this Cashflow workbook?\n\nThis deletes saved cashflow/sales rows for that project here. If it still exists in V3, it can show again after Sync V3 — delete it in V3 to remove it for the whole team.')) return;
+  createDeleteSnapshot(_curPid, nm).then(function(snapshotId){
+    try{
+      localStorage.setItem(GA_LAST_DELETE_SNAPSHOT_KEY, JSON.stringify({
+        snapshotId:snapshotId||'',
+        pid:_curPid,
+        projectName:nm,
+        ts:Date.now()
+      }));
+    }catch(eLS){}
   PROJS=(PROJS||[]).filter(function(x){return !x||x.id!==_curPid;});
   try{ delete _cfData[_curPid]; }catch(eD){}
   _mongoForceFullSave=true;
   _mongoDirtyPids={};
+      _mongoDirtyPidSections={};
   _curPid=(PROJS[0]&&PROJS[0].id)||null;
   ensureProjRootCoherent();
   buildProjectGroupSelect();
@@ -1870,6 +2065,9 @@ function removeCurrentProjectFromCashflowWorkbook(){
   saveAll();
   renderAll();
   setSS('Removed "'+nm+'" from workbook','gold');
+  }).catch(function(e){
+    alert('Delete blocked: could not create recovery snapshot.\n'+(e&&e.message?e.message:String(e)));
+  });
 }
 function loadAllFromMongo(){
   if(!canUseMongoState()) return Promise.resolve(false);
@@ -2127,6 +2325,7 @@ function syncFromV3(noPersist){
         if(noPersist){ buildProjSelect(); renderAll(); return; }
         _mongoForceFullSave=true;
         _mongoDirtyPids={};
+        _mongoDirtyPidSections={};
         saveAll(); buildProjSelect(); renderAll(); return;
       }
     }
@@ -2176,46 +2375,105 @@ function setSS(msg,col){
 
 function inferProjectGroupFromProject(p){
   if(!p) return 'Unassigned';
-  var explicit=(p.projectGroup||p.project||p.parentProject||p.program||'').toString().trim();
+  var explicit=(p.projectGroup||p.project||p.parentProject||p.program||p.projectRoot||p.rootProject||p.group||p.cluster||p.project_name||'').toString().trim();
   if(explicit) return explicit;
   var n=String(p.name||'').trim();
   if(!n) return 'Unassigned';
+  var pathParts=n.split(/\s*(?:>|\/|\|)\s*/).map(function(x){ return String(x||'').trim(); }).filter(Boolean);
+  if(pathParts.length>=2) return pathParts[0];
+  var pm=n.match(/^(.+?)\s*[-:|]\s*phase\b/i);
+  if(pm&&pm[1]) return String(pm[1]).trim()||'Unassigned';
   var parts=n.split(/\s[-:|]\s/);
   return (parts[0]||n).trim()||'Unassigned';
 }
 function inferPhaseFromProject(p){
   if(!p) return 'Unassigned';
-  var explicit=(p.phase||p.projectPhase||p._phase||'').toString().trim();
+  var explicit=(p.phase||p.projectPhase||p._phase||p.phaseName||p.phase_name||p.phaseLabel||'').toString().trim();
   if(explicit) return explicit;
   var n=String(p.name||'');
+  var pathParts=n.split(/\s*(?:>|\/|\|)\s*/).map(function(x){ return String(x||'').trim(); }).filter(Boolean);
+  if(pathParts.length>=3) return pathParts[1];
   var m=n.match(/\b(phase\s*[a-z0-9]+)/i);
   if(m&&m[1]) return m[1].replace(/\s+/g,' ').replace(/^./,function(c){return c.toUpperCase();});
   return 'Unassigned';
 }
 function inferBuildingFromProject(p){
   if(!p) return 'Unassigned';
-  var explicit=(p.building||p._building||p.buildingName||p._buildingName||p.tower||'').toString().trim();
+  var explicit=(p.building||p._building||p.buildingName||p._buildingName||p.tower||p.towerName||p.wing||p.block||p.building_name||'').toString().trim();
   if(explicit) return explicit;
   var n=String(p.name||'').trim();
   if(!n) return 'Unassigned';
+  var pathParts=n.split(/\s*(?:>|\/|\|)\s*/).map(function(x){ return String(x||'').trim(); }).filter(Boolean);
+  if(pathParts.length>=3) return pathParts[pathParts.length-1];
   var parts=n.split(/\s[-:|]\s/);
   if(parts.length>=3) return (parts[2]||'').trim()||'Unassigned';
   return 'Unassigned';
 }
 function getProjectHierarchy(pid){
   var p=(PROJS||[]).find(function(x){ return x&&x.id===pid; })||null;
+  var cfg=getCF(pid)||{};
+  var root=inferProjectGroupFromProject(p);
+  var phase=inferPhaseFromProject(p);
+  var building=inferBuildingFromProject(p);
+  if(root==='Unassigned' && cfg.projectGroup) root=String(cfg.projectGroup).trim()||root;
+  if(phase==='Unassigned' && cfg.phase) phase=String(cfg.phase).trim()||phase;
+  if(building==='Unassigned' && cfg.building) building=String(cfg.building).trim()||building;
+  if((root==='Unassigned' || phase==='Unassigned' || building==='Unassigned') && Array.isArray(cfg.units) && cfg.units.length){
+    var u0=cfg.units[0]||{};
+    if(root==='Unassigned' && u0.projectGroup) root=String(u0.projectGroup).trim()||root;
+    if(phase==='Unassigned' && u0.phase) phase=String(u0.phase).trim()||phase;
+    if(building==='Unassigned' && (u0.building||u0.tower||u0.wing)) building=String(u0.building||u0.tower||u0.wing).trim()||building;
+  }
+  if((root==='Unassigned' || phase==='Unassigned' || building==='Unassigned') && Array.isArray(cfg.unsoldUnits) && cfg.unsoldUnits.length){
+    var uu0=cfg.unsoldUnits[0]||{};
+    if(root==='Unassigned' && uu0.projectGroup) root=String(uu0.projectGroup).trim()||root;
+    if(phase==='Unassigned' && uu0.phase) phase=String(uu0.phase).trim()||phase;
+    if(building==='Unassigned' && (uu0.building||uu0.tower||uu0.wing)) building=String(uu0.building||uu0.tower||uu0.wing).trim()||building;
+  }
   return {
-    projectGroup: inferProjectGroupFromProject(p),
-    phase: inferPhaseFromProject(p),
-    building: inferBuildingFromProject(p)
+    projectGroup: root||'Unassigned',
+    phase: phase||'Unassigned',
+    building: building||'Unassigned'
   };
+}
+function parseMultiFilter(raw){
+  if(raw==null||raw==='') return [];
+  if(Array.isArray(raw)) return raw.filter(Boolean).map(function(x){ return String(x).trim(); }).filter(Boolean);
+  var s=String(raw).trim();
+  if(!s||s==='__all__') return [];
+  if(s.charAt(0)==='['){
+    try{
+      var arr=JSON.parse(s);
+      if(Array.isArray(arr)) return arr.filter(Boolean).map(function(x){ return String(x).trim(); }).filter(Boolean);
+    }catch(e){}
+  }
+  return [s];
+}
+function encodeMultiFilter(vals){
+  var arr=(vals||[]).filter(Boolean).map(function(x){ return String(x).trim(); }).filter(Boolean);
+  return arr.length?JSON.stringify(arr):'__all__';
+}
+function multiFilterHas(raw, val){
+  var arr=parseMultiFilter(raw);
+  if(!arr.length) return true;
+  return arr.indexOf(String(val||''))>=0;
+}
+function readMultiSelectValues(selectId){
+  var el=document.getElementById(selectId);
+  if(!el||!el.options) return [];
+  var out=[];
+  for(var i=0;i<el.options.length;i++){
+    var op=el.options[i];
+    if(op.selected && op.value && op.value!=='__all__') out.push(op.value);
+  }
+  return out;
 }
 /** Projects matching current Project (root) + Phase + Building filters. */
 function projectMatchesHierarchy(p){
   if(!p) return false;
-  if(_curProjRoot && _curProjRoot!=='__all__' && inferProjectGroupFromProject(p)!==_curProjRoot) return false;
-  if(_curPhase!=='__all__' && inferPhaseFromProject(p)!==_curPhase) return false;
-  if(_curBuilding!=='__all__' && inferBuildingFromProject(p)!==_curBuilding) return false;
+  if(!multiFilterHas(_curProjRoot, inferProjectGroupFromProject(p))) return false;
+  if(!multiFilterHas(_curPhase, inferPhaseFromProject(p))) return false;
+  if(!multiFilterHas(_curBuilding, inferBuildingFromProject(p))) return false;
   return true;
 }
 function getVisibleProjects(){
@@ -2230,7 +2488,8 @@ function ensureProjRootCoherent(){
     if(r && !seen[r]){ seen[r]=1; uniq.push(r); }
   });
   if(!uniq.length) return;
-  if(_curProjRoot==='__all__' || uniq.indexOf(_curProjRoot)<0) _curProjRoot=uniq[0];
+  var keep=parseMultiFilter(_curProjRoot).filter(function(r){ return uniq.indexOf(r)>=0; });
+  _curProjRoot=encodeMultiFilter(keep);
 }
 function ensureCurrentProjectVisible(){
   if(_curPid==='__rollup__') return;
@@ -2239,60 +2498,62 @@ function ensureCurrentProjectVisible(){
   if(!_curPid || !vis.some(function(p){return p.id===_curPid;})) _curPid=vis[0].id;
 }
 function buildProjectGroupSelect(){
-  var sel=document.getElementById('project-group-select'); if(!sel) return;
+  var sel=document.getElementById('proj-root-select'); if(!sel) return;
   var set={}, opts=['__all__'];
   PROJS.forEach(function(p){ set[inferProjectGroupFromProject(p)]=1; });
   Object.keys(set).sort().forEach(function(x){ if(x&&x!=='Unassigned') opts.push(x); });
   if(set.Unassigned) opts.push('Unassigned');
-  sel.innerHTML=opts.map(function(v){ return '<option value="'+escHtml(v)+'">'+(v==='__all__'?'All Projects':'Project: '+v)+'</option>'; }).join('');
-  if(opts.indexOf(_curProjectGroup)<0) _curProjectGroup='__all__';
-  sel.value=_curProjectGroup;
+  var selVals=parseMultiFilter(_curProjRoot);
+  sel.innerHTML=opts.map(function(v){
+    var isSel=(v!=='__all__' && selVals.indexOf(v)>=0);
+    return '<option value="'+escHtml(v)+'"'+(isSel?' selected':'')+'>'+(v==='__all__'?'All Projects':('Project: '+v))+'</option>';
+  }).join('');
 }
 function buildPhaseSelect(){
   var sel=document.getElementById('phase-select'); if(!sel) return;
   var set={}, opts=['__all__'];
   var pool=PROJS;
-  if(_curProjRoot && _curProjRoot!=='__all__')
-    pool=PROJS.filter(function(p){ return inferProjectGroupFromProject(p)===_curProjRoot; });
+  pool=PROJS.filter(function(p){ return multiFilterHas(_curProjRoot, inferProjectGroupFromProject(p)); });
   pool.forEach(function(p){ set[inferPhaseFromProject(p)]=1; });
   Object.keys(set).sort().forEach(function(x){ if(x&&x!=='Unassigned') opts.push(x); });
   if(set.Unassigned) opts.push('Unassigned');
-  sel.innerHTML=opts.map(function(v){ return '<option value="'+escHtml(v)+'">'+(v==='__all__'?'All phases':escHtml(v))+'</option>'; }).join('');
-  if(opts.indexOf(_curPhase)<0) _curPhase='__all__';
-  sel.value=_curPhase;
+  var selVals=parseMultiFilter(_curPhase).filter(function(v){ return opts.indexOf(v)>=0; });
+  _curPhase=encodeMultiFilter(selVals);
+  sel.innerHTML=opts.map(function(v){
+    var isSel=(v!=='__all__' && selVals.indexOf(v)>=0);
+    return '<option value="'+escHtml(v)+'"'+(isSel?' selected':'')+'>'+(v==='__all__'?'All phases':escHtml(v))+'</option>';
+  }).join('');
 }
 function buildBuildingSelect(){
   var sel=document.getElementById('building-select'); if(!sel) return;
   var set={}, opts=['__all__'];
   var pool=PROJS;
-  if(_curProjRoot && _curProjRoot!=='__all__')
-    pool=pool.filter(function(p){ return inferProjectGroupFromProject(p)===_curProjRoot; });
-  if(_curPhase!=='__all__')
-    pool=pool.filter(function(p){ return inferPhaseFromProject(p)===_curPhase; });
+  pool=pool.filter(function(p){ return multiFilterHas(_curProjRoot, inferProjectGroupFromProject(p)); });
+  pool=pool.filter(function(p){ return multiFilterHas(_curPhase, inferPhaseFromProject(p)); });
   pool.forEach(function(p){ set[inferBuildingFromProject(p)]=1; });
   Object.keys(set).sort().forEach(function(x){ if(x&&x!=='Unassigned') opts.push(x); });
   if(set.Unassigned) opts.push('Unassigned');
-  sel.innerHTML=opts.map(function(v){ return '<option value="'+escHtml(v)+'">'+(v==='__all__'?'All buildings':escHtml(v))+'</option>'; }).join('');
-  if(opts.indexOf(_curBuilding)<0) _curBuilding='__all__';
-  sel.value=_curBuilding;
+  var selVals=parseMultiFilter(_curBuilding).filter(function(v){ return opts.indexOf(v)>=0; });
+  _curBuilding=encodeMultiFilter(selVals);
+  sel.innerHTML=opts.map(function(v){
+    var isSel=(v!=='__all__' && selVals.indexOf(v)>=0);
+    return '<option value="'+escHtml(v)+'"'+(isSel?' selected':'')+'>'+(v==='__all__'?'All buildings':escHtml(v))+'</option>';
+  }).join('');
 }
-function selectProjectGroup(v){
-  _curProjectGroup=(v&&String(v).trim())||'__all__';
+function selectProjectGroup(){
+  _curProjRoot=encodeMultiFilter(readMultiSelectValues('proj-root-select'));
   _curPhase='__all__';
   _curBuilding='__all__';
   buildProjectGroupSelect();
   buildPhaseSelect();
   buildBuildingSelect();
-  buildProjectGroupSelect();
-  buildPhaseSelect();
-  buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
   saveAll();
   renderAll();
 }
-function selectPhase(v){
-  _curPhase=(v&&String(v).trim())||'__all__';
+function selectPhase(){
+  _curPhase=encodeMultiFilter(readMultiSelectValues('phase-select'));
   _curBuilding='__all__';
   buildPhaseSelect();
   buildBuildingSelect();
@@ -2301,8 +2562,8 @@ function selectPhase(v){
   saveAll();
   renderAll();
 }
-function selectBuilding(v){
-  _curBuilding=(v&&String(v).trim())||'__all__';
+function selectBuilding(){
+  _curBuilding=encodeMultiFilter(readMultiSelectValues('building-select'));
   buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
@@ -2324,7 +2585,8 @@ function buildProjSelect(){
   var h='<option value="__ga__">&#127760; GA Consolidated</option>'+roll;
   roots.forEach(function(r){
     var enc=encodeURIComponent(r);
-    var selAttr=(r===_curProjRoot)?' selected':'';
+    var rootSel=parseMultiFilter(_curProjRoot);
+    var selAttr=(rootSel.length===1 && rootSel[0]===r)?' selected':'';
     h+='<option value="__root__|'+enc+'"'+selAttr+'>'+escHtml(r)+'</option>';
   });
   sel.innerHTML=h;
@@ -2469,6 +2731,22 @@ function buildCashflow(pid){
   (cfg.debtTranches||[]).forEach(function(dt){debtBalance[dt.id]={bal:0,rate:dt.ratePct||12};});
   var ulBalance={};
   (cfg.unsecuredLoans||[]).forEach(function(ul,ui){ ulBalance[ui]={bal:0,rate:coerceMoney(ul.ratePct)||0}; });
+  var invStates=[];
+  (cfg.investors||[]).forEach(function(inv){
+    if(!inv||inv.type==='equity') return;
+    var principal=coerceMoney(inv.amount);
+    if(principal<=0) return;
+    var drawMo=monthKeyFromInvestorDraw(inv,startDate);
+    if(!drawMo) return;
+    var termMonths=Math.max(1,Math.round((coerceMoney(inv.termYrs)||2)*12));
+    invStates.push({
+      bal:0,
+      drawMo:drawMo,
+      dueMo:addMonthsToMonthKey(drawMo,termMonths-1),
+      principal:principal,
+      rate:Math.max(0,coerceMoney(inv.ratePct)||0)
+    });
+  });
 
   var earliestAct=earliestActualsMonthKey(cfg);
   var floorMo=addMonthsToMonthKey(startKey,-120);
@@ -2512,7 +2790,8 @@ function buildCashflow(pid){
     var actSalesRev = act['Sales Revenue'];
     var salesRev    = ov.salesRev !== undefined ? ov.salesRev : (actSalesRev!==undefined&&actSalesRev!==null ? actSalesRev : schedSales);
     var salesRealizedMo=bucketMo.salesRealized||0;
-    var salesProjectedLine=(mo>curMo)?(bucketMo.sales||0):0;
+    var unsProj=((unsoldSalesMap[mo]&&unsoldSalesMap[mo].sales)||0);
+    var salesProjectedLine=(mo>curMo)?((bucketMo.sales||0)+unsProj):0;
     var salesDeficitMo=(mo===curMo)?(salesTimingMeta.salesDeficitTotal||0):0;
     var equityInf   = ov.equityInf   !== undefined ? ov.equityInf   : (act['Equity Infusion']  || equityInfMap[mo] || 0);
     var invFunding  = ov.invFunding  !== undefined ? ov.invFunding  : (act['Investor Funding'] || invFlowMap[mo] || 0);
@@ -2565,19 +2844,37 @@ function buildCashflow(pid){
       if(db.bal>0) schedInt+=db.bal*(db.rate/100/12);
     });
     // Unsecured loans: balance builds on draw; monthly interest at ratePct (additive to Interest Paid)
-    var ulSchedInt=0;
+    var ulSchedInt=0, ulDrawThisMo=0;
     (cfg.unsecuredLoans||[]).forEach(function(ul,ui){
       var st=ulBalance[ui];
       if(!st) return;
       var um=monthKeyFromFlexibleDate(ul.drawDate);
-      if(um===mo && coerceMoney(ul.amount)>0) st.bal+=coerceMoney(ul.amount);
+      if(um===mo && coerceMoney(ul.amount)>0){
+        var ulAdd=coerceMoney(ul.amount);
+        st.bal+=ulAdd;
+        ulDrawThisMo+=ulAdd;
+      }
     });
     (cfg.unsecuredLoans||[]).forEach(function(ul,ui){
       var st=ulBalance[ui];
       if(st&&st.bal>0 && st.rate>0) ulSchedInt+=st.bal*(st.rate/100/12);
     });
     schedInt+=ulSchedInt;
-    // Use Tally Interest Paid when present; otherwise model accrual (debt + unsecured) for all months
+    // Investor funding from Capital tab: monthly interest + bullet principal at term end.
+    var invSchedInt=0, invSchedPrincipal=0, invDrawThisMo=0;
+    invStates.forEach(function(st){
+      if(st.drawMo===mo){
+        st.bal+=st.principal;
+        invDrawThisMo+=st.principal;
+      }
+      if(st.bal>0&&st.rate>0) invSchedInt+=st.bal*(st.rate/100/12);
+      if(st.dueMo===mo&&st.bal>0){
+        invSchedPrincipal+=st.bal;
+        st.bal=0;
+      }
+    });
+    schedInt+=invSchedInt;
+    // Use Tally Interest Paid when present; otherwise model accrual (debt + unsecured + investor) for all months
     var actIntRaw=act['Interest Paid'];
     var intPaid=(actIntRaw!==undefined && actIntRaw!==null && actIntRaw!=='')?coerceMoney(actIntRaw):schedInt;
     var principalPaid=act['Principal Repaid'] || 0;
@@ -2586,6 +2883,7 @@ function buildCashflow(pid){
     if(!isActual)(cfg.debtTranches||[]).forEach(function(dt){
       (dt.repaySchedule||[]).forEach(function(rs){ principalPaid+=principalRepaymentInMonthHtml(rs, mo, period); });
     });
+    if(!isActual) principalPaid+=invSchedPrincipal;
 
     // Update debt balance for repayments
     if(principalPaid>0){
@@ -2595,13 +2893,28 @@ function buildCashflow(pid){
         var pay=Math.min(debtBalance[dt.id].bal,remaining);
         debtBalance[dt.id].bal-=pay; remaining-=pay;
       });
+      (cfg.unsecuredLoans||[]).forEach(function(ul,ui){
+        if(remaining<=0) return;
+        var st=ulBalance[ui];
+        if(!st||st.bal<=0) return;
+        var pay=Math.min(st.bal,remaining);
+        st.bal-=pay; remaining-=pay;
+      });
+      invStates.forEach(function(st){
+        if(remaining<=0) return;
+        if(!st||st.bal<=0) return;
+        var pay=Math.min(st.bal,remaining);
+        st.bal-=pay; remaining-=pay;
+      });
     }
 
     var totOutflows = land+noc+consultant+regulatoryConsulting+construction+marketing+ga+contingency+intPaid+principalPaid;
     var netCF=totInflows-totOutflows;
     var closingCash=openingCash+netCF;
-    var closingDebt=Object.values(debtBalance).reduce(function(s,v){return s+v.bal;},0);
-    var openingDebt=closingDebt-debtDraw+principalPaid;
+    var closingDebt=Object.values(debtBalance).reduce(function(s,v){return s+v.bal;},0)
+      +(cfg.unsecuredLoans||[]).reduce(function(s,ul,ui){ var st=ulBalance[ui]; return s+(st&&st.bal>0?st.bal:0); },0)
+      +invStates.reduce(function(s,st){ return s+(st&&st.bal>0?st.bal:0); },0);
+    var openingDebt=closingDebt-(debtDraw+ulDrawThisMo+invDrawThisMo)+principalPaid;
     var cads=Math.max(0,closingCash);
     var debtService=schedInt+(principalPaid||0);
     var dscr=debtService>0?cads/debtService:null;
@@ -3207,6 +3520,20 @@ function monthKeyFromInvestorDraw(inv, startDate){
   if(!isFinite(dm)||dm<=0) return '';
   var s=(startDate&&String(startDate).length>=7)?startDate:(new Date().toISOString().slice(0,10));
   return offsetMonth(s,dm-1);
+}
+function parseTemplateHeaderIndex(header, re, fallback){
+  if(!header||!header.length) return -1;
+  for(var i=0;i<header.length;i++){
+    var h=String(header[i]||'').toLowerCase().replace(/\s+/g,' ').trim();
+    if(re.test(h)) return i;
+  }
+  return (fallback===0||fallback)?fallback:-1;
+}
+function templateDateCellToIsoOrRaw(v){
+  if(v===undefined||v===null||v==='') return '';
+  var iso=normalizeToISODate(v);
+  if(iso) return iso.slice(0,10);
+  return String(v).trim();
 }
 /** 1-based project month index for a calendar date vs project start (YYYY-MM or YYYY-MM-DD). */
 function dateToProjectMonth(startDate, isoDate){
@@ -3881,11 +4208,12 @@ function selectProj(pid){
   if(pid==='__ga__'){showTab('ga');return;}
   if(pid==='__rollup__'){ _curPid='__rollup__'; saveAll(); showTab('ga'); return; }
   if(String(pid).indexOf('__root__|')===0){
-    try{ _curProjRoot=decodeURIComponent(pid.slice('__root__|'.length)); }
-    catch(eR){ _curProjRoot=(PROJS[0]?inferProjectGroupFromProject(PROJS[0]):'__all__'); }
+    try{ _curProjRoot=encodeMultiFilter([decodeURIComponent(pid.slice('__root__|'.length))]); }
+    catch(eR){ _curProjRoot='__all__'; }
     _curPhase='__all__';
     _curBuilding='__all__';
-    var fst=PROJS.find(function(p){ return inferProjectGroupFromProject(p)===_curProjRoot; });
+    var rootSel=parseMultiFilter(_curProjRoot);
+    var fst=PROJS.find(function(p){ return rootSel.indexOf(inferProjectGroupFromProject(p))>=0; });
     _curPid=fst?fst.id:null;
     saveAll();
     buildPhaseSelect();
@@ -3897,9 +4225,9 @@ function selectProj(pid){
   }
   var p=(PROJS||[]).find(function(x){ return x&&x.id===pid; })||null;
   if(p){
-    _curProjRoot=inferProjectGroupFromProject(p);
-    _curPhase=inferPhaseFromProject(p);
-    _curBuilding=inferBuildingFromProject(p);
+    _curProjRoot=encodeMultiFilter([inferProjectGroupFromProject(p)]);
+    _curPhase=encodeMultiFilter([inferPhaseFromProject(p)]);
+    _curBuilding=encodeMultiFilter([inferBuildingFromProject(p)]);
   }
   _curPid=pid; saveAll();
   buildPhaseSelect();
@@ -4892,6 +5220,21 @@ function renderCapital(){
   var h='';
   h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b);margin-bottom:4px">💰 Capital Structure — '+cfg.projName+'</div>';
   h+='<div style="font-size:10px;color:var(--muted);margin-bottom:12px">All entries here feed into the Cashflow Inflows automatically. <strong>Tally</strong> inflows (equity, loans, investor) sync into <strong>actuals</strong> via Live sync — reconcile here.</div>';
+  var invPayRows=buildInvestorPayableSeries(cfg);
+  if(invPayRows.length){
+    var invTotPrincipal=invPayRows.reduce(function(s,r){ return s+(r.principal||0); },0);
+    var invTotInterest=invPayRows.reduce(function(s,r){ return s+(r.interest||0); },0);
+    var invTotPayable=invTotPrincipal+invTotInterest;
+    h+='<div class="card" style="border-top:3px solid #542B8A;margin-bottom:12px">';
+    h+='<div style="font-size:12px;font-weight:800;color:#542B8A;margin-bottom:8px">Investor Payables Snapshot (from Capital)</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px">';
+    h+='<div class="kpi"><div style="font-size:9px;color:var(--muted)">Principal due (lifetime)</div><div style="font-size:13px;font-weight:800">'+cr(invTotPrincipal,'₹0')+'</div></div>';
+    h+='<div class="kpi"><div style="font-size:9px;color:var(--muted)">Interest due (lifetime)</div><div style="font-size:13px;font-weight:800">'+cr(invTotInterest,'₹0')+'</div></div>';
+    h+='<div class="kpi"><div style="font-size:9px;color:var(--muted)">Total payable</div><div style="font-size:13px;font-weight:800">'+cr(invTotPayable,'₹0')+'</div></div>';
+    h+='</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-top:8px">Detailed month-wise investor payable table is available in <strong>Debt Service</strong> tab.</div>';
+    h+='</div>';
+  }
   h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">';
   h+='<button class="btn btn-primary" data-action="tally-sync-modal" style="font-size:11px">&#9889; Tally live sync</button>';
   h+='<button class="btn btn-outline" data-action="dl-capital-template">⬇ Download Template</button>';
@@ -5610,7 +5953,7 @@ function renderDebt(){
   var cfg=getCF(_curPid);
   var h='';
   h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b);margin-bottom:12px">🏦 Debt Service — '+cfg.projName+'</div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:12px">Configure debt tranches. Interest and principal repayments auto-calculate and feed into Cashflow rows ⑧ & ⑨.</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:12px">Debt Tranche is optional. Capital tab (Investor Funding + Unsecured Loans) now drives interest/principal schedule by default; use Debt Tranches only for bank-loan style custom repayment schedules.</div>';
 
   (cfg.debtTranches||[]).forEach(function(dt,i){
     var tot=dt.drawAmount||0;
@@ -5644,6 +5987,32 @@ function renderDebt(){
     h+='<div style="font-size:10px;color:var(--muted);align-self:center">Total principal drawn: '+cr(tot)+' | Scheduled repayment: '+cr(repaid)+' | Outstanding: '+cr(tot-repaid)+'</div>';
     h+='</div></div>';
   });
+
+  var invPayRows=buildInvestorPayableSeries(cfg);
+  h+='<div class="card" style="border-top:3px solid #542B8A;margin-bottom:12px">';
+  h+='<div style="font-size:12px;font-weight:800;color:#542B8A;margin-bottom:8px">Investor Payables (Month-wise)</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Shows total monthly payable to external investors from Capital Structure: <strong>Interest</strong>, <strong>Principal</strong>, and <strong>Cumulative Interest</strong>.</div>';
+  if(!invPayRows.length){
+    h+='<div style="font-size:10px;color:var(--muted)">No investor funding rows found. Add investors in Capital Structure to generate this schedule.</div>';
+  }else{
+    var totP=invPayRows.reduce(function(s,r){ return s+(r.principal||0); },0);
+    var totI=invPayRows.reduce(function(s,r){ return s+(r.interest||0); },0);
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Total principal '+cr(totP,'₹0')+' · Total interest '+cr(totI,'₹0')+' · Total payable '+cr(totP+totI,'₹0')+'</div>';
+    h+='<div style="overflow:auto;max-height:320px;border:1px solid var(--border);border-radius:8px">';
+    h+='<table style="width:100%;border-collapse:collapse;font-size:10px">';
+    h+='<thead><tr style="background:#F6F0FF"><th style="padding:6px;text-align:left">Month</th><th style="padding:6px;text-align:right">Interest</th><th style="padding:6px;text-align:right">Principal</th><th style="padding:6px;text-align:right">Total Payable</th><th style="padding:6px;text-align:right">Cumulative Interest</th></tr></thead><tbody>';
+    invPayRows.forEach(function(r){
+      h+='<tr style="border-top:1px solid var(--border)">';
+      h+='<td style="padding:5px 6px">'+escHtml(r.mo)+'</td>';
+      h+='<td style="padding:5px 6px;text-align:right">'+cr(r.interest,'₹0')+'</td>';
+      h+='<td style="padding:5px 6px;text-align:right">'+cr(r.principal,'₹0')+'</td>';
+      h+='<td style="padding:5px 6px;text-align:right;font-weight:700">'+cr(r.total,'₹0')+'</td>';
+      h+='<td style="padding:5px 6px;text-align:right">'+cr(r.cumulativeInterest,'₹0')+'</td>';
+      h+='</tr>';
+    });
+    h+='</tbody></table></div>';
+  }
+  h+='</div>';
 
   h+='<button class="btn btn-primary" data-action="add-dt">+ Add Debt Tranche</button>';
   el.innerHTML=h;
@@ -6156,7 +6525,7 @@ function importExpenseSchedule(input){
       var buf=new Uint8Array(e.target.result);
       var wb=XLSX.read(buf,{type:'array'});
       var ws=wb.Sheets[wb.SheetNames[0]];
-      var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true});
       if(rows.length<2){alert('No data rows in expense file.');return;}
       var hdr=rows[0].map(function(c){ return String(c||'').toLowerCase().trim(); });
       function colIdx(names){
@@ -6428,7 +6797,7 @@ function importUnsoldInventoryTemplate(input){
         });
       });
       cfg.unsoldUnits=out;
-      saveAll();
+      saveAll({pid:_curPid,sections:['unsoldUnits']});
       renderSales();
       refreshProjectCashflowViews();
       alert('✓ Unsold inventory uploaded: '+out.length+' unit(s).');
@@ -6615,7 +6984,7 @@ function importInventoryTemplate(input){
           });
         }
       });
-      saveAll();
+      saveAll({pid:_curPid,sections:['units','unsoldUnits']});
       renderSales();
       refreshProjectCashflowViews();
       alert('✓ Inventory updated from template. Sold units now drive collections; unsold units are listed separately.');
@@ -7064,7 +7433,11 @@ function importCRMPostSalesWorkbook(input){
         input.value='';
         return;
       }
-      saveAll();
+      var perPidSections={};
+      Object.keys(pidAudit).forEach(function(pid){
+        perPidSections[pid]=['units','unsoldUnits','milestonesAchievedDates'];
+      });
+      saveAll({perPidSections:perPidSections});
       buildProjSelect();
       renderAll();
       refreshProjectCashflowViews();
@@ -7320,15 +7693,15 @@ function importCapitalTemplate(input){
       cfg.customerUL=[];
       cfg.otherInflows=[];
       var header=rows[0].map(function(h){return (h||'').toString().toLowerCase();});
-      var iType=header.indexOf('type');
-      var iName=header.indexOf('name / party');
-      var iAmt=header.indexOf('amount (₹)');
-      if(iAmt<0) iAmt=header.indexOf('amount');
-      var iDraw=header.indexOf('draw date / month#');
-      if(iDraw<0) iDraw=header.indexOf('draw date');
-      var iRate=header.indexOf('rate %');
-      var iTerm=header.indexOf('term (yrs)');
-      var iNote=header.indexOf('notes');
+      // Prefer header match, else hard fallback to template column positions:
+      // A Type | B Name | C Amount | D Draw date | E Rate | F Term | G Notes
+      var iType=parseTemplateHeaderIndex(header,/^type$/i,0);
+      var iName=parseTemplateHeaderIndex(header,/name.*party/i,1);
+      var iAmt=parseTemplateHeaderIndex(header,/amount/i,2);
+      var iDraw=parseTemplateHeaderIndex(header,/draw\s*date|month#/i,3);
+      var iRate=parseTemplateHeaderIndex(header,/rate/i,4);
+      var iTerm=parseTemplateHeaderIndex(header,/term/i,5);
+      var iNote=parseTemplateHeaderIndex(header,/notes?/i,6);
       rows.slice(1).forEach(function(r){
         var t=(r[iType]||'').toString().toLowerCase();
         var name=(r[iName]||'').toString().trim();
@@ -7339,7 +7712,7 @@ function importCapitalTemplate(input){
             id:uid(),
             name:name,
             amount:amt,
-            drawDate:(r[iDraw]||'').toString().trim(),
+            drawDate:templateDateCellToIsoOrRaw(r[iDraw]),
             ratePct:parseFloat(r[iRate])||0
           });
         }else if(t.indexOf('customer ul')>=0){
@@ -7347,19 +7720,19 @@ function importCapitalTemplate(input){
             id:uid(),
             name:name,
             amount:amt,
-            date:(r[iDraw]||'').toString().trim()
+            date:templateDateCellToIsoOrRaw(r[iDraw])
           });
         }else if(t.indexOf('other inflow')>=0){
           cfg.otherInflows.push({
             id:uid(),
             name:name,
             amount:amt,
-            date:(r[iDraw]||'').toString().trim(),
+            date:templateDateCellToIsoOrRaw(r[iDraw]),
             note:(iNote>=0?(r[iNote]||'').toString().trim():'')
           });
         }else{
           // Equity / Investor — prefer calendar ISO date; else legacy "Month N"
-          var drawRaw=(r[iDraw]||'').toString().trim();
+          var drawRaw=(r[iDraw]===undefined||r[iDraw]===null)?'':String(r[iDraw]).trim();
           var isoDraw=normalizeToISODate(drawRaw);
           var drawMonth=parseInt(drawRaw.replace(/\D/g,''),10)||1;
           var rate=parseFloat(r[iRate])||18;
@@ -7430,6 +7803,7 @@ document.addEventListener('click',function(e){
   if(a==='add-install')            { addInstallRow(); return; }
   if(a==='add-proj')               { showAddProjModal(); return; }
   if(a==='remove-proj-cf')         { removeCurrentProjectFromCashflowWorkbook(); return; }
+  if(a==='restore-last-deleted-proj'){ restoreLastDeletedProject(); return; }
   if(a==='hierarchy-modal')        { showHierarchyModal(); return; }
   if(a==='save-hierarchy')         { saveHierarchyFromModal(); return; }
   if(a==='save-manual-proj')       { saveManualProj(); return; }

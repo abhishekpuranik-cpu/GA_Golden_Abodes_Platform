@@ -584,8 +584,26 @@
       if (logo) logo.src = base + "/assets/golden-abodes-logo.svg";
       if (v3) { v3.href = base + "/"; v3.textContent = "Open Project Acquisition →"; }
       if (v2) { v2.href = base + "/rp"; v2.textContent = "Open Resource Planner →"; }
-      if (v1) { v1.href = base + "/legacy/GA_Cashflow_V1.html"; v1.textContent = "Open Cashflow Tracker →"; }
+      if (v1) {
+        v1.href = base + "/legacy/GA_Cashflow_V1.html";
+        v1.textContent = "Open Cashflow Tracker →";
+        resolveLiveCashflowHref(base, v1);
+      }
       if (ms) { ms.href = base + "/ms"; ms.textContent = "Open Marketing & Sales Command Centre →"; }
+    }
+    function resolveLiveCashflowHref(base, anchorEl) {
+      if (!anchorEl) return;
+      var fallback = base + "/legacy/GA_Cashflow_V1.html?v=" + Date.now();
+      fetch(base + "/legacy/GA_Cashflow_V1.html?probe=" + Date.now(), { cache: "no-store" })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var m = String(html || "").match(/var\s+CF_VERSION\s*=\s*(\d+)/);
+          var v = m && m[1] ? m[1] : String(Date.now());
+          anchorEl.href = base + "/legacy/GA_Cashflow_V1.html?v=" + encodeURIComponent(v);
+        })
+        .catch(function () {
+          anchorEl.href = fallback;
+        });
     }
     function appTitleFromName(name) {
       var n = (name || "").replace(/\.[^.]+$/, "");

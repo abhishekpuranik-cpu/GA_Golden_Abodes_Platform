@@ -37,25 +37,31 @@ function localUrl(key) {
 /** Keep empty by default in cloud; set explicit URLs via env vars when those apps are deployed. */
 const DEFAULT_EXECUTION_DASHBOARD_URL = '';
 const DEFAULT_PRECONSTRUCTION_URL = '';
+const VAULT_EXEC_VERSION = '20260506';
+const VAULT_PRE_VERSION = '20260506';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
 const PRE_URL_LS_KEY = 'ga_preconstruction_url';
 
 export default function VaultHome() {
+  const [cashflowVersion, setCashflowVersion] = useState('live');
   const [execCustomUrl, setExecCustomUrl] = useState(() => localUrl(EXEC_URL_LS_KEY));
   const [preCustomUrl, setPreCustomUrl] = useState(() => localUrl(PRE_URL_LS_KEY));
   const [vaultFromApi, setVaultFromApi] = useState(() => ({ execution: '', pre: '' }));
+  const cashflowHref = withVersionParam('/legacy/GA_Cashflow_V1.html', 'v', cashflowVersion);
   const execUrl =
-    String(execCustomUrl || '').trim() ||
     String(vaultFromApi.execution || '').trim() ||
     externalUrl('VITE_EXECUTION_DASHBOARD_URL') ||
+    String(execCustomUrl || '').trim() ||
     DEFAULT_EXECUTION_DASHBOARD_URL;
   const preUrl =
-    String(preCustomUrl || '').trim() ||
     String(vaultFromApi.pre || '').trim() ||
     externalUrl('VITE_PRECONSTRUCTION_URL') ||
+    String(preCustomUrl || '').trim() ||
     DEFAULT_PRECONSTRUCTION_URL;
-  const execEnabled = !!execUrl;
-  const preEnabled = !!preUrl;
+  const execVersionedUrl = withVersionParam(execUrl, 'v', VAULT_EXEC_VERSION);
+  const preVersionedUrl = withVersionParam(preUrl, 'v', VAULT_PRE_VERSION);
+  const execEnabled = !!execVersionedUrl;
+  const preEnabled = !!preVersionedUrl;
   const [apiOk, setApiOk] = useState(null);
 
   function setCustomDashboardUrl(label, lsKey, setValue) {
@@ -98,6 +104,22 @@ export default function VaultHome() {
       })
       .catch(() => {
         if (alive) setApiOk(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffect(() => {
+    let alive = true;
+    fetch(`/legacy/GA_Cashflow_V1.html?probe=${Date.now()}`, { cache: 'no-store' })
+      .then((r) => r.text())
+      .then((html) => {
+        if (!alive) return;
+        const m = String(html || '').match(/var\s+CF_VERSION\s*=\s*(\d+)/);
+        setCashflowVersion(m && m[1] ? m[1] : String(Date.now()));
+      })
+      .catch(() => {
+        if (alive) setCashflowVersion(String(Date.now()));
       });
     return () => {
       alive = false;
@@ -162,7 +184,7 @@ export default function VaultHome() {
               Capacity, allocations, and links to V3 project list via shared storage keys.
             </p>
           </Link>
-          <a href="/legacy/GA_Cashflow_V1.html?v=8" target="_blank" rel="noopener noreferrer" style={card}>
+          <a href={cashflowHref} target="_blank" rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V1</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Cashflow Tracker</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
@@ -177,13 +199,13 @@ export default function VaultHome() {
           Construction dashboards (standalone React)
         </h2>
         <div style={grid}>
-          <a href={execEnabled ? execUrl : '#'} target={execEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
+          <a href={execEnabled ? execVersionedUrl : '#'} target={execEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--blue)', fontSize: 13 }}>React</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Construction Execution Dashboard</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
               {execUrl ? (
                 <>
-                  Opens in a new tab: <span style={{ wordBreak: 'break-all' }}>{execUrl}</span>
+                  Opens in a new tab: <span style={{ wordBreak: 'break-all' }}>{execVersionedUrl}</span>
                 </>
               ) : (
                 'Ask your admin to set EXECUTION_DASHBOARD_URL or VITE_EXECUTION_DASHBOARD_URL on Render, or use “Set URL for this browser”.'
@@ -204,13 +226,13 @@ export default function VaultHome() {
               </button>
             </p>
           </a>
-          <a href={preEnabled ? preUrl : '#'} target={preEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
+          <a href={preEnabled ? preVersionedUrl : '#'} target={preEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--teal)', fontSize: 13 }}>React</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>PreConstruction</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
               {preUrl ? (
                 <>
-                  Opens: <span style={{ wordBreak: 'break-all' }}>{preUrl}</span>
+                  Opens: <span style={{ wordBreak: 'break-all' }}>{preVersionedUrl}</span>
                 </>
               ) : (
                 'Ask your admin to set PRECONSTRUCTION_APP_URL or VITE_PRECONSTRUCTION_URL on Render, or use “Set URL for this browser”.'
@@ -271,3 +293,16 @@ const miniBtn = {
   fontSize: 12,
   fontWeight: 600
 };
+
+function withVersionParam(url, key, value) {
+  const raw = String(url || '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    u.searchParams.set(key, value);
+    return u.toString();
+  } catch {
+    const sep = raw.indexOf('?') >= 0 ? '&' : '?';
+    return `${raw}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  }
+}
