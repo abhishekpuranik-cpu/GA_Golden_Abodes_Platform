@@ -192,7 +192,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 15;
+var CF_VERSION = 16;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -4631,7 +4631,7 @@ function renderCashflow(){
     h+='<td class="cf-num" style="'+clsBg+';font-weight:800;font-size:12px;'+(r.closingCash<0?'color:var(--red-b)':'color:var(--green-b)')+'">'+crN(r.closingCash)+'</td>';
     h+='<td class="cf-num cf-debt">'+crN(r.cads)+'</td>';
     h+='<td class="cf-num cf-debt">'+crN(r.debtService)+'</td>';
-    h+='<td class="cf-num cf-debt">'+(r.dscr!==null?r.dscr.toFixed(2):'—')+'</td>';
+    h+='<td class="cf-num cf-debt">'+(Number.isFinite(r.dscr)?r.dscr.toFixed(2):'—')+'</td>';
     h+='<td class="cf-num cf-debt">'+crN(r.closingDebt)+'</td>';
     h+='<td class="cf-num cf-debt">'+crN(r.debtDraw)+'</td>';
     h+='</tr>';
