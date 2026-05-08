@@ -192,7 +192,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 16;
+var CF_VERSION = 17;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -4667,8 +4667,9 @@ function renderCashflow(){
   h+='</tr>';
   h+='</tbody></table></div>';
 
-  // ── Transaction log ──
-  h+=renderTransLog(cfg);
+  // ── Transaction log ── (single-project only)
+  if(!useRollup) h+=renderTransLog(cfg);
+  else h+='<div class="card" style="margin-top:12px"><div style="font-size:11px;color:var(--muted)">Transaction log is shown in single-project view. Current view is rollup across '+vis.length+' selected projects.</div></div>';
   el.innerHTML=h;
 }
 
