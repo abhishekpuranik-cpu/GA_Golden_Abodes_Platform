@@ -192,7 +192,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 14;
+var CF_VERSION = 15;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -4284,6 +4284,24 @@ function buildPostSalesSeries(cfg){
     };
   });
 }
+function aggregatePostSalesSeriesForVisible(vis){
+  var byMo={};
+  (vis||[]).forEach(function(p){
+    if(!p||!p.id) return;
+    var cfg=getCF(p.id);
+    buildPostSalesSeries(cfg).forEach(function(r){
+      var mo=r.mo||'';
+      if(!mo) return;
+      if(!byMo[mo]) byMo[mo]={mo:mo,scheduled:0,expected:0,realized:0,unsoldProj:0,gap:0};
+      byMo[mo].scheduled+=(r.scheduled||0);
+      byMo[mo].expected+=(r.expected||0);
+      byMo[mo].realized+=(r.realized||0);
+      byMo[mo].unsoldProj+=(r.unsoldProj||0);
+      byMo[mo].gap+=(r.gap||0);
+    });
+  });
+  return Object.keys(byMo).sort().map(function(mo){ return byMo[mo]; });
+}
 
 function scheduledInNextMonths(cfg, startMo, nMonths, delayMo){
   var ufn=delayMo?function(u,c){ return getUnitScheduleWithConstructionDelay(u,c,delayMo);}:getUnitSchedule;
@@ -4918,10 +4936,74 @@ function renderPostSalesPanel(cfg){
   h+='</div></div>';
   return h;
 }
+function renderPostSalesPanelRollup(vis){
+  var seriesFull=aggregatePostSalesSeriesForVisible(vis);
+  var cutY=calendarYearStartMonthKey();
+  var series=showPriorCalendarYears()?seriesFull:seriesFull.filter(function(r){ return r.mo>=cutY; });
+  var curMo=currentMonthStr();
+  var schedCurMo=0, realCurMo=0, expCurMo=0;
+  series.forEach(function(r){ if(r.mo===curMo){ schedCurMo=r.scheduled; realCurMo=r.realized; expCurMo=r.expected||0; } });
+  var ytdRealFull=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+r.realized; },0);
+  var totReal=ytdRealFull;
+  var totUns=seriesFull.reduce(function(s,r){ return s+(r.unsoldProj||0); },0);
+  var totUnsVisible=series.reduce(function(s,r){ return s+(r.unsoldProj||0); },0);
+  var ytdSched=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+r.scheduled; },0);
+  var ytdExp=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+(r.expected||0); },0);
+  var ytdReal=ytdRealFull;
+  var collPct=ytdSched>0?(100*ytdReal/ytdSched):0;
+  var h='';
+  h+='<div class="card" style="border-top:3px solid #1558A0">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Post-sales command center — rollup ('+(vis||[]).length+' selected projects)</div>';
+  h+='<label style="font-size:10px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none">';
+  h+='<input type="checkbox" data-action="toggle-prior-years" '+(showPriorCalendarYears()?'checked':'')+' style="accent-color:var(--blue)"/>';
+  h+='Show prior calendar years</label></div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45">Rollup of all visible projects by current Project/Phase/Building filters. Use this for portfolio-level post-sales tracking.</div>';
+  h+='<div class="ps-dash-grid">';
+  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>Expected inflows (YTD)</h4><div class="v">'+(ytdExp>0?cr(ytdExp):'—')+'</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>Collection vs schedule (YTD)</h4><div class="v">'+(ytdSched>0?collPct.toFixed(1)+'%':'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Received '+cr(ytdReal)+' / Due '+cr(ytdSched)+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>Total scheduled (current month)</h4><div class="v">'+cr(schedCurMo)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+formatMonthKey(curMo)+' · expected '+cr(expCurMo)+' · received '+cr(realCurMo)+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>Amount received to date</h4><div class="v">'+cr(totReal)+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>Unsold projection</h4><div class="v">'+cr(totUnsVisible)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Full horizon: <strong>'+cr(totUns)+'</strong></div></div>';
+  h+='</div>';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly schedule vs amount received'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
+  h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--blue-l)">';
+  ['Month','Scheduled (plan)','Expected amount','Amount received','Gap','Cum. sched.','Cum. expected','Cum. received','Unsold proj.'].forEach(function(x){
+    h+='<th style="padding:8px 10px;text-align:'+(x==='Month'?'left':'right')+'">'+x+'</th>';
+  });
+  h+='</tr></thead><tbody>';
+  var atMoMap={};
+  (function(){
+    var cS=0,cE=0,cR=0;
+    seriesFull.forEach(function(r){ cS+=r.scheduled; cE+=r.expected||0; cR+=r.realized; atMoMap[r.mo]={cumS:cS,cumE:cE,cumR:cR}; });
+  })();
+  series.forEach(function(r){
+    var c=atMoMap[r.mo]||{cumS:0,cumE:0,cumR:0};
+    var isCur=r.mo===curMo;
+    h+='<tr style="border-bottom:1px solid var(--border);'+(isCur?'background:#FFFDE7;font-weight:700':'')+'">';
+    h+='<td style="padding:6px 10px">'+(isCur?'● ':'')+formatMonthKey(r.mo)+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px;color:var(--blue-b)">'+cr(r.scheduled,'—')+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px;color:var(--teal)">'+cr(r.expected||0,'—')+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px;color:var(--green-b)">'+cr(r.realized,'—')+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px;color:'+(r.gap>0?'var(--orange)':'var(--muted)')+'">'+cr(r.gap,'—')+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px">'+cr(c.cumS)+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px;color:var(--teal)">'+cr(c.cumE)+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px">'+cr(c.cumR)+'</td>';
+    h+='<td style="text-align:right;padding:6px 10px;color:var(--purple)">'+cr(r.unsoldProj,'—')+'</td>';
+    h+='</tr>';
+  });
+  if(!series.length) h+='<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">No rollup rows for current filters.</td></tr>';
+  h+='</tbody></table></div></div>';
+  return h;
+}
 
 function renderSales(){
   var el=document.getElementById('page-sales'); if(!el) return;
+  var vis=getVisibleProjects();
+  if(!vis.length){el.innerHTML=noProjectMsg();return;}
   if(!PROJS.length){el.innerHTML=noProjectMsg();return;}
+  if(!_curPid || !vis.some(function(p){ return p.id===_curPid; })) _curPid=vis[0].id;
   var cfg=getCF(_curPid);
   ensureUnsoldPaceCfg(cfg);
   var summaryCr=cr;
@@ -4935,7 +5017,7 @@ function renderSales(){
   h+='</div>';
 
   if(_salesUIPanel==='postsales'){
-    h+=renderPostSalesPanel(cfg);
+    h+=(vis.length>1)?renderPostSalesPanelRollup(vis):renderPostSalesPanel(cfg);
     el.innerHTML=h;
     return;
   }
