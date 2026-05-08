@@ -36,7 +36,7 @@ function localUrl(key) {
 /** Keep empty by default in cloud; set explicit URLs via env vars when those apps are deployed. */
 const DEFAULT_EXECUTION_DASHBOARD_URL = '';
 const DEFAULT_PRECONSTRUCTION_URL = '';
-const VAULT_EXEC_VERSION = '20260508';
+const VAULT_EXEC_VERSION = '20260508-2';
 const VAULT_PRE_VERSION = '20260506';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
 const PRE_URL_LS_KEY = 'ga_preconstruction_url';
