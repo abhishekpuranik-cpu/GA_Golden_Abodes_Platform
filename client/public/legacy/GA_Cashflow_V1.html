@@ -118,11 +118,15 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
       style="padding:4px 6px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:10px;font-weight:600;min-width:130px;max-height:66px">
       <option value="__all__">All phases</option>
     </select>
+    <button class="btn btn-outline" type="button" onclick="setPhaseAll()"
+      style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)" title="Select all phases">All phases</button>
     <select id="building-select" multiple size="3" onchange="selectBuilding()"
       title="Building filter (multi-select)"
       style="padding:4px 6px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:10px;font-weight:600;min-width:130px;max-height:66px">
       <option value="__all__">All buildings</option>
     </select>
+    <button class="btn btn-outline" type="button" onclick="setBuildingAll()"
+      style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)" title="Select all buildings">All buildings</button>
     <button class="btn btn-outline" onclick="syncFromV3()"
       style="font-size:10px;padding:4px 8px;color:#fff;border-color:rgba(255,255,255,.3)">&#8635; Sync V3</button>
     <button class="btn btn-outline" data-action="add-proj"
@@ -188,7 +192,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 12;
+var CF_VERSION = 14;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -371,11 +375,34 @@ function principalRepaymentInMonthHtml(rs, mo, period){
   if(rs.month===period) return amt;
   return 0;
 }
+function debtLenderKey(kind,id){
+  return String(kind||'')+'::'+String(id||'');
+}
+function debtPaymentMarkKey(mo,lenderKey){
+  return String(mo||'')+'|'+String(lenderKey||'');
+}
+function isDebtPaymentMarked(cfg, mo, lenderKey, type){
+  var marks=(cfg&&cfg.debtPaymentMarks)||{};
+  var mk=debtPaymentMarkKey(mo,lenderKey);
+  var row=marks[mk]||{};
+  if(type==='principal') return !!row.principalPaid;
+  return !!row.interestPaid;
+}
+function setDebtPaymentMarked(cfg, mo, lenderKey, type, on){
+  if(!cfg) return;
+  if(!cfg.debtPaymentMarks) cfg.debtPaymentMarks={};
+  var mk=debtPaymentMarkKey(mo,lenderKey);
+  var row=cfg.debtPaymentMarks[mk]||{interestPaid:false,principalPaid:false};
+  if(type==='principal') row.principalPaid=!!on;
+  else row.interestPaid=!!on;
+  if(!row.interestPaid&&!row.principalPaid) delete cfg.debtPaymentMarks[mk];
+  else cfg.debtPaymentMarks[mk]=row;
+}
 function buildInvestorPayableSeries(cfg){
   cfg=cfg||{};
   var startDate=(cfg.startDate&&String(cfg.startDate).trim())||new Date().toISOString().slice(0,10);
   var rowsByMo={};
-  (cfg.investors||[]).forEach(function(inv){
+  (cfg.investors||[]).forEach(function(inv,i){
     if(!inv||inv.type==='equity') return;
     var principal=coerceMoney(inv.amount);
     if(principal<=0) return;
@@ -407,6 +434,114 @@ function buildInvestorPayableSeries(cfg){
     });
   });
   return out;
+}
+function buildLenderPaymentSchedule(cfg){
+  cfg=cfg||{};
+  var startDate=(cfg.startDate&&String(cfg.startDate).trim())||new Date().toISOString().slice(0,10);
+  var months=Math.max(1,parseInt(cfg.totalMonths,10)||60);
+  var lenders=[], byLender={}, byMonth={};
+  function ensureLender(kind,id,name,rate){
+    var key=debtLenderKey(kind,id);
+    if(byLender[key]) return byLender[key];
+    var row={key:key,kind:kind,id:id,name:name||id||kind,rate:coerceMoney(rate)||0,balance:0};
+    byLender[key]=row;
+    lenders.push(row);
+    return row;
+  }
+  function addMonthLine(key,mo,interest,principal,balance){
+    if(!byMonth[mo]) byMonth[mo]={};
+    if(!byMonth[mo][key]) byMonth[mo][key]={interest:0,principal:0,balance:0};
+    byMonth[mo][key].interest+=coerceMoney(interest);
+    byMonth[mo][key].principal+=coerceMoney(principal);
+    byMonth[mo][key].balance=coerceMoney(balance);
+  }
+  var debtStates=[];
+  (cfg.debtTranches||[]).forEach(function(dt,i){
+    var draw=coerceMoney(dt.drawAmount);
+    if(draw<=0) return;
+    var drawMo=monthKeyFromFlexibleDate(dt.drawDate);
+    if(!drawMo) return;
+    var name=(dt.lender&&String(dt.lender).trim())||('Debt '+(dt.id||('D'+(i+1))));
+    var lender=ensureLender('debt',dt.id||('debt_'+i),name,dt.ratePct||12);
+    debtStates.push({lender:lender,drawMo:drawMo,draw:draw,rate:Math.max(0,coerceMoney(dt.ratePct)||0),bal:0,repay:dt.repaySchedule||[]});
+  });
+  var invStates=[];
+  (cfg.investors||[]).forEach(function(inv,i){
+    if(!inv||inv.type==='equity') return;
+    var principal=coerceMoney(inv.amount);
+    if(principal<=0) return;
+    var drawMo=monthKeyFromInvestorDraw(inv,startDate);
+    if(!drawMo) return;
+    var termMonths=Math.max(1,Math.round((coerceMoney(inv.termYrs)||2)*12));
+    var name=(inv.name&&String(inv.name).trim())||('Investor '+(i+1));
+    var lender=ensureLender('investor',inv.id||('inv_'+i),name,inv.ratePct||0);
+    invStates.push({lender:lender,drawMo:drawMo,dueMo:addMonthsToMonthKey(drawMo,termMonths-1),rate:Math.max(0,coerceMoney(inv.ratePct)||0),bal:0,principal:principal});
+  });
+  var ulStates=[];
+  (cfg.unsecuredLoans||[]).forEach(function(ul,i){
+    var principal=coerceMoney(ul.amount);
+    if(principal<=0) return;
+    var drawMo=monthKeyFromFlexibleDate(ul.drawDate);
+    if(!drawMo) return;
+    var name=(ul.name&&String(ul.name).trim())||('Unsecured '+(i+1));
+    var lender=ensureLender('unsecured',ul.id||('ul_'+i),name,ul.ratePct||0);
+    ulStates.push({lender:lender,drawMo:drawMo,rate:Math.max(0,coerceMoney(ul.ratePct)||0),bal:0,principal:principal});
+  });
+  for(var i=0;i<months;i++){
+    var mo=offsetMonth(startDate,i);
+    debtStates.forEach(function(st){
+      if(st.drawMo===mo) st.bal+=st.draw;
+      var intAmt=st.bal>0&&st.rate>0?st.bal*(st.rate/100/12):0;
+      var principalDue=0, principalPaid=0;
+      (st.repay||[]).forEach(function(rs){ principalDue+=principalRepaymentInMonthHtml(rs,mo,i+1); });
+      if(principalDue>0 && isDebtPaymentMarked(cfg,mo,st.lender.key,'principal')){
+        var pay=Math.min(st.bal,principalDue);
+        st.bal-=pay;
+        principalPaid=pay;
+      }
+      addMonthLine(st.lender.key,mo,intAmt,principalDue,st.bal);
+      if(!byMonth[mo][st.lender.key]) byMonth[mo][st.lender.key]={interest:0,principal:0,balance:0};
+      byMonth[mo][st.lender.key].paidPrincipal=(byMonth[mo][st.lender.key].paidPrincipal||0)+principalPaid;
+    });
+    invStates.forEach(function(st){
+      if(st.drawMo===mo) st.bal+=st.principal;
+      var intAmt=st.bal>0&&st.rate>0?st.bal*(st.rate/100/12):0;
+      var principalDue=0, principalPaid=0;
+      if(st.dueMo===mo&&st.bal>0){
+        principalDue=st.bal;
+        if(isDebtPaymentMarked(cfg,mo,st.lender.key,'principal')){ principalPaid=st.bal; st.bal=0; }
+      }
+      addMonthLine(st.lender.key,mo,intAmt,principalDue,st.bal);
+      if(!byMonth[mo][st.lender.key]) byMonth[mo][st.lender.key]={interest:0,principal:0,balance:0};
+      byMonth[mo][st.lender.key].paidPrincipal=(byMonth[mo][st.lender.key].paidPrincipal||0)+principalPaid;
+    });
+    ulStates.forEach(function(st){
+      if(st.drawMo===mo) st.bal+=st.principal;
+      var intAmt=st.bal>0&&st.rate>0?st.bal*(st.rate/100/12):0;
+      addMonthLine(st.lender.key,mo,intAmt,0,st.bal);
+    });
+  }
+  var rows=[];
+  Object.keys(byMonth).sort().forEach(function(mo){
+    var kMap=byMonth[mo]||{};
+    Object.keys(kMap).forEach(function(key){
+      var ln=kMap[key], l=byLender[key];
+      if(!l) return;
+      if((ln.interest||0)<=0 && (ln.principal||0)<=0 && (ln.balance||0)<=0) return;
+      var intMarked=isDebtPaymentMarked(cfg,mo,key,'interest');
+      var prnMarked=isDebtPaymentMarked(cfg,mo,key,'principal');
+      var paidInterest=intMarked?coerceMoney(ln.interest):0;
+      var paidPrincipal=(ln.paidPrincipal!==undefined)?coerceMoney(ln.paidPrincipal):(prnMarked?coerceMoney(ln.principal):0);
+      rows.push({
+        mo:mo,key:key,lender:l.name,kind:l.kind,rate:l.rate,
+        interest:coerceMoney(ln.interest),principal:coerceMoney(ln.principal),
+        total:coerceMoney(ln.interest)+coerceMoney(ln.principal),balance:coerceMoney(ln.balance),
+        intMarked:intMarked,prnMarked:prnMarked,
+        paidInterest:paidInterest,paidPrincipal:paidPrincipal,paidTotal:paidInterest+paidPrincipal
+      });
+    });
+  });
+  return {lenders:lenders,rows:rows};
 }
 /** Totals for planned-vs-actual L1 chart (same mapping as monthly row rollup). */
 function plannedTotalsFakeRowForL1(cfg){
@@ -1458,6 +1593,7 @@ var _salesSearchQuery = '';
 var _salesPastQuartersSeeded = false;
 var _cfTimeScale = 'month'; // 'month' | 'quarter'
 var _gaTimeScale = 'month';
+var _debtLenderFilter = '__all__';
 var _postSalesDelayMo = 0; // scenario months (UI only, not persisted)
 var _cfForecastCollapsed = true;
 var _expenseUIPanel = 'dashboard'; // 'dashboard' | 'insights' | 'narration' | 'gst-vendor' | 'schedule'
@@ -1793,6 +1929,7 @@ function emptyProjData(pid){
     investors:[],      // {id,name,amount,drawDate (ISO),drawMonth (legacy 1-based),ratePct,type,termYrs}
     unsecuredLoans:[], // {id,name,amount,drawDate,ratePct}
     debtTranches:[],   // {id,lender,drawAmount,drawDate,ratePct,repaySchedule[]}
+    debtPaymentMarks:{}, // {"YYYY-MM|kind::id": {interestPaid:boolean, principalPaid:boolean}}
     customerUL:[],     // {id,name,amount,date}
     otherInflows:[],   // {id,name,amount,date,note}
     // Expense schedule
@@ -2461,11 +2598,14 @@ function multiFilterHas(raw, val){
 function readMultiSelectValues(selectId){
   var el=document.getElementById(selectId);
   if(!el||!el.options) return [];
+  var allSelected=false;
   var out=[];
   for(var i=0;i<el.options.length;i++){
     var op=el.options[i];
+    if(op.selected && op.value==='__all__'){ allSelected=true; continue; }
     if(op.selected && op.value && op.value!=='__all__') out.push(op.value);
   }
+  if(allSelected) return [];
   return out;
 }
 /** Projects matching current Project (root) + Phase + Building filters. */
@@ -2505,7 +2645,7 @@ function buildProjectGroupSelect(){
   if(set.Unassigned) opts.push('Unassigned');
   var selVals=parseMultiFilter(_curProjRoot);
   sel.innerHTML=opts.map(function(v){
-    var isSel=(v!=='__all__' && selVals.indexOf(v)>=0);
+    var isSel=(v==='__all__') ? !selVals.length : (selVals.indexOf(v)>=0);
     return '<option value="'+escHtml(v)+'"'+(isSel?' selected':'')+'>'+(v==='__all__'?'All Projects':('Project: '+v))+'</option>';
   }).join('');
 }
@@ -2520,7 +2660,7 @@ function buildPhaseSelect(){
   var selVals=parseMultiFilter(_curPhase).filter(function(v){ return opts.indexOf(v)>=0; });
   _curPhase=encodeMultiFilter(selVals);
   sel.innerHTML=opts.map(function(v){
-    var isSel=(v!=='__all__' && selVals.indexOf(v)>=0);
+    var isSel=(v==='__all__') ? !selVals.length : (selVals.indexOf(v)>=0);
     return '<option value="'+escHtml(v)+'"'+(isSel?' selected':'')+'>'+(v==='__all__'?'All phases':escHtml(v))+'</option>';
   }).join('');
 }
@@ -2536,7 +2676,7 @@ function buildBuildingSelect(){
   var selVals=parseMultiFilter(_curBuilding).filter(function(v){ return opts.indexOf(v)>=0; });
   _curBuilding=encodeMultiFilter(selVals);
   sel.innerHTML=opts.map(function(v){
-    var isSel=(v!=='__all__' && selVals.indexOf(v)>=0);
+    var isSel=(v==='__all__') ? !selVals.length : (selVals.indexOf(v)>=0);
     return '<option value="'+escHtml(v)+'"'+(isSel?' selected':'')+'>'+(v==='__all__'?'All buildings':escHtml(v))+'</option>';
   }).join('');
 }
@@ -2564,6 +2704,24 @@ function selectPhase(){
 }
 function selectBuilding(){
   _curBuilding=encodeMultiFilter(readMultiSelectValues('building-select'));
+  buildBuildingSelect();
+  buildProjSelect();
+  ensureCurrentProjectVisible();
+  saveAll();
+  renderAll();
+}
+function setPhaseAll(){
+  _curPhase='__all__';
+  _curBuilding='__all__';
+  buildPhaseSelect();
+  buildBuildingSelect();
+  buildProjSelect();
+  ensureCurrentProjectVisible();
+  saveAll();
+  renderAll();
+}
+function setBuildingAll(){
+  _curBuilding='__all__';
   buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
@@ -2740,6 +2898,7 @@ function buildCashflow(pid){
     if(!drawMo) return;
     var termMonths=Math.max(1,Math.round((coerceMoney(inv.termYrs)||2)*12));
     invStates.push({
+      id:inv.id||('inv_'+i),
       bal:0,
       drawMo:drawMo,
       dueMo:addMonthsToMonthKey(drawMo,termMonths-1),
@@ -2836,12 +2995,16 @@ function buildCashflow(pid){
     (cfg.debtTranches||[]).forEach(function(dt){
       if(!debtBalance[dt.id]) debtBalance[dt.id]={bal:0,rate:dt.ratePct||12};
       var db=debtBalance[dt.id];
+      var dKey=debtLenderKey('debt',dt.id||'');
       var drawMk=monthKeyFromFlexibleDate(dt.drawDate);
       if(drawMk===mo){
         var add=coerceMoney(dt.drawAmount);
         db.bal+=add; debtDraw+=add;
       }
-      if(db.bal>0) schedInt+=db.bal*(db.rate/100/12);
+      if(db.bal>0){
+        var dInt=db.bal*(db.rate/100/12);
+        if(isDebtPaymentMarked(cfg,mo,dKey,'interest')) schedInt+=dInt;
+      }
     });
     // Unsecured loans: balance builds on draw; monthly interest at ratePct (additive to Interest Paid)
     var ulSchedInt=0, ulDrawThisMo=0;
@@ -2859,7 +3022,13 @@ function buildCashflow(pid){
       var st=ulBalance[ui];
       if(st&&st.bal>0 && st.rate>0) ulSchedInt+=st.bal*(st.rate/100/12);
     });
-    schedInt+=ulSchedInt;
+    // Add only marked unsecured-loan interest.
+    (cfg.unsecuredLoans||[]).forEach(function(ul,ui){
+      var st=ulBalance[ui];
+      if(!st||st.bal<=0||st.rate<=0) return;
+      var ulKey=debtLenderKey('unsecured',ul.id||('ul_'+ui));
+      if(isDebtPaymentMarked(cfg,mo,ulKey,'interest')) schedInt+=st.bal*(st.rate/100/12);
+    });
     // Investor funding from Capital tab: monthly interest + bullet principal at term end.
     var invSchedInt=0, invSchedPrincipal=0, invDrawThisMo=0;
     invStates.forEach(function(st){
@@ -2867,10 +3036,12 @@ function buildCashflow(pid){
         st.bal+=st.principal;
         invDrawThisMo+=st.principal;
       }
-      if(st.bal>0&&st.rate>0) invSchedInt+=st.bal*(st.rate/100/12);
+      if(st.bal>0&&st.rate>0&&isDebtPaymentMarked(cfg,mo,debtLenderKey('investor',st.id||''),'interest')) invSchedInt+=st.bal*(st.rate/100/12);
       if(st.dueMo===mo&&st.bal>0){
-        invSchedPrincipal+=st.bal;
-        st.bal=0;
+        if(isDebtPaymentMarked(cfg,mo,debtLenderKey('investor',st.id||''),'principal')){
+          invSchedPrincipal+=st.bal;
+          st.bal=0;
+        }
       }
     });
     schedInt+=invSchedInt;
@@ -2881,7 +3052,10 @@ function buildCashflow(pid){
 
     // Principal repayment from tranche schedules
     if(!isActual)(cfg.debtTranches||[]).forEach(function(dt){
-      (dt.repaySchedule||[]).forEach(function(rs){ principalPaid+=principalRepaymentInMonthHtml(rs, mo, period); });
+      var dKey=debtLenderKey('debt',dt.id||'');
+      (dt.repaySchedule||[]).forEach(function(rs){
+        if(isDebtPaymentMarked(cfg,mo,dKey,'principal')) principalPaid+=principalRepaymentInMonthHtml(rs, mo, period);
+      });
     });
     if(!isActual) principalPaid+=invSchedPrincipal;
 
@@ -2916,7 +3090,7 @@ function buildCashflow(pid){
       +invStates.reduce(function(s,st){ return s+(st&&st.bal>0?st.bal:0); },0);
     var openingDebt=closingDebt-(debtDraw+ulDrawThisMo+invDrawThisMo)+principalPaid;
     var cads=Math.max(0,closingCash);
-    var debtService=schedInt+(principalPaid||0);
+    var debtService=(intPaid||0)+(principalPaid||0);
     var dscr=debtService>0?cads/debtService:null;
 
     var l1In = l1InflowFromRowVals({ salesRev, equityInf, invFunding, ulInflow, custColl, custUL, otherIn });
@@ -4244,9 +4418,10 @@ function renderCashflow(){
   var el=document.getElementById('page-cashflow'); if(!el) return;
   var vis=getVisibleProjects();
   if(!vis.length){el.innerHTML=noProjectMsg();return;}
-  if(!_curPid || !vis.some(function(p){return p.id===_curPid;})) _curPid=vis[0].id;
-  var cfg=getCF(_curPid);
-  var cfOnce=buildCashflow(_curPid);
+  if(!_curPid || (_curPid!=='__rollup__' && !vis.some(function(p){return p.id===_curPid;}))) _curPid=vis[0].id;
+  var useRollup = vis.length>1;
+  var cfg=useRollup?null:getCF(_curPid);
+  var cfOnce=useRollup?buildGACashflow():buildCashflow(_curPid);
   var rawRows=filterCashflowRowsByVisibleYear(cfOnce);
   var rows=_cfTimeScale==='quarter'?aggregateCashflowRowsQuarterly(rawRows):rawRows;
   var iExp=_collapseGroups.outflows, iInf=_collapseGroups.inflows;
@@ -4259,7 +4434,8 @@ function renderCashflow(){
   var h='';
   // ── Action bar ──
   h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
-  h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">📊 Monthly Cashflow — '+cfg.projName+'</div>';
+  var cfTitle = useRollup?('📊 Monthly Cashflow — Rollup ('+vis.length+' selected projects)'):('📊 Monthly Cashflow — '+cfg.projName);
+  h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">'+cfTitle+'</div>';
   h+='<div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">';
   h+='<button class="btn btn-green" data-action="add-trans">+ Add Transaction</button>';
   h+='<button class="btn btn-outline" data-action="import-tally" title="Tab-separated export from Tally, or voucher XML saved from Tally">⬆ Import Tally (CSV or XML)</button>';
@@ -4279,51 +4455,56 @@ function renderCashflow(){
   if(!showPriorCalendarYears()) h+='<span style="font-size:10px;color:var(--gold);margin-left:8px">Showing from start of this calendar quarter ('+calendarYearStartMonthKey()+')</span>';
   else h+='<span style="font-size:9px;color:var(--muted);margin-left:8px">Full history in project and calendar range.</span>';
   h+='</div>';
-  var fz=forecastCfg(cfg);
-  var fullRows=cfOnce;
-  var baseRows=forecastIsDefault(cfg)?cfOnce:buildCashflowWithForecast(_curPid,defaultForecastObj());
-  var futRows=fullRows.filter(function(r){return !r.isActual&&r.period>0;});
-  var futBase=baseRows.filter(function(r){return !r.isActual&&r.period>0;});
-  var sumK=function(arr,key){return arr.reduce(function(s,r){return s+(r[key]||0);},0);};
-  var futIn=sumK(futRows,'totInflows'), futOut=sumK(futRows,'totOutflows'), futNet=futIn-futOut;
-  var baseIn=sumK(futBase,'totInflows'), baseOut=sumK(futBase,'totOutflows'), baseNet=baseIn-baseOut;
-  var futConstr=sumK(futRows,'construction'), baseConstr=sumK(futBase,'construction');
-  var unsMap=buildUnsoldRealization(cfg,cfg.startDate||new Date().toISOString().slice(0,7)+'-01');
-  var curMo=currentMonthStr();
-  var unsFuture=Object.keys(unsMap).reduce(function(s,mo){ return s + ((mo>=curMo)?(unsMap[mo].sales||0):0); },0);
-  var unsAdj=unsFuture*fz.salesFactor;
-  h+='<div class="card" style="padding:10px;margin:4px 0 12px">';
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b)">Forecast Controls (future months)</div>';
-  h+='<div style="display:flex;gap:6px">';
-  h+='<button class="btn btn-outline" data-action="forecast-toggle" style="font-size:10px;padding:4px 10px">'+(_cfForecastCollapsed?'Expand':'Collapse')+'</button>';
-  h+='<button class="btn btn-outline" data-action="forecast-reset" style="font-size:10px;padding:4px 10px">Reset</button>';
-  h+='</div>';
-  h+='</div>';
-  if(!_cfForecastCollapsed){
-    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px">';
-    function fSlide(lbl,key,val,min,max,step){ return '<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">'+lbl+': '+Math.round(val*100)+'%<input type="range" data-action="forecast-set" data-key="'+key+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+Math.round(val*100)+'"/></label>'; }
-    h+=fSlide('Sales pace (incl. unsold)','salesFactor',fz.salesFactor,50,160,5);
-    h+=fSlide('Collection efficiency (future)','collectionsFactor',fz.collectionsFactor,50,140,5);
-    h+=fSlide('Other inflow factor','otherInflowFactor',fz.otherInflowFactor,50,180,5);
-    h+=fSlide('Construction + consultant cost','costFactor',fz.costFactor,70,170,5);
-    h+=fSlide('Marketing factor','marketingFactor',fz.marketingFactor,60,200,5);
-    h+=fSlide('GA DM Fee factor (future)','gaFactor',fz.gaFactor,70,160,5);
-    h+='<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">Monthly risk buffer (₹)<input type="number" data-action="forecast-set" data-key="monthlyBuffer" data-type="abs" min="0" step="10000" value="'+Math.round(fz.monthlyBuffer||0)+'" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:11px"/></label>';
+  if(!useRollup){
+    var fz=forecastCfg(cfg);
+    var fullRows=cfOnce;
+    var baseRows=forecastIsDefault(cfg)?cfOnce:buildCashflowWithForecast(_curPid,defaultForecastObj());
+    var futRows=fullRows.filter(function(r){return !r.isActual&&r.period>0;});
+    var futBase=baseRows.filter(function(r){return !r.isActual&&r.period>0;});
+    var sumK=function(arr,key){return arr.reduce(function(s,r){return s+(r[key]||0);},0);};
+    var futIn=sumK(futRows,'totInflows'), futOut=sumK(futRows,'totOutflows'), futNet=futIn-futOut;
+    var baseIn=sumK(futBase,'totInflows'), baseOut=sumK(futBase,'totOutflows'), baseNet=baseIn-baseOut;
+    var futConstr=sumK(futRows,'construction'), baseConstr=sumK(futBase,'construction');
+    var unsMap=buildUnsoldRealization(cfg,cfg.startDate||new Date().toISOString().slice(0,7)+'-01');
+    var curMo=currentMonthStr();
+    var unsFuture=Object.keys(unsMap).reduce(function(s,mo){ return s + ((mo>=curMo)?(unsMap[mo].sales||0):0); },0);
+    var unsAdj=unsFuture*fz.salesFactor;
+    h+='<div class="card" style="padding:10px;margin:4px 0 12px">';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+    h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b)">Forecast Controls (future months)</div>';
+    h+='<div style="display:flex;gap:6px">';
+    h+='<button class="btn btn-outline" data-action="forecast-toggle" style="font-size:10px;padding:4px 10px">'+(_cfForecastCollapsed?'Expand':'Collapse')+'</button>';
+    h+='<button class="btn btn-outline" data-action="forecast-reset" style="font-size:10px;padding:4px 10px">Reset</button>';
+    h+='</div></div>';
+    if(!_cfForecastCollapsed){
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px">';
+      function fSlide(lbl,key,val,min,max,step){ return '<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">'+lbl+': '+Math.round(val*100)+'%<input type="range" data-action="forecast-set" data-key="'+key+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+Math.round(val*100)+'"/></label>'; }
+      h+=fSlide('Sales pace (incl. unsold)','salesFactor',fz.salesFactor,50,160,5);
+      h+=fSlide('Collection efficiency (future)','collectionsFactor',fz.collectionsFactor,50,140,5);
+      h+=fSlide('Other inflow factor','otherInflowFactor',fz.otherInflowFactor,50,180,5);
+      h+=fSlide('Construction + consultant cost','costFactor',fz.costFactor,70,170,5);
+      h+=fSlide('Marketing factor','marketingFactor',fz.marketingFactor,60,200,5);
+      h+=fSlide('GA DM Fee factor (future)','gaFactor',fz.gaFactor,70,160,5);
+      h+='<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">Monthly risk buffer (₹)<input type="number" data-action="forecast-set" data-key="monthlyBuffer" data-type="abs" min="0" step="10000" value="'+Math.round(fz.monthlyBuffer||0)+'" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:11px"/></label>';
+      h+='</div>';
+    } else {
+      h+='<div style="font-size:10px;color:var(--muted)">Controls collapsed. Click <strong>Expand</strong> to adjust future-month assumptions.</div>';
+    }
     h+='</div>';
-  } else {
-    h+='<div style="font-size:10px;color:var(--muted)">Controls collapsed. Click <strong>Expand</strong> to adjust future-month assumptions.</div>';
+    h+='<div class="card" style="padding:10px;margin:-2px 0 12px;background:#F8FAFF;border-left:3px solid var(--blue)">';
+    h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:6px">Forecast Impact (future months only)</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 12px;font-size:11px">';
+    h+='<div><div style="color:var(--muted);font-size:10px">Unsold inventory sales</div><div><strong>Base:</strong> '+cr(unsFuture)+' &nbsp; <strong>Adjusted:</strong> '+cr(unsAdj)+' &nbsp; <strong>Δ:</strong> '+cr(unsAdj-unsFuture,'+0')+'</div></div>';
+    h+='<div><div style="color:var(--muted);font-size:10px">Future construction outflow</div><div><strong>Base:</strong> '+cr(baseConstr)+' &nbsp; <strong>Adjusted:</strong> '+cr(futConstr)+' &nbsp; <strong>Δ:</strong> '+cr(futConstr-baseConstr,'+0')+'</div></div>';
+    h+='<div><div style="color:var(--muted);font-size:10px">Future net cashflow</div><div><strong>Base:</strong> '+cr(baseNet,'+0')+' &nbsp; <strong>Adjusted:</strong> '+cr(futNet,'+0')+' &nbsp; <strong>Δ:</strong> '+cr(futNet-baseNet,'+0')+'</div></div>';
+    h+='</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4">Interpretation: <strong>Base</strong> = no forecast multipliers (100%, ₹0 buffer). <strong>Adjusted</strong> = current control values. Historical actual months are never changed.</div>';
+    h+='</div>';
+  }else{
+    h+='<div class="card" style="padding:10px;margin:4px 0 12px;background:#F8FAFF;border-left:3px solid var(--blue)">';
+    h+='<div style="font-size:11px;color:var(--muted)">Showing rollup for selected Project / Phase / Building filters. Forecast sliders are hidden in rollup mode.</div>';
+    h+='</div>';
   }
-  h+='</div>';
-  h+='<div class="card" style="padding:10px;margin:-2px 0 12px;background:#F8FAFF;border-left:3px solid var(--blue)">';
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:6px">Forecast Impact (future months only)</div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 12px;font-size:11px">';
-  h+='<div><div style="color:var(--muted);font-size:10px">Unsold inventory sales</div><div><strong>Base:</strong> '+cr(unsFuture)+' &nbsp; <strong>Adjusted:</strong> '+cr(unsAdj)+' &nbsp; <strong>Δ:</strong> '+cr(unsAdj-unsFuture,'+0')+'</div></div>';
-  h+='<div><div style="color:var(--muted);font-size:10px">Future construction outflow</div><div><strong>Base:</strong> '+cr(baseConstr)+' &nbsp; <strong>Adjusted:</strong> '+cr(futConstr)+' &nbsp; <strong>Δ:</strong> '+cr(futConstr-baseConstr,'+0')+'</div></div>';
-  h+='<div><div style="color:var(--muted);font-size:10px">Future net cashflow</div><div><strong>Base:</strong> '+cr(baseNet,'+0')+' &nbsp; <strong>Adjusted:</strong> '+cr(futNet,'+0')+' &nbsp; <strong>Δ:</strong> '+cr(futNet-baseNet,'+0')+'</div></div>';
-  h+='</div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4">Interpretation: <strong>Base</strong> = no forecast multipliers (100%, ₹0 buffer). <strong>Adjusted</strong> = current control values. Historical actual months are never changed.</div>';
-  h+='</div>';
 
   // ── KPI strip ──
   h+='<div class="kpi-row">';
@@ -4333,7 +4514,7 @@ function renderCashflow(){
     {l:'Net Cashflow',v:cr(totIn-totOut,'+0'),c:(totIn-totOut)>=0?'var(--green-b)':'var(--red-b)'},
     {l:'Closing Balance',v:cr(closingLast,'+0'),c:closingLast>=0?'var(--green-b)':'var(--red-b)'},
     {l:'Peak Funding Need',v:peakNeg<0?cr(Math.abs(peakNeg)):'—',c:'var(--orange)'},
-    {l:'Project Months',v:(cfg.totalMonths||60)+' mo',c:'var(--slate)'},
+    {l:'Project Months',v:(useRollup?rows.length:(cfg.totalMonths||60))+' mo',c:'var(--slate)'},
   ];
   kpis.forEach(function(k){
     h+='<div class="kpi" style="border-top:3px solid '+k.c+'">';
@@ -5988,26 +6169,47 @@ function renderDebt(){
     h+='</div></div>';
   });
 
-  var invPayRows=buildInvestorPayableSeries(cfg);
+  var lenderSched=buildLenderPaymentSchedule(cfg);
+  var lenders=lenderSched.lenders||[];
+  var rows=(lenderSched.rows||[]);
+  if(_debtLenderFilter!=='__all__' && !lenders.some(function(l){ return l.key===_debtLenderFilter; })) _debtLenderFilter='__all__';
+  var lenderOpts='<option value="__all__">All lenders / investors</option>'
+    +lenders.map(function(l){
+      var tag=l.kind==='investor'?'Investor':(l.kind==='unsecured'?'Unsecured':'Debt tranche');
+      return '<option value="'+escAttr(l.key)+'"'+(_debtLenderFilter===l.key?' selected':'')+'>'+escHtml(l.name)+' · '+tag+'</option>';
+    }).join('');
+  var visRows=_debtLenderFilter==='__all__'?rows:rows.filter(function(r){ return r.key===_debtLenderFilter; });
+  var totP=visRows.reduce(function(s,r){ return s+(r.principal||0); },0);
+  var totI=visRows.reduce(function(s,r){ return s+(r.interest||0); },0);
+  var paidP=visRows.reduce(function(s,r){ return s+(r.paidPrincipal||0); },0);
+  var paidI=visRows.reduce(function(s,r){ return s+(r.paidInterest||0); },0);
   h+='<div class="card" style="border-top:3px solid #542B8A;margin-bottom:12px">';
-  h+='<div style="font-size:12px;font-weight:800;color:#542B8A;margin-bottom:8px">Investor Payables (Month-wise)</div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Shows total monthly payable to external investors from Capital Structure: <strong>Interest</strong>, <strong>Principal</strong>, and <strong>Cumulative Interest</strong>.</div>';
-  if(!invPayRows.length){
-    h+='<div style="font-size:10px;color:var(--muted)">No investor funding rows found. Add investors in Capital Structure to generate this schedule.</div>';
+  h+='<div style="font-size:12px;font-weight:800;color:#542B8A;margin-bottom:8px">Investor / Lender Payment Schedule (Single Source)</div>';
+  h+='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">';
+  h+='<label style="font-size:10px;color:var(--muted)">Filter</label>';
+  h+='<select data-action="debt-lender-filter" class="cap-inp" style="max-width:320px">'+lenderOpts+'</select>';
+  h+='</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">This view explains engagement by party: draw, monthly interest, principal repayment and running outstanding. It combines <strong>Debt Tranches</strong>, <strong>Investor Funding</strong>, and <strong>Unsecured Loans</strong>. Cashflow row values for Interest Paid / Principal Repaid now post only for rows marked paid below.</div>';
+  if(!visRows.length){
+    h+='<div style="font-size:10px;color:var(--muted)">No lender schedule rows for current filter.</div>';
   }else{
-    var totP=invPayRows.reduce(function(s,r){ return s+(r.principal||0); },0);
-    var totI=invPayRows.reduce(function(s,r){ return s+(r.interest||0); },0);
-    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Total principal '+cr(totP,'₹0')+' · Total interest '+cr(totI,'₹0')+' · Total payable '+cr(totP+totI,'₹0')+'</div>';
-    h+='<div style="overflow:auto;max-height:320px;border:1px solid var(--border);border-radius:8px">';
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Due: Interest '+cr(totI,'₹0')+' · Principal '+cr(totP,'₹0')+' · Total '+cr(totP+totI,'₹0')+' &nbsp;|&nbsp; Marked Paid: Interest '+cr(paidI,'₹0')+' · Principal '+cr(paidP,'₹0')+' · Total '+cr(paidP+paidI,'₹0')+'</div>';
+    h+='<div style="overflow:auto;max-height:340px;border:1px solid var(--border);border-radius:8px">';
     h+='<table style="width:100%;border-collapse:collapse;font-size:10px">';
-    h+='<thead><tr style="background:#F6F0FF"><th style="padding:6px;text-align:left">Month</th><th style="padding:6px;text-align:right">Interest</th><th style="padding:6px;text-align:right">Principal</th><th style="padding:6px;text-align:right">Total Payable</th><th style="padding:6px;text-align:right">Cumulative Interest</th></tr></thead><tbody>';
-    invPayRows.forEach(function(r){
+    h+='<thead><tr style="background:#F6F0FF"><th style="padding:6px;text-align:left">Month</th><th style="padding:6px;text-align:left">Party</th><th style="padding:6px;text-align:left">Type</th><th style="padding:6px;text-align:right">Rate %</th><th style="padding:6px;text-align:right">Interest Due</th><th style="padding:6px;text-align:center">Mark Int Paid</th><th style="padding:6px;text-align:right">Principal Due</th><th style="padding:6px;text-align:center">Mark Prin Paid</th><th style="padding:6px;text-align:right">Paid Total</th><th style="padding:6px;text-align:right">Outstanding</th></tr></thead><tbody>';
+    visRows.forEach(function(r){
+      var tag=r.kind==='investor'?'Investor':(r.kind==='unsecured'?'Unsecured':'Debt tranche');
       h+='<tr style="border-top:1px solid var(--border)">';
       h+='<td style="padding:5px 6px">'+escHtml(r.mo)+'</td>';
+      h+='<td style="padding:5px 6px">'+escHtml(r.lender)+'</td>';
+      h+='<td style="padding:5px 6px">'+escHtml(tag)+'</td>';
+      h+='<td style="padding:5px 6px;text-align:right">'+(r.rate||0).toFixed(2)+'</td>';
       h+='<td style="padding:5px 6px;text-align:right">'+cr(r.interest,'₹0')+'</td>';
+      h+='<td style="padding:5px 6px;text-align:center"><input type="checkbox" data-action="debt-mark-paid" data-mo="'+escAttr(r.mo)+'" data-key="'+escAttr(r.key)+'" data-kind="interest" '+(r.intMarked?'checked':'')+' style="accent-color:var(--teal)"/></td>';
       h+='<td style="padding:5px 6px;text-align:right">'+cr(r.principal,'₹0')+'</td>';
-      h+='<td style="padding:5px 6px;text-align:right;font-weight:700">'+cr(r.total,'₹0')+'</td>';
-      h+='<td style="padding:5px 6px;text-align:right">'+cr(r.cumulativeInterest,'₹0')+'</td>';
+      h+='<td style="padding:5px 6px;text-align:center"><input type="checkbox" data-action="debt-mark-paid" data-mo="'+escAttr(r.mo)+'" data-key="'+escAttr(r.key)+'" data-kind="principal" '+(r.prnMarked?'checked':'')+' style="accent-color:var(--teal)"/></td>';
+      h+='<td style="padding:5px 6px;text-align:right;font-weight:700">'+cr(r.paidTotal,'₹0')+'</td>';
+      h+='<td style="padding:5px 6px;text-align:right">'+cr(r.balance,'₹0')+'</td>';
       h+='</tr>';
     });
     h+='</tbody></table></div>';
@@ -8016,6 +8218,14 @@ document.addEventListener('change',function(e){
   if(a==='post-sales-delay'){ _postSalesDelayMo=parseInt(el.value,10)||0; renderSales(); return; }
   var cfg=_curPid?getCF(_curPid):null;
   if(!a||!cfg) return;
+  if(a==='debt-lender-filter'){ _debtLenderFilter=String(el.value||'__all__'); renderDebt(); return; }
+  if(a==='debt-mark-paid'){
+    setDebtPaymentMarked(cfg, String(el.dataset.mo||''), String(el.dataset.key||''), String(el.dataset.kind||'interest'), !!el.checked);
+    saveAll();
+    renderDebt();
+    refreshProjectCashflowViews();
+    return;
+  }
   var v=el.value, n=parseFloat(v)||0;
   var isNum=['amount','drawMonth','ratePct','termYrs','drawAmount','month','contingencyPct','gaMonthly','gaGAAnnual','gaMktgAnnual'];
   if(a==='set-milestone')          { if(!cfg.milestonesDates)cfg.milestonesDates={}; cfg.milestonesDates[el.dataset.key]=v; saveAll(); renderTab(_curTab); refreshProjectCashflowViews(); return; }

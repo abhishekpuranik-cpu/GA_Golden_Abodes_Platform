@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 
 const card = {
   display: 'block',
@@ -41,13 +40,33 @@ const VAULT_EXEC_VERSION = '20260506';
 const VAULT_PRE_VERSION = '20260506';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
 const PRE_URL_LS_KEY = 'ga_preconstruction_url';
+const V3_URL_LS_KEY = 'ga_v3_url';
+const V2_URL_LS_KEY = 'ga_v2_url';
+const V1_URL_LS_KEY = 'ga_v1_cashflow_url';
+const SALES_URL_LS_KEY = 'ga_sales_url';
+const KPI_URL_LS_KEY = 'ga_marketing_kpi_url';
+const VAULT_HTML_URL_LS_KEY = 'ga_vault_html_url';
 
 export default function VaultHome() {
   const [cashflowVersion, setCashflowVersion] = useState('live');
+  const [v3CustomUrl, setV3CustomUrl] = useState(() => localUrl(V3_URL_LS_KEY));
+  const [v2CustomUrl, setV2CustomUrl] = useState(() => localUrl(V2_URL_LS_KEY));
+  const [v1CustomUrl, setV1CustomUrl] = useState(() => localUrl(V1_URL_LS_KEY));
+  const [salesCustomUrl, setSalesCustomUrl] = useState(() => localUrl(SALES_URL_LS_KEY));
+  const [kpiCustomUrl, setKpiCustomUrl] = useState(() => localUrl(KPI_URL_LS_KEY));
+  const [vaultHtmlCustomUrl, setVaultHtmlCustomUrl] = useState(() => localUrl(VAULT_HTML_URL_LS_KEY));
   const [execCustomUrl, setExecCustomUrl] = useState(() => localUrl(EXEC_URL_LS_KEY));
   const [preCustomUrl, setPreCustomUrl] = useState(() => localUrl(PRE_URL_LS_KEY));
   const [vaultFromApi, setVaultFromApi] = useState(() => ({ execution: '', pre: '' }));
-  const cashflowHref = withVersionParam('/legacy/GA_Cashflow_V1.html', 'v', cashflowVersion);
+  const [linkAgentTick, setLinkAgentTick] = useState(0);
+  const [linkAgentLastSync, setLinkAgentLastSync] = useState('');
+  const v3Url = String(v3CustomUrl || '').trim() || '/app/org-planner';
+  const v2Url = String(v2CustomUrl || '').trim() || '/app/resource-planner';
+  const cashflowBase = String(v1CustomUrl || '').trim() || '/legacy/GA_Cashflow_V1.html';
+  const cashflowHref = withVersionParam(cashflowBase, 'v', cashflowVersion);
+  const salesUrl = String(salesCustomUrl || '').trim() || '/legacy/ga_sales_dashboard.html';
+  const kpiUrl = String(kpiCustomUrl || '').trim() || '/legacy/GA_MarketingSales_KPI_Dashboard.html';
+  const vaultHtmlUrl = String(vaultHtmlCustomUrl || '').trim() || '/legacy/Golden_Abodes_App_Vault.html';
   const execUrl =
     String(vaultFromApi.execution || '').trim() ||
     externalUrl('VITE_EXECUTION_DASHBOARD_URL') ||
@@ -111,6 +130,26 @@ export default function VaultHome() {
   }, []);
   useEffect(() => {
     let alive = true;
+    async function syncAgent() {
+      try {
+        await fetch('/api/health', { cache: 'no-store' });
+      } catch {
+        /* ignore */
+      } finally {
+        if (!alive) return;
+        setLinkAgentTick((x) => x + 1);
+        setLinkAgentLastSync(new Date().toLocaleString('en-IN'));
+      }
+    }
+    syncAgent();
+    const id = window.setInterval(syncAgent, 30000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+  useEffect(() => {
+    let alive = true;
     fetch(`/legacy/GA_Cashflow_V1.html?probe=${Date.now()}`, { cache: 'no-store' })
       .then((r) => r.text())
       .then((html) => {
@@ -163,6 +202,24 @@ export default function VaultHome() {
         <p style={{ color: 'var(--muted)', margin: 0, fontSize: 15 }}>
           App Vault — planner tools, cloud sync, and linked construction dashboards
         </p>
+        <div
+          style={{
+            marginTop: 10,
+            display: 'inline-flex',
+            gap: 8,
+            alignItems: 'center',
+            fontSize: 12,
+            color: '#bfdbfe',
+            border: '1px solid rgba(59,130,246,0.35)',
+            padding: '6px 10px',
+            borderRadius: 999
+          }}
+          title="Auto-syncs app links and latest cashflow version every 30s"
+        >
+          <span>Frontend Link Agent: Active</span>
+          <span style={{ opacity: 0.8 }}>sync #{linkAgentTick}</span>
+          <span style={{ opacity: 0.8 }}>{linkAgentLastSync ? `last ${linkAgentLastSync}` : ''}</span>
+        </div>
       </header>
 
       <section style={{ marginBottom: 28 }}>
@@ -170,25 +227,40 @@ export default function VaultHome() {
           Planner suite (legacy HTML tools)
         </h2>
         <div style={grid}>
-          <Link to="/app/org-planner" style={card}>
+          <a href={v3Url} target={isExternalUrl(v3Url) ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V3</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Project Acquisition</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
               Org resource planner — opens in a synced frame. Data keys mirror API_Tool localStorage.
             </p>
-          </Link>
-          <Link to="/app/resource-planner" style={card}>
+            <p style={{ margin: '8px 0 0' }}>
+              <button type="button" onClick={() => setCustomDashboardUrl('V3 Project Acquisition', V3_URL_LS_KEY, setV3CustomUrl)} style={miniBtn}>
+                Set URL for this browser
+              </button>
+            </p>
+          </a>
+          <a href={v2Url} target={isExternalUrl(v2Url) ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V2</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Resource Planner</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
               Capacity, allocations, and links to V3 project list via shared storage keys.
             </p>
-          </Link>
+            <p style={{ margin: '8px 0 0' }}>
+              <button type="button" onClick={() => setCustomDashboardUrl('V2 Resource Planner', V2_URL_LS_KEY, setV2CustomUrl)} style={miniBtn}>
+                Set URL for this browser
+              </button>
+            </p>
+          </a>
           <a href={cashflowHref} target="_blank" rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V1</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Cashflow Tracker</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
               Opens the latest V1 HTML from <code>/legacy/GA_Cashflow_V1.html</code>.
+            </p>
+            <p style={{ margin: '8px 0 0' }}>
+              <button type="button" onClick={() => setCustomDashboardUrl('V1 Cashflow Tracker', V1_URL_LS_KEY, setV1CustomUrl)} style={miniBtn}>
+                Set URL for this browser
+              </button>
             </p>
           </a>
         </div>
@@ -261,22 +333,31 @@ export default function VaultHome() {
           Legacy HTML (optional direct open)
         </h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          <a href="/legacy/ga_sales_dashboard.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
+          <a href={salesUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
             Sales dashboard
           </a>
+          <button type="button" onClick={() => setCustomDashboardUrl('Sales dashboard', SALES_URL_LS_KEY, setSalesCustomUrl)} style={miniBtn}>
+            Set URL for this browser
+          </button>
           <span style={{ color: 'var(--muted)' }}>·</span>
           <a
-            href="/legacy/GA_MarketingSales_KPI_Dashboard.html"
+            href={kpiUrl}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: 'var(--teal)' }}
           >
             Marketing KPIs
           </a>
+          <button type="button" onClick={() => setCustomDashboardUrl('Marketing KPIs', KPI_URL_LS_KEY, setKpiCustomUrl)} style={miniBtn}>
+            Set URL for this browser
+          </button>
           <span style={{ color: 'var(--muted)' }}>·</span>
-          <a href="/legacy/Golden_Abodes_App_Vault.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
+          <a href={vaultHtmlUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
             Original vault HTML
           </a>
+          <button type="button" onClick={() => setCustomDashboardUrl('Original vault HTML', VAULT_HTML_URL_LS_KEY, setVaultHtmlCustomUrl)} style={miniBtn}>
+            Set URL for this browser
+          </button>
         </div>
       </section>
     </div>
@@ -305,4 +386,7 @@ function withVersionParam(url, key, value) {
     const sep = raw.indexOf('?') >= 0 ? '&' : '?';
     return `${raw}${sep}${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
   }
+}
+function isExternalUrl(url) {
+  return /^https?:\/\//i.test(String(url || '').trim());
 }
