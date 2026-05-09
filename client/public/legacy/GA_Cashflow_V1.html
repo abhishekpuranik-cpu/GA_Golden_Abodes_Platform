@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 21;
+var CF_VERSION = 22;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -5000,6 +5000,22 @@ function formatCumDuePctLabelHtml(p){
   return 'Cum '+r+'% due';
 }
 
+function resolvePostSalesRoadHereIndex(steps, tIso){
+  var bestIdx=-1, bestIso='', i, st, a;
+  for(i=0;i<steps.length;i++){
+    st=steps[i];
+    a=st.achievedIso&&st.achievedIso<=tIso?st.achievedIso:'';
+    if(!a) continue;
+    if(!bestIso||a>bestIso||(a===bestIso&&i>bestIdx)){ bestIso=a; bestIdx=i; }
+  }
+  return bestIso?bestIdx:0;
+}
+
+function roadmapSvgLayoutWidthHtml(n){
+  var base=920, per=42;
+  return Math.min(3600, Math.max(base, per*Math.max(n,1)));
+}
+
 function computePostSalesRoadmap(cfg){
   var tIso=today();
   var defs=getMilestoneDefs(cfg);
@@ -5022,10 +5038,7 @@ function computePostSalesRoadmap(cfg){
       cumDuePct:cum
     });
   }
-  var cur=0;
-  for(i=steps.length-1;i>=0;i--){
-    if(steps[i].done){ cur=i; break; }
-  }
+  var cur=resolvePostSalesRoadHereIndex(steps, tIso);
   return {steps:steps, currentIndex:cur};
 }
 
@@ -5036,15 +5049,18 @@ function htmlPostSalesRoadmap(cfg){
   var h='', si, P, px, py, lblY, col, inn, r, ring, mark, ty0, ty1, nSteps;
   h+='<div class="card" style="margin-top:14px;border-top:3px solid #EAB308">';
   h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Construction roadmap</div>';
-  h+='<p class="ps-roadmap-note">Stops match your <strong>milestone template</strong> (construction stages). Each stop shows <strong>cumulative % due</strong> through that stage; dates use <strong>Milestone achieved</strong> when done (≤ today), otherwise <strong>Milestone target</strong>. <strong>You are here</strong> — last achieved stage.</p>';
+  h+='<p class="ps-roadmap-note">Stops match your <strong>milestone template</strong> (construction stages). Each stop shows <strong>cumulative % due</strong> through that stage; dates use <strong>Milestone achieved</strong> when done (≤ today), otherwise <strong>Milestone target</strong>. <strong>We are here</strong> marks the stage with the <strong>latest achieved date</strong> (same-day tie → later stage). The road widens when you have many milestones (through possession).</p>';
   h+='<div class="ps-roadmap-wrap">';
   if(!steps.length){
     h+='<p style="font-size:12px;color:var(--t3);margin:0">No construction-linked milestones. Mark stages as construction (Y) in the template.</p></div></div>';
     return h;
   }
   nSteps=steps.length;
+  vbW=roadmapSvgLayoutWidthHtml(nSteps);
+  var sx=vbW/920;
   h+='<svg class="ps-roadmap-svg" viewBox="0 0 '+vbW+' '+vbH+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Construction roadmap">';
   h+='<defs><linearGradient id="psRoadAsphalt" x1="0" y1="0" x2="920" y2="0"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#4b5563"/></linearGradient></defs>';
+  h+='<g transform="scale('+sx+',1)">';
   h+='<path d="'+POST_SALES_ROAD_PATH_D+'" stroke="url(#psRoadAsphalt)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none"/>';
   h+='<path d="'+POST_SALES_ROAD_PATH_D+'" stroke="#f8fafc" stroke-width="2.5" stroke-dasharray="10 12" fill="none" opacity="0.92"/>';
   for(si=0;si<steps.length;si++){
@@ -5065,9 +5081,10 @@ function htmlPostSalesRoadmap(cfg){
   }
   P=roadSvgXYForIndex(cur,nSteps);
   px=P.x; py=P.y;
-  h+='<g transform="translate('+(px-56)+','+(P.up?(py-52):(py+28))+')">';
-  h+='<rect width="112" height="22" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>';
-  h+='<text x="56" y="15" text-anchor="middle" fill="#92400e" font-size="9" font-weight="800">You are here</text>';
+  h+='<g transform="translate('+(px-59)+','+(P.up?(py-52):(py+28))+')">';
+  h+='<rect width="118" height="22" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>';
+  h+='<text x="59" y="15" text-anchor="middle" fill="#92400e" font-size="9" font-weight="800">We are here</text>';
+  h+='</g>';
   h+='</g>';
   h+='</svg></div></div>';
   return h;
