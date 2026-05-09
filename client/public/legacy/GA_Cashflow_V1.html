@@ -4945,10 +4945,9 @@ function buildSalesGridCaches(cfg, units){
 }
 
 function cumulativeConstructionDuePct(defs, ms){
-  var road=[], i, m, s=0;
-  for(i=0;i<defs.length;i++){ if(milestoneIsConstLink(defs[i])) road.push(defs[i]); }
-  for(i=0;i<road.length;i++){
-    m=road[i];
+  var i, m, s=0;
+  for(i=0;i<defs.length;i++){
+    m=defs[i];
     s+=Math.max(0,parseFloat(m.pct)||0);
     if(m.key===ms.key) break;
   }
