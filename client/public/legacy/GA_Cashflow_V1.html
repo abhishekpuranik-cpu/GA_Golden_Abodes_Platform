@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 22;
+var CF_VERSION = 23;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -5048,7 +5048,7 @@ function htmlPostSalesRoadmap(cfg){
   var h='', si, P, px, py, lblY, col, inn, r, ring, mark, ty0, ty1, nSteps;
   h+='<div class="card" style="margin-top:14px;border-top:3px solid #EAB308">';
   h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Construction roadmap</div>';
-  h+='<p class="ps-roadmap-note">Stops match your <strong>milestone template</strong> (construction stages). Each stop shows <strong>cumulative % due</strong> through that stage; dates use <strong>Milestone achieved</strong> when done (≤ today), otherwise <strong>Milestone target</strong>. <strong>We are here</strong> marks the stage with the <strong>latest achieved date</strong> (same-day tie → later stage). The road widens when you have many milestones (through possession).</p>';
+  h+='<p class="ps-roadmap-note">Road stops are <strong>construction-linked (Y)</strong> milestones (from Plinth onward). <strong>Cumulative % due</strong> sums the full uploaded template in order through each stop (incl. token / registration % before Plinth, not drawn as stops). Dates use <strong>Milestone achieved</strong> when done (≤ today), otherwise <strong>Milestone target</strong>. <strong>We are here</strong> = latest <strong>achieved date</strong> (same-day tie → later stage). The road widens when you have many milestones.</p>';
   h+='<div class="ps-roadmap-wrap">';
   if(!steps.length){
     h+='<p style="font-size:12px;color:var(--t3);margin:0">No construction-linked milestones. Mark stages as construction (Y) in the template.</p></div></div>';
