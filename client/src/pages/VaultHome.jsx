@@ -36,6 +36,7 @@ function localUrl(key) {
 /** Keep empty by default in cloud; set explicit URLs via env vars when those apps are deployed. */
 const DEFAULT_EXECUTION_DASHBOARD_URL = '';
 const DEFAULT_PRECONSTRUCTION_URL = '';
+/** Cache-bust query on Construction Execution Dashboard URL from Vault (?v=…). Bump when UI ships; may differ from in-app `GA_DASHBOARD_VERSION`. */
 const VAULT_EXEC_VERSION = '20260509-2';
 const VAULT_PRE_VERSION = '20260506';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
@@ -67,6 +68,10 @@ export default function VaultHome() {
   const salesUrl = String(salesCustomUrl || '').trim() || '/legacy/ga_sales_dashboard.html';
   const kpiUrl = String(kpiCustomUrl || '').trim() || '/legacy/GA_MarketingSales_KPI_Dashboard.html';
   const vaultHtmlUrl = String(vaultHtmlCustomUrl || '').trim() || '/legacy/Golden_Abodes_App_Vault.html';
+  /** Same freshness token as Cashflow (`CF_VERSION` probe) so legacy links update without hard refresh. */
+  const salesHref = withVersionParam(salesUrl, 'v', cashflowVersion);
+  const kpiHref = withVersionParam(kpiUrl, 'v', cashflowVersion);
+  const vaultHtmlHref = withVersionParam(vaultHtmlUrl, 'v', cashflowVersion);
   const execUrl =
     String(vaultFromApi.execution || '').trim() ||
     externalUrl('VITE_EXECUTION_DASHBOARD_URL') ||
@@ -163,7 +168,7 @@ export default function VaultHome() {
     return () => {
       alive = false;
     };
-  }, []);
+  }, [linkAgentTick]);
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: '36px 20px 80px' }}>
@@ -333,7 +338,7 @@ export default function VaultHome() {
           Legacy HTML (optional direct open)
         </h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          <a href={salesUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
+          <a href={salesHref} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
             Sales dashboard
           </a>
           <button type="button" onClick={() => setCustomDashboardUrl('Sales dashboard', SALES_URL_LS_KEY, setSalesCustomUrl)} style={miniBtn}>
@@ -341,7 +346,7 @@ export default function VaultHome() {
           </button>
           <span style={{ color: 'var(--muted)' }}>·</span>
           <a
-            href={kpiUrl}
+            href={kpiHref}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: 'var(--teal)' }}
@@ -352,7 +357,7 @@ export default function VaultHome() {
             Set URL for this browser
           </button>
           <span style={{ color: 'var(--muted)' }}>·</span>
-          <a href={vaultHtmlUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
+          <a href={vaultHtmlHref} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
             Original vault HTML
           </a>
           <button type="button" onClick={() => setCustomDashboardUrl('Original vault HTML', VAULT_HTML_URL_LS_KEY, setVaultHtmlCustomUrl)} style={miniBtn}>

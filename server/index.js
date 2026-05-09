@@ -87,6 +87,11 @@ app.use((req, res, next) => {
 });
 
 if (LEGACY_EXISTS) {
+  // Single-file HTML tools must not stick in browser/CDN cache after deploy (users kept seeing old UI).
+  app.use('/legacy', (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    next();
+  });
   app.use('/legacy', express.static(API_TOOL_PATH));
   console.log(`Legacy apps mounted at /legacy from ${API_TOOL_PATH}`);
 } else {
