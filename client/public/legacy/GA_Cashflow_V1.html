@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 20;
+var CF_VERSION = 21;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2131,7 +2131,7 @@ function htmlUnitOcPendingCell(u){
   var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
   var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
   var pend=Math.max(0,oc-ocr);
-  return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;color:#b45309;font-weight:700" title="Own contribution − OC received">'+unitCr(pend,'₹0')+'</span>';
+  return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;color:#b45309;font-weight:700" title="Own contribution − OC received">'+crL(pend,'₹0')+'</span>';
 }
 /** Split CRM “pending to date” by unit tag for board / liquidity narrative. */
 function aggregateSoldUnitPaymentRisk(cfg, units, gridCachesAll){
@@ -5119,8 +5119,6 @@ function renderPostSalesPanel(cfg){
   h+='<span style="font-size:10px;color:var(--blue-b)">Next 12-mo scheduled: <strong>'+cr(base12)+'</strong> → delayed: <strong>'+cr(del12)+'</strong> · Δ <strong>'+cr(slip)+'</strong> stays in window</span></div></div>';
   h+='</div>';
 
-  h+=htmlPostSalesRoadmap(cfg);
-
   h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly schedule vs amount received'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
   h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
   h+='<table style="width:100%;border-collapse:collapse;font-size:10px">';
@@ -5249,6 +5247,7 @@ function renderSales(){
   h+='<div class="card" style="margin-bottom:10px;padding:10px 12px 12px">';
   h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Construction milestone dates</div>';
   h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.4"><strong>CLP (Construction-linked):</strong> set unit pay type to <strong>Construction-linked</strong> and upload milestone target dates. Tranches whose target is <strong>on or before booking</strong> are scheduled in the <strong>booking month</strong> (cumulative site progress through booking); later tranches use uploaded target months. <strong>Installment</strong> units use per-line dates from CRM/imports. <strong>Customer Collections</strong> in Cashflow follow cash received. Achieved dates are for tracking.</div>';
+  h+=htmlPostSalesRoadmap(cfg);
   var ma=cfg.milestonesAchievedDates||{};
   h+='<div style="overflow-x:auto;margin-top:2px;max-height:320px;overflow-y:auto">';
   h+='<table style="width:100%;border-collapse:collapse;font-size:13px;min-width:520px;background:var(--card);border-radius:8px;overflow:hidden;border:1px solid var(--border)">';
