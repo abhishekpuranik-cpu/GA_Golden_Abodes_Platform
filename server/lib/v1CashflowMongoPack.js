@@ -85,19 +85,75 @@ function mergeManualProjsList(existing, incoming) {
 function isPlainObject(v) {
   return !!v && typeof v === 'object' && !Array.isArray(v);
 }
+function normalizeIdKey(v) {
+  return String(v || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+function arrayIdentityForMerge(path, row) {
+  if (!row || typeof row !== 'object') return '';
+  if (row.id != null && String(row.id).trim()) return `id:${String(row.id).trim()}`;
+  if ((path === 'units' || path === 'unsoldUnits') && row.unitNo != null) {
+    const unitNo = normalizeIdKey(row.unitNo);
+    if (unitNo) return `unit:${unitNo}`;
+  }
+  return '';
+}
+function mergeArrayRowsByIdentity(path, existingArr, incomingArr) {
+  const out = Array.isArray(existingArr) ? existingArr.slice() : [];
+  const indexByKey = new Map();
+  out.forEach((row, i) => {
+    const k = arrayIdentityForMerge(path, row);
+    if (k) indexByKey.set(k, i);
+  });
+  for (const incomingRow of incomingArr) {
+    const k = arrayIdentityForMerge(path, incomingRow);
+    if (!k || !indexByKey.has(k)) {
+      out.push(incomingRow);
+      continue;
+    }
+    const idx = indexByKey.get(k);
+    const existingRow = out[idx];
+    if (isPlainObject(existingRow) && isPlainObject(incomingRow)) {
+      out[idx] = deepMergeWorkbook(existingRow, incomingRow, path);
+    } else {
+      out[idx] = incomingRow;
+    }
+  }
+  return out;
+}
+const PID_SECTION_ARRAY_MERGE_KEYS = new Set([
+  'units',
+  'unsoldUnits',
+  'actuals',
+  'investors',
+  'unsecuredLoans',
+  'debtTranches',
+  'customerUL',
+  'otherInflows'
+]);
 /**
  * Recursive merge for workbook JSON objects.
- * Arrays are replaced (not index-merged) to avoid corrupting row order.
+ * Arrays are replaced by default. For key project sections with row ids,
+ * arrays are merged by row identity to reduce concurrent edit collisions.
  */
-function deepMergeWorkbook(existing, incoming) {
+function deepMergeWorkbook(existing, incoming, path = '') {
   if (!isPlainObject(existing)) return incoming;
   if (!isPlainObject(incoming)) return incoming;
   const out = { ...existing };
   for (const k of Object.keys(incoming)) {
     const ev = existing[k];
     const iv = incoming[k];
-    if (isPlainObject(ev) && isPlainObject(iv)) out[k] = deepMergeWorkbook(ev, iv);
-    else out[k] = iv;
+    if (isPlainObject(ev) && isPlainObject(iv)) {
+      out[k] = deepMergeWorkbook(ev, iv, k);
+      continue;
+    }
+    if (Array.isArray(ev) && Array.isArray(iv) && PID_SECTION_ARRAY_MERGE_KEYS.has(k)) {
+      out[k] = mergeArrayRowsByIdentity(k, ev, iv);
+      continue;
+    }
+    out[k] = iv;
   }
   return out;
 }

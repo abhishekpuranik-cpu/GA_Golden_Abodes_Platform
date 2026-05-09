@@ -20,6 +20,24 @@ export const API_TOOL_PATH = process.env.API_TOOL_PATH
 
 export const LEGACY_EXISTS = fs.existsSync(API_TOOL_PATH);
 
+/** Vault → Construction / PreConstruction apps (runtime env on Render; avoids rebuilding the client when URLs change). Falls back to VITE_* names for compatibility. */
+function trimEnv(k) {
+  const v = process.env[k];
+  return typeof v === 'string' ? v.trim() : '';
+}
+export const EXECUTION_DASHBOARD_URL =
+  trimEnv('EXECUTION_DASHBOARD_URL') ||
+  trimEnv('VITE_EXECUTION_DASHBOARD_URL');
+export const PRECONSTRUCTION_APP_URL =
+  trimEnv('PRECONSTRUCTION_APP_URL') ||
+  trimEnv('PRECONSTRUCTION_URL') ||
+  trimEnv('VITE_PRECONSTRUCTION_URL');
+
+/** Simple shared passcode gate for V2/V3 planner pages. */
+export const V2V3_ACCESS_CODE =
+  trimEnv('V2V3_ACCESS_CODE') ||
+  trimEnv('PLANNER_ACCESS_CODE');
+
 /** Max string entries in one workspace PUT (planner localStorage keys). */
 export const WORKSPACE_MAX_KEYS = 250;
 /** Per-key value max length (chars) — keeps documents under MongoDB limits. */

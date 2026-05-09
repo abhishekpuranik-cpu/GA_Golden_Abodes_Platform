@@ -277,6 +277,67 @@ appStatesRouter.get(
 );
 
 appStatesRouter.post(
+  '/apps/:appId/snapshots',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      const { updatedBy, label, note } = req.body || {};
+      const states = db.collection('app_states');
+      const snaps = db.collection('app_state_snapshots');
+      const now = new Date();
+      const existing = await states.findOne({ _id: appId });
+      if (!existing?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
+      const ins = await snaps.insertOne({
+        appId,
+        sourceVersion: existing.version || 1,
+        data: existing.data,
+        createdAt: now,
+        createdBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system',
+        label: typeof label === 'string' && label.trim() ? label.trim() : `Manual snapshot (v${existing.version || 1})`,
+        note: typeof note === 'string' ? note : ''
+      });
+      res.json({ ok: true, appId, snapshotId: ins.insertedId.toString(), sourceVersion: existing.version || 1, createdAt: now });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+appStatesRouter.get(
+  '/apps/:appId/snapshots/:snapshotId',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    try {
+      let snapshotOid;
+      try {
+        snapshotOid = new ObjectId(req.params.snapshotId);
+      } catch {
+        return res.status(400).json({ error: 'Invalid snapshot id' });
+      }
+      const row = await db.collection('app_state_snapshots').findOne({ _id: snapshotOid, appId });
+      if (!row?.data) return res.status(404).json({ error: 'Snapshot not found' });
+      let outData = row.data;
+      if (appId === V3_ORG_PLANNER_APP_ID) outData = repairV3OrgPlannerForRead(row.data);
+      else if (appId === V1_CASHFLOW_APP_ID) outData = await repairV1CashflowForRead(db, row.data);
+      res.json({
+        id: row._id.toString(),
+        appId,
+        sourceVersion: row.sourceVersion || 1,
+        createdAt: row.createdAt || null,
+        createdBy: row.createdBy || null,
+        label: row.label || '',
+        note: row.note || '',
+        data: outData
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+appStatesRouter.post(
   '/apps/:appId/restore/:snapshotId',
   withDb(async (req, res, db) => {
     const appId = ensureAppId(req, res);

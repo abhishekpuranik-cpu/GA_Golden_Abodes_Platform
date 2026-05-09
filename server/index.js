@@ -5,8 +5,9 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import { fileURLToPath } from 'url';
-import { PORT, API_TOOL_PATH, LEGACY_EXISTS, VERSION } from './lib/config.js';
+import { PORT, API_TOOL_PATH, LEGACY_EXISTS, VERSION, V2V3_ACCESS_CODE } from './lib/config.js';
 import { closeMongo } from './lib/mongo.js';
 import { healthRouter } from './routes/health.js';
 import { workspaceRouter } from './routes/workspace.js';
@@ -18,8 +19,72 @@ const rootDir = path.join(__dirname, '..');
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: '50mb' }));
+
+const ACCESS_COOKIE = 'ga_v2v3_access';
+const PROTECTED_PATH_PREFIXES = ['/app/resource-planner', '/app/org-planner', '/legacy/GA_ResourcePlanner_V2.html', '/legacy/GA_OrgResourcePlanner_V3.html'];
+
+function parseCookies(req) {
+  const raw = String(req.headers.cookie || '');
+  const out = {};
+  raw.split(';').forEach((part) => {
+    const i = part.indexOf('=');
+    if (i < 0) return;
+    const k = part.slice(0, i).trim();
+    const v = decodeURIComponent(part.slice(i + 1).trim());
+    if (k) out[k] = v;
+  });
+  return out;
+}
+
+function isAccessAuthed(req) {
+  if (!V2V3_ACCESS_CODE) return true;
+  const c = parseCookies(req);
+  return c[ACCESS_COOKIE] === '1';
+}
+
+function safeEqual(a, b) {
+  const ab = Buffer.from(String(a));
+  const bb = Buffer.from(String(b));
+  if (ab.length !== bb.length) return false;
+  return crypto.timingSafeEqual(ab, bb);
+}
+
+function setAccessCookie(res, on) {
+  const attrs = ['Path=/', 'HttpOnly', 'SameSite=Lax', `Max-Age=${on ? 43200 : 0}`];
+  if (process.env.NODE_ENV === 'production') attrs.push('Secure');
+  const v = on ? '1' : '';
+  res.setHeader('Set-Cookie', `${ACCESS_COOKIE}=${encodeURIComponent(v)}; ${attrs.join('; ')}`);
+}
+
+app.get('/api/access/status', (req, res) => {
+  res.json({ enabled: !!V2V3_ACCESS_CODE, authenticated: isAccessAuthed(req) });
+});
+
+app.post('/api/access/login', (req, res) => {
+  if (!V2V3_ACCESS_CODE) return res.json({ ok: true, enabled: false, authenticated: true });
+  const code = String(req.body?.code || '');
+  if (!safeEqual(code, V2V3_ACCESS_CODE)) {
+    return res.status(401).json({ error: 'Invalid access code', enabled: true, authenticated: false });
+  }
+  setAccessCookie(res, true);
+  return res.json({ ok: true, enabled: true, authenticated: true });
+});
+
+app.post('/api/access/logout', (_req, res) => {
+  setAccessCookie(res, false);
+  res.json({ ok: true, authenticated: false });
+});
+
+app.use((req, res, next) => {
+  if (!V2V3_ACCESS_CODE) return next();
+  if (!PROTECTED_PATH_PREFIXES.some((p) => req.path.startsWith(p))) return next();
+  if (isAccessAuthed(req)) return next();
+  const nextUrl = encodeURIComponent(`${req.path}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
+  return res.redirect(`/access?next=${nextUrl}`);
+});
 
 if (LEGACY_EXISTS) {
   app.use('/legacy', express.static(API_TOOL_PATH));

@@ -59,3 +59,23 @@ Open:
 `/legacy/*` is served from `client/public/legacy` (or `API_TOOL_PATH` if provided).  
 Render build now runs `npm run build:all`, which copies legacy files (including V2/V3 HTML) into `client/public/legacy` before Vite build.
 
+## 7) Construction Execution + PreConstruction (separate deploys)
+
+Deploy these from their folders (or use the monorepo blueprint `render.full-stack.yaml` at the repo root that contains all three projects):
+
+- `GA_ExecutionDashboard_V1_React` — Node web service: build `npm ci && npm run build`, start `npm run start`, health `/api/health`, env `MONGODB_URI`, `MONGODB_DB_NAME` (default `ga_execution_dashboard`).
+- `GA_PreConstruction_React` — Static site: build `npm ci && npm run build`, publish `dist`, env `VITE_API_BASE` = your platform origin (e.g. `https://ga-golden-abodes-platform.onrender.com`) with **no trailing slash**.
+
+Then on the **platform** service set (no client rebuild required if you use non-VITE names):
+
+- `EXECUTION_DASHBOARD_URL` = full URL of the execution app
+- `PRECONSTRUCTION_APP_URL` = full URL of the PreConstruction static site
+
+Redeploy platform (or restart — env-only change). The vault reads these from `GET /api/health` (`vault.executionDashboardUrl`, `vault.preconstructionUrl`).
+
+### Quick sanity check
+
+- `https://<execution>/api/health` → `ok: true`, `mongo: true` after Atlas user is set on that service too.
+- `https://<platform>/api/health` → includes `vault.executionDashboardUrl` and `vault.preconstructionUrl` once env vars are set.
+- Open Vault → both cards navigate to the URLs above.
+

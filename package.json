@@ -10,6 +10,7 @@
     "client": "vite --config client/vite.config.js",
     "dev": "concurrently -k \"npm run server\" \"npm run client\"",
     "build": "vite build --config client/vite.config.js",
+    "import:v1-cf": "node scripts/import-v1-cashflow-to-mongo.mjs",
     "sync-v1": "node scripts/sync-v1-cashflow.mjs",
     "sync-legacy": "node scripts/sync-legacy-html.mjs",
     "build:ga-acct": "node scripts/build-ga-accounting-categories-js.mjs",

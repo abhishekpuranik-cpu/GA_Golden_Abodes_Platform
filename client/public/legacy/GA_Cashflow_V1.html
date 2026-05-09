@@ -63,6 +63,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .ps-dash-card{border-radius:10px;padding:12px 14px;border:1.5px solid var(--border);background:linear-gradient(145deg,#fff,#F8FAFC)}
 .ps-dash-card h4{margin:0 0 6px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .ps-dash-card .v{font-size:18px;font-weight:800;color:var(--blue-b)}
+.ps-roadmap-wrap{overflow-x:auto;margin:4px 0 0;padding:12px 8px 8px;background:linear-gradient(180deg,#fafcff 0%,#fff 55%);border-radius:12px;border:1px solid var(--border)}
+.ps-roadmap-svg{display:block;min-width:760px;width:100%;height:auto;font-family:inherit}
+.ps-roadmap-note{font-size:10px;color:var(--muted);line-height:1.45;margin:0 0 10px}
+@keyframes ps-road-pulse{0%,100%{opacity:1;filter:drop-shadow(0 0 4px rgba(234,179,8,.9))}50%{opacity:.88;filter:drop-shadow(0 0 10px rgba(234,179,8,.65))}}
+.ps-road-here{animation:ps-road-pulse 2.4s ease-in-out infinite}
 .sales-grid-wrap{overflow:auto;max-height:70vh;border:1px solid var(--border);border-radius:8px}
 .sales-grid-wrap thead th{position:sticky;z-index:20;background:#fff}
 .sales-grid-wrap thead tr:first-child th{top:0;z-index:40}
@@ -192,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 18;
+var CF_VERSION = 20;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -674,6 +679,29 @@ function getMilestoneDefs(cfg){
   }
   return CONST_MILESTONES;
 }
+
+/** Major onsite milestones — Post-sales roadmap visual; slugs match `milestonesAchievedDates` keys & milestone defs loosely. */
+var POST_SALES_MAJOR_ROAD=[
+  {label:'Plinth',slugs:['plinth','raft','raftplinth','groundfloor']},
+  {label:'1st slab',slugs:['1stcslab','1stslab','firstslab','firstfloor','1stfloor','1st']},
+  {label:'2nd slab',slugs:['2ndcslab','2ndslab','secondslab','2ndfloor','2nd']},
+  {label:'3rd slab',slugs:['3rdcslab','3rdslab','thirdslab','3rdfloor','3rd']},
+  {label:'4th slab',slugs:['4thslab','4thfloor','4th']},
+  {label:'5th slab • terrace',slugs:['5thslab','5thfloor','fifthslab','5th','terrace']},
+  {label:'Walls & internal plaster',slugs:['internalplaster','internal','walls','plaster','masonry','brickwork']},
+  {label:'External plaster & waterproofing',slugs:['external','waterproof','waterproofing','terracewater']},
+  {label:'Flooring, doors & windows',slugs:['flooring','floors','doors','windows','door','window']},
+  {label:'Staircases, lobbies, lifts',slugs:['staircase','lobby','lobbies','lift','lifts','waterpump','pumps']},
+  {label:'Possession',slugs:['possession','handover','occupation','keys']}
+];
+var POST_SALES_ROAD_SVG_XY=[
+  {x:42,y:128,up:1},{x:118,y:76,up:1},{x:198,y:150,up:0},{x:278,y:70,up:1},
+  {x:358,y:142,up:0},{x:438,y:96,up:1},{x:518,y:160,up:0},{x:598,y:78,up:1},
+  {x:678,y:148,up:0},{x:758,y:88,up:1},{x:838,y:54,up:1}
+];
+/** Centerline for the winding road (matches milestone x,y). */
+var POST_SALES_ROAD_PATH_D='M 28 135 C 88 38 168 178 248 82 S 408 168 488 96 S 588 42 668 130 S 748 52 828 108 S 868 62 902 48';
+
 /** Book28 / CLP: milestone row is construction-linked when Y in template or CRM column past status. */
 function milestoneIsConstLink(ms){
   if(!ms) return false;
@@ -2002,6 +2030,7 @@ function ensureUnitPaymentFields(u){
   if(u.expectedAgreementDate===undefined||u.expectedAgreementDate===null) u.expectedAgreementDate='';
   if(u.fundingSource===undefined||u.fundingSource===null||u.fundingSource==='') u.fundingSource='self';
   if(u.ownContributionAmount===undefined||u.ownContributionAmount===null) u.ownContributionAmount=coerceMoney(u.totalValue);
+  if(u.ownContributionReceived===undefined||u.ownContributionReceived===null) u.ownContributionReceived=0;
   if(u.loanAmount===undefined||u.loanAmount===null) u.loanAmount=0;
   if(u.loanSanctioned===undefined||u.loanSanctioned===null||u.loanSanctioned==='') u.loanSanctioned='no';
   normalizeUnitFundingFields(u);
@@ -2035,8 +2064,11 @@ function normalizeUnitFundingFields(u){
       else { oc=Math.max(0,oc-(excess-loan)); loan=0; }
     }
   }
+  var ocrIn=Math.max(0,coerceMoney(u.ownContributionReceived));
+  if(ocrIn>oc) ocrIn=oc;
   u.fundingSource=src;
   u.ownContributionAmount=oc;
+  u.ownContributionReceived=ocrIn;
   u.loanAmount=loan;
   u.loanSanctioned=sanctioned;
 }
@@ -2087,6 +2119,19 @@ function htmlUnitLoanSanctionSelect(u, idx){
     +'<option value="no"'+(sv==='no'?' selected':'')+'>No</option>'
     +'<option value="yes"'+(sv==='yes'?' selected':'')+'>Yes</option>'
     +'</select>';
+}
+function htmlUnitOcReceivedInput(u, idx){
+  var src=normalizeFundingSource(u&&u.fundingSource);
+  var ocr=Math.max(0,coerceMoney(u&&u.ownContributionReceived));
+  var dis=src==='self'?' disabled':'';
+  return '<input type="number" min="0" step="0.01"'+dis+' data-action="unit-oc-received" data-idx="'+idx+'" value="'+escAttr(ocr?String(ocr):'')+'" style="width:100%;max-width:76px;padding:4px 3px;border:1px solid var(--border);border-radius:5px;font-size:9px;background:'+(src==='self'?'var(--bg)':'#fff')+'" title="Own contribution received to date"/>';
+}
+function htmlUnitOcPendingCell(u){
+  ensureUnitPaymentFields(u);
+  var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
+  var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
+  var pend=Math.max(0,oc-ocr);
+  return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;color:#b45309;font-weight:700" title="Own contribution − OC received">'+unitCr(pend,'₹0')+'</span>';
 }
 /** Split CRM “pending to date” by unit tag for board / liquidity narrative. */
 function aggregateSoldUnitPaymentRisk(cfg, units, gridCachesAll){
@@ -4912,6 +4957,97 @@ function buildSalesGridCaches(cfg, units){
   });
 }
 
+function postSalesRoadmapAchievedIsoForStep(cfg, step){
+  var mad=cfg.milestonesAchievedDates||{};
+  var best='';
+  function consider(iso){
+    iso=normalizeToISODate(iso)||'';
+    if(!iso) return;
+    if(!best||iso>best) best=iso;
+  }
+  Object.keys(mad).forEach(function(k){
+    var ks=slugCRM(k), i, sg;
+    for(i=0;i<step.slugs.length;i++){
+      sg=slugCRM(step.slugs[i]);
+      if(!sg||sg.length<2) continue;
+      if(ks.indexOf(sg)>=0||sg.indexOf(ks)>=0||ks===sg){
+        consider(mad[k]);
+        break;
+      }
+    }
+  });
+  var defs=getMilestoneDefs(cfg), d, ms, j, lab, mk, sg2, isoK;
+  for(d=0;d<defs.length;d++){
+    ms=defs[d];
+    lab=slugCRM(milestoneDisplayLabel(ms));
+    mk=slugCRM(String(ms.key||''));
+    isoK=mad[ms.key];
+    for(j=0;j<step.slugs.length;j++){
+      sg2=slugCRM(step.slugs[j]);
+      if(!sg2||sg2.length<2) continue;
+      if(lab.indexOf(sg2)>=0||mk.indexOf(sg2)>=0||sg2.indexOf(lab)>=0||sg2.indexOf(mk)>=0){
+        consider(isoK);
+        break;
+      }
+    }
+  }
+  return best;
+}
+
+function computePostSalesRoadmap(cfg){
+  var tIso=today();
+  var steps=[], i, st, iso;
+  for(i=0;i<POST_SALES_MAJOR_ROAD.length;i++){
+    st=POST_SALES_MAJOR_ROAD[i];
+    iso=postSalesRoadmapAchievedIsoForStep(cfg,st);
+    steps.push({label:st.label, achievedIso:iso||'', done:!!(iso&&iso<=tIso)});
+  }
+  var cur=0;
+  for(i=0;i<steps.length;i++){
+    if(!steps[i].done){ cur=i; break; }
+    cur=i;
+  }
+  return {steps:steps, currentIndex:cur};
+}
+
+function htmlPostSalesRoadmap(cfg){
+  var R=computePostSalesRoadmap(cfg);
+  var steps=R.steps, cur=R.currentIndex;
+  var armLen=22, vbW=920, vbH=218;
+  var h='', si, P, px, py, lblY, col, inn, r, ring, mark, ty0, ty1;
+  h+='<div class="card" style="margin-top:14px;border-top:3px solid #EAB308">';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Construction roadmap</div>';
+  h+='<p class="ps-roadmap-note">Winding path of <strong>major construction milestones</strong>. <span style="color:#16a34a">●</span> Achieved (date in <strong>Milestone achieved</strong> / panel). <span style="color:#eab308">●</span> <strong>You are here</strong> — next milestone to complete. <span style="color:#9ca3af">●</span> Upcoming.</p>';
+  h+='<div class="ps-roadmap-wrap">';
+  h+='<svg class="ps-roadmap-svg" viewBox="0 0 '+vbW+' '+vbH+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Construction roadmap">';
+  h+='<defs><linearGradient id="psRoadAsphalt" x1="0" y1="0" x2="920" y2="0"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#4b5563"/></linearGradient></defs>';
+  h+='<path d="'+POST_SALES_ROAD_PATH_D+'" stroke="url(#psRoadAsphalt)" stroke-width="26" stroke-linecap="round" stroke-linejoin="round" fill="none"/>';
+  h+='<path d="'+POST_SALES_ROAD_PATH_D+'" stroke="#f8fafc" stroke-width="2.5" stroke-dasharray="10 12" fill="none" opacity="0.92"/>';
+  for(si=0;si<steps.length;si++){
+    P=POST_SALES_ROAD_SVG_XY[si]||POST_SALES_ROAD_SVG_XY[0];
+    px=P.x; py=P.y;
+    ty0=py+(P.up?-9:9); ty1=py+(P.up?-armLen:armLen);
+    lblY=P.up?(py-armLen-12):(py+armLen+10);
+    if(steps[si].done){ col='#16a34a'; inn='#ffffff'; mark='✓'; r=9; ring=0; }
+    else if(si===cur){ col='#eab308'; inn='#1f2937'; mark='◆'; r=11; ring=3; }
+    else { col='#e5e7eb'; inn='#64748b'; mark=String(si+1); r=9; ring=0; }
+    if(ring) h+='<circle class="ps-road-here" cx="'+px+'" cy="'+py+'" r="'+(r+ring)+'" fill="none" stroke="#ca8a04" stroke-width="2"/>';
+    h+='<circle cx="'+px+'" cy="'+py+'" r="'+r+'" fill="'+col+'" stroke="#1f2937" stroke-width="1.2"/>';
+    h+='<text x="'+px+'" y="'+(py+4)+'" text-anchor="middle" fill="'+inn+'" font-size="'+(steps[si].done?11:10)+'" font-weight="800">'+mark+'</text>';
+    h+='<line x1="'+px+'" y1="'+ty0+'" x2="'+px+'" y2="'+ty1+'" stroke="#ca8a04" stroke-width="1.6"/>';
+    h+='<text x="'+px+'" y="'+lblY+'" text-anchor="middle" fill="#0f172a" font-size="8.5" font-weight="700">'+escHtml(String(steps[si].label))+'</text>';
+    h+='<text x="'+px+'" y="'+(lblY+10)+'" text-anchor="middle" fill="#64748b" font-size="7">'+escHtml(steps[si].achievedIso?formatMonthKey(steps[si].achievedIso.slice(0,7)):'—')+'</text>';
+  }
+  P=POST_SALES_ROAD_SVG_XY[cur]||POST_SALES_ROAD_SVG_XY[0];
+  px=P.x; py=P.y;
+  h+='<g transform="translate('+(px-56)+','+(P.up?(py-52):(py+28))+')">';
+  h+='<rect width="112" height="22" rx="6" fill="#fef3c7" stroke="#d97706" stroke-width="1"/>';
+  h+='<text x="56" y="15" text-anchor="middle" fill="#92400e" font-size="9" font-weight="800">You are here</text>';
+  h+='</g>';
+  h+='</svg></div></div>';
+  return h;
+}
+
 function renderPostSalesPanel(cfg){
   var seriesFull=buildPostSalesSeries(cfg);
   var cutY=calendarYearStartMonthKey();
@@ -4928,13 +5064,14 @@ function renderPostSalesPanel(cfg){
   var ytdReal=ytdRealFull;
   var collPct=ytdSched>0?(100*ytdReal/ytdSched):0;
   var units=cfg.units||[];
-  var fin={selfUnits:0,loanUnits:0,oc:0,loan:0,loanSanctionedUnits:0,loanUnsanctionedUnits:0};
+  var fin={selfUnits:0,loanUnits:0,oc:0,ocReceived:0,ocPending:0,loan:0,loanSanctionedUnits:0,loanUnsanctionedUnits:0};
   units.forEach(function(u){
     ensureUnitPaymentFields(u);
     var src=normalizeFundingSource(u.fundingSource);
     var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
+    var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
     var la=Math.max(0,coerceMoney(u.loanAmount));
-    fin.oc+=oc; fin.loan+=la;
+    fin.oc+=oc; fin.ocReceived+=ocr; fin.ocPending+=Math.max(0,oc-ocr); fin.loan+=la;
     if(src==='loan'){
       fin.loanUnits++;
       if(normalizeLoanSanction(u.loanSanctioned)==='yes') fin.loanSanctionedUnits++;
@@ -4973,12 +5110,16 @@ function renderPostSalesPanel(cfg){
   h+='<div class="ps-dash-card"><h4>Units · Inst / Const-linked</h4><div class="v">'+units.length+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+instUnits+' inst. · '+constUnits+' const.</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#5B21B6"><h4>Funding mix · Units</h4><div class="v">'+fin.loanUnits+' <span style="font-size:11px;color:var(--muted)">loan</span> · '+fin.selfUnits+' <span style="font-size:11px;color:var(--muted)">self</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">Loan sanctioned: <strong style="color:#166534">'+fin.loanSanctionedUnits+'</strong> · pending/no: <strong style="color:#B45309">'+fin.loanUnsanctionedUnits+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#0F766E"><h4>Funding mix · Amount</h4><div class="v">'+cr(fin.loan)+' <span style="font-size:11px;color:var(--muted)">loan</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">Own contribution: <strong>'+cr(fin.oc)+'</strong></div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#0E7490"><h4>Own contribution · received</h4><div class="v">'+cr(fin.ocReceived)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Sum of <strong>OC received</strong> across units (Sales grid)</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>OC pending</h4><div class="v">'+cr(fin.ocPending)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Σ (OC − OC received); self-funding units auto-match OC</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#7C3AED"><h4>Agreement pending</h4><div class="v">'+payRiskPs.nAgreement+' <span style="font-size:11px;font-weight:600;color:var(--muted)">units</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">CRM pending (today) on tagged units: <strong style="color:#7C3AED">'+cr(payRiskPs.pendAgreement)+'</strong> · set expected agreement date on Sales grid</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>Payment with issue</h4><div class="v">'+payRiskPs.nPayIssue+' <span style="font-size:11px;font-weight:600;color:var(--muted)">units</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">At risk / delayed / denied · pending (today): <strong style="color:#C2410C">'+cr(payRiskPs.pendPayIssue)+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#B54D0A"><h4>Delay stress-test</h4><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Shift <strong>construction-linked</strong> milestone dates by +N months (what-if).</div>';
   h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><label style="font-size:10px;font-weight:700">+ months</label><input type="number" min="0" max="36" step="1" value="'+delay+'" data-action="post-sales-delay" style="width:56px;padding:6px;border:1.5px solid var(--border);border-radius:6px" title="Scenario only — does not change saved dates"/>';
   h+='<span style="font-size:10px;color:var(--blue-b)">Next 12-mo scheduled: <strong>'+cr(base12)+'</strong> → delayed: <strong>'+cr(del12)+'</strong> · Δ <strong>'+cr(slip)+'</strong> stays in window</span></div></div>';
   h+='</div>';
+
+  h+=htmlPostSalesRoadmap(cfg);
 
   h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly schedule vs amount received'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
   h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
@@ -5262,7 +5403,7 @@ function renderSales(){
       });
       qHeaderHtml+='<thead>';
       qHeaderHtml+='<tr style="background:#E8EEF7;font-size:9px">';
-      [['Unit','left','120px'],['Type','left','84px'],['Sale Value','right','88px'],['Booking','left','90px'],['Pay type','left','62px'],['Collected','right','84px'],['Bal','right','84px'],['Funding','left','138px'],['OC (₹)','right','118px'],['Loan (₹)','right','118px'],['Loan sanctioned','left','96px'],['Pay status','left','108px'],['Exp. agr.','left','110px'],['As of today','right','90px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Funding','left','118px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Loan','right','72px'],['Loan sanct','left','68px'],['Pay status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         qHeaderHtml+='<th rowspan="2" style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:5px 6px;vertical-align:bottom;text-align:'+L[1]+';border-bottom:1px solid var(--border)">'+L[0]+'</th>';
       });
       if(hasInst) qHeaderHtml+='<th rowspan="2" style="width:84px;min-width:84px;max-width:84px;padding:5px 6px;vertical-align:bottom;text-align:left;border-bottom:1px solid var(--border);font-size:8px;color:var(--muted);white-space:nowrap">CRM line</th>';
@@ -5285,7 +5426,7 @@ function renderSales(){
     if(_salesGridMode==='month') h+=qHeaderHtml;
     else {
       h+='<thead><tr style="background:var(--blue-l)">';
-      [['Unit','left','120px'],['Type','left','84px'],['Sale Value','right','88px'],['Booking','left','90px'],['Pay type','left','62px'],['Collected','right','84px'],['Bal','right','84px'],['Funding','left','138px'],['OC (₹)','right','118px'],['Loan (₹)','right','118px'],['Loan sanctioned','left','96px'],['Pay status','left','108px'],['Exp. agr.','left','110px'],['As of today','right','90px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Funding','left','118px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Loan','right','72px'],['Loan sanct','left','68px'],['Pay status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         h+='<th style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:6px 8px;text-align:'+L[1]+'">'+L[0]+'</th>';
       });
       if(hasInst) h+='<th style="width:84px;min-width:84px;max-width:84px;padding:6px 8px;text-align:left;font-size:8px;color:var(--muted)">CRM line</th>';
@@ -5316,20 +5457,21 @@ function renderSales(){
         var subStyle='border-bottom:1px solid var(--border)';
         var rowSpan=3;
         h+='<tr style="'+subStyle+'">';
-        h+='<td rowspan="'+rowSpan+'" style="width:120px;min-width:120px;max-width:120px;padding:5px 8px;font-weight:700;vertical-align:top">'+escHtml(u.unitNo||'')+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:84px;min-width:84px;max-width:84px;padding:5px 8px;vertical-align:top">'+escHtml(u.unitType||'')+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:88px;min-width:88px;max-width:88px;text-align:right;padding:5px 8px;vertical-align:top">'+unitCr(u.totalValue)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:90px;min-width:90px;max-width:90px;padding:5px 8px;vertical-align:top">'+bookDisp+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:62px;min-width:62px;max-width:62px;padding:5px 8px;vertical-align:top"><span style="background:var(--purple-l);color:var(--purple);padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700">Inst.</span></td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:84px;min-width:84px;max-width:84px;text-align:right;padding:5px 8px;color:var(--green-b);vertical-align:top">'+unitCr(collected,'₹0')+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:84px;min-width:84px;max-width:84px;text-align:right;padding:5px 8px;color:var(--red-b);vertical-align:top">'+unitCr(u.totalValue-collected)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:138px;min-width:138px;max-width:138px;padding:4px 6px;vertical-align:top">'+htmlUnitFundingSourceSelect(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:118px;min-width:118px;max-width:118px;padding:4px 6px;vertical-align:top">'+htmlUnitOwnContributionInput(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:118px;min-width:118px;max-width:118px;padding:4px 6px;vertical-align:top">'+htmlUnitLoanAmountInput(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:96px;min-width:96px;max-width:96px;padding:4px 6px;vertical-align:top">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:108px;min-width:108px;max-width:108px;padding:4px 6px;vertical-align:top">'+htmlUnitPaymentSelect(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:110px;min-width:110px;max-width:110px;padding:4px 6px;vertical-align:top">'+htmlUnitAgreementDateInput(u,i)+'</td>';
-        h+='<td style="width:90px;min-width:90px;max-width:90px;text-align:right;padding:5px 8px;color:var(--blue-b);vertical-align:top">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:100px;min-width:100px;max-width:100px;padding:5px 6px;font-weight:700;vertical-align:top">'+escHtml(u.unitNo||'')+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:68px;min-width:68px;max-width:68px;padding:5px 6px;vertical-align:top">'+escHtml(u.unitType||'')+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;vertical-align:top">'+unitCr(u.totalValue)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:78px;min-width:78px;max-width:78px;padding:5px 6px;vertical-align:top">'+bookDisp+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--green-b);vertical-align:top">'+unitCr(collected,'₹0')+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--red-b);vertical-align:top">'+unitCr(u.totalValue-collected)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:118px;min-width:118px;max-width:118px;padding:4px 4px;vertical-align:top">'+htmlUnitFundingSourceSelect(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOwnContributionInput(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOcReceivedInput(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top;text-align:right">'+htmlUnitOcPendingCell(u)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanAmountInput(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:68px;min-width:68px;max-width:68px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:92px;min-width:92px;max-width:92px;padding:4px 4px;vertical-align:top">'+htmlUnitPaymentSelect(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:96px;min-width:96px;max-width:96px;padding:4px 4px;vertical-align:top">'+htmlUnitAgreementDateInput(u,i)+'</td>';
+        h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b);vertical-align:top">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
         h+='<td style="width:84px;min-width:84px;max-width:84px;padding:3px 6px;font-size:9px;color:var(--muted);white-space:nowrap">Due'+bkHint+'</td>';
         colModel.forEach(function(col){
           var amt=colSumFromMoMap(cache.dueByMo,col);
@@ -5341,8 +5483,8 @@ function renderSales(){
         [['Received','recv','var(--green-b)'],['Pending','pend','var(--orange)']].forEach(function(rowDef){
           h+='<tr style="'+subStyle+'">';
           var asOf=rowDef[1]==='recv'?(cache.recvTillToday||0):(cache.pendTillToday||0);
-          h+='<td style="width:90px;min-width:90px;max-width:90px;text-align:right;padding:5px 8px;color:'+rowDef[2]+'">'+unitCr(asOf,'—')+'</td>';
-          h+='<td style="width:84px;min-width:84px;max-width:84px;padding:3px 6px;font-size:9px;color:var(--muted);white-space:nowrap">'+rowDef[0]+'</td>';
+          h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:'+rowDef[2]+'">'+unitCr(asOf,'—')+'</td>';
+          h+='<td style="width:78px;min-width:78px;max-width:78px;padding:3px 5px;font-size:9px;color:var(--muted);white-space:nowrap">'+rowDef[0]+'</td>';
           colModel.forEach(function(col){
             var isC=col.kind==='month'&&col.mo===curMo;
             var map=rowDef[1]==='recv'?cache.recvByMo:cache.pendByMo;
@@ -5353,20 +5495,21 @@ function renderSales(){
         });
       } else {
       h+='<tr style="border-bottom:1px solid var(--border)">';
-      h+='<td style="width:120px;min-width:120px;max-width:120px;padding:5px 8px;font-weight:700">'+escHtml(u.unitNo||'')+'</td>';
-      h+='<td style="width:84px;min-width:84px;max-width:84px;padding:5px 8px">'+escHtml(u.unitType||'')+'</td>';
-      h+='<td style="width:88px;min-width:88px;max-width:88px;text-align:right;padding:5px 8px">'+unitCr(u.totalValue)+'</td>';
-      h+='<td style="width:90px;min-width:90px;max-width:90px;padding:5px 8px">'+bookDisp+'</td>';
-      h+='<td style="width:62px;min-width:62px;max-width:62px;padding:5px 8px"><span style="background:var(--teal-l);color:var(--teal);padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700">Const.</span></td>';
-      h+='<td style="width:84px;min-width:84px;max-width:84px;text-align:right;padding:5px 8px;color:var(--green-b)">'+unitCr(collected,'₹0')+'</td>';
-      h+='<td style="width:84px;min-width:84px;max-width:84px;text-align:right;padding:5px 8px;color:var(--red-b)">'+unitCr(u.totalValue-collected)+'</td>';
-      h+='<td style="width:138px;min-width:138px;max-width:138px;padding:4px 6px">'+htmlUnitFundingSourceSelect(u,i)+'</td>';
-      h+='<td style="width:118px;min-width:118px;max-width:118px;padding:4px 6px">'+htmlUnitOwnContributionInput(u,i)+'</td>';
-      h+='<td style="width:118px;min-width:118px;max-width:118px;padding:4px 6px">'+htmlUnitLoanAmountInput(u,i)+'</td>';
-      h+='<td style="width:96px;min-width:96px;max-width:96px;padding:4px 6px">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
-      h+='<td style="width:108px;min-width:108px;max-width:108px;padding:4px 6px">'+htmlUnitPaymentSelect(u,i)+'</td>';
-      h+='<td style="width:110px;min-width:110px;max-width:110px;padding:4px 6px">'+htmlUnitAgreementDateInput(u,i)+'</td>';
-      h+='<td style="width:90px;min-width:90px;max-width:90px;text-align:right;padding:5px 8px;color:var(--blue-b)">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
+      h+='<td style="width:100px;min-width:100px;max-width:100px;padding:5px 6px;font-weight:700">'+escHtml(u.unitNo||'')+'</td>';
+      h+='<td style="width:68px;min-width:68px;max-width:68px;padding:5px 6px">'+escHtml(u.unitType||'')+'</td>';
+      h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px">'+unitCr(u.totalValue)+'</td>';
+      h+='<td style="width:78px;min-width:78px;max-width:78px;padding:5px 6px">'+bookDisp+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--green-b)">'+unitCr(collected,'₹0')+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--red-b)">'+unitCr(u.totalValue-collected)+'</td>';
+      h+='<td style="width:118px;min-width:118px;max-width:118px;padding:4px 4px">'+htmlUnitFundingSourceSelect(u,i)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOwnContributionInput(u,i)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOcReceivedInput(u,i)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;text-align:right">'+htmlUnitOcPendingCell(u)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitLoanAmountInput(u,i)+'</td>';
+      h+='<td style="width:68px;min-width:68px;max-width:68px;padding:4px 4px">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
+      h+='<td style="width:92px;min-width:92px;max-width:92px;padding:4px 4px">'+htmlUnitPaymentSelect(u,i)+'</td>';
+      h+='<td style="width:96px;min-width:96px;max-width:96px;padding:4px 4px">'+htmlUnitAgreementDateInput(u,i)+'</td>';
+      h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b)">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
       if(hasInst) h+='<td style="width:84px;min-width:84px;max-width:84px;padding:5px 6px"></td>';
       colModel.forEach(function(col){
         var amt=colSumFromMoMap(cache.dueByMo,col);
@@ -5378,7 +5521,7 @@ function renderSales(){
       }
     });
     [['Column totals (Due)','due'],['Column totals (Received)','recv'],['Column totals (Pending — CRM row or Due − Recv)','pend']].forEach(function(rowPair){
-      h+='<tr style="background:var(--blue-l);font-weight:800;font-size:10px"><td colspan="'+(14+(hasInst?1:0))+'" style="padding:6px 8px;text-align:right">'+rowPair[0]+'</td>';
+      h+='<tr style="background:var(--blue-l);font-weight:800;font-size:10px"><td colspan="'+(15+(hasInst?1:0))+'" style="padding:6px 8px;text-align:right">'+rowPair[0]+'</td>';
       colModel.forEach(function(col){
         var t=0;
         visibleRows.forEach(function(rw){
@@ -5484,7 +5627,7 @@ function renderSales(){
   h+='</tbody></table></div>';
   h+='</div>';
   el.innerHTML=h;
-  var freezeCols=(units&&units.some(function(u){return u.payType==='install';}))?9:8;
+  var freezeCols=(units&&units.some(function(u){return u.payType==='install';}))?10:9;
   applySalesGridFreeze(freezeCols);
   setTimeout(function(){ applySalesGridFreeze(freezeCols); }, 0);
 }
@@ -5554,6 +5697,13 @@ function renderSalesKeepViewport(){
   var active=document.activeElement;
   var isSearch=active&&active.dataset&&active.dataset.action==='sales-search';
   var selS=isSearch?active.selectionStart:null, selE=isSearch?active.selectionEnd:null;
+  var fu=active&&active.dataset&&(
+    active.dataset.action==='unit-own-contribution'||
+    active.dataset.action==='unit-loan-amount'||
+    active.dataset.action==='unit-oc-received'
+  );
+  var fuAct=fu?String(active.dataset.action||''):'';
+  var fuIdx=fu?String(active.dataset.idx||''):'';
   renderSales();
   window.scrollTo(sx, sy);
   if(isSearch){
@@ -5561,6 +5711,16 @@ function renderSalesKeepViewport(){
     if(inp){
       inp.focus({preventScroll:true});
       try{ inp.setSelectionRange(selS, selE); }catch(e){}
+    }
+  }
+  if(fuAct&&fuIdx!==''){
+    var inp2=document.querySelector('[data-action="'+fuAct+'"][data-idx="'+fuIdx+'"]');
+    if(inp2&&inp2.focus){
+      inp2.focus({preventScroll:true});
+      try{
+        var L=String(inp2.value||'').length;
+        if(inp2.setSelectionRange) inp2.setSelectionRange(L,L);
+      }catch(e2){}
     }
   }
 }
@@ -6668,7 +6828,7 @@ function saveUnit(){
   var u={id:uid(),unitNo:unitNo,unitType:document.getElementById('u-type').value,
     totalValue:val,bookingDate:date,payType:pt,installments:installs,
     paymentIssueStatus:'ok',expectedAgreementDate:'',
-    fundingSource:'self',ownContributionAmount:val,loanAmount:0,loanSanctioned:'no',
+    fundingSource:'self',ownContributionAmount:val,ownContributionReceived:0,loanAmount:0,loanSanctioned:'no',
     projectGroup:h.projectGroup,phase:h.phase,building:h.building};
   var cfg=getCF(_curPid);
   if(!cfg.units) cfg.units=[];
@@ -7693,7 +7853,8 @@ function parseCRMPostSalesRows(rows, cfg){
       totalValue:agr,
       bookingDate:book,
       receivedToDate:sumRecv,
-      installments:installments
+      installments:installments,
+      crmRegistrationDate:regIso||''
     });
     audit.units++;
     audit.agreement+=coerceMoney(agr);
@@ -7714,6 +7875,36 @@ function parseCRMPostSalesRows(rows, cfg){
     }
   }
   return {units:units,milestoneDefs:milestoneDefs,achievedByKey:achievedByKey,projectLabel:projName,audit:audit};
+}
+
+/** Normalize unit key for CRM merge (same human-readable unit number). */
+function normCRMUnitImportKey(x){
+  return String(x||'').trim().toLowerCase().replace(/\s+/g,' ');
+}
+/**
+ * Preserve manually edited funding, OC / OC received, loan, pay status, and agreement date
+ * when the same unit is re-imported from CRM. New units with no registration milestone date
+ * in the dump default to Agreement pending.
+ */
+function mergeCrmPostSalesUnitPayload(fresh, prev, dumpRegistrationIso){
+  var hadReg=!!(dumpRegistrationIso&&String(dumpRegistrationIso).trim());
+  if(prev){
+    fresh.id=prev.id||fresh.id;
+    fresh.fundingSource=normalizeFundingSource(prev.fundingSource||fresh.fundingSource);
+    fresh.ownContributionAmount=coerceMoney(prev.ownContributionAmount);
+    fresh.ownContributionReceived=coerceMoney(prev.ownContributionReceived);
+    fresh.loanAmount=coerceMoney(prev.loanAmount);
+    fresh.loanSanctioned=normalizeLoanSanction(prev.loanSanctioned||fresh.loanSanctioned);
+    fresh.paymentIssueStatus=normalizeUnitPaymentStatus(prev);
+    fresh.expectedAgreementDate=prev.expectedAgreementDate!=null?String(prev.expectedAgreementDate||''):'';
+    ensureUnitPaymentFields(fresh);
+    normalizeUnitFundingFields(fresh);
+    return fresh;
+  }
+  ensureUnitPaymentFields(fresh);
+  if(!hadReg) fresh.paymentIssueStatus='agreement_pending';
+  normalizeUnitFundingFields(fresh);
+  return fresh;
 }
 
 function importCRMPostSalesWorkbook(input){
@@ -7755,15 +7946,21 @@ function importCRMPostSalesWorkbook(input){
         var importedSoldSet={};
         var hmeta=getProjectHierarchy(pid);
         parsed.units.forEach(function(ux){
-          var incoming=normUnitNo(ux.unitNo);
+          var incoming=normCRMUnitImportKey(ux.unitNo);
           importedSoldSet[incoming]=1;
-          // Overwrite mode: drop any existing row for the same unit (manual/import/legacy).
+          var prev=null;
+          for(var pi=0;pi<(cfg.units||[]).length;pi++){
+            if(normCRMUnitImportKey(cfg.units[pi]&&cfg.units[pi].unitNo)===incoming){
+              prev=cfg.units[pi];
+              break;
+            }
+          }
           cfg.units=cfg.units.filter(function(ex){
-            return normUnitNo(ex&&ex.unitNo)!==incoming;
+            return normCRMUnitImportKey(ex&&ex.unitNo)!==incoming;
           });
-          var id=uid();
-          cfg.units.push({
-            id:id,
+          var dumpReg=ux.crmRegistrationDate||'';
+          var fresh={
+            id:prev?prev.id:uid(),
             unitNo:ux.unitNo,
             unitType:ux.unitType,
             totalValue:coerceMoney(ux.totalValue),
@@ -7775,12 +7972,12 @@ function importCRMPostSalesWorkbook(input){
             phase:hmeta.phase,
             building:(ux.building||hmeta.building),
             source:'crm-import',
-            paymentIssueStatus:'ok',expectedAgreementDate:'',
             milestonesDates:{},
             installments:(ux.installments||[]).map(function(ins){
               return {date:ins.date,amount:coerceMoney(ins.amount),label:ins.label};
             })
-          });
+          };
+          cfg.units.push(mergeCrmPostSalesUnitPayload(fresh,prev,dumpReg));
         });
         if(Array.isArray(cfg.unsoldUnits)){
           cfg.unsoldUnits=cfg.unsoldUnits.filter(function(u){
@@ -8437,6 +8634,13 @@ document.addEventListener('change',function(e){
     normalizeUnitFundingFields(cfg.units[uixOC]);
     saveAll(); renderSalesKeepViewport(); refreshProjectCashflowViews(); return;
   }
+  if(a==='unit-oc-received'){
+    var uixOcr=+el.dataset.idx;
+    if(!Array.isArray(cfg.units)||cfg.units[uixOcr]===undefined) return;
+    cfg.units[uixOcr].ownContributionReceived=Math.max(0,parseFloat(v)||0);
+    normalizeUnitFundingFields(cfg.units[uixOcr]);
+    saveAll(); renderSalesKeepViewport(); refreshProjectCashflowViews(); return;
+  }
   if(a==='unit-loan-amount'){
     var uixL=+el.dataset.idx;
     if(!Array.isArray(cfg.units)||cfg.units[uixL]===undefined) return;
@@ -8552,6 +8756,18 @@ document.addEventListener('focusin',function(e){
 document.addEventListener('input',function(e){
   var el=e.target, a=el&&el.dataset&&el.dataset.action;
   if(a==='sales-search'){ _salesSearchQuery=String(el.value||''); renderSalesKeepViewport(); }
+  var cfgInp=_curPid?getCF(_curPid):null;
+  if(cfgInp&&(a==='unit-own-contribution'||a==='unit-loan-amount'||a==='unit-oc-received')){
+    var uixIn=+el.dataset.idx;
+    if(Array.isArray(cfgInp.units)&&cfgInp.units[uixIn]!==undefined){
+      var nv=parseFloat(el.value);
+      if(a==='unit-own-contribution') cfgInp.units[uixIn].ownContributionAmount=Math.max(0,isFinite(nv)?nv:0);
+      else if(a==='unit-loan-amount') cfgInp.units[uixIn].loanAmount=Math.max(0,isFinite(nv)?nv:0);
+      else cfgInp.units[uixIn].ownContributionReceived=Math.max(0,isFinite(nv)?nv:0);
+      normalizeUnitFundingFields(cfgInp.units[uixIn]);
+      saveAll(); renderSalesKeepViewport();
+    }
+  }
   if(a==='narration-insight-q'){
     _narrationActiveField='insight';
     _narrationInsightQ=String(el.value||'');

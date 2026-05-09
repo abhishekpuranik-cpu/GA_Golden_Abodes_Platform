@@ -127,9 +127,12 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   <button class="tab" id="tab-gadm" onclick="showTab('gadm')">📈 GA DM</button>
   <button class="tab" id="tab-dd" onclick="showTab('dd')">📄 Due Diligence</button>
 </div>
-<div style="background:var(--green-l);padding:8px 18px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--border)">
-  <span style="font-size:11px;color:var(--green-b);font-weight:600">🔗 Resource Planner: open <strong><a id="ga-rp-link" href="http://localhost:8765/rp" target="_blank" style="color:var(--blue-b)">http://localhost:8765/rp</a></strong> in another tab. Projects auto-sync when you save/add here.</span>
-  <button onclick="pushProjectsToRP()" style="padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--green-b);background:transparent;color:var(--green-b)">⇒ Push Projects to RP</button>
+<div style="background:var(--green-l);padding:8px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border)">
+  <span style="font-size:11px;color:var(--green-b);font-weight:600">🔗 Resource Planner: open <strong><a id="ga-rp-link" href="http://localhost:8765/rp" target="_blank" style="color:var(--blue-b)">http://localhost:8765/rp</a></strong> in another tab. Projects auto-sync when you save/add here. For shared Mongo Cashflow use <strong>GA Cashflow → Import V3 list from server</strong> after V3 is saved to the cloud.</span>
+  <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+    <button type="button" onclick="pushProjectsToRP()" style="padding:4px 12px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--green-b);background:transparent;color:var(--green-b)">⇒ Push Projects to RP</button>
+    <button type="button" onclick="setV3ProjectDeletePassword()" style="padding:4px 10px;border-radius:6px;cursor:pointer;font-size:10px;font-weight:700;border:1.5px solid var(--border);background:#fff;color:var(--text)" title="Required before you can delete a project">🔒 Set delete password</button>
+  </span>
 </div>
 
 <div id="page-dashboard" class="page"><div style="padding:24px;color:var(--muted);font-size:13px">Loading planner…</div></div>
@@ -1601,8 +1604,34 @@ function saveProject(mode){
   renderAll();
 }
 
+var GA_V3_DELETE_CODE_KEY='ga_v3_project_delete_code';
+function getV3ProjectDeleteCode(){
+  try{ return String(localStorage.getItem(GA_V3_DELETE_CODE_KEY)||''); }catch(e){ return ''; }
+}
+function setV3ProjectDeletePassword(){
+  const cur=getV3ProjectDeleteCode();
+  const a=window.prompt(cur?'New delete password (min 4 characters):':'Choose a delete password (min 4 characters). You will need it to remove any project:', '');
+  if(a===null) return;
+  if(String(a).length<4){ alert('Use at least 4 characters.'); return; }
+  const b=window.prompt('Confirm delete password:');
+  if(b===null) return;
+  if(b!==a){ alert('Passwords do not match.'); return; }
+  try{ localStorage.setItem(GA_V3_DELETE_CODE_KEY,a); }catch(e){ alert('Could not save: '+e.message); return; }
+  alert('Delete password saved in this browser.');
+}
 function deleteProject(id){
   const p=PROJS.find(x=>x.id===id); if(!p) return;
+  const secret=getV3ProjectDeleteCode();
+  if(!secret){
+    alert('Set a delete password first — click "Set delete password" in the green bar next to Push Projects to RP.');
+    return;
+  }
+  const attempt=window.prompt('Enter delete password to remove "'+p.name+'":');
+  if(attempt===null) return;
+  if(attempt!==secret){
+    alert('Incorrect password. Project was not deleted.');
+    return;
+  }
   if(!window.confirm('Delete "'+p.name+'"?\nThis removes all HC, financial and DD data.')) return;
   PROJS.splice(PROJS.findIndex(x=>x.id===id),1);
   ['existing','approved','alloc'].forEach(k=>{
