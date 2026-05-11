@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 23;
+var CF_VERSION = 24;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2043,13 +2043,7 @@ function normalizeUnitFundingFields(u){
     sanctioned='no';
   }else{
     if(loan>tv&&tv>0) loan=tv;
-    if(oc<=0&&tv>0) oc=Math.max(0,tv-loan);
-    if(oc>tv&&tv>0) oc=tv;
-    if(tv>0&&oc+loan>tv){
-      var excess=(oc+loan)-tv;
-      if(loan>=excess) loan-=excess;
-      else { oc=Math.max(0,oc-(excess-loan)); loan=0; }
-    }
+    oc=Math.max(0,tv-loan);
   }
   var ocrIn=Math.max(0,coerceMoney(u.ownContributionReceived));
   if(ocrIn>oc) ocrIn=oc;
@@ -2089,8 +2083,7 @@ function htmlUnitFundingSourceSelect(u, idx){
 function htmlUnitOwnContributionInput(u, idx){
   var src=normalizeFundingSource(u&&u.fundingSource);
   var oc=Math.max(0,coerceMoney(u&&u.ownContributionAmount));
-  var dis=src==='self'?' disabled':'';
-  return '<input type="number" min="0" step="0.01"'+dis+' data-action="unit-own-contribution" data-idx="'+idx+'" value="'+escAttr(oc?String(oc):'')+'" style="width:100%;max-width:118px;padding:4px 4px;border:1px solid var(--border);border-radius:5px;font-size:9px;background:'+(src==='self'?'var(--bg)':'#fff')+'" title="'+(src==='self'?'Auto = sale value for self contribution':'Own contribution amount for this unit')+'"/>';
+  return '<input type="number" min="0" step="0.01" disabled value="'+escAttr(oc?String(oc):'')+'" style="width:100%;max-width:118px;padding:4px 4px;border:1px solid var(--border);border-radius:5px;font-size:9px;background:var(--bg)" title="'+(src==='self'?'Auto = full sale value for self contribution':'Auto = sale value minus loan amount')+'"/>';
 }
 function htmlUnitLoanAmountInput(u, idx){
   var src=normalizeFundingSource(u&&u.fundingSource);
@@ -5443,7 +5436,7 @@ function renderSales(){
       });
       qHeaderHtml+='<thead>';
       qHeaderHtml+='<tr style="background:#E8EEF7;font-size:9px">';
-      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Funding','left','118px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Loan','right','72px'],['Loan sanct','left','68px'],['Pay status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         qHeaderHtml+='<th rowspan="2" style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:5px 6px;vertical-align:bottom;text-align:'+L[1]+';border-bottom:1px solid var(--border)">'+L[0]+'</th>';
       });
       if(hasInst) qHeaderHtml+='<th rowspan="2" style="width:84px;min-width:84px;max-width:84px;padding:5px 6px;vertical-align:bottom;text-align:left;border-bottom:1px solid var(--border);font-size:8px;color:var(--muted);white-space:nowrap">CRM line</th>';
@@ -5466,7 +5459,7 @@ function renderSales(){
     if(_salesGridMode==='month') h+=qHeaderHtml;
     else {
       h+='<thead><tr style="background:var(--blue-l)">';
-      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Funding','left','118px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Loan','right','72px'],['Loan sanct','left','68px'],['Pay status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         h+='<th style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:6px 8px;text-align:'+L[1]+'">'+L[0]+'</th>';
       });
       if(hasInst) h+='<th style="width:84px;min-width:84px;max-width:84px;padding:6px 8px;text-align:left;font-size:8px;color:var(--muted)">CRM line</th>';
@@ -5504,11 +5497,11 @@ function renderSales(){
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--green-b);vertical-align:top">'+unitCr(collected,'₹0')+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--red-b);vertical-align:top">'+unitCr(u.totalValue-collected)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:118px;min-width:118px;max-width:118px;padding:4px 4px;vertical-align:top">'+htmlUnitFundingSourceSelect(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanAmountInput(u,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:68px;min-width:68px;max-width:68px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOwnContributionInput(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOcReceivedInput(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top;text-align:right">'+htmlUnitOcPendingCell(u)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanAmountInput(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:68px;min-width:68px;max-width:68px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:92px;min-width:92px;max-width:92px;padding:4px 4px;vertical-align:top">'+htmlUnitPaymentSelect(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:96px;min-width:96px;max-width:96px;padding:4px 4px;vertical-align:top">'+htmlUnitAgreementDateInput(u,i)+'</td>';
         h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b);vertical-align:top">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
@@ -5542,11 +5535,11 @@ function renderSales(){
       h+='<td style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--green-b)">'+unitCr(collected,'₹0')+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;text-align:right;padding:5px 6px;color:var(--red-b)">'+unitCr(u.totalValue-collected)+'</td>';
       h+='<td style="width:118px;min-width:118px;max-width:118px;padding:4px 4px">'+htmlUnitFundingSourceSelect(u,i)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitLoanAmountInput(u,i)+'</td>';
+      h+='<td style="width:68px;min-width:68px;max-width:68px;padding:4px 4px">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOwnContributionInput(u,i)+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOcReceivedInput(u,i)+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;text-align:right">'+htmlUnitOcPendingCell(u)+'</td>';
-      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitLoanAmountInput(u,i)+'</td>';
-      h+='<td style="width:68px;min-width:68px;max-width:68px;padding:4px 4px">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
       h+='<td style="width:92px;min-width:92px;max-width:92px;padding:4px 4px">'+htmlUnitPaymentSelect(u,i)+'</td>';
       h+='<td style="width:96px;min-width:96px;max-width:96px;padding:4px 4px">'+htmlUnitAgreementDateInput(u,i)+'</td>';
       h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b)">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
@@ -8797,15 +8790,13 @@ document.addEventListener('input',function(e){
   var el=e.target, a=el&&el.dataset&&el.dataset.action;
   if(a==='sales-search'){ _salesSearchQuery=String(el.value||''); renderSalesKeepViewport(); }
   var cfgInp=_curPid?getCF(_curPid):null;
-  if(cfgInp&&(a==='unit-own-contribution'||a==='unit-loan-amount'||a==='unit-oc-received')){
+  if(cfgInp&&(a==='unit-loan-amount'||a==='unit-oc-received')){
     var uixIn=+el.dataset.idx;
     if(Array.isArray(cfgInp.units)&&cfgInp.units[uixIn]!==undefined){
       var nv=parseFloat(el.value);
-      if(a==='unit-own-contribution') cfgInp.units[uixIn].ownContributionAmount=Math.max(0,isFinite(nv)?nv:0);
-      else if(a==='unit-loan-amount') cfgInp.units[uixIn].loanAmount=Math.max(0,isFinite(nv)?nv:0);
+      if(a==='unit-loan-amount') cfgInp.units[uixIn].loanAmount=Math.max(0,isFinite(nv)?nv:0);
       else cfgInp.units[uixIn].ownContributionReceived=Math.max(0,isFinite(nv)?nv:0);
       normalizeUnitFundingFields(cfgInp.units[uixIn]);
-      saveAll(); renderSalesKeepViewport();
     }
   }
   if(a==='narration-insight-q'){

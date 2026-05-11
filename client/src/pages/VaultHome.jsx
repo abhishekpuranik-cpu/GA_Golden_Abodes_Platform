@@ -37,7 +37,7 @@ function localUrl(key) {
 const DEFAULT_EXECUTION_DASHBOARD_URL = '';
 const DEFAULT_PRECONSTRUCTION_URL = '';
 /** Cache-bust query on Construction Execution Dashboard URL from Vault (?v=…). Bump when UI ships; may differ from in-app `GA_DASHBOARD_VERSION`. */
-const VAULT_EXEC_VERSION = '20260510-exec-layout';
+const VAULT_EXEC_VERSION = '20260511-exec-progress-roadmap';
 const VAULT_PRE_VERSION = '20260506';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
 const PRE_URL_LS_KEY = 'ga_preconstruction_url';
