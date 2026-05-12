@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 27;
+var CF_VERSION = 28;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -7067,7 +7067,7 @@ function buildSoldUnitsReportBook(cfg){
   var commentRows=[['Unit No','Timestamp','By','Comment']];
   units.forEach(function(u, idx){
     var cache=caches[idx]||{dueByMo:{},recvByMo:{},pendByMo:{}};
-    var collected=salesCollectedFast(u);
+    var collected=unitCollectedAmount(cfg,u);
     var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
     var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
     var ocDueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
