@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 26;
+var CF_VERSION = 27;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -7127,16 +7127,32 @@ function buildSoldUnitsReportBook(cfg){
 }
 function exportSoldUnitsExcel(){
   if(!window.XLSX){ alert('XLSX library not loaded.'); return; }
-  var cfg=getCF(_curPid);
-  var book=buildSoldUnitsReportBook(cfg);
-  var wb=XLSX.utils.book_new();
-  var ws1=XLSX.utils.aoa_to_sheet(book.soldRows);
-  ws1['!cols']=[{wch:16},{wch:14},{wch:22},{wch:14},{wch:12},{wch:14},{wch:14},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14},{wch:18},{wch:14},{wch:18},{wch:18},{wch:12},{wch:60},{wch:14}];
-  XLSX.utils.book_append_sheet(wb, ws1, 'Sold Units');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.monthlyRows), 'Monthly Grid');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.clpRows), 'Unit CLP');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.commentRows), 'Comments');
-  XLSX.writeFile(wb,'GA_Sold_Units_Report_'+(_curPid||'proj')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+  try{
+    var cfg=getCF(_curPid);
+    var book=buildSoldUnitsReportBook(cfg);
+    var wb=XLSX.utils.book_new();
+    var ws1=XLSX.utils.aoa_to_sheet(book.soldRows);
+    ws1['!cols']=[{wch:16},{wch:14},{wch:22},{wch:14},{wch:12},{wch:14},{wch:14},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14},{wch:18},{wch:14},{wch:18},{wch:18},{wch:12},{wch:60},{wch:14}];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Sold Units');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.monthlyRows), 'Monthly Grid');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.clpRows), 'Unit CLP');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.commentRows), 'Comments');
+    var bytes=XLSX.write(wb,{bookType:'xlsx',type:'array'});
+    var safe=String((cfg&&cfg.projName)||_curPid||'proj').replace(/[\\/:*?"<>|]+/g,' ').replace(/\s+/g,' ').trim()||'proj';
+    var blob=new Blob([bytes],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    var a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download='GA_Sold_Units_Report_'+safe+'_'+new Date().toISOString().slice(0,10)+'.xlsx';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function(){
+      URL.revokeObjectURL(a.href);
+      if(a.parentNode) a.parentNode.removeChild(a);
+    },0);
+  }catch(err){
+    console.error('Sold Units Excel export failed', err);
+    alert('Sold Units Excel export failed: '+String(err&&err.message||err));
+  }
 }
 
 function showAddTransModal(preset){
