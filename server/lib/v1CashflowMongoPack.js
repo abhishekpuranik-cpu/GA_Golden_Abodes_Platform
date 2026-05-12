@@ -131,7 +131,8 @@ const PID_SECTION_ARRAY_MERGE_KEYS = new Set([
   'unsecuredLoans',
   'debtTranches',
   'customerUL',
-  'otherInflows'
+  'otherInflows',
+  'commentLog'
 ]);
 /**
  * Recursive merge for workbook JSON objects.

@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 25;
+var CF_VERSION = 26;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2021,6 +2021,18 @@ function ensureUnitPaymentFields(u){
   if(u.loanAmount===undefined||u.loanAmount===null) u.loanAmount=0;
   if(u.loanSanctioned===undefined||u.loanSanctioned===null||u.loanSanctioned==='') u.loanSanctioned='no';
   normalizeUnitFundingFields(u);
+  ensureUnitSalesMeta(u);
+}
+function ensureUnitSalesMeta(u){
+  if(!u||typeof u!=='object') return;
+  if(!u.milestonesDates||typeof u.milestonesDates!=='object'||Array.isArray(u.milestonesDates)) u.milestonesDates={};
+  if(!Array.isArray(u.commentLog)){
+    var legacy=String(u.unitComment||u.comment||'').trim();
+    u.commentLog=legacy?[{id:uid(),text:legacy,at:new Date().toISOString(),by:'Legacy'}]:[];
+  }
+}
+function currentCashflowUserName(){
+  try{ return (localStorage.getItem('ga_user_name')||'User').trim()||'User'; }catch(e){ return 'User'; }
 }
 function normalizeFundingSource(v){
   var s=String(v||'').trim().toLowerCase();
@@ -2059,6 +2071,27 @@ function normalizeUnitPaymentStatus(u){
   if(s==='atrisk') s='at_risk';
   var ok=['ok','at_risk','delayed','payment_denied','agreement_pending'];
   return ok.indexOf(s)>=0?s:'ok';
+}
+function ownContributionDueTillTodayForDisplay(u, cfg, cache){
+  ensureUnitPaymentFields(u);
+  var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
+  if(!oc) return 0;
+  var src=normalizeFundingSource(u&&u.fundingSource);
+  if(src!=='self') return oc;
+  var dueToday=cache&&cache.dueTillToday!=null?coerceMoney(cache.dueTillToday):0;
+  if(!cache){
+    getUnitSchedule(u,cfg).forEach(function(it){
+      var iso=normalizeToISODate(it&&it.date)||'';
+      if(iso&&iso<=today()) dueToday+=coerceMoney(it.amount);
+    });
+  }
+  return Math.max(0,Math.min(oc,dueToday));
+}
+function ownContributionPendingForDisplay(u, cfg, cache){
+  ensureUnitPaymentFields(u);
+  var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
+  var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
+  return Math.max(0,dueToday-ocr);
 }
 function htmlUnitPaymentSelect(u, idx){
   var st=normalizeUnitPaymentStatus(u);
@@ -2106,12 +2139,34 @@ function htmlUnitOcReceivedInput(u, idx){
   var dis=src==='self'?' disabled':'';
   return '<input type="number" min="0" step="0.01"'+dis+' data-action="unit-oc-received" data-idx="'+idx+'" value="'+escAttr(ocr?String(ocr):'')+'" style="width:100%;max-width:76px;padding:4px 3px;border:1px solid var(--border);border-radius:5px;font-size:9px;background:'+(src==='self'?'var(--bg)':'#fff')+'" title="Own contribution received to date"/>';
 }
-function htmlUnitOcPendingCell(u){
+function htmlUnitOcPendingCell(u, cfg, cache){
   ensureUnitPaymentFields(u);
-  var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
-  var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
-  var pend=Math.max(0,oc-ocr);
-  return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;color:#b45309;font-weight:700" title="Own contribution − OC received">'+crL(pend,'₹0')+'</span>';
+  var pend=ownContributionPendingForDisplay(u,cfg,cache);
+  var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
+  var src=normalizeFundingSource(u&&u.fundingSource);
+  var title=src==='self'
+    ? 'Self-funded units follow the unit payment plan / CLP due to date. Pending = due till today minus OC received.'
+    : 'Pending own contribution = total OC minus OC received.';
+  return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;color:#b45309;font-weight:700" title="'+escAttr(title+' Due till today: '+crL(dueToday,'₹0'))+'">'+crL(pend,'₹0')+'</span>';
+}
+function unitCommentCount(u){
+  ensureUnitSalesMeta(u);
+  return (u.commentLog||[]).length;
+}
+function unitClpOverrideCount(u){
+  ensureUnitSalesMeta(u);
+  return Object.keys(u.milestonesDates||{}).filter(function(k){
+    return !!normalizeToISODate(u.milestonesDates[k]);
+  }).length;
+}
+function htmlUnitToolsCell(u, idx){
+  var cc=unitCommentCount(u);
+  var clp=unitClpOverrideCount(u);
+  return '<div style="display:flex;flex-direction:column;gap:4px;min-width:94px">'
+    +'<button class="btn btn-outline" data-action="unit-comments" data-idx="'+idx+'" style="font-size:9px;padding:4px 6px" title="View and append unit comments">Comments'+(cc?' ('+cc+')':'')+'</button>'
+    +'<button class="btn btn-outline" data-action="unit-clp" data-idx="'+idx+'" style="font-size:9px;padding:4px 6px" title="Unit CLP override dates; blank rows fall back to project CLP">CLP'+(clp?' ('+clp+')':'')+'</button>'
+    +'<button class="btn btn-danger" data-action="del-unit" data-idx="'+idx+'" style="font-size:9px;padding:4px 6px" title="Delete this sold unit">Delete</button>'
+    +'</div>';
 }
 /** Split CRM “pending to date” by unit tag for board / liquidity narrative. */
 function aggregateSoldUnitPaymentRisk(cfg, units, gridCachesAll){
@@ -2129,6 +2184,7 @@ function getCF(pid){
   if(!_cfData[pid]) _cfData[pid]=emptyProjData(pid);
   ensureUnsoldPaceCfg(_cfData[pid]);
   (_cfData[pid].units||[]).forEach(ensureUnitPaymentFields);
+  (_cfData[pid].unsoldUnits||[]).forEach(ensureUnitSalesMeta);
   return _cfData[pid];
 }
 /** Monthly GA DM for portfolio KPIs: Expense schedule ⑥ (V2 annual ÷12, else GA DM monthly); falls back to legacy _dmFee. */
@@ -5098,21 +5154,21 @@ function renderPostSalesPanel(cfg){
   var ytdReal=ytdRealFull;
   var collPct=ytdSched>0?(100*ytdReal/ytdSched):0;
   var units=cfg.units||[];
+  var gridCachesPs=units.length?buildSalesGridCaches(cfg,units):[];
   var fin={selfUnits:0,loanUnits:0,oc:0,ocReceived:0,ocPending:0,loan:0,loanSanctionedUnits:0,loanUnsanctionedUnits:0};
-  units.forEach(function(u){
+  units.forEach(function(u, ix){
     ensureUnitPaymentFields(u);
     var src=normalizeFundingSource(u.fundingSource);
     var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
     var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
     var la=Math.max(0,coerceMoney(u.loanAmount));
-    fin.oc+=oc; fin.ocReceived+=ocr; fin.ocPending+=Math.max(0,oc-ocr); fin.loan+=la;
+    fin.oc+=oc; fin.ocReceived+=ocr; fin.ocPending+=ownContributionPendingForDisplay(u,cfg,gridCachesPs[ix]); fin.loan+=la;
     if(src==='loan'){
       fin.loanUnits++;
       if(normalizeLoanSanction(u.loanSanctioned)==='yes') fin.loanSanctionedUnits++;
       else fin.loanUnsanctionedUnits++;
     }else fin.selfUnits++;
   });
-  var gridCachesPs=units.length?buildSalesGridCaches(cfg,units):[];
   var payRiskPs=aggregateSoldUnitPaymentRisk(cfg,units,gridCachesPs);
   var constUnits=units.filter(function(u){return u.payType==='const';}).length;
   var instUnits=units.length-constUnits;
@@ -5355,6 +5411,7 @@ function renderSales(){
   h+='<button class="btn '+(_salesGridMode==='quarter'?'btn-primary':'btn-outline')+'" data-action="sales-grid-mode" data-mode="quarter" style="font-size:10px;padding:4px 8px">Quarters</button>';
   h+='<button class="btn btn-outline" data-action="sales-expand-all-q" style="font-size:10px;padding:4px 8px">Expand all Q</button>';
   h+='<button class="btn btn-outline" data-action="sales-collapse-all-q" style="font-size:10px;padding:4px 8px">Collapse all Q</button>';
+  h+='<button class="btn btn-outline" data-action="dl-sold-units-xlsx" style="font-size:10px;padding:4px 8px">⬇ Sold Units Excel</button>';
   h+='<button class="btn btn-outline" data-action="dl-inv-template" style="font-size:10px;padding:4px 8px">⬇ Template</button>';
   h+='<button class="btn btn-outline" data-action="ul-inv-template" style="font-size:10px;padding:4px 8px">⬆ Upload</button>';
   h+='<button class="btn btn-outline" data-action="ul-crm-postsales" style="font-size:10px;padding:4px 8px">CRM Post-Sales</button>';
@@ -5445,7 +5502,7 @@ function renderSales(){
         var collapsed=!!_salesQCollapsed[g.qk];
         qHeaderHtml+='<th colspan="'+span+'" style="padding:4px 6px;text-align:center;border-bottom:1px solid var(--border);cursor:pointer;font-weight:800;color:var(--blue-b)" data-action="toggle-sales-q" data-qk="'+g.qk+'" title="Click to collapse/expand months in this quarter">'+quarterLabelFromKey(g.qk)+(collapsed?' Σ':'')+' '+(!collapsed?'▼':'▶')+'</th>';
       });
-      qHeaderHtml+='<th rowspan="2" style="width:28px"></th></tr>';
+      qHeaderHtml+='<th rowspan="2" style="width:96px;min-width:96px;max-width:96px;padding:5px 6px;text-align:left;border-bottom:1px solid var(--border)">Actions</th></tr>';
       qHeaderHtml+='<tr style="background:var(--blue-l)">';
       colModel.forEach(function(c){
         var isC=c.kind==='month'&&c.mo===curMo;
@@ -5467,7 +5524,7 @@ function renderSales(){
         var isQC=c.months&&c.months.indexOf(curMo)>=0;
         h+='<th style="text-align:right;padding:6px 8px;min-width:72px;'+(isQC?'sales-cur-mo':'')+'">'+quarterLabelFromKey(c.qk)+'</th>';
       });
-      h+='<th></th></tr></thead>';
+      h+='<th style="width:96px;min-width:96px;max-width:96px;padding:6px 8px;text-align:left">Actions</th></tr></thead>';
     }
     h+='<tbody>';
     visibleRows.forEach(function(rw){
@@ -5501,7 +5558,7 @@ function renderSales(){
         h+='<td rowspan="'+rowSpan+'" style="width:68px;min-width:68px;max-width:68px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOwnContributionInput(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOcReceivedInput(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top;text-align:right">'+htmlUnitOcPendingCell(u)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top;text-align:right">'+htmlUnitOcPendingCell(u,cfg,cache)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:92px;min-width:92px;max-width:92px;padding:4px 4px;vertical-align:top">'+htmlUnitPaymentSelect(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:96px;min-width:96px;max-width:96px;padding:4px 4px;vertical-align:top">'+htmlUnitAgreementDateInput(u,i)+'</td>';
         h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b);vertical-align:top">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
@@ -5511,7 +5568,7 @@ function renderSales(){
           var isC=col.kind==='month'&&col.mo===curMo;
           h+='<td style="text-align:right;padding:4px 6px;color:var(--blue-b);'+(isC?'sales-cur-mo':'')+'">'+(amt?unitCr(amt):'—')+'</td>';
         });
-        h+='<td rowspan="'+rowSpan+'" style="padding:4px;vertical-align:top"><button data-action="del-unit" data-idx="'+i+'" style="background:none;border:none;color:var(--red);cursor:pointer">×</button></td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:96px;min-width:96px;max-width:96px;padding:4px;vertical-align:top">'+htmlUnitToolsCell(u,i)+'</td>';
         h+='</tr>';
         [['Received','recv','var(--green-b)'],['Pending','pend','var(--orange)']].forEach(function(rowDef){
           h+='<tr style="'+subStyle+'">';
@@ -5539,7 +5596,7 @@ function renderSales(){
       h+='<td style="width:68px;min-width:68px;max-width:68px;padding:4px 4px">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOwnContributionInput(u,i)+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOcReceivedInput(u,i)+'</td>';
-      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;text-align:right">'+htmlUnitOcPendingCell(u)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;text-align:right">'+htmlUnitOcPendingCell(u,cfg,cache)+'</td>';
       h+='<td style="width:92px;min-width:92px;max-width:92px;padding:4px 4px">'+htmlUnitPaymentSelect(u,i)+'</td>';
       h+='<td style="width:96px;min-width:96px;max-width:96px;padding:4px 4px">'+htmlUnitAgreementDateInput(u,i)+'</td>';
       h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b)">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
@@ -5549,7 +5606,7 @@ function renderSales(){
         var isC=col.kind==='month'&&col.mo===curMo;
         h+='<td style="text-align:right;padding:5px 6px;color:var(--blue-b);'+(isC?'sales-cur-mo':'')+'">'+(amt?unitCr(amt):'—')+'</td>';
       });
-      h+='<td style="padding:4px"><button data-action="del-unit" data-idx="'+i+'" style="background:none;border:none;color:var(--red);cursor:pointer">×</button></td>';
+      h+='<td style="width:96px;min-width:96px;max-width:96px;padding:4px">'+htmlUnitToolsCell(u,i)+'</td>';
       h+='</tr>';
       }
     });
@@ -5726,36 +5783,43 @@ function applySalesGridFreeze(freezeCols){
   });
 }
 function renderSalesKeepViewport(){
-  var sx=window.scrollX||0, sy=window.scrollY||0;
+  var sx=window.scrollX||0;
+  var scroller=document.scrollingElement||document.documentElement||document.body;
+  var sy=scroller&&typeof scroller.scrollTop==='number'?scroller.scrollTop:(window.scrollY||0);
   var active=document.activeElement;
-  var isSearch=active&&active.dataset&&active.dataset.action==='sales-search';
-  var selS=isSearch?active.selectionStart:null, selE=isSearch?active.selectionEnd:null;
-  var fu=active&&active.dataset&&(
-    active.dataset.action==='unit-own-contribution'||
-    active.dataset.action==='unit-loan-amount'||
-    active.dataset.action==='unit-oc-received'
-  );
-  var fuAct=fu?String(active.dataset.action||''):'';
-  var fuIdx=fu?String(active.dataset.idx||''):'';
-  renderSales();
-  window.scrollTo(sx, sy);
-  if(isSearch){
-    var inp=document.querySelector('input[data-action="sales-search"]');
-    if(inp){
-      inp.focus({preventScroll:true});
-      try{ inp.setSelectionRange(selS, selE); }catch(e){}
-    }
+  var ref=null, selS=null, selE=null;
+  if(active&&active.dataset&&active.dataset.action){
+    ref={action:String(active.dataset.action||'')};
+    ['idx','qk','mode','mskey'].forEach(function(k){
+      if(active.dataset[k]!==undefined) ref[k]=String(active.dataset[k]||'');
+    });
+    try{
+      if(typeof active.selectionStart==='number'&&typeof active.selectionEnd==='number'){
+        selS=active.selectionStart; selE=active.selectionEnd;
+      }
+    }catch(e){}
   }
-  if(fuAct&&fuIdx!==''){
-    var inp2=document.querySelector('[data-action="'+fuAct+'"][data-idx="'+fuIdx+'"]');
-    if(inp2&&inp2.focus){
-      inp2.focus({preventScroll:true});
+  renderSales();
+  requestAnimationFrame(function(){
+    window.scrollTo(sx, sy);
+    if(!ref||!ref.action) return;
+    var candidates=Array.prototype.slice.call(document.querySelectorAll('[data-action="'+ref.action+'"]'));
+    var target=candidates.find(function(node){
+      return ['idx','qk','mode','mskey'].every(function(k){
+        return ref[k]===undefined||String(node.dataset[k]||'')===ref[k];
+      });
+    })||candidates[0];
+    if(target&&target.focus){
+      target.focus({preventScroll:true});
       try{
-        var L=String(inp2.value||'').length;
-        if(inp2.setSelectionRange) inp2.setSelectionRange(L,L);
+        if(typeof selS==='number'&&typeof selE==='number'&&target.setSelectionRange) target.setSelectionRange(selS, selE);
+        else if(target.setSelectionRange){
+          var L=String(target.value||'').length;
+          target.setSelectionRange(L,L);
+        }
       }catch(e2){}
     }
-  }
+  });
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -6771,6 +6835,309 @@ function renderGA(){
 // ══════════════════════════════════════════════════════════════
 function openModal(html){ document.getElementById('modal-root').innerHTML=html; }
 function closeModal(){ document.getElementById('modal-root').innerHTML=''; }
+function formatUnitCommentStamp(iso){
+  var d=iso?new Date(iso):null;
+  if(!d||!isFinite(d.getTime())) return 'Unknown time';
+  return d.toLocaleString();
+}
+function sortedUnitComments(u){
+  ensureUnitSalesMeta(u);
+  return (u.commentLog||[]).slice().sort(function(a,b){
+    return String(a&&a.at||'').localeCompare(String(b&&b.at||''));
+  });
+}
+function unitCommentChronologyText(u){
+  return sortedUnitComments(u).map(function(it){
+    return '['+formatUnitCommentStamp(it.at)+'] '+String(it.by||'User')+': '+String(it.text||'').replace(/\s+/g,' ').trim();
+  }).join('\n');
+}
+function showUnitCommentsModal(idx){
+  var cfg=getCF(_curPid), u=(cfg.units||[])[idx];
+  if(!u){ alert('Unit not found.'); return; }
+  ensureUnitSalesMeta(u);
+  var items=sortedUnitComments(u);
+  var hist=items.length?items.map(function(it){
+    return '<div style="padding:10px 12px;border:1px solid var(--border);border-radius:8px;background:#fff">'
+      +'<div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px;font-size:10px;color:var(--muted)"><span><strong>'+escHtml(String(it.by||'User'))+'</strong></span><span>'+escHtml(formatUnitCommentStamp(it.at))+'</span></div>'
+      +'<div style="white-space:pre-wrap;line-height:1.5;font-size:12px;color:#0f172a">'+escHtml(String(it.text||''))+'</div>'
+      +'</div>';
+  }).join(''):'<div style="padding:16px;border:1px dashed var(--border);border-radius:8px;color:var(--muted);font-size:11px;text-align:center">No comments yet for this unit.</div>';
+  openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:760px;max-width:96vw">'
+    +'<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px"><div><div style="font-size:16px;font-weight:800;color:var(--blue-b)">Unit comments · '+escHtml(String(u.unitNo||'Unit'))+'</div><div style="font-size:11px;color:var(--muted)">New comments are appended with timestamp and user name; older notes stay intact.</div></div><button class="btn btn-outline" data-action="close-modal">Close</button></div>'
+    +'<div style="display:grid;grid-template-columns:1.15fr .85fr;gap:14px;align-items:start">'
+      +'<div style="display:grid;gap:8px;max-height:54vh;overflow:auto;padding-right:2px">'+hist+'</div>'
+      +'<div style="display:grid;gap:8px">'
+        +'<label style="font-size:11px;font-weight:700;color:var(--blue-b)">Add comment</label>'
+        +'<textarea id="unit-comment-text" rows="10" placeholder="Type the new note for this unit..." style="width:100%;padding:10px;border:1px solid var(--border);border-radius:8px;font:inherit;resize:vertical"></textarea>'
+        +'<div style="font-size:10px;color:var(--muted)">Saved to this unit only and retained on later CRM re-imports.</div>'
+        +'<div style="display:flex;justify-content:flex-end;gap:8px"><button class="btn btn-outline" data-action="close-modal">Close</button><button class="btn btn-primary" data-action="unit-comment-add" data-idx="'+idx+'">Add comment</button></div>'
+      +'</div>'
+    +'</div></div></div>');
+}
+function addUnitComment(idx){
+  var ta=document.getElementById('unit-comment-text');
+  var text=String(ta&&ta.value||'').trim();
+  if(!text){ alert('Type a comment first.'); return; }
+  var cfg=getCF(_curPid), u=(cfg.units||[])[idx];
+  if(!u){ alert('Unit not found.'); return; }
+  ensureUnitSalesMeta(u);
+  u.commentLog.push({id:uid(),text:text,at:new Date().toISOString(),by:currentCashflowUserName()});
+  saveAll();
+  renderSalesKeepViewport();
+  refreshProjectCashflowViews();
+  showUnitCommentsModal(idx);
+}
+function parseUnitClpDelimitedLine(line, sep){
+  var out=[], cur='', inQuotes=false, i, ch, next;
+  for(i=0;i<line.length;i++){
+    ch=line.charAt(i);
+    if(ch==='"'){
+      next=line.charAt(i+1);
+      if(inQuotes&&next==='"'){ cur+='"'; i++; }
+      else inQuotes=!inQuotes;
+      continue;
+    }
+    if(ch===sep&&!inQuotes){ out.push(cur); cur=''; continue; }
+    cur+=ch;
+  }
+  out.push(cur);
+  return out;
+}
+function parseUnitClpUploadText(text, defs){
+  var raw=String(text||'').replace(/^\uFEFF/,'');
+  var lines=raw.split(/\r?\n/).map(function(line){ return line.trim(); }).filter(Boolean);
+  if(!lines.length) return {error:'The uploaded file is empty.'};
+  var sep=lines[0].indexOf('\t')>=0?'\t':',';
+  var head=parseUnitClpDelimitedLine(lines[0], sep).map(function(x){ return slugCRM(x); });
+  function pick(row, keys){
+    var i, idx;
+    for(i=0;i<keys.length;i++){
+      idx=head.indexOf(keys[i]);
+      if(idx>=0) return row[idx]||'';
+    }
+    return '';
+  }
+  var bySlug={};
+  (defs||[]).forEach(function(ms){
+    bySlug[slugCRM(ms.key)]=ms;
+    bySlug[slugCRM(ms.label)]=ms;
+    bySlug[slugCRM(milestoneDisplayLabel(ms))]=ms;
+  });
+  var next={}, matched=0;
+  lines.slice(1).forEach(function(line){
+    var row=parseUnitClpDelimitedLine(line, sep);
+    var keyish=pick(row,['milestone_key','key','milestone','milestone_label','label','stage']);
+    var dateish=pick(row,['target_date','date','target','plan_date','milestone_date']);
+    var iso=normalizeToISODate(dateish)||'';
+    if(!keyish||!iso) return;
+    var ms=bySlug[slugCRM(keyish)];
+    if(!ms) return;
+    next[ms.key]=iso;
+    matched++;
+  });
+  if(!matched) return {error:'No milestone rows matched. Use Milestone Key/Milestone Label and Target Date columns.'};
+  return {map:next,count:matched};
+}
+function unitClpTemplateCsv(cfg, unit){
+  return ['Milestone Key,Milestone Label,Target Date'].concat(getMilestoneDefs(cfg).map(function(ms){
+    var iso=normalizeToISODate(unit&&unit.milestonesDates&&unit.milestonesDates[ms.key])||'';
+    return [ms.key,'"'+String(milestoneDisplayLabel(ms)||'').replace(/"/g,'""')+'"',iso].join(',');
+  })).join('\n');
+}
+function showUnitClpModal(idx){
+  var cfg=getCF(_curPid), u=(cfg.units||[])[idx];
+  if(!u){ alert('Unit not found.'); return; }
+  ensureUnitSalesMeta(u);
+  var defs=getMilestoneDefs(cfg)||[];
+  var rows=defs.map(function(ms){
+    var projIso=normalizeToISODate(cfg&&cfg.milestonesDates&&cfg.milestonesDates[ms.key])||'';
+    var unitIso=normalizeToISODate(u&&u.milestonesDates&&u.milestonesDates[ms.key])||'';
+    return '<tr>'
+      +'<td style="padding:6px 8px;font-size:11px">'+escHtml(milestoneDisplayLabel(ms))+'</td>'
+      +'<td style="padding:6px 8px;font-size:10px;color:var(--muted)">'+escHtml(ms.key||'')+'</td>'
+      +'<td style="padding:6px 8px;text-align:right;font-size:10px">'+escHtml(String(parseFloat(ms.pct)||0))+'%</td>'
+      +'<td style="padding:6px 8px;font-size:10px;color:var(--muted)">'+(projIso?escHtml(projIso):'Common CLP not set')+'</td>'
+      +'<td style="padding:6px 8px"><input type="date" data-action="unit-clp-date" data-mskey="'+escAttr(ms.key||'')+'" value="'+escAttr(unitIso)+'" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px"/></td>'
+      +'</tr>';
+  }).join('');
+  openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:900px;max-width:96vw">'
+    +'<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:12px"><div><div style="font-size:16px;font-weight:800;color:var(--blue-b)">Unit CLP override · '+escHtml(String(u.unitNo||'Unit'))+'</div><div style="font-size:11px;color:var(--muted);line-height:1.5">If a unit date is filled here, Sales and Cashflow use it first. Blank rows automatically fall back to the common project CLP uploaded above.</div></div><button class="btn btn-outline" data-action="close-modal">Close</button></div>'
+    +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><button class="btn btn-outline" data-action="unit-clp-download" data-idx="'+idx+'">⬇ Download template</button><button class="btn btn-outline" data-action="unit-clp-upload" data-idx="'+idx+'">⬆ Upload CLP</button><button class="btn btn-outline" data-action="unit-clp-clear" data-idx="'+idx+'">Clear unit override</button><button class="btn btn-primary" data-action="unit-clp-save" data-idx="'+idx+'">Save override</button><input id="unit-clp-file" type="file" accept=".csv,.tsv,.txt,text/csv,text/plain" style="display:none"/></div>'
+    +'<div style="max-height:58vh;overflow:auto;border:1px solid var(--border);border-radius:8px"><table style="width:100%;border-collapse:collapse"><thead><tr style="background:var(--blue-l)"><th style="padding:8px;text-align:left">Milestone</th><th style="padding:8px;text-align:left">Key</th><th style="padding:8px;text-align:right">%</th><th style="padding:8px;text-align:left">Common CLP</th><th style="padding:8px;text-align:left">Unit override</th></tr></thead><tbody>'+rows+'</tbody></table></div>'
+    +'<div style="font-size:10px;color:var(--muted);margin-top:8px">Upload expects columns like <strong>Milestone Key</strong> or <strong>Milestone Label</strong> plus <strong>Target Date</strong>.</div>'
+    +'</div></div>');
+}
+function saveUnitClpOverride(idx){
+  var cfg=getCF(_curPid), u=(cfg.units||[])[idx];
+  if(!u){ alert('Unit not found.'); return; }
+  ensureUnitSalesMeta(u);
+  var next={};
+  Array.prototype.slice.call(document.querySelectorAll('[data-action="unit-clp-date"]')).forEach(function(el){
+    var iso=normalizeToISODate(el.value)||'';
+    var key=String(el.dataset.mskey||'').trim();
+    if(key&&iso) next[key]=iso;
+  });
+  u.milestonesDates=next;
+  saveAll();
+  renderSalesKeepViewport();
+  refreshProjectCashflowViews();
+  showUnitClpModal(idx);
+}
+function clearUnitClpOverride(idx){
+  var cfg=getCF(_curPid), u=(cfg.units||[])[idx];
+  if(!u){ alert('Unit not found.'); return; }
+  ensureUnitSalesMeta(u);
+  u.milestonesDates={};
+  saveAll();
+  renderSalesKeepViewport();
+  refreshProjectCashflowViews();
+  showUnitClpModal(idx);
+}
+function downloadUnitClpTemplate(idx){
+  var cfg=getCF(_curPid), u=(cfg.units||[])[idx];
+  if(!u){ alert('Unit not found.'); return; }
+  var blob=new Blob([unitClpTemplateCsv(cfg,u)],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='unit-clp-'+String(u.unitNo||idx)+'.csv';
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(function(){
+    URL.revokeObjectURL(a.href);
+    if(a.parentNode) a.parentNode.removeChild(a);
+  },0);
+}
+function uploadUnitClpOverride(idx){
+  var input=document.getElementById('unit-clp-file');
+  if(!input) return;
+  input.onchange=function(){
+    var file=input.files&&input.files[0];
+    if(!file) return;
+    var reader=new FileReader();
+    reader.onload=function(ev){
+      try{
+        var cfg=getCF(_curPid), u=(cfg.units||[])[idx];
+        if(!u){ alert('Unit not found.'); return; }
+        var parsed=parseUnitClpUploadText(ev.target&&ev.target.result,getMilestoneDefs(cfg));
+        if(parsed.error){ alert(parsed.error); return; }
+        ensureUnitSalesMeta(u);
+        u.milestonesDates=parsed.map||{};
+        saveAll();
+        renderSalesKeepViewport();
+        refreshProjectCashflowViews();
+        showUnitClpModal(idx);
+      }catch(err){
+        alert('Unable to read the CLP file. '+(err&&err.message?err.message:String(err)));
+      }finally{
+        input.value='';
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+function buildSoldUnitsReportBook(cfg){
+  var units=cfg.units||[];
+  var caches=buildSalesGridCaches(cfg, units);
+  var monthSet={};
+  Object.keys(cfg.milestonesDates||{}).forEach(function(k){
+    var iso=normalizeToISODate(cfg.milestonesDates[k])||'';
+    if(iso) monthSet[iso.slice(0,7)]=1;
+  });
+  units.forEach(function(u, idx){
+    ensureUnitPaymentFields(u);
+    ensureUnitSalesMeta(u);
+    var cache=caches[idx]||{};
+    ['dueByMo','recvByMo','pendByMo'].forEach(function(key){
+      Object.keys(cache[key]||{}).forEach(function(mo){ monthSet[mo]=1; });
+    });
+    Object.keys(u.milestonesDates||{}).forEach(function(k){
+      var iso=normalizeToISODate(u.milestonesDates[k])||'';
+      if(iso) monthSet[iso.slice(0,7)]=1;
+    });
+  });
+  var months=Object.keys(monthSet).filter(function(mo){ return /^\d{4}-\d{2}$/.test(mo); }).sort();
+  var soldRows=[[
+    'Unit No','Unit Type','Client Name','Booking Date','Pay Type','Sale Value','Collected','Balance',
+    'Funding Source','Loan Amount','Loan Sanctioned','OC Auto','OC Received','OC Pending (display)','Payment Status','Expected Agreement Date',
+    'Own Contribution Due Till Today','Comment Count','Comment Chronology','Unit CLP Override Count'
+  ]];
+  var monthlyRows=[['Unit No','Month','Due','Received','Pending']];
+  var clpRows=[['Unit No','Milestone Key','Milestone Label','Pct','Common CLP','Unit Override','Effective CLP']];
+  var commentRows=[['Unit No','Timestamp','By','Comment']];
+  units.forEach(function(u, idx){
+    var cache=caches[idx]||{dueByMo:{},recvByMo:{},pendByMo:{}};
+    var collected=salesCollectedFast(u);
+    var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
+    var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
+    var ocDueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
+    var ocPending=ownContributionPendingForDisplay(u,cfg,cache);
+    soldRows.push([
+      u.unitNo||'',
+      u.unitType||'',
+      u.clientName||'',
+      normalizeToISODate(u.bookingDate)||'',
+      u.payType||'const',
+      coerceMoney(u.totalValue),
+      collected,
+      Math.max(0,coerceMoney(u.totalValue)-collected),
+      normalizeFundingSource(u.fundingSource),
+      Math.max(0,coerceMoney(u.loanAmount)),
+      normalizeLoanSanction(u.loanSanctioned),
+      oc,
+      ocr,
+      ocPending,
+      normalizeUnitPaymentStatus(u),
+      normalizeToISODate(u.expectedAgreementDate)||'',
+      ocDueToday,
+      unitCommentCount(u),
+      unitCommentChronologyText(u),
+      unitClpOverrideCount(u)
+    ]);
+    months.forEach(function(mo){
+      monthlyRows.push([
+        u.unitNo||'',
+        mo,
+        coerceMoney((cache.dueByMo||{})[mo]),
+        coerceMoney((cache.recvByMo||{})[mo]),
+        coerceMoney((cache.pendByMo||{})[mo])
+      ]);
+    });
+    getMilestoneDefs(cfg).forEach(function(ms){
+      clpRows.push([
+        u.unitNo||'',
+        ms.key||'',
+        milestoneDisplayLabel(ms)||'',
+        parseFloat(ms.pct)||0,
+        normalizeToISODate(cfg&&cfg.milestonesDates&&cfg.milestonesDates[ms.key])||'',
+        normalizeToISODate(u&&u.milestonesDates&&u.milestonesDates[ms.key])||'',
+        normalizeToISODate(milestoneTargetIsoForDef(cfg,u,ms))||''
+      ]);
+    });
+    sortedUnitComments(u).forEach(function(it){
+      commentRows.push([u.unitNo||'', it.at||'', it.by||'', it.text||'']);
+    });
+  });
+  return {
+    soldRows:soldRows,
+    monthlyRows:monthlyRows,
+    clpRows:clpRows,
+    commentRows:commentRows
+  };
+}
+function exportSoldUnitsExcel(){
+  if(!window.XLSX){ alert('XLSX library not loaded.'); return; }
+  var cfg=getCF(_curPid);
+  var book=buildSoldUnitsReportBook(cfg);
+  var wb=XLSX.utils.book_new();
+  var ws1=XLSX.utils.aoa_to_sheet(book.soldRows);
+  ws1['!cols']=[{wch:16},{wch:14},{wch:22},{wch:14},{wch:12},{wch:14},{wch:14},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14},{wch:18},{wch:14},{wch:18},{wch:18},{wch:12},{wch:60},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws1, 'Sold Units');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.monthlyRows), 'Monthly Grid');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.clpRows), 'Unit CLP');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.commentRows), 'Comments');
+  XLSX.writeFile(wb,'GA_Sold_Units_Report_'+(_curPid||'proj')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
 
 function showAddTransModal(preset){
   var p=preset||{};
@@ -7930,6 +8297,8 @@ function mergeCrmPostSalesUnitPayload(fresh, prev, dumpRegistrationIso){
     fresh.loanSanctioned=normalizeLoanSanction(prev.loanSanctioned||fresh.loanSanctioned);
     fresh.paymentIssueStatus=normalizeUnitPaymentStatus(prev);
     fresh.expectedAgreementDate=prev.expectedAgreementDate!=null?String(prev.expectedAgreementDate||''):'';
+    fresh.milestonesDates=(prev.milestonesDates&&typeof prev.milestonesDates==='object'&&!Array.isArray(prev.milestonesDates))?Object.assign({},prev.milestonesDates):{};
+    fresh.commentLog=Array.isArray(prev.commentLog)?prev.commentLog.slice():[];
     ensureUnitPaymentFields(fresh);
     normalizeUnitFundingFields(fresh);
     return fresh;
@@ -8427,6 +8796,7 @@ document.addEventListener('click',function(e){
   if(a==='ul-expense-schedule')    { document.getElementById('expense-schedule-input').click(); return; }
   if(a==='dl-milestone-template')  { dlMilestoneTemplate(); return; }
   if(a==='ul-milestone-template')  { document.getElementById('sales-milestones-input').click(); return; }
+  if(a==='dl-sold-units-xlsx')     { exportSoldUnitsExcel(); return; }
   if(a==='dl-inv-template')        { dlInventoryTemplate(); return; }
   if(a==='ul-inv-template')        { document.getElementById('sales-inventory-input').click(); return; }
   if(a==='dl-unsold-template')     { dlUnsoldInventoryTemplate(); return; }
@@ -8542,6 +8912,13 @@ document.addEventListener('click',function(e){
   }
   if(a==='goto-proj')              { selectProj(el.dataset.pid); return; }
   if(a==='del-trans')              { cfg.actuals.splice(+el.dataset.idx,1); saveAll(); renderTab(_curTab); refreshProjectCashflowViews(); return; }
+  if(a==='unit-comments')          { showUnitCommentsModal(+el.dataset.idx); return; }
+  if(a==='unit-comment-add')       { addUnitComment(+el.dataset.idx); return; }
+  if(a==='unit-clp')               { showUnitClpModal(+el.dataset.idx); return; }
+  if(a==='unit-clp-save')          { saveUnitClpOverride(+el.dataset.idx); return; }
+  if(a==='unit-clp-clear')         { clearUnitClpOverride(+el.dataset.idx); return; }
+  if(a==='unit-clp-download')      { downloadUnitClpTemplate(+el.dataset.idx); return; }
+  if(a==='unit-clp-upload')        { uploadUnitClpOverride(+el.dataset.idx); return; }
   if(a==='del-unit')               { cfg.units.splice(+el.dataset.idx,1); saveAll(); renderTab(_curTab); refreshProjectCashflowViews(); return; }
   if(a==='add-unsold-unit'){
     if(!cfg.unsoldUnits) cfg.unsoldUnits=[];
