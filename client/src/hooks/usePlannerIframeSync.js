@@ -129,6 +129,51 @@ function writeVaultSyncMarker(appId, version, updatedAt) {
   }
 }
 
+function applyWorkspaceToLoadedIframe(win, workspaceBlobKey) {
+  if (!win) return false;
+  try {
+    if (workspaceBlobKey === 'ga_planner_state_v1') {
+      let raw = null;
+      try {
+        raw = win.localStorage.getItem('ga_planner_state_v1');
+      } catch {
+        raw = null;
+      }
+      if (isValidWorkspaceBlob(raw)) {
+        if (typeof win.gaApply === 'function') {
+          win.gaApply(JSON.parse(raw));
+          return true;
+        }
+        if (typeof win.gaLoadLocal === 'function') {
+          const ts = win.gaLoadLocal();
+          if (ts) return true;
+        }
+      }
+    }
+    if (workspaceBlobKey === 'ga_rp_state_v1' && typeof win.loadState === 'function') {
+      win.loadState();
+      if (typeof win.renderAll === 'function') win.renderAll();
+      return true;
+    }
+    if (typeof win.gaLoadLocal === 'function') {
+      const ts = win.gaLoadLocal();
+      if (ts) return true;
+    }
+    if (typeof win.loadState === 'function') {
+      win.loadState();
+      if (typeof win.renderAll === 'function') win.renderAll();
+      return true;
+    }
+    if (typeof win.renderAll === 'function') {
+      win.renderAll();
+      return true;
+    }
+  } catch (e) {
+    console.warn('[Vault] Could not apply iframe workspace in place:', e);
+  }
+  return false;
+}
+
 /**
  * Same-origin iframe + Mongo workspace mirror.
  * @param {{ iframeRef: React.RefObject<HTMLIFrameElement | null>, autoSaveMs?: number }} opts
@@ -244,8 +289,9 @@ export function usePlannerIframeSync({
       writeVaultSyncMarker(appId, remoteVersion, updatedAt);
       setHasRemoteUpdate(false);
       void refreshSnapshots();
-      setStatus({ level: 'ok', text: `Restored ${n} keys — reloading…` });
-      win.location.reload();
+      const appliedInPlace = applyWorkspaceToLoadedIframe(win, workspaceBlobKey);
+      setStatus({ level: 'ok', text: appliedInPlace ? `Restored ${n} keys` : `Restored ${n} keys — reloading…` });
+      if (!appliedInPlace) win.location.reload();
     } catch (e) {
       setStatus({ level: 'err', text: e?.message || String(e) });
     }
@@ -374,13 +420,14 @@ export function usePlannerIframeSync({
         setMongoAt(updatedAt || null);
         setVersion(remoteVersion || 0);
         setHasRemoteUpdate(false);
+        const appliedInPlace = applyWorkspaceToLoadedIframe(win, workspaceBlobKey);
         setStatus({
           level: 'ok',
-          text: serverAhead
-            ? `Applying team workspace v${remoteVersion} — reloading…`
-            : `Loaded last saved workspace — reloading…`
+          text: appliedInPlace
+            ? (serverAhead ? `Applied team workspace v${remoteVersion}` : 'Loaded last saved workspace')
+            : (serverAhead ? `Applying team workspace v${remoteVersion} — reloading…` : 'Loaded last saved workspace — reloading…')
         });
-        win.location.reload();
+        if (!appliedInPlace) win.location.reload();
       } catch (e) {
         const msg = e?.message || String(e);
         setStatus({
