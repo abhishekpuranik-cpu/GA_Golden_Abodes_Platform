@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 29;
+var CF_VERSION = 30;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2045,6 +2045,7 @@ function ensureUnitPaymentFields(u){
   if(u.ownContributionReceived===undefined||u.ownContributionReceived===null) u.ownContributionReceived=0;
   if(u.loanAmount===undefined||u.loanAmount===null) u.loanAmount=0;
   if(u.loanSanctioned===undefined||u.loanSanctioned===null||u.loanSanctioned==='') u.loanSanctioned='no';
+  if(u.bankLoanDetails===undefined||u.bankLoanDetails===null) u.bankLoanDetails='';
   normalizeUnitFundingFields(u);
   ensureUnitSalesMeta(u);
 }
@@ -2083,7 +2084,7 @@ function normalizeUnitFundingFields(u){
     oc=Math.max(0,tv-loan);
   }
   var ocrIn=Math.max(0,coerceMoney(u.ownContributionReceived));
-  if(ocrIn>oc) ocrIn=oc;
+  if(src!=='loan'&&ocrIn>oc) ocrIn=oc;
   u.fundingSource=src;
   u.ownContributionAmount=oc;
   u.ownContributionReceived=ocrIn;
@@ -2112,11 +2113,34 @@ function ownContributionDueTillTodayForDisplay(u, cfg, cache){
   }
   return Math.max(0,Math.min(oc,dueToday));
 }
-function ownContributionPendingForDisplay(u, cfg, cache){
+/** Plan-based OC still due (CLP-to-date for self; full OC for loan) minus OC received — not capped for loan-funded units. */
+function ownContributionPendingComputed(u, cfg, cache){
   ensureUnitPaymentFields(u);
   var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
   var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
   return Math.max(0,dueToday-ocr);
+}
+function ocPendingManualValue(u){
+  if(!u||u.ocPendingManual===undefined||u.ocPendingManual===null) return null;
+  if(u.ocPendingManual==='') return null;
+  var n=parseFloat(String(u.ocPendingManual));
+  return isFinite(n)?Math.max(0,n):null;
+}
+/** Display / rollups: manual override if set; else loan defaults to 0; else self uses computed CLP pending. */
+function ownContributionPendingForDisplay(u, cfg, cache){
+  var m=ocPendingManualValue(u);
+  if(m!==null) return m;
+  if(normalizeFundingSource(u&&u.fundingSource)==='loan') return 0;
+  return ownContributionPendingComputed(u,cfg,cache);
+}
+function finalLoanAmountForUnit(u){
+  if(!u) return 0;
+  if(normalizeFundingSource(u.fundingSource)!=='loan') return 0;
+  var loan=Math.max(0,coerceMoney(u.loanAmount));
+  var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
+  var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
+  if(ocr>oc&&ocr>0) return Math.max(0,loan*oc/ocr);
+  return loan;
 }
 function htmlUnitPaymentSelect(u, idx){
   var st=normalizeUnitPaymentStatus(u);
@@ -2164,15 +2188,27 @@ function htmlUnitOcReceivedInput(u, idx){
   var dis=src==='self'?' disabled':'';
   return '<input type="number" min="0" step="0.01"'+dis+' data-action="unit-oc-received" data-idx="'+idx+'" value="'+escAttr(ocr?String(ocr):'')+'" style="width:100%;max-width:76px;padding:4px 3px;border:1px solid var(--border);border-radius:5px;font-size:9px;background:'+(src==='self'?'var(--bg)':'#fff')+'" title="Own contribution received to date"/>';
 }
-function htmlUnitOcPendingCell(u, cfg, cache){
+function htmlUnitOcPendingCell(u, cfg, cache, idx){
   ensureUnitPaymentFields(u);
   var pend=ownContributionPendingForDisplay(u,cfg,cache);
+  var comp=ownContributionPendingComputed(u,cfg,cache);
   var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
   var src=normalizeFundingSource(u&&u.fundingSource);
-  var title=src==='self'
-    ? 'Self-funded units follow the unit payment plan / CLP due to date. Pending = due till today minus OC received.'
-    : 'Pending own contribution = total OC minus OC received.';
-  return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;color:#b45309;font-weight:700" title="'+escAttr(title+' Due till today: '+crL(dueToday,'₹0'))+'">'+crL(pend,'₹0')+'</span>';
+  var man=ocPendingManualValue(u);
+  var title='Computed (plan): '+crL(comp,'₹0')+'. Due till today: '+crL(dueToday,'₹0')+'. '+(man!==null?'Manual override. ':'')+(src==='loan'?'Loan: OC received is not capped to OC; display pending defaults to 0 unless you enter a value. ':'Self: clear the field to revert to plan-based pending. ');
+  var v=(pend===0||pend>0)?String(pend):'';
+  return '<input type="number" min="0" step="0.01" data-action="unit-oc-pending-manual" data-idx="'+idx+'" value="'+escAttr(v)+'" placeholder="Auto" style="width:100%;max-width:72px;padding:4px 3px;border:1px solid var(--border);border-radius:5px;font-size:9px;text-align:right;font-weight:700;color:#b45309;background:#fff" title="'+escAttr(title)+'"/>';
+}
+function htmlUnitFinalLoanCell(u){
+  normalizeUnitFundingFields(u);
+  var fl=finalLoanAmountForUnit(u);
+  var src=normalizeFundingSource(u&&u.fundingSource);
+  if(src!=='loan') return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;color:var(--muted)">—</span>';
+  return '<span style="display:block;text-align:right;padding:4px 4px;font-size:9px;font-weight:700;color:var(--blue-b)" title="If OC received exceeds OC, loan is scaled by OC ÷ OC received (excess OC reduces effective loan).">'+crL(fl,'₹0')+'</span>';
+}
+function htmlUnitBankLoanInput(u, idx){
+  var t=String(u&&u.bankLoanDetails!=null?u.bankLoanDetails:'');
+  return '<input type="text" data-action="unit-bank-loan" data-idx="'+idx+'" value="'+escAttr(t)+'" style="width:100%;max-width:120px;padding:4px 4px;border:1px solid var(--border);border-radius:5px;font-size:9px" title="Bank / tranche / sanction notes for this unit"/>';
 }
 function unitCommentCount(u){
   ensureUnitSalesMeta(u);
@@ -4358,8 +4394,52 @@ function hasLedgerCustomerCollectionsForUnitPs(cfg, unitId){
     return a&&a.unitRef===unitId&&a.cat1==='Customer Collections'&&includeActualInCashflowSums(a);
   });
 }
+/** Unsold rows still in stock at calendar end of moKey (YYYY-MM), by projected / expected sale month. */
+function unsoldInventoryUnitsAtMonthEnd(cfg, moKey){
+  var soldSet={};
+  (cfg.units||[]).forEach(function(u){ soldSet[normalizeUnitNoKey(u&&u.unitNo)]=1; });
+  var startD=cfg.startDate||(moKey+'-01');
+  var uns=(cfg.unsoldUnits||[]).filter(function(u){ return !soldSet[normalizeUnitNoKey(u&&u.unitNo)]; });
+  return uns.filter(function(u){
+    var saleIso=normalizeToISODate(u.projectedSaleDate)||'';
+    if(saleIso) return saleIso.slice(0,7)>moKey;
+    var em=parseInt(u.expectedMonth,10);
+    if(em>=1){
+      var moSale=offsetMonth(startD, em-1);
+      return !moSale||moSale>moKey;
+    }
+    return true;
+  }).length;
+}
+/** Count of unsold units whose first projected booking / sale month is moKey. */
+function pipelineExpectedBookingsCount(cfg, moKey){
+  var soldSet={};
+  (cfg.units||[]).forEach(function(u){ soldSet[normalizeUnitNoKey(u&&u.unitNo)]=1; });
+  var startD=cfg.startDate||(moKey+'-01');
+  var uns=(cfg.unsoldUnits||[]).filter(function(u){ return !soldSet[normalizeUnitNoKey(u&&u.unitNo)]; });
+  var n=0;
+  uns.forEach(function(u){
+    var saleIso=normalizeToISODate(u.projectedSaleDate)||'';
+    if(saleIso&&saleIso.slice(0,7)===moKey) n+=1;
+    else if(!saleIso){
+      var em=parseInt(u.expectedMonth,10);
+      if(em>=1){
+        var moSale=offsetMonth(startD, em-1);
+        if(moSale===moKey) n+=1;
+      }
+    }
+  });
+  return n;
+}
 function buildPostSalesSeries(cfg){
-  var sched={}, exp={}, real={}, unsold={};
+  var sched={}, exp={}, real={}, unsold={}, newBk={};
+  (cfg.units||[]).forEach(function(u){
+    var biso=normalizeToISODate(u.bookingDate||'');
+    if(biso){
+      var bm=biso.slice(0,7);
+      if(/^\d{4}-\d{2}$/.test(bm)) newBk[bm]=(newBk[bm]||0)+1;
+    }
+  });
   (cfg.units||[]).forEach(function(u){
     getUnitSchedule(u,cfg).forEach(function(it){
       var iso=normalizeToISODate(it.date);
@@ -4453,7 +4533,10 @@ function buildPostSalesSeries(cfg){
       expected: exp[mo]||0,
       realized: real[mo]||0,
       unsoldProj: unsold[mo]||0,
-      gap: (sched[mo]||0)-(real[mo]||0)
+      gap: (sched[mo]||0)-(real[mo]||0),
+      newBookings: newBk[mo]||0,
+      unsoldInvUnits: unsoldInventoryUnitsAtMonthEnd(cfg, mo),
+      pipelineExpBookings: pipelineExpectedBookingsCount(cfg, mo)
     };
   });
 }
@@ -4465,12 +4548,15 @@ function aggregatePostSalesSeriesForVisible(vis){
     buildPostSalesSeries(cfg).forEach(function(r){
       var mo=r.mo||'';
       if(!mo) return;
-      if(!byMo[mo]) byMo[mo]={mo:mo,scheduled:0,expected:0,realized:0,unsoldProj:0,gap:0};
+      if(!byMo[mo]) byMo[mo]={mo:mo,scheduled:0,expected:0,realized:0,unsoldProj:0,gap:0,newBookings:0,unsoldInvUnits:0,pipelineExpBookings:0};
       byMo[mo].scheduled+=(r.scheduled||0);
       byMo[mo].expected+=(r.expected||0);
       byMo[mo].realized+=(r.realized||0);
       byMo[mo].unsoldProj+=(r.unsoldProj||0);
       byMo[mo].gap+=(r.gap||0);
+      byMo[mo].newBookings+=(r.newBookings||0);
+      byMo[mo].unsoldInvUnits+=(r.unsoldInvUnits||0);
+      byMo[mo].pipelineExpBookings+=(r.pipelineExpBookings||0);
     });
   });
   return Object.keys(byMo).sort().map(function(mo){ return byMo[mo]; });
@@ -5173,6 +5259,106 @@ function htmlPostSalesRoadmap(cfg){
   h+='</svg></div></div>';
   return h;
 }
+/** past | current | future (YYYY-MM string compare). */
+function postSalesRowKind(mo, curMo){
+  if(!mo||!curMo) return 'past';
+  if(mo<curMo) return 'past';
+  if(mo===curMo) return 'current';
+  return 'future';
+}
+function postSalesMtdSubtitle(){
+  try{
+    var d=new Date();
+    return 'MTD '+d.getDate()+' '+d.toLocaleDateString('en-IN',{month:'short'});
+  }catch(e){ return 'MTD'; }
+}
+function htmlPostSalesEffMiniBar(sched, real, rowKind){
+  var pct=sched>0?(100*real/sched):0;
+  if(!isFinite(pct)) pct=0;
+  pct=Math.max(0,Math.min(100,pct));
+  var col=rowKind==='future'?'#ea580c':(rowKind==='current'&&pct<85?'#dc2626':'#059669');
+  var w=Math.round(pct*100)/100;
+  return '<div style="display:flex;align-items:center;gap:5px;justify-content:flex-end;min-width:96px"><div style="flex:1;max-width:64px;height:7px;background:#e5e7eb;border-radius:4px;overflow:hidden"><div style="width:'+w+'%;height:100%;background:'+col+'"></div></div><span style="min-width:28px;font-weight:700;font-size:9px">'+Math.round(pct)+'%</span></div>';
+}
+function fmtPostSalesMaybeProj(rk, val, isInt){
+  if(val===undefined||val===null) return '—';
+  if(rk!=='future') return isInt?String(Math.round(val)):cr(val,'—');
+  if(!val) return '—';
+  return '~'+(isInt?String(Math.round(val)):cr(val));
+}
+function buildPostSalesMonthlyTableHtml(series, seriesFull, curMo){
+  var atMoMap={};
+  var cS=0,cE=0,cR=0,cNb=0;
+  seriesFull.forEach(function(r){
+    cS+=r.scheduled; cE+=r.expected||0; cR+=r.realized; cNb+=(r.newBookings||0);
+    atMoMap[r.mo]={cumS:cS,cumE:cE,cumR:cR,cumNb:cNb};
+  });
+  var h='';
+  h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:10px">';
+  h+='<thead>';
+  h+='<tr style="background:#E8EEF7;font-size:9px;font-weight:800;color:var(--blue-b)">';
+  h+='<th rowspan="2" style="padding:6px 8px;text-align:left;vertical-align:bottom;border-bottom:1px solid var(--border);min-width:92px">Month</th>';
+  h+='<th colspan="3" style="padding:5px 6px;text-align:center;border-bottom:1px solid var(--border)">Bookings &amp; inventory</th>';
+  h+='<th colspan="4" style="padding:5px 6px;text-align:center;border-bottom:1px solid var(--border)">Demand &amp; collections</th>';
+  h+='<th colspan="3" style="padding:5px 6px;text-align:center;border-bottom:1px solid var(--border)">Unsold inventory pipeline</th>';
+  h+='</tr>';
+  h+='<tr style="background:var(--blue-l);font-size:9px">';
+  ['New bkgs','Cum. bkgs','Unsold inv.'].forEach(function(lab){
+    h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+escAttr(lab)+'">'+lab+'</th>';
+  });
+  ['Demand','Collected','Eff. %','Outst.'].forEach(function(lab){
+    h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+(lab==='Outst.'?'Cumulative demand − cumulative collected (plan vs receipts)':escAttr(lab))+'">'+lab+'</th>';
+  });
+  ['Inv. units','Inv. value','Exp. bkgs'].forEach(function(lab){
+    h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+escAttr(lab)+'">'+lab+'</th>';
+  });
+  h+='</tr></thead><tbody>';
+  if(!series.length){
+    h+='<tr><td colspan="11" style="padding:20px;text-align:center;color:var(--muted)">Add sold units and payment schedules on the Sales &amp; Inventory sub-tab to populate this view.</td></tr>';
+  } else {
+    series.forEach(function(r){
+      var c=atMoMap[r.mo]||{cumS:0,cumE:0,cumR:0,cumNb:0};
+      var rk=postSalesRowKind(r.mo,curMo);
+      var bg=rk==='past'?'#faf5eb':(rk==='current'?'#fde68a':'#e0f2fe');
+      var fw=rk==='current'?800:600;
+      var unsCol=rk==='future'?'#166534':'#b91c1c';
+      var nb=r.newBookings||0;
+      var invU=r.unsoldInvUnits||0;
+      var expBk=r.pipelineExpBookings||0;
+      var moLab=formatMonthKey(r.mo)+(rk==='future'?' <span style="font-size:8px;font-weight:600;color:var(--muted)">proj.</span>':'');
+      var mtd=(rk==='current')?('<div style="font-size:8px;font-weight:600;color:#92400e;margin-top:2px">'+escHtml(postSalesMtdSubtitle())+'</div>'):'';
+      var outst=(rk==='future')?'<span style="color:#64748b;font-style:italic;font-size:9px">modelled</span>':cr(Math.max(0,c.cumS-c.cumR));
+      h+='<tr style="border-bottom:1px solid var(--border);background:'+bg+';font-weight:'+fw+'">';
+      h+='<td style="padding:6px 8px;vertical-align:top">'+(rk==='current'?'● ':'')+moLab+mtd+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px">'+fmtPostSalesMaybeProj(rk, nb, true)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px">'+c.cumNb+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:'+unsCol+';font-weight:700">'+fmtPostSalesMaybeProj(rk, invU, true)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--blue-b)">'+fmtPostSalesMaybeProj(rk, r.scheduled, false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--green-b)">'+fmtPostSalesMaybeProj(rk, r.realized, false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px">'+htmlPostSalesEffMiniBar(r.scheduled,r.realized,rk)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;font-weight:700">'+outst+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px">'+fmtPostSalesMaybeProj(rk, invU, true)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--purple)">'+fmtPostSalesMaybeProj(rk, r.unsoldProj, false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px">'+fmtPostSalesMaybeProj(rk, expBk, true)+'</td>';
+      h+='</tr>';
+    });
+    var totNb=series.reduce(function(s,r){ return s+(r.newBookings||0); },0);
+    var last=series[series.length-1];
+    var cEnd=last?atMoMap[last.mo]:{cumNb:0,cumS:0,cumR:0};
+    var totDem=series.reduce(function(s,r){ return s+r.scheduled; },0);
+    var totColl=series.reduce(function(s,r){ return s+r.realized; },0);
+    h+='<tr style="background:var(--blue-l);font-weight:800;font-size:10px"><td style="padding:8px 8px">Total (visible window)</td>';
+    h+='<td style="text-align:right">'+totNb+'</td><td style="text-align:right">'+(cEnd.cumNb||0)+'</td><td style="text-align:right">—</td>';
+    h+='<td style="text-align:right">'+cr(totDem)+'</td><td style="text-align:right">'+cr(totColl)+'</td>';
+    h+='<td style="text-align:right">'+htmlPostSalesEffMiniBar(totDem,totColl,'past')+'</td>';
+    h+='<td style="text-align:right">'+cr(Math.max(0,(cEnd.cumS||0)-(cEnd.cumR||0)))+'</td>';
+    h+='<td colspan="3" style="text-align:right;color:var(--muted);font-size:9px;font-weight:600">Future rows: pipeline uses unsold model; Outst. = modelled.</td>';
+    h+='</tr>';
+  }
+  h+='</tbody></table></div>';
+  return h;
+}
 
 function renderPostSalesPanel(cfg){
   var seriesFull=buildPostSalesSeries(cfg);
@@ -5237,7 +5423,7 @@ function renderPostSalesPanel(cfg){
   h+='<div class="ps-dash-card" style="border-color:#5B21B6"><h4>Funding mix · Units</h4><div class="v">'+fin.loanUnits+' <span style="font-size:11px;color:var(--muted)">loan</span> · '+fin.selfUnits+' <span style="font-size:11px;color:var(--muted)">self</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">Loan sanctioned: <strong style="color:#166534">'+fin.loanSanctionedUnits+'</strong> · pending/no: <strong style="color:#B45309">'+fin.loanUnsanctionedUnits+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#0F766E"><h4>Funding mix · Amount</h4><div class="v">'+cr(fin.loan)+' <span style="font-size:11px;color:var(--muted)">loan</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">Own contribution: <strong>'+cr(fin.oc)+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#0E7490"><h4>Own contribution · received</h4><div class="v">'+cr(fin.ocReceived)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Sum of <strong>OC received</strong> across units (Sales grid)</div></div>';
-  h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>OC pending</h4><div class="v">'+cr(fin.ocPending)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Σ (OC − OC received); self-funding units auto-match OC</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>OC pending</h4><div class="v">'+cr(fin.ocPending)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Σ editable <strong>OC pending</strong> (loan defaults 0; self uses CLP unless overridden). Plan-based computed value is in each cell tooltip.</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#7C3AED"><h4>Agreement pending</h4><div class="v">'+payRiskPs.nAgreement+' <span style="font-size:11px;font-weight:600;color:var(--muted)">units</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">CRM pending (today) on tagged units: <strong style="color:#7C3AED">'+cr(payRiskPs.pendAgreement)+'</strong> · set expected agreement date on Sales grid</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>Payment with issue</h4><div class="v">'+payRiskPs.nPayIssue+' <span style="font-size:11px;font-weight:600;color:var(--muted)">units</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">At risk / delayed / denied · pending (today): <strong style="color:#C2410C">'+cr(payRiskPs.pendPayIssue)+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#B54D0A"><h4>Delay stress-test</h4><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Shift <strong>construction-linked</strong> milestone dates by +N months (what-if).</div>';
@@ -5245,39 +5431,8 @@ function renderPostSalesPanel(cfg){
   h+='<span style="font-size:10px;color:var(--blue-b)">Next 12-mo scheduled: <strong>'+cr(base12)+'</strong> → delayed: <strong>'+cr(del12)+'</strong> · Δ <strong>'+cr(slip)+'</strong> stays in window</span></div></div>';
   h+='</div>';
 
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly schedule vs amount received'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
-  h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:10px">';
-  h+='<thead><tr style="background:var(--blue-l)">';
-  ['Month','Scheduled (plan)','Expected amount','Amount received','Gap','Cum. sched.','Cum. expected','Cum. received','Unsold proj.'].forEach(function(x){
-    h+='<th style="padding:8px 10px;text-align:'+(x==='Month'?'left':'right')+'" title="'+(x==='Expected amount'?'OK+agr. date only; at_risk etc. excluded':(x==='Cum. received'?'Full-project cumulative; table may hide past months':''))+'">'+x+'</th>';
-  });
-  h+='</tr></thead><tbody>';
-  var atMoMap={};
-  (function(){
-    var cS=0,cE=0,cR=0;
-    seriesFull.forEach(function(r){
-      cS+=r.scheduled; cE+=r.expected||0; cR+=r.realized;
-      atMoMap[r.mo]={cumS:cS,cumE:cE,cumR:cR};
-    });
-  })();
-  series.forEach(function(r){
-    var c=atMoMap[r.mo]||{cumS:0,cumE:0,cumR:0};
-    var isCur=r.mo===curMo;
-    h+='<tr style="border-bottom:1px solid var(--border);'+(isCur?'background:#FFFDE7;font-weight:700':'')+'">';
-    h+='<td style="padding:6px 10px">'+(isCur?'● ':'')+formatMonthKey(r.mo)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--blue-b)">'+cr(r.scheduled,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--teal)">'+cr(r.expected||0,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--green-b)">'+cr(r.realized,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:'+(r.gap>0?'var(--orange)':'var(--muted)')+'">'+cr(r.gap,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px">'+cr(c.cumS)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--teal)">'+cr(c.cumE)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px">'+cr(c.cumR)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--purple)">'+cr(r.unsoldProj,'—')+'</td>';
-    h+='</tr>';
-  });
-  if(!series.length) h+='<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">Add sold units and payment schedules on the Sales &amp; Inventory sub-tab to populate this view.</td></tr>';
-  h+='</tbody></table></div>';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Post-sales monthly board'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
+  h+=buildPostSalesMonthlyTableHtml(series, seriesFull, curMo);
 
   h+='<div style="margin-top:14px;padding:12px;background:var(--gold-l);border-radius:8px;font-size:10px;color:#744210;line-height:1.5">';
   h+='<strong>Economic lens:</strong> a slip in construction milestone dates pushes scheduled collections later — near-term <strong>cash received</strong> and liquidity fall even if GDV is unchanged. Align this dashboard with site progress; for detailed cash impact open <strong>Monthly Cashflow</strong> after updating milestone dates.';
@@ -5314,35 +5469,9 @@ function renderPostSalesPanelRollup(vis){
   h+='<div class="ps-dash-card"><h4>Amount received to date</h4><div class="v">'+cr(totReal)+'</div></div>';
   h+='<div class="ps-dash-card"><h4>Unsold projection</h4><div class="v">'+cr(totUnsVisible)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Full horizon: <strong>'+cr(totUns)+'</strong></div></div>';
   h+='</div>';
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly schedule vs amount received'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
-  h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--blue-l)">';
-  ['Month','Scheduled (plan)','Expected amount','Amount received','Gap','Cum. sched.','Cum. expected','Cum. received','Unsold proj.'].forEach(function(x){
-    h+='<th style="padding:8px 10px;text-align:'+(x==='Month'?'left':'right')+'">'+x+'</th>';
-  });
-  h+='</tr></thead><tbody>';
-  var atMoMap={};
-  (function(){
-    var cS=0,cE=0,cR=0;
-    seriesFull.forEach(function(r){ cS+=r.scheduled; cE+=r.expected||0; cR+=r.realized; atMoMap[r.mo]={cumS:cS,cumE:cE,cumR:cR}; });
-  })();
-  series.forEach(function(r){
-    var c=atMoMap[r.mo]||{cumS:0,cumE:0,cumR:0};
-    var isCur=r.mo===curMo;
-    h+='<tr style="border-bottom:1px solid var(--border);'+(isCur?'background:#FFFDE7;font-weight:700':'')+'">';
-    h+='<td style="padding:6px 10px">'+(isCur?'● ':'')+formatMonthKey(r.mo)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--blue-b)">'+cr(r.scheduled,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--teal)">'+cr(r.expected||0,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--green-b)">'+cr(r.realized,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:'+(r.gap>0?'var(--orange)':'var(--muted)')+'">'+cr(r.gap,'—')+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px">'+cr(c.cumS)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--teal)">'+cr(c.cumE)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px">'+cr(c.cumR)+'</td>';
-    h+='<td style="text-align:right;padding:6px 10px;color:var(--purple)">'+cr(r.unsoldProj,'—')+'</td>';
-    h+='</tr>';
-  });
-  if(!series.length) h+='<tr><td colspan="9" style="padding:20px;text-align:center;color:var(--muted)">No rollup rows for current filters.</td></tr>';
-  h+='</tbody></table></div></div>';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Post-sales monthly board — rollup'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
+  h+=buildPostSalesMonthlyTableHtml(series, seriesFull, curMo);
+  h+='</div>';
   return h;
 }
 
@@ -5529,7 +5658,7 @@ function renderSales(){
       });
       qHeaderHtml+='<thead>';
       qHeaderHtml+='<tr style="background:#E8EEF7;font-size:9px">';
-      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Final loan','right','72px'],['Bank loan','left','100px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         qHeaderHtml+='<th rowspan="2" style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:5px 6px;vertical-align:bottom;text-align:'+L[1]+';border-bottom:1px solid var(--border)">'+L[0]+'</th>';
       });
       if(hasInst) qHeaderHtml+='<th rowspan="2" style="width:84px;min-width:84px;max-width:84px;padding:5px 6px;vertical-align:bottom;text-align:left;border-bottom:1px solid var(--border);font-size:8px;color:var(--muted);white-space:nowrap">CRM line</th>';
@@ -5552,7 +5681,7 @@ function renderSales(){
     if(_salesGridMode==='month') h+=qHeaderHtml;
     else {
       h+='<thead><tr style="background:var(--blue-l)">';
-      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Final loan','right','72px'],['Bank loan','left','100px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         h+='<th style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:6px 8px;text-align:'+L[1]+'">'+L[0]+'</th>';
       });
       if(hasInst) h+='<th style="width:84px;min-width:84px;max-width:84px;padding:6px 8px;text-align:left;font-size:8px;color:var(--muted)">CRM line</th>';
@@ -5594,7 +5723,9 @@ function renderSales(){
         h+='<td rowspan="'+rowSpan+'" style="width:68px;min-width:68px;max-width:68px;padding:4px 4px;vertical-align:top">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOwnContributionInput(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top">'+htmlUnitOcReceivedInput(u,i)+'</td>';
-        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top;text-align:right">'+htmlUnitOcPendingCell(u,cfg,cache)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top;text-align:right">'+htmlUnitOcPendingCell(u,cfg,cache,i)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;vertical-align:top;text-align:right">'+htmlUnitFinalLoanCell(u)+'</td>';
+        h+='<td rowspan="'+rowSpan+'" style="width:100px;min-width:100px;max-width:100px;padding:4px 4px;vertical-align:top">'+htmlUnitBankLoanInput(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:92px;min-width:92px;max-width:92px;padding:4px 4px;vertical-align:top">'+htmlUnitPaymentSelect(u,i)+'</td>';
         h+='<td rowspan="'+rowSpan+'" style="width:96px;min-width:96px;max-width:96px;padding:4px 4px;vertical-align:top">'+htmlUnitAgreementDateInput(u,i)+'</td>';
         h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b);vertical-align:top">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
@@ -5632,7 +5763,9 @@ function renderSales(){
       h+='<td style="width:68px;min-width:68px;max-width:68px;padding:4px 4px">'+htmlUnitLoanSanctionSelect(u,i)+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOwnContributionInput(u,i)+'</td>';
       h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px">'+htmlUnitOcReceivedInput(u,i)+'</td>';
-      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;text-align:right">'+htmlUnitOcPendingCell(u,cfg,cache)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;text-align:right">'+htmlUnitOcPendingCell(u,cfg,cache,i)+'</td>';
+      h+='<td style="width:72px;min-width:72px;max-width:72px;padding:4px 4px;text-align:right">'+htmlUnitFinalLoanCell(u)+'</td>';
+      h+='<td style="width:100px;min-width:100px;max-width:100px;padding:4px 4px">'+htmlUnitBankLoanInput(u,i)+'</td>';
       h+='<td style="width:92px;min-width:92px;max-width:92px;padding:4px 4px">'+htmlUnitPaymentSelect(u,i)+'</td>';
       h+='<td style="width:96px;min-width:96px;max-width:96px;padding:4px 4px">'+htmlUnitAgreementDateInput(u,i)+'</td>';
       h+='<td style="width:76px;min-width:76px;max-width:76px;text-align:right;padding:5px 6px;color:var(--blue-b)">'+unitCr(cache.dueTillToday||0,'—')+'</td>';
@@ -5647,7 +5780,7 @@ function renderSales(){
       }
     });
     [['Column totals (Due)','due'],['Column totals (Received)','recv'],['Column totals (Pending — CRM row or Due − Recv)','pend']].forEach(function(rowPair){
-      h+='<tr style="background:var(--blue-l);font-weight:800;font-size:10px"><td colspan="'+(15+(hasInst?1:0))+'" style="padding:6px 8px;text-align:right">'+rowPair[0]+'</td>';
+      h+='<tr style="background:var(--blue-l);font-weight:800;font-size:10px"><td colspan="'+(17+(hasInst?1:0))+'" style="padding:6px 8px;text-align:right">'+rowPair[0]+'</td>';
       colModel.forEach(function(col){
         var t=0;
         visibleRows.forEach(function(rw){
@@ -7095,7 +7228,7 @@ function buildSoldUnitsReportBook(cfg){
   var months=Object.keys(monthSet).filter(function(mo){ return /^\d{4}-\d{2}$/.test(mo); }).sort();
   var soldRows=[[
     'Unit No','Unit Type','Client Name','Booking Date','Pay Type','Sale Value','Collected','Balance',
-    'Funding Source','Loan Amount','Loan Sanctioned','OC Auto','OC Received','OC Pending (display)','Payment Status','Expected Agreement Date',
+    'Funding Source','Loan Amount','Loan Sanctioned','OC Auto','OC Received','OC Pending (display)','OC Pending (computed plan)','Final loan (display)','Bank loan details','Payment Status','Expected Agreement Date',
     'Own Contribution Due Till Today','Comment Count','Comment Chronology','Unit CLP Override Count'
   ]];
   var monthlyRows=[['Unit No','Month','Due','Received','Pending']];
@@ -7108,6 +7241,8 @@ function buildSoldUnitsReportBook(cfg){
     var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
     var ocDueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
     var ocPending=ownContributionPendingForDisplay(u,cfg,cache);
+    var ocPendComp=ownContributionPendingComputed(u,cfg,cache);
+    var fl=finalLoanAmountForUnit(u);
     soldRows.push([
       u.unitNo||'',
       u.unitType||'',
@@ -7123,6 +7258,9 @@ function buildSoldUnitsReportBook(cfg){
       oc,
       ocr,
       ocPending,
+      ocPendComp,
+      fl,
+      String(u.bankLoanDetails||''),
       normalizeUnitPaymentStatus(u),
       normalizeToISODate(u.expectedAgreementDate)||'',
       ocDueToday,
@@ -7168,7 +7306,7 @@ function exportSoldUnitsExcel(){
     var book=buildSoldUnitsReportBook(cfg);
     var wb=XLSX.utils.book_new();
     var ws1=XLSX.utils.aoa_to_sheet(book.soldRows);
-    ws1['!cols']=[{wch:16},{wch:14},{wch:22},{wch:14},{wch:12},{wch:14},{wch:14},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14},{wch:18},{wch:14},{wch:18},{wch:18},{wch:12},{wch:60},{wch:14}];
+    ws1['!cols']=[{wch:16},{wch:14},{wch:22},{wch:14},{wch:12},{wch:14},{wch:14},{wch:14},{wch:16},{wch:14},{wch:14},{wch:14},{wch:14},{wch:18},{wch:18},{wch:16},{wch:28},{wch:18},{wch:14},{wch:18},{wch:18},{wch:12},{wch:60},{wch:14}];
     XLSX.utils.book_append_sheet(wb, ws1, 'Sold Units');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.monthlyRows), 'Monthly Grid');
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(book.clpRows), 'Unit CLP');
@@ -8351,6 +8489,8 @@ function mergeCrmPostSalesUnitPayload(fresh, prev, dumpRegistrationIso){
     fresh.expectedAgreementDate=prev.expectedAgreementDate!=null?String(prev.expectedAgreementDate||''):'';
     fresh.milestonesDates=(prev.milestonesDates&&typeof prev.milestonesDates==='object'&&!Array.isArray(prev.milestonesDates))?Object.assign({},prev.milestonesDates):{};
     fresh.commentLog=Array.isArray(prev.commentLog)?prev.commentLog.slice():[];
+    if(prev.ocPendingManual!==undefined) fresh.ocPendingManual=prev.ocPendingManual;
+    if(prev.bankLoanDetails!==undefined) fresh.bankLoanDetails=String(prev.bankLoanDetails||'');
     ensureUnitPaymentFields(fresh);
     normalizeUnitFundingFields(fresh);
     return fresh;
@@ -9101,6 +9241,21 @@ document.addEventListener('change',function(e){
     if(!Array.isArray(cfg.units)||cfg.units[uixOcr]===undefined) return;
     cfg.units[uixOcr].ownContributionReceived=Math.max(0,parseFloat(v)||0);
     normalizeUnitFundingFields(cfg.units[uixOcr]);
+    saveAll(); renderSalesKeepViewport(); refreshProjectCashflowViews(); return;
+  }
+  if(a==='unit-oc-pending-manual'){
+    var uixPm=+el.dataset.idx;
+    if(!Array.isArray(cfg.units)||cfg.units[uixPm]===undefined) return;
+    var rawPm=String(el.value||'').trim();
+    if(rawPm==='') delete cfg.units[uixPm].ocPendingManual;
+    else cfg.units[uixPm].ocPendingManual=Math.max(0,parseFloat(rawPm)||0);
+    normalizeUnitFundingFields(cfg.units[uixPm]);
+    saveAll(); renderSalesKeepViewport(); refreshProjectCashflowViews(); return;
+  }
+  if(a==='unit-bank-loan'){
+    var uixBl=+el.dataset.idx;
+    if(!Array.isArray(cfg.units)||cfg.units[uixBl]===undefined) return;
+    cfg.units[uixBl].bankLoanDetails=String(el.value||'');
     saveAll(); renderSalesKeepViewport(); refreshProjectCashflowViews(); return;
   }
   if(a==='unit-loan-amount'){
