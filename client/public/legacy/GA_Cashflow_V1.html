@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 28;
+var CF_VERSION = 29;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1597,6 +1597,7 @@ var _curProjRoot = '__all__';
 var _curPhase = '__all__';
 var _curBuilding = '__all__';
 var _curTab = 'cashflow';
+var _cfTabGateInited = false;
 var _lastProjHash = '';
 var _collapseGroups = {inflows:false, outflows:false}; // false = expanded
 var _salesUIPanel = 'inventory'; // 'inventory' | 'postsales'
@@ -1752,6 +1753,30 @@ function verifyRemoveProjectPassword(projectName){
     alert('Incorrect password. Project was not removed.');
     return false;
   }
+  return true;
+}
+/** Session flag: once set, Cashflow / Debt / GA tabs work until the browser session ends. Not server-grade security. */
+var GA_CF_FINANCE_TAB_UNLOCK_SESSION_KEY = 'ga_cf_finance_tabs_ok';
+function isCfFinanceTabsUnlocked(){
+  try{ return sessionStorage.getItem(GA_CF_FINANCE_TAB_UNLOCK_SESSION_KEY)==='1'; }catch(e){ return false; }
+}
+function setCfFinanceTabsUnlocked(on){
+  try{
+    if(on) sessionStorage.setItem(GA_CF_FINANCE_TAB_UNLOCK_SESSION_KEY,'1');
+    else sessionStorage.removeItem(GA_CF_FINANCE_TAB_UNLOCK_SESSION_KEY);
+  }catch(e){}
+}
+function cfTabIsPublicCashflow(t){ return t==='sales'||t==='capital'||t==='expenses'; }
+function cfTabRequiresFinanceUnlock(t){ return !cfTabIsPublicCashflow(t); }
+function promptCfFinanceTabsUnlock(){
+  var msg='Enter password to open Monthly Cashflow, Debt Service, and GA Consolidated.';
+  var entered=window.prompt(msg,'');
+  if(entered===null) return false;
+  if(String(entered)!==String(getRemoveProjectPassword())){
+    alert('Incorrect password.');
+    return false;
+  }
+  setCfFinanceTabsUnlocked(true);
   return true;
 }
 function v3StateApiUrl(){
@@ -4511,6 +4536,9 @@ function getConstScheduleShifted(unit,cfg,shiftMonths){
 // NAVIGATION & ROUTING
 // ══════════════════════════════════════════════════════════════
 function showTab(t){
+  if(cfTabRequiresFinanceUnlock(t) && !isCfFinanceTabsUnlocked()){
+    if(!promptCfFinanceTabsUnlock()) return;
+  }
   ['cashflow','sales','capital','expenses','debt','ga'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
@@ -4520,6 +4548,10 @@ function showTab(t){
   _curTab=t; renderTab(t);
 }
 function renderTab(t){
+  if(cfTabRequiresFinanceUnlock(t) && !isCfFinanceTabsUnlocked()){
+    showTab('sales');
+    return;
+  }
   if(t==='cashflow') renderCashflow();
   else if(t==='sales') renderSales();
   else if(t==='capital') renderCapital();
@@ -4529,6 +4561,10 @@ function renderTab(t){
 }
 function renderAll(){
   ensureProjRootCoherent();
+  if(!_cfTabGateInited){
+    _cfTabGateInited=true;
+    if(cfTabRequiresFinanceUnlock(_curTab) && !isCfFinanceTabsUnlocked()) _curTab='sales';
+  }
   buildProjectGroupSelect();
   buildPhaseSelect();
   buildBuildingSelect();
