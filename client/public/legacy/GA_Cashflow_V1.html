@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 30;
+var CF_VERSION = 31;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2126,11 +2126,10 @@ function ocPendingManualValue(u){
   var n=parseFloat(String(u.ocPendingManual));
   return isFinite(n)?Math.max(0,n):null;
 }
-/** Display / rollups: manual override if set; else loan defaults to 0; else self uses computed CLP pending. */
+/** Display / rollups: manual override if set; else same auto formula for all (loan: OC−OCR on plan; self: CLP due−OCR). */
 function ownContributionPendingForDisplay(u, cfg, cache){
   var m=ocPendingManualValue(u);
   if(m!==null) return m;
-  if(normalizeFundingSource(u&&u.fundingSource)==='loan') return 0;
   return ownContributionPendingComputed(u,cfg,cache);
 }
 function finalLoanAmountForUnit(u){
@@ -2193,9 +2192,8 @@ function htmlUnitOcPendingCell(u, cfg, cache, idx){
   var pend=ownContributionPendingForDisplay(u,cfg,cache);
   var comp=ownContributionPendingComputed(u,cfg,cache);
   var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
-  var src=normalizeFundingSource(u&&u.fundingSource);
   var man=ocPendingManualValue(u);
-  var title='Computed (plan): '+crL(comp,'₹0')+'. Due till today: '+crL(dueToday,'₹0')+'. '+(man!==null?'Manual override. ':'')+(src==='loan'?'Loan: OC received is not capped to OC; display pending defaults to 0 unless you enter a value. ':'Self: clear the field to revert to plan-based pending. ');
+  var title='Auto (plan): '+crL(comp,'₹0')+'. Due till today: '+crL(dueToday,'₹0')+'. '+(man!==null?'Manual override. ':'Edit to override; clear to revert to auto. Loan: OC received is not capped to OC. ');
   var v=(pend===0||pend>0)?String(pend):'';
   return '<input type="number" min="0" step="0.01" data-action="unit-oc-pending-manual" data-idx="'+idx+'" value="'+escAttr(v)+'" placeholder="Auto" style="width:100%;max-width:72px;padding:4px 3px;border:1px solid var(--border);border-radius:5px;font-size:9px;text-align:right;font-weight:700;color:#b45309;background:#fff" title="'+escAttr(title)+'"/>';
 }
@@ -3449,16 +3447,9 @@ function buildUnsoldPaceQueue(cfg){
   });
   return out;
 }
-/** Full CLP via project Sales-tab dates — default unsold row is lump in projected booking month. */
+/** Always attempt project CLP spread for unsold (same construction-linked logic as sold const / loan units); lump only if schedule is empty. */
 function unsoldUsesConstScheduleSpread(uRef){
-  if(!uRef||typeof uRef!=='object') return false;
-  if(uRef.projectUnsoldAsClp===true) return true;
-  var m=uRef.milestonesDates;
-  if(!m||typeof m!=='object') return false;
-  for(var k in m){
-    if(Object.prototype.hasOwnProperty.call(m,k)&&(normalizeToISODate(m[k])||'')) return true;
-  }
-  return false;
+  return !!(uRef&&typeof uRef==='object');
 }
 function clampConstScheduleAmountsToTotal(sched,tv){
   if(!sched||!sched.length) return sched;
@@ -3469,6 +3460,18 @@ function clampConstScheduleAmountsToTotal(sched,tv){
   if(sum<=cap+0.02) return sched;
   var f=cap/sum;
   return sched.map(function(x){ return {date:x.date,amount:coerceMoney(x.amount*f),label:x.label}; });
+}
+/** If CLP leaves undated tranches, append remainder at anchor booking so totals match planned sale value. */
+function ensureUnsoldScheduleCapturesTotal(sched, anchorIso, totalVal){
+  var tv=coerceMoney(totalVal);
+  if(!sched||!sched.length||tv<=0) return sched;
+  var alloc=0;
+  sched.forEach(function(x){ alloc+=coerceMoney(x.amount); });
+  if(alloc>=tv-0.02) return sched;
+  var rem=tv-alloc;
+  var ai=normalizeToISODate(anchorIso)||String(anchorIso||'').slice(0,10);
+  if(!ai) return sched;
+  return sched.concat([{date:ai,amount:rem,label:'Unsold (CLP balance)'}]);
 }
 function totalUnsoldBookValueFromQueue(cfg){
   return buildUnsoldPaceQueue(cfg).reduce(function(s,x){ return s+coerceMoney(x.val); },0);
@@ -3496,6 +3499,7 @@ function addConstUnsoldToMap(map, cfg, bookingIso, totalValue, uRef){
   if(unsoldUsesConstScheduleSpread(uRef)){
     var sched=getConstSchedule(pseudo,cfg);
     sched=clampConstScheduleAmountsToTotal(sched,tv);
+    sched=ensureUnsoldScheduleCapturesTotal(sched,bi,tv);
     if(sched&&sched.length){
       sched.forEach(function(it){
         var iso=normalizeToISODate(it.date);
@@ -3642,6 +3646,7 @@ function buildUnsoldRealization(cfg, startDate){
         var pseudo={payType:'const',bookingDate:saleIso,totalValue:val,milestonesDates:(u.milestonesDates&&typeof u.milestonesDates==='object')?u.milestonesDates:{}};
         var schedU=getConstSchedule(pseudo,cfg);
         schedU=clampConstScheduleAmountsToTotal(schedU,val);
+        schedU=ensureUnsoldScheduleCapturesTotal(schedU,saleIso,val);
         if(schedU&&schedU.length){
           schedU.forEach(function(it){
             var iso2=normalizeToISODate(it.date);
@@ -3664,6 +3669,24 @@ function buildUnsoldRealization(cfg, startDate){
     var m=parseInt(u.expectedMonth,10);
     if(!m||m<1) return;
     var mo=offsetMonth(startDate,m-1);
+    if(!mo) return;
+    var bookIsoExp=normalizeToISODate(mo+'-15')||mo+'-15';
+    var pseudoExp={payType:'const',bookingDate:bookIsoExp,totalValue:val,milestonesDates:(u.milestonesDates&&typeof u.milestonesDates==='object')?u.milestonesDates:{}};
+    var schedE=getConstSchedule(pseudoExp,cfg);
+    schedE=clampConstScheduleAmountsToTotal(schedE,val);
+    schedE=ensureUnsoldScheduleCapturesTotal(schedE,bookIsoExp,val);
+    if(schedE&&schedE.length){
+      schedE.forEach(function(it){
+        var isoE=normalizeToISODate(it.date);
+        if(!isoE) return;
+        var moE=isoE.slice(0,7);
+        if(!map[moE]) map[moE]={sales:0,items:[]};
+        var amtE=coerceMoney(it.amount);
+        map[moE].sales+=amtE;
+        map[moE].items.push({unit:u.unitNo||'Unsold',amount:amtE,milestone:it.label||'Milestone'});
+      });
+      return;
+    }
     if(!map[mo]) map[mo]={sales:0,items:[]};
     map[mo].sales+=val;
     map[mo].items.push({unit:u.unitNo||'Unsold',amount:val,milestone:'Projected Sale'});
@@ -5423,7 +5446,7 @@ function renderPostSalesPanel(cfg){
   h+='<div class="ps-dash-card" style="border-color:#5B21B6"><h4>Funding mix · Units</h4><div class="v">'+fin.loanUnits+' <span style="font-size:11px;color:var(--muted)">loan</span> · '+fin.selfUnits+' <span style="font-size:11px;color:var(--muted)">self</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">Loan sanctioned: <strong style="color:#166534">'+fin.loanSanctionedUnits+'</strong> · pending/no: <strong style="color:#B45309">'+fin.loanUnsanctionedUnits+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#0F766E"><h4>Funding mix · Amount</h4><div class="v">'+cr(fin.loan)+' <span style="font-size:11px;color:var(--muted)">loan</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">Own contribution: <strong>'+cr(fin.oc)+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#0E7490"><h4>Own contribution · received</h4><div class="v">'+cr(fin.ocReceived)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Sum of <strong>OC received</strong> across units (Sales grid)</div></div>';
-  h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>OC pending</h4><div class="v">'+cr(fin.ocPending)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Σ editable <strong>OC pending</strong> (loan defaults 0; self uses CLP unless overridden). Plan-based computed value is in each cell tooltip.</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>OC pending</h4><div class="v">'+cr(fin.ocPending)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Σ <strong>OC pending</strong> (auto for all; editable per unit). Tooltip shows plan formula.</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#7C3AED"><h4>Agreement pending</h4><div class="v">'+payRiskPs.nAgreement+' <span style="font-size:11px;font-weight:600;color:var(--muted)">units</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">CRM pending (today) on tagged units: <strong style="color:#7C3AED">'+cr(payRiskPs.pendAgreement)+'</strong> · set expected agreement date on Sales grid</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#C2410C"><h4>Payment with issue</h4><div class="v">'+payRiskPs.nPayIssue+' <span style="font-size:11px;font-weight:600;color:var(--muted)">units</span></div><div style="font-size:10px;color:var(--muted);margin-top:4px">At risk / delayed / denied · pending (today): <strong style="color:#C2410C">'+cr(payRiskPs.pendPayIssue)+'</strong></div></div>';
   h+='<div class="ps-dash-card" style="border-color:#B54D0A"><h4>Delay stress-test</h4><div style="font-size:11px;color:var(--muted);margin-bottom:6px">Shift <strong>construction-linked</strong> milestone dates by +N months (what-if).</div>';
@@ -5658,7 +5681,7 @@ function renderSales(){
       });
       qHeaderHtml+='<thead>';
       qHeaderHtml+='<tr style="background:#E8EEF7;font-size:9px">';
-      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Final loan','right','72px'],['Bank loan','left','100px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Final loan','right','72px'],['Bank Loan Details','left','100px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         qHeaderHtml+='<th rowspan="2" style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:5px 6px;vertical-align:bottom;text-align:'+L[1]+';border-bottom:1px solid var(--border)">'+L[0]+'</th>';
       });
       if(hasInst) qHeaderHtml+='<th rowspan="2" style="width:84px;min-width:84px;max-width:84px;padding:5px 6px;vertical-align:bottom;text-align:left;border-bottom:1px solid var(--border);font-size:8px;color:var(--muted);white-space:nowrap">CRM line</th>';
@@ -5681,7 +5704,7 @@ function renderSales(){
     if(_salesGridMode==='month') h+=qHeaderHtml;
     else {
       h+='<thead><tr style="background:var(--blue-l)">';
-      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Final loan','right','72px'],['Bank loan','left','100px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
+      [['Unit','left','100px'],['Type','left','68px'],['Sale Value','right','76px'],['Booking','left','78px'],['Collected','right','72px'],['Bal','right','72px'],['Loan / Self Contribution','left','118px'],['Loan','right','72px'],['Loan sanctioned','left','68px'],['OC','right','72px'],['OC Rcv','right','72px'],['OC Pend','right','72px'],['Final loan','right','72px'],['Bank Loan Details','left','100px'],['Payment status','left','92px'],['Exp. agr.','left','96px'],['As of today','right','76px']].forEach(function(L){
         h+='<th style="width:'+L[2]+';min-width:'+L[2]+';max-width:'+L[2]+';padding:6px 8px;text-align:'+L[1]+'">'+L[0]+'</th>';
       });
       if(hasInst) h+='<th style="width:84px;min-width:84px;max-width:84px;padding:6px 8px;text-align:left;font-size:8px;color:var(--muted)">CRM line</th>';
@@ -7228,7 +7251,7 @@ function buildSoldUnitsReportBook(cfg){
   var months=Object.keys(monthSet).filter(function(mo){ return /^\d{4}-\d{2}$/.test(mo); }).sort();
   var soldRows=[[
     'Unit No','Unit Type','Client Name','Booking Date','Pay Type','Sale Value','Collected','Balance',
-    'Funding Source','Loan Amount','Loan Sanctioned','OC Auto','OC Received','OC Pending (display)','OC Pending (computed plan)','Final loan (display)','Bank loan details','Payment Status','Expected Agreement Date',
+    'Funding Source','Loan Amount','Loan Sanctioned','OC Auto','OC Received','OC Pending (display)','OC Pending (computed plan)','Final loan (display)','Bank Loan Details','Payment Status','Expected Agreement Date',
     'Own Contribution Due Till Today','Comment Count','Comment Chronology','Unit CLP Override Count'
   ]];
   var monthlyRows=[['Unit No','Month','Due','Received','Pending']];
