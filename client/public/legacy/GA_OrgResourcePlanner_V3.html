@@ -4,6 +4,7 @@
 
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Golden Abodes Project Planning</title>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
 <style>
 :root{
   --gold:#A07800;--gold-l:#FDF8EC;--gold-b:#6B5000;
@@ -106,6 +107,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
 </script>
 </head>
 <body>
+<input type="file" id="v3-area-working-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importAreaWorkingFile(this)"/>
 
 <div class="header">
   <div>
@@ -957,6 +959,10 @@ const FIN_DEF = {
   investorSaleAreaSqft:0, investorSaleRate:0,
   investorSaleCommAreaSqft:0, investorSaleCommRate:0,
   investorSaleDiscountPct:35,
+  /** Area Working import: override FSI saleable + developer/MHADA revenue lines */
+  manualCSal:0, manualRSal:0, manualMhadaSal:0,
+  developerResAreaSqft:0, mhadaAreaSqft:0, mhadaRate:0,
+  areaWorkingNote:'',
   projectLaunchDate:'', spvAbsorbConsultMktg:false,
   /** % of FAR retained after CRZ-II (default 50 → multiplier 0.5) */
   goaCrz2FarPct:50,
@@ -1446,19 +1452,24 @@ function finCalc(pid){
     totRERA=fsiArea*finNum(f.reraPct,80)/100; cRERA=totRERA*finNum(f.commPct,5)/100;
     rRERA=totRERA-cRERA; cSal=cRERA*finNum(f.commSalFactor,150)/100; rSal=rRERA*finNum(f.resSalFactor,140)/100;
   }
-  const totSal=cSal+rSal;
+  if(finNum(f.manualCSal,0)>0) cSal=finNum(f.manualCSal,0);
+  if(finNum(f.manualRSal,0)>0) rSal=finNum(f.manualRSal,0);
+  const mhadaSal=Math.max(0,finNum(f.manualMhadaSal,0));
+  const totSal=cSal+rSal+mhadaSal;
   const invSqRes=Math.max(0,finNum(f.investorSaleAreaSqft,0));
   const invSqComm=Math.max(0,finNum(f.investorSaleCommAreaSqft,0));
   const cDevGross0=cSal*finNum(f.commDevPct,50)/100;
   const cDevA=Math.max(0,cDevGross0-invSqComm);
   const rDevA_gross=rSal*finNum(f.resDevPct,65)/100;
-  const rDevA=Math.max(0,rDevA_gross-invSqRes);
+  var rDevA=Math.max(0,rDevA_gross-invSqRes);
+  if(finNum(f.developerResAreaSqft,0)>0) rDevA=finNum(f.developerResAreaSqft,0);
   const totDevA=cDevA+rDevA;
   const cRev=cDevA*finNum(f.commRate,0), rRev=rDevA*finNum(f.resRate,0);
   const invSaleResRev=finNum(f.investorSaleAreaSqft,0)*finNum(f.investorSaleRate,0);
   const invSaleCommRev=finNum(f.investorSaleCommAreaSqft,0)*finNum(f.investorSaleCommRate,0);
   const invSaleRev=invSaleResRev+invSaleCommRev;
-  const totRev=cRev+rRev+invSaleRev;
+  const mhadaRev=Math.max(0,finNum(f.mhadaAreaSqft,0))*finNum(f.mhadaRate,0);
+  const totRev=cRev+rRev+invSaleRev+mhadaRev;
   const consCost=totSal*(f.constructionRate||0), intCost=(f.totalInvestment||0)*_nz(f.interestRate,18)/100*_nz(f.interestYears,2);
   const appCost=totSal*(f.approvalsRate||0), miscCost=_nz(f.miscCost,0);
   const dmFee=totRev*(f.dmFeePct||10)/100;
@@ -1508,7 +1519,7 @@ function finCalc(pid){
   const dmSalTotal=salesSal+consSal+hoSal, dmMktgCost=mktgCP;
   const disp=Object.assign({},_pmrdaVars);
   return {
-    fsi,totRERA,cRERA,rRERA,cSal,rSal,totSal,cDevA,rDevA,totDevA,cRev,rRev,totRev,invSaleRev,invSaleResRev,invSaleCommRev,
+    fsi,totRERA,cRERA,rRERA,cSal,rSal,totSal,mhadaSal,cDevA,rDevA,totDevA,cRev,rRev,totRev,mhadaRev,invSaleRev,invSaleResRev,invSaleCommRev,
     consCost,conCost,intCost,appCost,miscCost,dmFee,totExp,grossP,invPS,netP,
     consultFee,consultRateSum,consultRows,salesSal,consSal,hoSal,mktgCP,dmNetProfit,
     dmCost,dmConsTotal,dmSalTotal,dmMktgCost,dmTotCost,
@@ -1927,6 +1938,8 @@ function renderFinModel(pid){
         : ''}
       <button class="btn btn-ghost" style="font-size:11px" onclick="${GA_IS_DRAFT_MODE && GA_DRAFT_PID===pid ? 'window.close()' : 'expandedFinId=null;renderProjects()'}">✕ Close model</button>
         <button onclick="printFinModel('${pid}')" style="padding:5px 14px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;border:1.5px solid #542B8A;background:#F2ECF9;color:#341860;margin-right:4px">🖨 Print</button>
+        <button type="button" onclick="document.getElementById('v3-area-working-input').click()" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--teal);background:var(--teal-l);color:var(--teal-b)">📥 Import Area Working</button>
+        ${/shine/i.test(String(p.name||''))?'<button type="button" onclick="applyShinePlazaAreaWorking()" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--gold);background:var(--gold-l);color:var(--gold-b)">Apply Shine Plaza sheet</button>':''}
     </div>
 
     <div style="padding:18px">
@@ -1945,6 +1958,7 @@ function renderFinModel(pid){
         <label class="pf-label">Project USP</label>
         ${finTxt(pid,'usp',f.usp,'e.g. Excellent location, metro connectivity, landmark design')}
       </div>
+      ${f.areaWorkingNote?`<div class="pf-field" style="grid-column:1/-1"><label class="pf-label">Area Working note</label><div style="font-size:11px;color:var(--muted);line-height:1.45">${String(f.areaWorkingNote).replace(/</g,'&lt;')}</div></div>`:''}
       <div class="pf-field">
         <label class="pf-label">Total investment (₹)</label>
         <input type="number" min="0" step="${gaV3CroreInputOn()?'0.01':'1000000'}" value="${f.totalInvestment===undefined||f.totalInvestment===null?'':v3StoredToCroreDisplay('totalInvestment',f.totalInvestment)}" placeholder="${gaV3CroreInputOn()?'e.g. 11 Cr':'e.g. 110000000'}"
@@ -2307,10 +2321,18 @@ function renderFinModel(pid){
             <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleCommRate',f.investorSaleCommRate,130,'₹/sq.ft',10)}</td>
             <td style="text-align:right;color:var(--green-b);font-weight:700;padding:6px 8px">${fmtC(C.invSaleCommRev||0)}</td>
           </tr>
+          ${(f.mhadaAreaSqft||0)>0?`<tr style="background:#E0F2FE">
+            <td style="padding:6px 8px;color:var(--muted)">3c</td>
+            <td style="padding:6px 8px">MHADA / affordable <span style="font-size:10px;color:var(--muted)">(from Area Working — separate rate line)</span></td>
+            <td style="text-align:right;padding:6px 8px;color:var(--muted);font-size:11px">100%</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'mhadaAreaSqft',f.mhadaAreaSqft,130,'sq.ft',1)}</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'mhadaRate',f.mhadaRate,130,'₹/sq.ft',10)}</td>
+            <td style="text-align:right;color:var(--green-b);font-weight:700;padding:6px 8px">${fmtC(C.mhadaRev||0)}</td>
+          </tr>`:''}
           <tr style="background:var(--green-l)">
-            <td colspan="2" style="font-weight:700;padding:8px">4. Total Developer + Investor Sale</td>
+            <td colspan="2" style="font-weight:700;padding:8px">4. Total Developer + MHADA + Investor Sale</td>
             <td style="text-align:right;font-weight:700;color:var(--green-b);padding:8px">${(C.invSaleRev||0)>0?'—':(C.totSal>0?((C.cDevA+C.rDevA)/(C.cSal+C.rSal)*100).toFixed(1)+'%':'—')}</td>
-            <td style="text-align:right;font-weight:700;color:var(--blue-b);padding:8px">${fmt(Math.round(C.cDevA+C.rDevA+(f.investorSaleAreaSqft||0)+(f.investorSaleCommAreaSqft||0)))}</td>
+            <td style="text-align:right;font-weight:700;color:var(--blue-b);padding:8px">${fmt(Math.round(C.cDevA+C.rDevA+(f.mhadaAreaSqft||0)+(f.investorSaleAreaSqft||0)+(f.investorSaleCommAreaSqft||0)))}</td>
             <td></td>
             <td style="text-align:right;font-weight:700;font-size:15px;color:var(--green-b);padding:8px">${fmtC(C.totRev)}</td>
           </tr>
@@ -3292,6 +3314,159 @@ function applyDocToModel(pid){
   else if(ex.plotAreaHectare) plotDisp=String(Math.round(+ex.plotAreaHectare*10000))+' sq.mt';
   alert('Applied to '+pname+':\n• FSI mode: '+(f.fsiMode||'simple')+' (unchanged — pick Simple / PMRDA / Mumbai / Goa in Model if needed)\n• Plot area: '+plotDisp+'\n• DP Road deduction: '+(ex.dpRoadDeductionSqmt||0)+' sq.mt\n\nOpen Project Planning → ▼ Model → Section 1 to review.');
   showTab('projects'); renderProjects();
+}
+
+/** Shine Plaza — Area Working.xlsx (validated May 2026). */
+var SHINE_PLAZA_AREA_WORKING={
+  commercial:{label:'Commercial A Building',totalSaleable:28492,devShare:0,finalArea:0,rate:0,topline:0,note:'Entire commercial to land owner; 63.01% of commercial credited in residential pool'},
+  residential:{label:'Resi. A Building',totalSaleable:163173,devShare:0.6301,finalArea:120768.1165,rate:4000,topline:483072466,note:'Developer share + 63.01% of commercial area in residential pool'},
+  mhada:{label:'MHADA',totalSaleable:41735,devShare:1,finalArea:41735,rate:3000,topline:125205000,note:'100% MHADA area'}
+};
+
+function findProjByNameLoose(q){
+  var s=String(q||'').trim().toLowerCase();
+  if(!s) return null;
+  return PROJS.find(function(p){ return String(p.name||'').trim().toLowerCase()===s; })
+    || PROJS.find(function(p){ return String(p.name||'').toLowerCase().indexOf(s)>=0; })
+    || null;
+}
+
+function parseAreaWorkingSheetRows(rows){
+  if(!rows||!rows.length) return null;
+  var hdr=-1, i, r, c, h, j;
+  for(i=0;i<Math.min(rows.length,20);i++){
+    r=rows[i]||[];
+    for(j=0;j<r.length;j++){
+      h=String(r[j]||'').toLowerCase().replace(/[^a-z0-9]+/g,' ');
+      if(h.indexOf('building')>=0||h.indexOf('total saleable')>=0) { hdr=i; break; }
+    }
+    if(hdr>=0) break;
+  }
+  if(hdr<0) hdr=0;
+  var hrow=(rows[hdr]||[]).map(function(x){ return String(x||'').toLowerCase(); });
+  function col(){
+    var names=arguments, k;
+    for(k=0;k<hrow.length;k++){
+      for(var n=0;n<names.length;n++){
+        if(hrow[k].indexOf(names[n])>=0) return k;
+      }
+    }
+    return -1;
+  }
+  var iB=col('building'), iS=col('total saleable','saleable area'), iD=col('developer share','dev share'),
+    iF=col('final area','final area share'), iR=col('rate'), iT=col('topline','top line');
+  if(iB<0) iB=0; if(iS<0) iS=1;
+  var out={commercial:null,residential:null,mhada:null};
+  for(i=hdr+1;i<rows.length;i++){
+    r=rows[i]||[];
+    var lab=String(r[iB]!==undefined?r[iB]:'').trim();
+    if(!lab) continue;
+    var sale=parseFloat(r[iS])||0;
+    if(sale<=0) continue;
+    var dev=iD>=0?(parseFloat(r[iD])||0):0;
+    var finA=iF>=0?(parseFloat(r[iF])||0):0;
+    var rate=iR>=0?(parseFloat(r[iR])||0):0;
+    var top=iT>=0?(parseFloat(r[iT])||0):0;
+    var note='';
+    if(iD+1<r.length&&isNaN(parseFloat(r[iD+1]))&&String(r[iD+1]||'').trim()) note=String(r[iD+1]).trim();
+    var row={label:lab,totalSaleable:sale,devShare:dev,finalArea:finA,rate:rate,topline:top,note:note};
+    var ll=lab.toLowerCase();
+    if(ll.indexOf('mhada')>=0) out.mhada=row;
+    else if(ll.indexOf('comm')>=0) out.commercial=row;
+    else if(ll.indexOf('resi')>=0||ll.indexOf('residential')>=0) out.residential=row;
+    else if(!out.residential) out.residential=row;
+    else if(!out.commercial) out.commercial=row;
+  }
+  if(!out.residential&&!out.commercial&&!out.mhada) return null;
+  return out;
+}
+
+function applyAreaWorkingBundle(pid, bundle){
+  if(!bundle||(!bundle.residential&&!bundle.commercial&&!bundle.mhada)) return {ok:false,error:'No area rows parsed.'};
+  if(!ST.fin[pid]) ST.fin[pid]={};
+  var f=ST.fin[pid];
+  var comm=bundle.commercial||{totalSaleable:0,devShare:0,finalArea:0,rate:0};
+  var res=bundle.residential||{totalSaleable:0,devShare:0,finalArea:0,rate:0};
+  var mha=bundle.mhada||{totalSaleable:0,devShare:0,finalArea:0,rate:0};
+  f.manualCSal=Math.round(comm.totalSaleable||0);
+  f.manualRSal=Math.round(res.totalSaleable||0);
+  f.manualMhadaSal=Math.round(mha.totalSaleable||0);
+  f.commDevPct=0;
+  f.commRate=0;
+  f.resDevPct=Math.round((res.devShare||0)*10000)/100;
+  f.resRate=Math.round(res.rate||0);
+  f.developerResAreaSqft=Math.round(res.finalArea||0);
+  f.mhadaAreaSqft=Math.round(mha.finalArea||0);
+  f.mhadaRate=Math.round(mha.rate||0);
+  f.investorSaleAreaSqft=0;
+  f.investorSaleRate=0;
+  f.investorSaleCommAreaSqft=0;
+  f.investorSaleCommRate=0;
+  var notes=[];
+  if(comm.note) notes.push('Commercial: '+comm.note);
+  if(res.note) notes.push('Residential: '+res.note);
+  if(mha.note) notes.push('MHADA: '+mha.note);
+  f.areaWorkingNote=notes.join(' | ');
+  if(!f.dealType) f.dealType='JV / Land-owner commercial + developer residential';
+  var C=finCalc(pid);
+  var expTop=(res.topline||0)+(mha.topline||0)+(comm.topline||0);
+  var gap=Math.abs((C.totRev||0)-expTop);
+  if(typeof gaAutoSave==='function') gaAutoSave();
+  expandedFinId=pid;
+  _curTab='projects';
+  renderProjects();
+  return {
+    ok:true,
+    expectedTopline:expTop,
+    modelTopline:C.totRev||0,
+    gap:gap,
+    summary:'Commercial '+fmt(f.manualCSal)+' sq.ft (land owner) · Res developer '+fmt(f.developerResAreaSqft)+' sq.ft @ ₹'+fmt(f.resRate)+' · MHADA '+fmt(f.mhadaAreaSqft)+' sq.ft @ ₹'+fmt(f.mhadaRate)
+  };
+}
+
+function importAreaWorkingForProject(pid, bundle){
+  var p=PROJS.find(function(x){return x.id===pid;});
+  if(!p) return {ok:false,error:'Project not found.'};
+  return applyAreaWorkingBundle(pid, bundle);
+}
+
+function importAreaWorkingFile(input){
+  if(!input||!input.files||!input.files[0]) return;
+  var file=input.files[0];
+  if(!window.XLSX){ alert('Excel library not loaded. Check internet connection and reload.'); input.value=''; return; }
+  var pid=expandedFinId;
+  if(!pid){
+    var guess=findProjByNameLoose('shine plaza');
+    if(guess) pid=guess.id;
+  }
+  if(!pid){
+    alert('Open a project financial model first (Project Planning → ▼ Model), or create Shine Plaza.');
+    input.value=''; return;
+  }
+  var reader=new FileReader();
+  reader.onload=function(e){
+    try{
+      var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+      var ws=wb.Sheets[wb.SheetNames[0]];
+      var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
+      var bundle=parseAreaWorkingSheetRows(rows);
+      if(!bundle){ alert('Could not read Area Working rows. Expected columns: Building, Total Saleable Area, Developer Share, Final Area Share, Rate, Topline.'); return; }
+      var res=importAreaWorkingForProject(pid, bundle);
+      if(!res.ok){ alert(res.error||'Import failed.'); return; }
+      alert('✓ Area Working applied to '+((PROJS.find(function(x){return x.id===pid;})||{}).name||pid)+'\n\n'+res.summary+'\n\nModel revenue: '+fmtC(res.modelTopline)+'\nExcel topline: '+fmtC(res.expectedTopline)+(res.gap>1?'\nΔ check: '+fmtC(res.gap):'\n(Topline match)')+'\n\nSection 1 uses imported saleable areas; revenue uses Final Area Share + rates.');
+    }catch(err){
+      alert('Import failed: '+(err&&err.message?err.message:err));
+    }finally{ input.value=''; }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function applyShinePlazaAreaWorking(){
+  var p=findProjByNameLoose('shine plaza');
+  if(!p){ alert('No project named "Shine Plaza" found. Create it under Projects first.'); return; }
+  var res=importAreaWorkingForProject(p.id, SHINE_PLAZA_AREA_WORKING);
+  if(!res.ok){ alert(res.error||'Failed'); return; }
+  alert('✓ Shine Plaza Area Working applied.\n\n'+res.summary+'\n\nModel revenue: '+fmtC(res.modelTopline)+' · Excel: '+fmtC(res.expectedTopline));
 }
 
 // ════════════════════════════════════════════════════════════════
