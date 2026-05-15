@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 32;
+var CF_VERSION = 33;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -5220,6 +5220,12 @@ function roadmapSvgLayoutWidthHtml(n){
   return Math.min(3600, Math.max(base, per*Math.max(n,1)));
 }
 
+/** Roadmap uses exact milestone keys only (matches the achieved-date table edits). */
+function achievedIsoForRoadmapDef(cfg, ms){
+  var mad=cfg.milestonesAchievedDates||{};
+  return normalizeToISODate(mad[ms.key])||'';
+}
+
 function computePostSalesRoadmap(cfg){
   var tIso=today();
   var defs=getMilestoneDefs(cfg);
@@ -5231,7 +5237,7 @@ function computePostSalesRoadmap(cfg){
   var steps=[], achievedIso, targetIso, cum;
   for(i=0;i<roadMs.length;i++){
     ms=roadMs[i];
-    achievedIso=achievedIsoForMilestoneDef(cfg,ms);
+    achievedIso=achievedIsoForRoadmapDef(cfg,ms);
     targetIso=normalizeToISODate(milestoneTargetIsoForDef(cfg,null,ms))||'';
     cum=cumulativeConstructionDuePct(defs,ms);
     steps.push({
@@ -5246,22 +5252,18 @@ function computePostSalesRoadmap(cfg){
   return {steps:steps, currentIndex:cur};
 }
 
-function htmlPostSalesRoadmap(cfg){
+function htmlPostSalesRoadmapLiveInner(cfg){
   var R=computePostSalesRoadmap(cfg);
   var steps=R.steps, cur=R.currentIndex;
   var armLen=22, vbW=920, vbH=218;
   var h='', si, P, px, py, lblY, col, inn, r, ring, mark, ty0, ty1, nSteps;
-  h+='<div class="card" style="margin-top:14px;border-top:3px solid #EAB308">';
-  h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Construction roadmap</div>';
-  h+='<p class="ps-roadmap-note">Road stops are <strong>construction-linked (Y)</strong> milestones (from Plinth onward). <strong>Cumulative % due</strong> sums the full uploaded template in order through each stop (incl. token / registration % before Plinth, not drawn as stops). Dates use <strong>Milestone achieved</strong> when done (≤ today), otherwise <strong>Milestone target</strong>. <strong>We are here</strong> = latest <strong>achieved date</strong> (same-day tie → later stage). The road widens when you have many milestones.</p>';
-  h+='<div class="ps-roadmap-wrap">';
   if(!steps.length){
-    h+='<p style="font-size:12px;color:var(--t3);margin:0">No construction-linked milestones. Mark stages as construction (Y) in the template.</p></div></div>';
-    return h;
+    return '<p style="font-size:12px;color:var(--t3);margin:0">No construction-linked milestones. Mark stages as construction (Y) in the template.</p>';
   }
   nSteps=steps.length;
   vbW=roadmapSvgLayoutWidthHtml(nSteps);
   var sx=vbW/920;
+  h+='<div class="ps-roadmap-wrap">';
   h+='<svg class="ps-roadmap-svg" viewBox="0 0 '+vbW+' '+vbH+'" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Construction roadmap">';
   h+='<defs><linearGradient id="psRoadAsphalt" x1="0" y1="0" x2="920" y2="0"><stop offset="0%" stop-color="#374151"/><stop offset="100%" stop-color="#4b5563"/></linearGradient></defs>';
   h+='<g transform="scale('+sx+',1)">';
@@ -5288,7 +5290,31 @@ function htmlPostSalesRoadmap(cfg){
     h+=htmlRoadmapHerePinMarkup(P.x,P.y);
   }
   h+='</g>';
-  h+='</svg></div></div>';
+  h+='</svg></div>';
+  return h;
+}
+
+function refreshPostSalesRoadmap(){
+  if(_curTab!=='sales'||_salesUIPanel!=='inventory') return;
+  var mount=document.getElementById('ps-roadmap-live');
+  if(!mount||!_curPid) return;
+  var cfg=getCF(_curPid);
+  if(!cfg) return;
+  var wrap=mount.querySelector('.ps-roadmap-wrap');
+  var scrollL=wrap?wrap.scrollLeft:0;
+  mount.innerHTML=htmlPostSalesRoadmapLiveInner(cfg);
+  wrap=mount.querySelector('.ps-roadmap-wrap');
+  if(wrap) wrap.scrollLeft=scrollL;
+}
+
+function htmlPostSalesRoadmap(cfg){
+  var h='';
+  h+='<div class="card" style="margin-top:14px;border-top:3px solid #EAB308">';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Construction roadmap</div>';
+  h+='<p class="ps-roadmap-note">Road stops are <strong>construction-linked (Y)</strong> milestones (from Plinth onward). <strong>Cumulative % due</strong> sums the full uploaded template in order through each stop (incl. token / registration % before Plinth, not drawn as stops). Dates use <strong>Milestone achieved</strong> when done (≤ today), otherwise <strong>Milestone target</strong>. <strong>We are here</strong> = latest <strong>achieved date</strong> (same-day tie → later stage). Edits below update this chart live.</p>';
+  h+='<div id="ps-roadmap-live">';
+  h+=htmlPostSalesRoadmapLiveInner(cfg);
+  h+='</div></div>';
   return h;
 }
 /** past | current | future (YYYY-MM string compare). */
@@ -7871,6 +7897,7 @@ function importMilestoneTemplate(input){
       Object.keys(achievedByKey).forEach(function(k){ cfg.milestonesAchievedDates[k]=achievedByKey[k]; });
       saveAll();
       renderSales();
+      refreshPostSalesRoadmap();
       refreshProjectCashflowViews();
       var dn=Object.keys(dateByKey).length, an=Object.keys(achievedByKey).length;
       alert('✓ Milestone template applied'+(dn||an?(' ('+[dn?dn+' target':'',an?an+' achieved':''].filter(Boolean).join(', ')+')'):'')+'.');
@@ -8452,7 +8479,7 @@ function parseCRMPostSalesRows(rows, cfg){
       if(!regIso && dtIso && (labNorm.indexOf('agreement')>=0 || labNorm.indexOf('registration')>=0 || labNorm.indexOf('stamp')>=0)){
         regIso=dtIso;
       }
-      if(dtIso) mergeAchievedDateForLabel(lab, dtIso);
+      if(dtIso && recv>0) mergeAchievedDateForLabel(lab, dtIso);
       if(dueAmt>0) installments.push({date:dt,amount:dueAmt,label:String(lab).trim()+' (due)'});
       if(recv>0) installments.push({date:dt,amount:recv,label:String(lab).trim()+' (received)'});
       if(pend>0) installments.push({date:dt,amount:pend,label:String(lab).trim()+' (pending)'});
@@ -9234,8 +9261,8 @@ document.addEventListener('change',function(e){
   }
   var v=el.value, n=parseFloat(v)||0;
   var isNum=['amount','drawMonth','ratePct','termYrs','drawAmount','month','contingencyPct','gaMonthly','gaGAAnnual','gaMktgAnnual'];
-  if(a==='set-milestone')          { if(!cfg.milestonesDates)cfg.milestonesDates={}; cfg.milestonesDates[el.dataset.key]=v; saveAll(); renderTab(_curTab); refreshProjectCashflowViews(); return; }
-  if(a==='set-milestone-achieved'){ if(!cfg.milestonesAchievedDates)cfg.milestonesAchievedDates={}; cfg.milestonesAchievedDates[el.dataset.key]=v; saveAll(); renderTab(_curTab); return; }
+  if(a==='set-milestone')          { if(!cfg.milestonesDates)cfg.milestonesDates={}; cfg.milestonesDates[el.dataset.key]=v; refreshPostSalesRoadmap(); saveAll(); refreshProjectCashflowViews(); return; }
+  if(a==='set-milestone-achieved'){ if(!cfg.milestonesAchievedDates)cfg.milestonesAchievedDates={}; if(v) cfg.milestonesAchievedDates[el.dataset.key]=v; else delete cfg.milestonesAchievedDates[el.dataset.key]; refreshPostSalesRoadmap(); saveAll(); return; }
   if(a==='set-inv-proj')           { if(!cfg.inventoryProjection)cfg.inventoryProjection={}; cfg.inventoryProjection[el.dataset.key]=parseFloat(v)||0; saveAll(); renderSales(); refreshProjectCashflowViews(); return; }
   if(a==='unsold-pace-mode')      { ensureUnsoldPaceCfg(cfg); cfg.unsoldPace.mode=el.value==='units'?'units':'sqft'; saveAll(); renderSales(); refreshProjectCashflowViews(); return; }
   if(a==='unsold-pace-period')   { ensureUnsoldPaceCfg(cfg); cfg.unsoldPace.inputPeriod=el.value==='quarter'?'quarter':'month'; saveAll(); renderSales(); refreshProjectCashflowViews(); return; }
@@ -9406,6 +9433,20 @@ document.addEventListener('input',function(e){
   var el=e.target, a=el&&el.dataset&&el.dataset.action;
   if(a==='sales-search'){ _salesSearchQuery=String(el.value||''); renderSalesKeepViewport(); }
   var cfgInp=_curPid?getCF(_curPid):null;
+  if(cfgInp&&(a==='set-milestone-achieved'||a==='set-milestone')){
+    var mk=el.dataset.key||'';
+    if(a==='set-milestone-achieved'){
+      if(!cfgInp.milestonesAchievedDates) cfgInp.milestonesAchievedDates={};
+      var vv=String(el.value||'');
+      if(vv) cfgInp.milestonesAchievedDates[mk]=vv;
+      else delete cfgInp.milestonesAchievedDates[mk];
+    } else {
+      if(!cfgInp.milestonesDates) cfgInp.milestonesDates={};
+      cfgInp.milestonesDates[mk]=String(el.value||'');
+    }
+    refreshPostSalesRoadmap();
+  }
+
   if(cfgInp&&(a==='unit-loan-amount'||a==='unit-oc-received')){
     var uixIn=+el.dataset.idx;
     if(Array.isArray(cfgInp.units)&&cfgInp.units[uixIn]!==undefined){
