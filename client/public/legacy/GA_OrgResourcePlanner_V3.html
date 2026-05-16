@@ -3316,11 +3316,12 @@ function applyDocToModel(pid){
   showTab('projects'); renderProjects();
 }
 
-/** Shine Plaza — Area Working.xlsx (validated May 2026). */
+/** Shine Plaza — Shine plaza working 12.05.26.xlsx (Feasibility tab). */
 var SHINE_PLAZA_AREA_WORKING={
-  commercial:{label:'Commercial A Building',totalSaleable:28492,devShare:0,finalArea:0,rate:0,topline:0,note:'Entire commercial to land owner; 63.01% of commercial credited in residential pool'},
-  residential:{label:'Resi. A Building',totalSaleable:163173,devShare:0.6301,finalArea:120768.1165,rate:4000,topline:483072466,note:'Developer share + 63.01% of commercial area in residential pool'},
-  mhada:{label:'MHADA',totalSaleable:41735,devShare:1,finalArea:41735,rate:3000,topline:125205000,note:'100% MHADA area'}
+  sourceFile:'Shine plaza working 12.05.26.xlsx',
+  commercial:{label:'Ground Floor',totalSaleable:28492,devShare:1,finalArea:28492,rate:3200,topline:91174400,note:'Ground floor saleable @ ₹3,200/sq.ft'},
+  residential:{label:'Residential (63.01%)',totalSaleable:163173,devShare:0.6301,finalArea:102815.3073,rate:5000,topline:514076536.5,note:'63.01% of residential saleable @ ₹5,000/sq.ft'},
+  mhada:{label:'MHADA',totalSaleable:41735,devShare:1,finalArea:41735,rate:3000,topline:125205000,note:'MHADA saleable @ ₹3,000/sq.ft'}
 };
 
 function findProjByNameLoose(q){
@@ -3331,9 +3332,56 @@ function findProjByNameLoose(q){
     || null;
 }
 
+function parseFeasibilityAreaWorkingRows(rows){
+  if(!rows||!rows.length) return null;
+  var saleable={ground:0,residential:0,mhada:0}, out={}, mode='', i, r, c0, c1, item, area, rate, amt, row;
+  for(i=0;i<rows.length;i++){
+    r=rows[i]||[];
+    c0=String(r[0]||'').toLowerCase().trim();
+    c1=String(r[1]||'').toLowerCase().trim();
+    if(c1.indexOf('key facts')>=0){ mode='facts'; continue; }
+    if(c0==='revenue'||c1==='revenue'){ mode='revenue'; continue; }
+    if(c1.indexOf('expenses')>=0||c1.indexOf('gross project')>=0){ mode=''; continue; }
+    if(mode==='facts'&&/^\d+$/.test(c0)){
+      item=c1; area=parseFloat(r[2])||0;
+      if(item.indexOf('ground')>=0) saleable.ground=area;
+      else if(item.indexOf('residential')>=0) saleable.residential=area;
+      else if(item.indexOf('mhada')>=0) saleable.mhada=area;
+    }
+    if(mode==='revenue'&&(c0==='sr. no.'||c1==='item')) continue;
+    if(mode==='revenue'&&/^\d+$/.test(c0)){
+      item=c1; area=parseFloat(r[2])||0; rate=parseFloat(r[3])||0; amt=parseFloat(r[4])||0;
+      if(!area) continue;
+      row={label:String(r[1]||'').trim(),totalSaleable:0,devShare:1,finalArea:area,rate:rate,topline:amt,note:''};
+      if(item.indexOf('ground')>=0){ row.totalSaleable=saleable.ground||area; }
+      else if(item.indexOf('residential')>=0||item.indexOf('63.01')>=0||item.indexOf('63')>=0){
+        row.totalSaleable=saleable.residential||0; row.devShare=0.6301;
+      } else if(item.indexOf('mhada')>=0){ row.totalSaleable=saleable.mhada||area; }
+      else continue;
+      if(item.indexOf('ground')>=0) out.commercial=row;
+      else if(item.indexOf('residential')>=0||item.indexOf('63.01')>=0) out.residential=row;
+      else if(item.indexOf('mhada')>=0) out.mhada=row;
+    }
+  }
+  if(!out.commercial&&!out.residential&&!out.mhada) return null;
+  return out;
+}
+
 function parseAreaWorkingSheetRows(rows){
   if(!rows||!rows.length) return null;
-  var hdr=-1, i, r, c, h, j;
+  var i, j, h, r;
+  for(i=0;i<Math.min(rows.length,30);i++){
+    r=rows[i]||[];
+    for(j=0;j<r.length;j++){
+      h=String(r[j]||'').toLowerCase();
+      if(h.indexOf('key facts')>=0){
+        var fe=parseFeasibilityAreaWorkingRows(rows);
+        if(fe) return fe;
+        break;
+      }
+    }
+  }
+  var hdr=-1, r, c;
   for(i=0;i<Math.min(rows.length,20);i++){
     r=rows[i]||[];
     for(j=0;j<r.length;j++){
@@ -3391,11 +3439,16 @@ function applyAreaWorkingBundle(pid, bundle){
   f.manualCSal=Math.round(comm.totalSaleable||0);
   f.manualRSal=Math.round(res.totalSaleable||0);
   f.manualMhadaSal=Math.round(mha.totalSaleable||0);
-  f.commDevPct=0;
-  f.commRate=0;
+  if((comm.rate||0)>0||(comm.topline||0)>0){
+    var cShare=comm.devShare;
+    if(cShare>0&&cShare<=1) f.commDevPct=Math.round(cShare*10000)/100;
+    else if((comm.finalArea||0)>0&&(comm.totalSaleable||0)>0) f.commDevPct=Math.round(comm.finalArea/comm.totalSaleable*10000)/100;
+    else f.commDevPct=100;
+    f.commRate=Math.round(comm.rate||0);
+  } else { f.commDevPct=0; f.commRate=0; }
   f.resDevPct=Math.round((res.devShare||0)*10000)/100;
   f.resRate=Math.round(res.rate||0);
-  f.developerResAreaSqft=Math.round(res.finalArea||0);
+  f.developerResAreaSqft=res.finalArea>0?res.finalArea:0;
   f.mhadaAreaSqft=Math.round(mha.finalArea||0);
   f.mhadaRate=Math.round(mha.rate||0);
   f.investorSaleAreaSqft=0;
@@ -3403,11 +3456,12 @@ function applyAreaWorkingBundle(pid, bundle){
   f.investorSaleCommAreaSqft=0;
   f.investorSaleCommRate=0;
   var notes=[];
-  if(comm.note) notes.push('Commercial: '+comm.note);
+  if(bundle.sourceFile) notes.push('Source: '+bundle.sourceFile);
+  if(comm.note) notes.push('Ground: '+comm.note);
   if(res.note) notes.push('Residential: '+res.note);
   if(mha.note) notes.push('MHADA: '+mha.note);
   f.areaWorkingNote=notes.join(' | ');
-  if(!f.dealType) f.dealType='JV / Land-owner commercial + developer residential';
+  if(!f.dealType) f.dealType='Feasibility — Ground + Residential (63.01%) + MHADA';
   var C=finCalc(pid);
   var expTop=(res.topline||0)+(mha.topline||0)+(comm.topline||0);
   var gap=Math.abs((C.totRev||0)-expTop);
@@ -3420,7 +3474,7 @@ function applyAreaWorkingBundle(pid, bundle){
     expectedTopline:expTop,
     modelTopline:C.totRev||0,
     gap:gap,
-    summary:'Commercial '+fmt(f.manualCSal)+' sq.ft (land owner) · Res developer '+fmt(f.developerResAreaSqft)+' sq.ft @ ₹'+fmt(f.resRate)+' · MHADA '+fmt(f.mhadaAreaSqft)+' sq.ft @ ₹'+fmt(f.mhadaRate)
+    summary:'Ground '+fmt(f.manualCSal)+' sq.ft @ ₹'+fmt(f.commRate)+' · Res '+fmt(f.developerResAreaSqft)+' sq.ft @ ₹'+fmt(f.resRate)+' · MHADA '+fmt(f.mhadaAreaSqft)+' sq.ft @ ₹'+fmt(f.mhadaRate)
   };
 }
 
@@ -3447,10 +3501,12 @@ function importAreaWorkingFile(input){
   reader.onload=function(e){
     try{
       var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
-      var ws=wb.Sheets[wb.SheetNames[0]];
+      var sheetName=wb.SheetNames.indexOf('Feasibility')>=0?'Feasibility':wb.SheetNames[0];
+      var ws=wb.Sheets[sheetName];
       var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
       var bundle=parseAreaWorkingSheetRows(rows);
-      if(!bundle){ alert('Could not read Area Working rows. Expected columns: Building, Total Saleable Area, Developer Share, Final Area Share, Rate, Topline.'); return; }
+      if(!bundle){ alert('Could not read worksheet. Use Feasibility (Key Facts + Revenue) or legacy Area Working columns.'); return; }
+      if(!bundle.sourceFile) bundle.sourceFile=file.name||sheetName;
       var res=importAreaWorkingForProject(pid, bundle);
       if(!res.ok){ alert(res.error||'Import failed.'); return; }
       alert('✓ Area Working applied to '+((PROJS.find(function(x){return x.id===pid;})||{}).name||pid)+'\n\n'+res.summary+'\n\nModel revenue: '+fmtC(res.modelTopline)+'\nExcel topline: '+fmtC(res.expectedTopline)+(res.gap>1?'\nΔ check: '+fmtC(res.gap):'\n(Topline match)')+'\n\nSection 1 uses imported saleable areas; revenue uses Final Area Share + rates.');
@@ -3466,7 +3522,7 @@ function applyShinePlazaAreaWorking(){
   if(!p){ alert('No project named "Shine Plaza" found. Create it under Projects first.'); return; }
   var res=importAreaWorkingForProject(p.id, SHINE_PLAZA_AREA_WORKING);
   if(!res.ok){ alert(res.error||'Failed'); return; }
-  alert('✓ Shine Plaza Area Working applied.\n\n'+res.summary+'\n\nModel revenue: '+fmtC(res.modelTopline)+' · Excel: '+fmtC(res.expectedTopline));
+  alert('✓ Shine Plaza feasibility applied (12.05.26).\n\n'+res.summary+'\n\nModel revenue: '+fmtC(res.modelTopline)+' · Excel: '+fmtC(res.expectedTopline));
 }
 
 // ════════════════════════════════════════════════════════════════
