@@ -33,6 +33,28 @@ function localUrl(key) {
   }
 }
 
+/** Avoid Vault → Vault loops when a bad browser URL points at the platform root. */
+function normalizePreconstructionUrl(url) {
+  const clean = String(url || '').trim();
+  if (!clean) return '';
+  try {
+    const u = new URL(clean, window.location.origin);
+    const sameHost = u.origin === window.location.origin;
+    const onBundledPath = u.pathname.startsWith('/preconstruction');
+    if (sameHost && !onBundledPath) {
+      return `${window.location.origin}/preconstruction/`;
+    }
+    return u.href;
+  } catch {
+    return clean;
+  }
+}
+
+function bundledPreconstructionUrl() {
+  if (typeof window === 'undefined') return '';
+  return `${window.location.origin}/preconstruction/`;
+}
+
 /** Keep empty by default in cloud; set explicit URLs via env vars when those apps are deployed. */
 const DEFAULT_EXECUTION_DASHBOARD_URL = '';
 const DEFAULT_PRECONSTRUCTION_URL = '';
@@ -77,11 +99,13 @@ export default function VaultHome() {
     externalUrl('VITE_EXECUTION_DASHBOARD_URL') ||
     String(execCustomUrl || '').trim() ||
     DEFAULT_EXECUTION_DASHBOARD_URL;
-  const preUrl =
+  const preUrl = normalizePreconstructionUrl(
     String(vaultFromApi.pre || '').trim() ||
-    externalUrl('VITE_PRECONSTRUCTION_URL') ||
-    String(preCustomUrl || '').trim() ||
-    DEFAULT_PRECONSTRUCTION_URL;
+      externalUrl('VITE_PRECONSTRUCTION_URL') ||
+      String(preCustomUrl || '').trim() ||
+      bundledPreconstructionUrl() ||
+      DEFAULT_PRECONSTRUCTION_URL
+  );
   const execVersionedUrl = withVersionParam(execUrl, 'v', VAULT_EXEC_VERSION);
   const preVersionedUrl = withVersionParam(preUrl, 'v', VAULT_PRE_VERSION);
   const execEnabled = !!execVersionedUrl;

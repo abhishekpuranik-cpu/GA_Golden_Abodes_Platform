@@ -4,6 +4,7 @@ services:
     runtime: node
     rootDir: .
     # build:all needs sibling GA_Cashflow_V1_React + local XLSX — use build:render on Render only.
+    # build:render bundles PreConstruction at /preconstruction/ (sibling GA_PreConstruction_React in monorepo).
     buildCommand: npm ci && npm run build:render
     startCommand: npm run start
     healthCheckPath: /api/health

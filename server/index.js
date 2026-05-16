@@ -86,6 +86,22 @@ app.use((req, res, next) => {
   return res.redirect(`/access?next=${nextUrl}`);
 });
 
+const preconPublicDir = path.join(rootDir, 'client', 'public', 'preconstruction');
+const preconBundled = fs.existsSync(path.join(preconPublicDir, 'index.html'));
+
+if (preconBundled) {
+  app.use('/preconstruction', (req, res, next) => {
+    res.setHeader('Cache-Control', 'no-store, must-revalidate');
+    next();
+  });
+  app.use('/preconstruction', express.static(preconPublicDir, { index: 'index.html', fallthrough: true }));
+  app.get(['/preconstruction', '/preconstruction/*'], (req, res, next) => {
+    if (/\.[a-z0-9]+$/i.test(req.path)) return next();
+    res.sendFile(path.join(preconPublicDir, 'index.html'));
+  });
+  console.log(`PreConstruction app mounted at /preconstruction from ${preconPublicDir}`);
+}
+
 if (LEGACY_EXISTS) {
   // Single-file HTML tools must not stick in browser/CDN cache after deploy (users kept seeing old UI).
   app.use('/legacy', (req, res, next) => {
@@ -110,7 +126,9 @@ const clientDist = path.join(rootDir, 'client', 'dist');
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist));
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/legacy')) return next();
+    if (req.path.startsWith('/api') || req.path.startsWith('/legacy') || req.path.startsWith('/preconstruction')) {
+      return next();
+    }
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 }
