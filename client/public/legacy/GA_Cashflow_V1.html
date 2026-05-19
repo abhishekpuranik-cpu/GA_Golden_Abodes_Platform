@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 35;
+var CF_VERSION = 36;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2210,20 +2210,28 @@ function normalizeLoanSanction(v){
   var s=String(v||'').trim().toLowerCase();
   return (s==='yes')?'yes':'no';
 }
+var OC_GST_ON_SALE_RATE=0.05;
+function computeOwnContributionAmount(tv,loan,src){
+  tv=Math.max(0,coerceMoney(tv));
+  if(normalizeFundingSource(src)==='self') return tv;
+  loan=Math.max(0,coerceMoney(loan));
+  var gstOnSale=OC_GST_ON_SALE_RATE*tv;
+  return Math.max(0,tv-(loan-gstOnSale));
+}
 function normalizeUnitFundingFields(u){
   if(!u) return;
   var tv=Math.max(0,coerceMoney(u.totalValue));
   var src=normalizeFundingSource(u.fundingSource);
-  var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
   var loan=Math.max(0,coerceMoney(u.loanAmount));
   var sanctioned=normalizeLoanSanction(u.loanSanctioned);
+  var oc;
   if(src==='self'){
     oc=tv;
     loan=0;
     sanctioned='no';
   }else{
     if(loan>tv&&tv>0) loan=tv;
-    oc=Math.max(0,tv-loan);
+    oc=computeOwnContributionAmount(tv,loan,'loan');
   }
   var ocrIn=Math.max(0,coerceMoney(u.ownContributionReceived));
   if(src!=='loan'&&ocrIn>oc) ocrIn=oc;
@@ -2255,11 +2263,15 @@ function ownContributionDueTillTodayForDisplay(u, cfg, cache){
   }
   return Math.max(0,Math.min(oc,dueToday));
 }
-/** Plan-based OC still due (CLP-to-date for self; full OC for loan) minus OC received — not capped for loan-funded units. */
+/** Loan: OC(auto) − OC received. Self: CLP due till today − OC received. */
 function ownContributionPendingComputed(u, cfg, cache){
   ensureUnitPaymentFields(u);
-  var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
   var ocr=Math.max(0,coerceMoney(u.ownContributionReceived));
+  if(normalizeFundingSource(u.fundingSource)==='loan'){
+    var oc=Math.max(0,coerceMoney(u.ownContributionAmount));
+    return Math.max(0,oc-ocr);
+  }
+  var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
   return Math.max(0,dueToday-ocr);
 }
 function ocPendingManualValue(u){
@@ -2306,7 +2318,7 @@ function htmlUnitFundingSourceSelect(u, idx){
 function htmlUnitOwnContributionInput(u, idx){
   var src=normalizeFundingSource(u&&u.fundingSource);
   var oc=Math.max(0,coerceMoney(u&&u.ownContributionAmount));
-  return '<input type="number" min="0" step="0.01" disabled value="'+escAttr(oc?String(oc):'')+'" style="width:100%;max-width:118px;padding:4px 4px;border:1px solid var(--border);border-radius:5px;font-size:9px;background:var(--bg)" title="'+(src==='self'?'Auto = full sale value for self contribution':'Auto = sale value minus loan amount')+'"/>';
+  return '<input type="number" min="0" step="0.01" disabled value="'+escAttr(oc?String(oc):'')+'" style="width:100%;max-width:118px;padding:4px 4px;border:1px solid var(--border);border-radius:5px;font-size:9px;background:var(--bg)" title="'+(src==='self'?'Auto = full sale value (self contribution)':'Auto = Sale value − (Loan − 5% GST on sale value)')+'"/>';
 }
 function htmlUnitLoanAmountInput(u, idx){
   var src=normalizeFundingSource(u&&u.fundingSource);
@@ -2335,7 +2347,7 @@ function htmlUnitOcPendingCell(u, cfg, cache, idx){
   var comp=ownContributionPendingComputed(u,cfg,cache);
   var dueToday=ownContributionDueTillTodayForDisplay(u,cfg,cache);
   var man=ocPendingManualValue(u);
-  var title='Auto (plan): '+crL(comp,'₹0')+'. Due till today: '+crL(dueToday,'₹0')+'. '+(man!==null?'Manual override. ':'Edit to override; clear to revert to auto. Loan: OC received is not capped to OC. ');
+  var title='Auto: Sale value − (Loan − 5% GST) − OC received = '+crL(comp,'₹0')+'. '+(normalizeFundingSource(u.fundingSource)==='self'?('CLP due till today: '+crL(dueToday,'₹0')+'. '):'')+(man!==null?'Manual override. ':'Edit to override; clear to revert to auto. ');
   var v=(pend===0||pend>0)?String(pend):'';
   return '<input type="number" min="0" step="0.01" data-action="unit-oc-pending-manual" data-idx="'+idx+'" value="'+escAttr(v)+'" placeholder="Auto" style="width:100%;max-width:72px;padding:4px 3px;border:1px solid var(--border);border-radius:5px;font-size:9px;text-align:right;font-weight:700;color:#b45309;background:#fff" title="'+escAttr(title)+'"/>';
 }
