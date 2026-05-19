@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 34;
+var CF_VERSION = 35;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -571,33 +571,175 @@ function actualOutflowSumByGaL1(cfg){
   });
   return sums;
 }
-function htmlExpenseHealthL1CompareChart(cfg){
-  var acts=cfg.actuals||[];
-  var faux=plannedTotalsFakeRowForL1(cfg);
-  var planL1=l1OutflowFromRowVals(faux);
-  var actL1=actualOutflowSumByGaL1(cfg);
-  var cols=cfDisplayOutflowCols();
-  var rows=[], maxV=1;
-  cols.forEach(function(cn){
-    var p=planL1[cn]||0, a=actL1[cn]||0;
-    rows.push({cn:cn,p:p,a:a});
-    if(p>maxV) maxV=p;
-    if(a>maxV) maxV=a;
+var EXPENSE_METRIC_BUCKETS=['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee'];
+var EXPENSE_METRIC_PHASES=[
+  {key:'acquisition',label:'Acquisition & pre-construction',buckets:['Land','NOC','Consultant','Regulatory & Consulting']},
+  {key:'build',label:'Construction',buckets:['Construction']},
+  {key:'commercial',label:'Sales & marketing',buckets:['Marketing']},
+  {key:'overhead',label:'G&A / corporate',buckets:['GA DM Fee']}
+];
+function actualMatchesExpenseMetricBucket(a,bucket){
+  if(!a||coerceMoney(a.amount)>=0) return false;
+  var c1=String(a.cat1||'').trim(), ga=String(a.gaL1||'').trim(), disp=effectiveGaL1ForActualLine(c1,ga);
+  if(!disp&&!c1) return false;
+  if(bucket==='GA DM Fee') return c1==='GA DM Fee'||disp==='G&A Cost'||ga==='G&A Cost'||disp==='G&A'||ga==='G&A DM Fee';
+  if(bucket==='Construction') return c1==='Construction'||disp==='Construction Cost';
+  if(bucket==='Marketing') return c1==='Marketing'||disp==='Marketing Cost';
+  if(bucket==='Regulatory & Consulting') return c1==='Regulatory & Consulting'||disp==='Regulatory & Consulting'||ga==='Regulatory & Consulting';
+  if(bucket==='Land') return c1==='Land';
+  if(bucket==='NOC') return c1==='NOC';
+  if(bucket==='Consultant') return c1==='Consultant';
+  return disp===bucket||c1===bucket;
+}
+function sumActualExpenseMetricBucket(cfg,bucket){
+  return (cfg.actuals||[]).reduce(function(s,a){
+    if(!a||!includeActualInCashflowSums(a)) return s;
+    if(!actualMatchesExpenseMetricBucket(a,bucket)) return s;
+    return s+Math.abs(coerceMoney(a.amount));
+  },0);
+}
+function plannedExpenseMetricBuckets(cfg){
+  function sumSched(skey){ return (cfg[skey]||[]).reduce(function(s,e){return s+(parseFloat(e.amount)||0);},0); }
+  return EXPENSE_METRIC_BUCKETS.map(function(key){
+    var plan=0;
+    if(key==='Land') plan=sumSched('landSchedule');
+    else if(key==='NOC') plan=sumSched('nocSchedule');
+    else if(key==='Consultant') plan=sumSched('consultantSchedule');
+    else if(key==='Regulatory & Consulting') plan=sumSched('regulatoryConsultingSchedule');
+    else if(key==='Construction') plan=sumSched('constructionSchedule');
+    else if(key==='Marketing') plan=sumSched('marketingSchedule');
+    else if(key==='GA DM Fee') plan=cfg.gaGAAnnual>0?cfg.gaGAAnnual:(cfg.gaMonthly||0)*12;
+    return {key:key,plan:plan,act:sumActualExpenseMetricBucket(cfg,key)};
   });
-  var h='<div class="card" style="margin-bottom:12px;border-top:3px solid #1558A0">';
-  h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:6px">Expense health — planned vs actual (GA L1 / cashflow columns)</div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Planned = sum of schedule rows (and annual GA / marketing where shown) rolled into the same <strong>L1</strong> buckets as the Monthly Cashflow outflow headers (<em>GA Accounting Categories V1</em>). Actual = Tally / manual <code>actuals</code> with GA L1 set on each line.</div>';
-  h+='<div style="display:flex;flex-direction:column;gap:8px">';
-  rows.forEach(function(r){
-    var wp=Math.round((r.p/maxV)*100), wa=Math.round((r.a/maxV)*100);
-    h+='<div style="font-size:10px"><div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:2px"><span style="font-weight:700;color:var(--blue-b)">'+escHtml(r.cn)+'</span><span style="color:var(--muted)">Plan '+cr(r.p,'₹0')+' · Act '+cr(r.a,'₹0')+'</span></div>';
-    h+='<div style="height:10px;background:#E5E7EB;border-radius:999px;overflow:hidden;margin-bottom:2px"><div style="height:10px;width:'+wp+'%;background:linear-gradient(90deg,#93C5FD,#1558A0)"></div></div>';
-    h+='<div style="height:10px;background:#E5E7EB;border-radius:999px;overflow:hidden"><div style="height:10px;width:'+wa+'%;background:linear-gradient(90deg,#FCA5A5,#B91C1C)"></div></div>';
-    h+='<div style="font-size:8px;color:var(--muted)"><span style="color:#1558A0">■</span> Planned &nbsp; <span style="color:#B91C1C">■</span> Actual</div></div>';
+}
+function collectExpenseMetrics(cfg){
+  var buckets=plannedExpenseMetricBuckets(cfg);
+  var totalPlanned=0, totalActual=0;
+  buckets.forEach(function(r){ totalPlanned+=r.plan||0; totalActual+=r.act||0; });
+  var phases=EXPENSE_METRIC_PHASES.map(function(ph){
+    var plan=0, act=0;
+    ph.buckets.forEach(function(b){
+      var row=buckets.filter(function(x){return x.key===b;})[0];
+      if(row){ plan+=row.plan||0; act+=row.act||0; }
+    });
+    return {key:ph.key,label:ph.label,plan:plan,act:act};
   });
-  h+='</div></div>';
+  var topVariances=buckets.filter(function(r){return (r.plan||0)>0||(r.act||0)>0;}).map(function(r){
+    return {key:r.key,plan:r.plan,act:r.act,variance:(r.act||0)-(r.plan||0),varPct:r.plan>0?(((r.act||0)-r.plan)/r.plan)*100:null};
+  }).sort(function(a,b){ return Math.abs(b.variance)-Math.abs(a.variance); }).slice(0,5);
+  var startDate=(cfg.startDate&&String(cfg.startDate).trim())||new Date().toISOString().slice(0,10);
+  var byMo={}, cur=currentMonthStr(), i, mo, gaMo=cfg.gaGAAnnual>0?cfg.gaGAAnnual/12:(parseFloat(cfg.gaMonthly)||0);
+  [['landSchedule'],['nocSchedule'],['consultantSchedule'],['regulatoryConsultingSchedule'],['constructionSchedule'],['marketingSchedule']].forEach(function(pair){
+    var skey=pair[0];
+    (cfg[skey]||[]).forEach(function(e){
+      var m=scheduleMonthConsOrMkt(e,startDate)||scheduleMonthConsultantRow(e,startDate);
+      var amt=parseFloat(e.amount)||0;
+      if(m&&amt) byMo[m]=(byMo[m]||0)+amt;
+    });
+  });
+  mo=cur;
+  for(i=0;i<6;i++){ if(gaMo) byMo[mo]=(byMo[mo]||0)+gaMo; mo=offsetMonth(mo+'-01',1); }
+  var moKeys=Object.keys(byMo).sort();
+  var fromIdx=0;
+  for(i=0;i<moKeys.length;i++){ if(moKeys[i]>=cur){ fromIdx=i; break; } }
+  var plannedHorizon=moKeys.slice(fromIdx,fromIdx+6).map(function(k){ return {mo:k,plan:byMo[k]||0}; });
+  var next3Planned=plannedHorizon.slice(0,3).reduce(function(s,r){return s+(r.plan||0);},0);
+  var ytdYear=String(new Date().getFullYear());
+  var byMoAct={}, ytdActual=0, runKeys=[], runRate=0, debtActual=0;
+  (cfg.actuals||[]).forEach(function(a){
+    if(!a||!includeActualInCashflowSums(a)) return;
+    var amt=coerceMoney(a.amount);
+    if(amt>=0) return;
+    var mag=Math.abs(amt), moA=(normalizeToISODate(a.date)||'').slice(0,7);
+    if(/^\d{4}-\d{2}$/.test(moA)){
+      byMoAct[moA]=(byMoAct[moA]||0)+mag;
+      if(moA.slice(0,4)===ytdYear) ytdActual+=mag;
+    }
+    var c1=String(a.cat1||'').trim();
+    if(c1==='Interest Paid'||c1==='Principal Repaid') debtActual+=mag;
+  });
+  runKeys=Object.keys(byMoAct).sort();
+  if(runKeys.length){
+    var lastN=runKeys.slice(-3);
+    runRate=lastN.reduce(function(s,k){return s+(byMoAct[k]||0);},0)/lastN.length;
+  }
+  var ytdMonthly=runKeys.filter(function(k){return k.slice(0,4)===ytdYear;}).map(function(k){return {mo:k,act:byMoAct[k]}; });
+  var scheduleRemaining=Math.max(0,totalPlanned-totalActual);
+  var runwayMonths=runRate>0?scheduleRemaining/runRate:null;
+  return {
+    kpis:{totalPlanned:totalPlanned,totalActual:totalActual,ytdActual:ytdActual,next3Planned:next3Planned,
+      runRate:runRate,debtActual:debtActual,burnPct:totalPlanned>0?(totalActual/totalPlanned)*100:null,
+      scheduleRemaining:scheduleRemaining,runwayMonths:runwayMonths},
+    phases:phases,topVariances:topVariances,plannedHorizon:plannedHorizon,ytdMonthly:ytdMonthly,
+    hasData:totalPlanned>0||totalActual>0||ytdActual>0||plannedHorizon.some(function(r){return (r.plan||0)>0;})
+  };
+}
+function htmlExpenseMetricPhaseBars(phases,maxV){
+  var h='';
+  phases.forEach(function(p){
+    var wp=Math.round(((p.plan||0)/maxV)*100), wa=Math.round(((p.act||0)/maxV)*100);
+    h+='<div style="font-size:10px;margin-bottom:8px"><div style="display:flex;justify-content:space-between;margin-bottom:2px"><span style="font-weight:700">'+escHtml(p.label)+'</span><span style="color:var(--muted)">Plan '+formatRupeesDisplay(p.plan)+' · Act '+formatRupeesDisplay(p.act)+'</span></div>';
+    h+='<div style="height:8px;background:#E5E7EB;border-radius:999px;overflow:hidden;margin-bottom:2px"><div style="height:8px;width:'+wp+'%;background:#94a3b8"></div></div>';
+    h+='<div style="height:8px;background:#E5E7EB;border-radius:999px;overflow:hidden"><div style="height:8px;width:'+wa+'%;background:#1558A0"></div></div></div>';
+  });
+  h+='<div style="font-size:8px;color:var(--muted)"><span style="color:#94a3b8">■</span> Planned &nbsp; <span style="color:#1558A0">■</span> Actual</div>';
   return h;
 }
+function htmlExpenseMetricHorizonBars(rows,maxV,color){
+  var h='<div style="display:flex;flex-direction:column;gap:5px">';
+  (rows||[]).forEach(function(r){
+    var v=r.plan||0, w=maxV>0?Math.max(2,Math.round((v/maxV)*100)):2;
+    h+='<div style="display:grid;grid-template-columns:88px 1fr 90px;gap:6px;align-items:center">';
+    h+='<div style="font-size:9px;color:var(--muted)">'+escHtml(formatMonthKey(r.mo))+'</div>';
+    h+='<div style="height:9px;background:#E5E7EB;border-radius:999px;overflow:hidden"><div style="height:9px;width:'+w+'%;background:'+color+'"></div></div>';
+    h+='<div style="text-align:right;font-size:9px;font-weight:700">'+formatRupeesDisplay(v)+'</div></div>';
+  });
+  return h+'</div>';
+}
+function htmlExpenseMetricsDashboard(cfg){
+  var m=collectExpenseMetrics(cfg);
+  var h='<div class="card" style="margin-bottom:12px;border-top:3px solid #1558A0">';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:6px">Expense metrics — plan, burn &amp; horizon</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Schedules drive <strong>planned</strong> totals and the forward horizon; <strong>actuals</strong> are dated outflows (autosweeps excluded, same as Monthly cashflow).</div>';
+  if(!m.hasData){
+    h+='<div style="font-size:10px;color:var(--muted);padding:8px 0">Add schedule rows or import Tally / manual outflows to populate metrics.</div></div>';
+    return h;
+  }
+  var k=m.kpis, maxPhase=1;
+  m.phases.forEach(function(p){ var mx=Math.max(p.plan||0,p.act||0); if(mx>maxPhase) maxPhase=mx; });
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:12px">';
+  h+='<div class="kpi" style="border-top:3px solid var(--blue)"><div style="font-size:14px;font-weight:800">'+formatRupeesDisplay(k.totalPlanned)+'</div><div style="font-size:9px;color:var(--muted)">Total planned</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid #1558A0"><div style="font-size:14px;font-weight:800">'+formatRupeesDisplay(k.totalActual)+'</div><div style="font-size:9px;color:var(--muted)">Actual (buckets)'+(k.burnPct!=null?' · '+k.burnPct.toFixed(0)+'% of plan':'')+'</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--teal)"><div style="font-size:14px;font-weight:800">'+formatRupeesDisplay(k.ytdActual)+'</div><div style="font-size:9px;color:var(--muted)">YTD outflows</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--orange)"><div style="font-size:14px;font-weight:800">'+formatRupeesDisplay(k.next3Planned)+'</div><div style="font-size:9px;color:var(--muted)">Next 3 mo planned</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--purple)"><div style="font-size:14px;font-weight:800">'+formatRupeesDisplay(k.runRate)+'</div><div style="font-size:9px;color:var(--muted)">3-mo avg burn</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--gold)"><div style="font-size:14px;font-weight:800">'+formatRupeesDisplay(k.scheduleRemaining)+'</div><div style="font-size:9px;color:var(--muted)">Schedule remaining'+(k.runwayMonths!=null&&k.runwayMonths>0?' · ~'+k.runwayMonths.toFixed(1)+' mo':'')+'</div></div>';
+  if(k.debtActual>0) h+='<div class="kpi" style="border-top:3px solid var(--red-b)"><div style="font-size:14px;font-weight:800">'+formatRupeesDisplay(k.debtActual)+'</div><div style="font-size:9px;color:var(--muted)">Debt service (actual)</div></div>';
+  h+='</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;margin-bottom:12px">';
+  h+='<div class="card" style="padding:10px;margin:0"><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:8px">Spend by phase (plan vs actual)</div>'+htmlExpenseMetricPhaseBars(m.phases,maxPhase)+'</div>';
+  h+='<div class="card" style="padding:10px;margin:0"><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:8px">Largest variances (schedule buckets)</div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--blue-l)"><th style="padding:5px 6px;text-align:left">Bucket</th><th style="padding:5px 6px;text-align:right">Plan</th><th style="padding:5px 6px;text-align:right">Actual</th><th style="padding:5px 6px;text-align:right">Var %</th></tr></thead><tbody>';
+  m.topVariances.forEach(function(r){
+    var vc=r.varPct!=null?(r.varPct>=0?'+':'')+r.varPct.toFixed(0)+'%':'—';
+    var col=(r.variance||0)>0?'var(--red-b)':'var(--green-b)';
+    h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 6px;font-weight:700">'+escHtml(r.key)+'</td>';
+    h+='<td style="padding:4px 6px;text-align:right">'+formatRupeesDisplay(r.plan)+'</td><td style="padding:4px 6px;text-align:right">'+formatRupeesDisplay(r.act)+'</td>';
+    h+='<td style="padding:4px 6px;text-align:right;color:'+col+'">'+vc+'</td></tr>';
+  });
+  h+='</tbody></table></div></div>';
+  var maxH=1; m.plannedHorizon.forEach(function(r){ if((r.plan||0)>maxH) maxH=r.plan; });
+  h+='<div style="font-size:11px;font-weight:700;color:var(--muted);margin-bottom:6px">Planned outflow — next 6 months (schedules + GA monthly)</div>';
+  h+=htmlExpenseMetricHorizonBars(m.plannedHorizon,maxH,'#1558A0');
+  if(m.ytdMonthly.length){
+    var maxY=1; m.ytdMonthly.forEach(function(r){ if((r.act||0)>maxY) maxY=r.act; });
+    h+='<div style="font-size:11px;font-weight:700;color:var(--muted);margin:12px 0 6px">YTD actual burn by month</div>';
+    h+=htmlExpenseMetricHorizonBars(m.ytdMonthly.map(function(r){return {mo:r.mo,plan:r.act};}),maxY,'#7C3AED');
+  }
+  h+='</div>';
+  return h;
+}
+
 function htmlScheduleCashflowExplainer(){
   return '<div class="card" style="margin-bottom:12px;border-left:4px solid var(--gold);background:#FFFBF0">'
     +'<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:6px">How planned numbers and this tab feed cashflow</div>'
@@ -3447,9 +3589,71 @@ function buildUnsoldPaceQueue(cfg){
   });
   return out;
 }
-/** Always attempt project CLP spread for unsold (same construction-linked logic as sold const / loan units); lump only if schedule is empty. */
+/** Spread unsold revenue by project CLP only when the row has "Project CLP" ticked (Sales tab). */
 function unsoldUsesConstScheduleSpread(uRef){
-  return !!(uRef&&typeof uRef==='object');
+  return !!(uRef&&uRef.projectUnsoldAsClp);
+}
+function unsoldProjectedBookingMonthKey(cfg,u){
+  var saleIso=normalizeToISODate(u.projectedSaleDate)||'';
+  if(saleIso) return saleIso.slice(0,7);
+  var em=parseInt(u.expectedMonth,10);
+  if(em>=1){
+    var startD=cfg.startDate||currentMonthStr()+'-01';
+    return offsetMonth(startD,em-1)||'';
+  }
+  return '';
+}
+function unsoldRowPlannedValue(u){
+  var area=coerceMoney(u.saleableArea);
+  var rate=coerceMoney(u.plannedRatePerSqft);
+  return coerceMoney(u.plannedSaleValue||u.totalValue||(area>0&&rate>0?area*rate:0));
+}
+/** CLP schedule for one unsold row at projected booking (construction stage at booking = targets on/before booking month). */
+function unsoldClpScheduleForRow(cfg,u,bookingIso){
+  var val=unsoldRowPlannedValue(u);
+  if(val<=0) return [];
+  var bi=normalizeToISODate(bookingIso)||'';
+  if(!bi) return [];
+  if(!unsoldUsesConstScheduleSpread(u)){
+    return [{date:bi,amount:val,label:'Unsold projected sale (lump)'}];
+  }
+  var pseudo={payType:'const',bookingDate:bi,totalValue:val,milestonesDates:(u.milestonesDates&&typeof u.milestonesDates==='object')?u.milestonesDates:{}};
+  var sched=getConstSchedule(pseudo,cfg);
+  sched=clampConstScheduleAmountsToTotal(sched,val);
+  sched=ensureUnsoldScheduleCapturesTotal(sched,bi,val);
+  return sched&&sched.length?sched:[];
+}
+/** Sum of CLP tranches due in booking month for units projected to book in moKey (construction-linked stack at sale). */
+function pipelineClpAtBookingMonth(cfg,moKey){
+  var soldSet={};
+  (cfg.units||[]).forEach(function(u){ soldSet[normalizeUnitNoKey(u&&u.unitNo)]=1; });
+  var tot=0;
+  (cfg.unsoldUnits||[]).filter(function(u){ return !soldSet[normalizeUnitNoKey(u&&u.unitNo)]; }).forEach(function(u){
+    var bkMo=unsoldProjectedBookingMonthKey(cfg,u);
+    if(bkMo!==moKey) return;
+    var bi=normalizeToISODate(u.projectedSaleDate)||normalizeToISODate(bkMo+'-15')||'';
+    tot+=clpDueInBookingMonthForUnsoldRow(cfg,u,bi);
+  });
+  return tot;
+}
+/** Exported for tests — CLP due in booking month for one unsold row. */
+function pipelineClpAtBookingForUnsoldRow(cfg,u){
+  var bkMo=unsoldProjectedBookingMonthKey(cfg,u);
+  if(!bkMo) return 0;
+  var bi=normalizeToISODate(u.projectedSaleDate)||normalizeToISODate(bkMo+'-15')||'';
+  return clpDueInBookingMonthForUnsoldRow(cfg,u,bi);
+}
+/** CLP cash due in the booking month (construction stage at projected sale date). */
+function clpDueInBookingMonthForUnsoldRow(cfg,u,bookingIso){
+  var bi=normalizeToISODate(bookingIso)||'';
+  if(!bi) return 0;
+  var moKey=bi.slice(0,7);
+  if(!unsoldUsesConstScheduleSpread(u)){
+    return unsoldRowPlannedValue(u);
+  }
+  var tmp={};
+  addConstUnsoldToMap(tmp,cfg,bi,unsoldRowPlannedValue(u),u);
+  return (tmp[moKey]&&tmp[moKey].sales)||0;
 }
 function clampConstScheduleAmountsToTotal(sched,tv){
   if(!sched||!sched.length) return sched;
@@ -4559,7 +4763,8 @@ function buildPostSalesSeries(cfg){
       gap: (sched[mo]||0)-(real[mo]||0),
       newBookings: newBk[mo]||0,
       unsoldInvUnits: unsoldInventoryUnitsAtMonthEnd(cfg, mo),
-      pipelineExpBookings: pipelineExpectedBookingsCount(cfg, mo)
+      pipelineExpBookings: pipelineExpectedBookingsCount(cfg, mo),
+      pipelineClpAtBooking: pipelineClpAtBookingMonth(cfg, mo)
     };
   });
 }
@@ -4571,7 +4776,7 @@ function aggregatePostSalesSeriesForVisible(vis){
     buildPostSalesSeries(cfg).forEach(function(r){
       var mo=r.mo||'';
       if(!mo) return;
-      if(!byMo[mo]) byMo[mo]={mo:mo,scheduled:0,expected:0,realized:0,unsoldProj:0,gap:0,newBookings:0,unsoldInvUnits:0,pipelineExpBookings:0};
+      if(!byMo[mo]) byMo[mo]={mo:mo,scheduled:0,expected:0,realized:0,unsoldProj:0,gap:0,newBookings:0,unsoldInvUnits:0,pipelineExpBookings:0,pipelineClpAtBooking:0};
       byMo[mo].scheduled+=(r.scheduled||0);
       byMo[mo].expected+=(r.expected||0);
       byMo[mo].realized+=(r.realized||0);
@@ -4580,6 +4785,7 @@ function aggregatePostSalesSeriesForVisible(vis){
       byMo[mo].newBookings+=(r.newBookings||0);
       byMo[mo].unsoldInvUnits+=(r.unsoldInvUnits||0);
       byMo[mo].pipelineExpBookings+=(r.pipelineExpBookings||0);
+      byMo[mo].pipelineClpAtBooking+=(r.pipelineClpAtBooking||0);
     });
   });
   return Object.keys(byMo).sort().map(function(mo){ return byMo[mo]; });
@@ -5368,8 +5574,13 @@ function buildPostSalesMonthlyTableHtml(series, seriesFull, curMo){
   ['Demand','Collected','Eff. %','Outst.'].forEach(function(lab){
     h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+(lab==='Outst.'?'Cumulative demand − cumulative collected (plan vs receipts)':escAttr(lab))+'">'+lab+'</th>';
   });
-  ['Inv. units','Inv. value','Exp. bkgs'].forEach(function(lab){
-    h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+escAttr(lab)+'">'+lab+'</th>';
+  [
+    {lab:'Inv. units',title:'Unsold units still in stock at month-end'},
+    {lab:'Exp. bkgs',title:'Unsold units projected to book this month'},
+    {lab:'CLP @ bkgs',title:'CLP demand due in booking month (construction stage at projected sale)'},
+    {lab:'CLP later',title:'Further CLP tranches in this month from earlier/future projected bookings'}
+  ].forEach(function(col){
+    h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+escAttr(col.title)+'">'+col.lab+'</th>';
   });
   h+='</tr></thead><tbody>';
   if(!series.length){
@@ -5384,6 +5595,8 @@ function buildPostSalesMonthlyTableHtml(series, seriesFull, curMo){
       var nb=r.newBookings||0;
       var invU=r.unsoldInvUnits||0;
       var expBk=r.pipelineExpBookings||0;
+      var clpBk=r.pipelineClpAtBooking||0;
+      var clpLater=Math.max(0,(r.unsoldProj||0)-clpBk);
       var moLab=formatMonthKey(r.mo)+(rk==='future'?' <span style="font-size:8px;font-weight:600;color:var(--muted)">proj.</span>':'');
       var mtd=(rk==='current')?('<div style="font-size:8px;font-weight:600;color:#92400e;margin-top:2px">'+escHtml(postSalesMtdSubtitle())+'</div>'):'';
       var outst=(rk==='future')?'<span style="color:#64748b;font-style:italic;font-size:9px">modelled</span>':cr(Math.max(0,c.cumS-c.cumR));
@@ -5397,8 +5610,9 @@ function buildPostSalesMonthlyTableHtml(series, seriesFull, curMo){
       h+='<td style="text-align:right;padding:6px 6px">'+htmlPostSalesEffMiniBar(r.scheduled,r.realized,rk)+'</td>';
       h+='<td style="text-align:right;padding:6px 6px;font-weight:700">'+outst+'</td>';
       h+='<td style="text-align:right;padding:6px 6px">'+fmtPostSalesMaybeProj(rk, invU, true)+'</td>';
-      h+='<td style="text-align:right;padding:6px 6px;color:var(--purple)">'+fmtPostSalesMaybeProj(rk, r.unsoldProj, false)+'</td>';
       h+='<td style="text-align:right;padding:6px 6px">'+fmtPostSalesMaybeProj(rk, expBk, true)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--purple);font-weight:700">'+fmtPostSalesMaybeProj(rk, clpBk, false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--purple)">'+fmtPostSalesMaybeProj(rk, clpLater, false)+'</td>';
       h+='</tr>';
     });
     var totNb=series.reduce(function(s,r){ return s+(r.newBookings||0); },0);
@@ -5411,7 +5625,7 @@ function buildPostSalesMonthlyTableHtml(series, seriesFull, curMo){
     h+='<td style="text-align:right">'+cr(totDem)+'</td><td style="text-align:right">'+cr(totColl)+'</td>';
     h+='<td style="text-align:right">'+htmlPostSalesEffMiniBar(totDem,totColl,'past')+'</td>';
     h+='<td style="text-align:right">'+cr(Math.max(0,(cEnd.cumS||0)-(cEnd.cumR||0)))+'</td>';
-    h+='<td colspan="3" style="text-align:right;color:var(--muted);font-size:9px;font-weight:600">Future rows: pipeline uses unsold model; Outst. = modelled.</td>';
+    h+='<td colspan="3" style="text-align:right;color:var(--muted);font-size:9px;font-weight:600">Pipeline: tick <strong>Project CLP</strong> on unsold rows; CLP @ bkgs uses Sales milestone targets vs projected booking date.</td>';
     h+='</tr>';
   }
   h+='</tbody></table></div>';
@@ -5465,7 +5679,7 @@ function renderPostSalesPanel(cfg){
   h+='<label style="font-size:10px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none">';
   h+='<input type="checkbox" data-action="toggle-prior-years" '+(showPriorCalendarYears()?'checked':'')+' style="accent-color:var(--blue)"/>';
   h+='Show prior calendar years</label></div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45">Consolidated monthly <strong>scheduled</strong> (all units) vs <strong>expected amount</strong> (qualifying tags + agreement-pending with date) vs <strong>received</strong> — Tally <strong>Customer Collections</strong>, or CRM <code>(received)</code> when that replaces ledger; de-duplicated vs RTD. Unsold: FIFO + CLP like sold.'+(showPriorCalendarYears()?'':' <strong>Table:</strong> before '+cutY+' hidden — <strong>Show prior calendar years</strong> for full history.')+'</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45">Consolidated monthly <strong>scheduled</strong> (all units) vs <strong>expected amount</strong> (qualifying tags + agreement-pending with date) vs <strong>received</strong> — Tally <strong>Customer Collections</strong>, or CRM <code>(received)</code> when that replaces ledger; de-duplicated vs RTD. <strong>Unsold pipeline:</strong> <em>CLP @ bkgs</em> = CLP due when units book (construction stage at projected sale); <em>CLP later</em> = other unsold CLP in that month.'+(showPriorCalendarYears()?'':' <strong>Table:</strong> before '+cutY+' hidden — <strong>Show prior calendar years</strong> for full history.')+'</div>';
 
   h+='<div class="ps-dash-grid">';
   h+='<div class="ps-dash-card" style="border-color:#047857"><h4>Expected inflows (YTD)</h4><div class="v">'+(ytdExp>0?cr(ytdExp):'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">OK/untagged units; agreement-pending only if a date is set (same plan)</div></div>';
@@ -6394,7 +6608,7 @@ function renderExpenses(){
   }
 
   if(_expenseUIPanel==='dashboard'){
-    h+=htmlExpenseHealthL1CompareChart(cfg);
+    h+=htmlExpenseMetricsDashboard(cfg);
     h+='<p style="font-size:9px;color:var(--muted);margin:-4px 0 10px 0">Sums and trees below exclude <strong>bank autosweeps</strong> (same as Monthly cashflow).</p>';
     var byCat={}, byCC={}, treeOut={};
     acts.forEach(function(a){
