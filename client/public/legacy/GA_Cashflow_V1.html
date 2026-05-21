@@ -197,7 +197,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 37;
+var CF_VERSION = 38;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1004,14 +1004,14 @@ function bookingDueDiagnostics(unit,cfg){
   if(!b||tv<=0||!installUsesCRMDueLines(unit)) return null;
   var upDue=0;
   groupCRMInstallmentsByBase(unit,cfg).forEach(function(g){
-    if(isGstCollectionLabel(g.base||g.label)) return;
+    if(isExcludedCollectionColumn(g.base||g.label)) return;
     var dIso=normalizeToISODate(g.dueIso)||'';
     if(!dIso) return;
-    if(dIso<=b) upDue+=collectionAmountExGst(g.due,tv);
+    if(dIso<=b) upDue+=coerceMoney(g.due);
   });
   var ownPct=bookingMilestonePct(cfg);
   var cumPct=Math.max(ownPct,cumulativeMilestonePctAtBooking(unit,cfg));
-  var expDue=saleValueExcludingGst(tv)*(cumPct/100);
+  var expDue=tv*(cumPct/100);
   var diff=upDue-expDue;
   return {uploaded:upDue,expected:expDue,diff:diff,pct:cumPct};
 }
@@ -2212,29 +2212,21 @@ function normalizeLoanSanction(v){
   return (s==='yes')?'yes':'no';
 }
 var OC_GST_ON_SALE_RATE=0.05;
-function gstOnSaleValue(tv){ tv=Math.max(0,coerceMoney(tv)); return tv*OC_GST_ON_SALE_RATE; }
-function saleValueExcludingGst(tv){ tv=Math.max(0,coerceMoney(tv)); return Math.max(0,tv-gstOnSaleValue(tv)); }
-function collectionAmountExGst(amt,tv){
-  tv=Math.max(0,coerceMoney(tv)); amt=coerceMoney(amt);
-  if(amt<=0) return 0;
-  if(tv<=0) return amt;
-  var base=saleValueExcludingGst(tv);
-  return (amt*base)/tv;
-}
-function isGstCollectionLabel(labelOrBase){
+/** CRM columns omitted from Sold Units Due / Received / Pending (collection_report_stage_wise). */
+function isExcludedCollectionColumn(labelOrBase){
   var base=installmentBaseLabel(String(labelOrBase||''));
   var s=base.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
   if(!s) return false;
-  if(s==='gst'||/^gst\s/.test(s)||/\sgst$/.test(s)||/\sgst\s/.test(s)) return true;
+  if(s==='gst'||/^gst\b/.test(s)||/\bgst$/.test(s)||/\bgst\s/.test(s)) return true;
+  if(s==='interest'||/^interest\b/.test(s)) return true;
+  if(s==='stampduty'||s==='stamp duty'||(s.indexOf('stamp')>=0&&s.indexOf('duty')>=0)) return true;
+  if(s==='registration'||/^registration\b/.test(s)) return true;
+  if(s==='societycharges'||s==='society charges'||(s.indexOf('society')>=0&&s.indexOf('charge')>=0)) return true;
   if(s.indexOf('goods and services tax')>=0) return true;
-  if(s.indexOf('goods service tax')>=0) return true;
   return false;
 }
-function applyCollectionsExGstToInstallSchedule(unit,sched){
-  var tv=Math.max(0,coerceMoney(unit&&unit.totalValue));
-  return (sched||[]).filter(function(x){ return !isGstCollectionLabel(x.label); }).map(function(x){
-    return {date:x.date,amount:collectionAmountExGst(x.amount,tv),label:x.label};
-  });
+function filterExcludedCollectionInstallRows(sched){
+  return (sched||[]).filter(function(x){ return !isExcludedCollectionColumn(x.label); });
 }
 function computeOwnContributionAmount(tv,loan,src){
   tv=Math.max(0,coerceMoney(tv));
@@ -3953,9 +3945,8 @@ function getConstSchedule(unit, cfg){
   var defs=getMilestoneDefs(cfg);
   var b0=normalizeToISODate(unit.bookingDate)||'';
   var tv=coerceMoney(unit.totalValue);
-  var baseExGst=saleValueExcludingGst(tv);
   defs.forEach(function(ms){
-    var amt=(parseFloat(ms.pct)||0)/100*baseExGst;
+    var amt=(parseFloat(ms.pct)||0)/100*tv;
     var date;
     if(ms.key==='booking') date=b0;
     else if(ms.key==='agreement'){
@@ -4022,7 +4013,7 @@ function getInstallScheduleForSales(unit, cfg){
     var L=String(x.label||'');
     return L.indexOf('Construction stage at booking')>=0&&L.indexOf('(due)')>=0;
   });
-  sched=applyCollectionsExGstToInstallSchedule(unit,sched);
+  sched=filterExcludedCollectionInstallRows(sched);
   if(!hasPreBookSyn) return sched;
   var bmo=(normalizeToISODate(unit&&unit.bookingDate)||'').slice(0,7);
   var tv=coerceMoney(unit&&unit.totalValue);
@@ -4053,7 +4044,7 @@ function getInstallScheduleForSales(unit, cfg){
       x.amount=coerceMoney(x.amount)+strippedDue;
     }
   });
-  return applyCollectionsExGstToInstallSchedule(unit,slim);
+  return filterExcludedCollectionInstallRows(slim);
 }
 
 // Consolidated GA cashflow (sum of all projects by month)
@@ -4858,9 +4849,8 @@ function getConstScheduleShifted(unit,cfg,shiftMonths){
   var defs=getMilestoneDefs(cfg);
   var b0=normalizeToISODate(unit.bookingDate)||'';
   var tv=coerceMoney(unit.totalValue);
-  var baseExGst=saleValueExcludingGst(tv);
   defs.forEach(function(ms){
-    var amt=(parseFloat(ms.pct)||0)/100*baseExGst;
+    var amt=(parseFloat(ms.pct)||0)/100*tv;
     var date;
     if(ms.key==='booking') date=b0;
     else if(ms.key==='agreement'){
@@ -5334,7 +5324,6 @@ function colSumFromMoMap(map,col){
  */
 function buildSalesGridCaches(cfg, units){
   return units.map(function(u){
-    var tv=coerceMoney(u&&u.totalValue);
     var sched=getUnitSchedule(u,cfg);
     var dueByMo={};
     var dueTillToday=0;
@@ -5352,10 +5341,10 @@ function buildSalesGridCaches(cfg, units){
     if(u.payType==='install'){
       if(installUsesCRMDueLines(u)){
         groupCRMInstallmentsByBase(u,cfg).forEach(function(g){
-          if(isGstCollectionLabel(g.base||g.label)) return;
+          if(isExcludedCollectionColumn(g.base||g.label)) return;
           var dueMo=crmMilestoneMonthKey(g.dueIso||'', u);
           if(!dueMo) return;
-          var rcv=collectionAmountExGst(g.recv,tv), pnd=collectionAmountExGst(g.pend,tv);
+          var rcv=coerceMoney(g.recv), pnd=coerceMoney(g.pend);
           recvByMo[dueMo]=(recvByMo[dueMo]||0)+rcv;
           pendByMo[dueMo]=(pendByMo[dueMo]||0)+pnd;
           var gIso=normalizeToISODate(g.dueIso)||'';
@@ -5367,11 +5356,11 @@ function buildSalesGridCaches(cfg, units){
       } else {
         (u.installments||[]).forEach(function(ins){
           var L=String(ins.label||'');
-          if(isGstCollectionLabel(L)) return;
+          if(isExcludedCollectionColumn(L)) return;
           var iso=normalizeToISODate(effectiveInstallmentIso(u,cfg,ins));
           if(!iso) return;
           var mo=iso.slice(0,7);
-          var amtIns=collectionAmountExGst(ins.amount,tv);
+          var amtIns=coerceMoney(ins.amount);
           if(L.indexOf('(received)')>=0){
             recvByMo[mo]=(recvByMo[mo]||0)+amtIns;
             if(iso<=tdy) recvTillToday+=amtIns;
@@ -8720,6 +8709,7 @@ function parseCRMPostSalesRows(rows, cfg){
       if(lab===undefined||lab===null||String(lab).trim()==='') break;
       var labLow=String(lab).trim().toLowerCase();
       if(labLow==='total agreement'||labLow==='total amount'||(labLow.indexOf('total')===0&&labLow.indexOf('agreement')>=0)) break;
+      if(isExcludedCollectionColumn(lab)) continue;
       recv=parseCRMNumber(recvR[c]);
       pend=parseCRMNumber(pendR[c]);
       dueAmt=parseCRMNumber(dueR[c]);
