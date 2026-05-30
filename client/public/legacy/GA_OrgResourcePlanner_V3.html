@@ -56,6 +56,22 @@ th{padding:6px 8px;text-align:left;color:var(--muted);font-weight:700;font-size:
 td{padding:5px 8px;border-bottom:1px solid #EEF0F4;vertical-align:middle}
 tr:hover td{background:#FAFBFD}
 tfoot td{font-weight:700;background:var(--bg);border-top:1.5px solid var(--border)}
+.fin-table{table-layout:fixed;width:100%;max-width:920px}
+.fin-table th,.fin-table td{word-wrap:break-word;overflow-wrap:break-word}
+.fin-table .col-idx{width:28px}
+.fin-table .col-part{width:46%}
+.fin-table .col-mid{width:28%;text-align:right!important}
+.fin-table .col-unit{width:52px;text-align:center!important}
+.fin-table .col-amt{width:22%;text-align:right!important}
+.fin-table-rev .col-part{width:34%}
+.fin-table-rev .col-pct{width:12%;text-align:right!important}
+.fin-table-rev .col-area{width:14%;text-align:right!important}
+.fin-table-rev .col-rate{width:16%;text-align:right!important}
+.fin-table-rev .col-rev{width:16%;text-align:right!important}
+.proj-form-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px 14px;margin-bottom:10px}
+.proj-form-grid .full{grid-column:1/-1}
+.proj-form-lbl{font-size:10px;color:var(--muted);margin-bottom:3px}
+.proj-form-inp{width:100%;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);font-size:12px}
 /* Inputs */
 input[type=number]{width:50px;text-align:center;font-size:12px;font-weight:600;padding:3px 4px;border:1.5px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);transition:border-color .15s}
 input[type=number]:focus{outline:none;border-color:var(--blue);background:#fff}
@@ -695,7 +711,7 @@ function renderDashboard() {
     var has=C&&C.totRev>0;
     var gdv=has?C.totRev:(p.rev||0);
     var dmFee=has?C.dmFee:gdv*((f2.dmFeePct||10)/100);
-    var lc=(f2.spvLandCost||0)+(f2.spvLandDeposit||0);
+    var lc=(f2.spvLandCost||0)+(f2.nonRefundableDeposit||0);
     var cs=C&&C.consCost?C.consCost:0;
     var sp=has?C.spvNetProfit:null;
     totGDV+=gdv;totDMFee+=dmFee;totLandCost+=lc;totConsCost+=cs;
@@ -954,8 +970,9 @@ const FIN_DEF = {
   dmConsMonthly:600000, dmConsDuration:42,
   dmHoMonthly:500000, dmProjectMonths:48,
   dmMktgCpPct:5,
-  refundableDeposit:0, dapaRegistration:0, startupCost:0,
-  spvLandCost:0, spvLandDeposit:0, spvLegalCost:0, spvOtherCost:0,
+  refundableDeposit:0, nonRefundableDeposit:0, dapaRegistration:0, startupCost:0,
+  projectType:'', jvSharingType:'', googlePin:'',
+  spvLandCost:0, spvLegalCost:0, spvOtherCost:0,
   investorSaleAreaSqft:0, investorSaleRate:0,
   investorSaleCommAreaSqft:0, investorSaleCommRate:0,
   investorSaleDiscountPct:35,
@@ -1103,7 +1120,10 @@ function normalizeFsiMode(saved){
 // ── gf: get financial data for project (with defaults) ────────
 function gf(pid){
   if(!ST.fin[pid]) ST.fin[pid] = {};
+  var p=PROJS.find(function(x){return x.id===pid;});
+  if(p) syncProjectToFin(p);
   var out=Object.assign({}, FIN_DEF, ST.fin[pid]);
+  if(out.spvLandDeposit&&!out.refundableDeposit) out.refundableDeposit=out.spvLandDeposit;
   if(!Array.isArray(out.dmConsultants)) out.dmConsultants = [];
   var canon=normalizeFsiMode(out.fsiMode);
   out.fsiMode=canon;
@@ -1160,10 +1180,12 @@ function ufin(pid, key, val){
     renderFinModelInPlace(pid);
     return;
   }
-  const strKeys = ['fsiMode','inputUnit','dealType','projStatusDetail','usp','projectLaunchDate'];
+  const strKeys = ['fsiMode','inputUnit','dealType','projStatusDetail','usp','projectLaunchDate','projectType','jvSharingType','googlePin'];
   if(strKeys.includes(key)){
     ST.fin[pid][key] = key==='fsiMode' ? normalizeFsiMode(val) : val;
     if(key==='inputUnit'){
+      var px=PROJS.find(function(x){return x.id===pid;});
+      if(px) px.landAreaUnit=val;
       var fin=ST.fin[pid], sqmt=val==='sqmt';
       if(sqmt){
         if((fin.plotArea||0)>0 && !(fin.plotSqmt>0)) fin.plotSqmt=Math.round(fin.plotArea/10.764);
@@ -1176,11 +1198,20 @@ function ufin(pid, key, val){
         if((fin.truckTerminusSqmt||0)>0 && !(fin.truckTerminusSqft>0)) fin.truckTerminusSqft=Math.round(fin.truckTerminusSqmt*10.764);
       }
     }
+    if(key==='googlePin'||key==='projectType'||key==='jvSharingType'){
+      var px2=PROJS.find(function(x){return x.id===pid;});
+      if(px2) px2[key]=val;
+    }
   } else {
     const n = parseFloat(val);
     if(val===''||val===null||val===undefined) ST.fin[pid][key]=undefined;
     else if(isNaN(n)) ST.fin[pid][key]=val;
     else ST.fin[pid][key]=v3CroreToStored(key,n);
+    if(key==='commDevPct'||key==='resDevPct') syncFinDevPctToProject(pid);
+    if(key==='refundableDeposit'||key==='nonRefundableDeposit'){
+      var px=PROJS.find(function(x){return x.id===pid;});
+      if(px) px[key]=ST.fin[pid][key];
+    }
   }
   renderFinModelInPlace(pid);
 }
@@ -1209,7 +1240,7 @@ function fmtC(n){ // crores
   return '₹' + (n/10000000).toFixed(2) + ' Cr';
 }
 // Large ₹ fields: type amounts in Crores (2 = ₹2 Cr, 0.3 = ₹30 L)
-var V3_CRORE_FIELDS={totalInvestment:1,landValue:1,constructionValue:1,miscCost:1,spvLandCost:1,spvLandDeposit:1,spvLegalCost:1,spvOtherCost:1,fundMilestoneAmount:1,dmSalesMonthly:1,dmConsMonthly:1,dmHoMonthly:1};
+var V3_CRORE_FIELDS={totalInvestment:1,landValue:1,constructionValue:1,miscCost:1,spvLandCost:1,refundableDeposit:1,nonRefundableDeposit:1,spvLegalCost:1,spvOtherCost:1,fundMilestoneAmount:1,dmSalesMonthly:1,dmConsMonthly:1,dmHoMonthly:1};
 function gaV3CroreInputOn(){
   try{
     var v=localStorage.getItem('ga_v3_money_crores');
@@ -1237,6 +1268,44 @@ function areaDispSqft(sqft,uSqmt){
   if(sqft===undefined||sqft===null||isNaN(sqft)) return {t:'—',u:uSqmt?'sq.mt':'sq.ft'};
   var v=Math.round(Number(sqft));
   return {t:uSqmt?fmt(Math.round(v/10.764)):fmt(v), u:uSqmt?'sq.mt':'sq.ft'};
+}
+function finUsesSqmt(f){ return (f&&f.inputUnit||'sqft')==='sqmt'; }
+function finAreaUnitShort(uSqmt){ return uSqmt?'sq.mt':'sq.ft'; }
+function finRateUnitShort(uSqmt){ return uSqmt?'₹/sq.mt':'₹/sq.ft'; }
+/** Revenue = area in selected unit × rate in selected unit (internal areas stored as sq.ft). */
+function revFromAreaRateSqft(sqft,rate,uSqmt){
+  var a=Math.max(0,Number(sqft)||0), r=finNum(rate,0);
+  if(uSqmt) return (a/10.764)*r;
+  return a*r;
+}
+function syncProjectToFin(p){
+  if(!p||!p.id) return;
+  if(!ST.fin[p.id]) ST.fin[p.id]={};
+  var fin=ST.fin[p.id];
+  if(p.landAreaUnit) fin.inputUnit=p.landAreaUnit;
+  if(p.landArea>0){
+    if(p.landAreaUnit==='sqmt'){ fin.plotSqmt=p.landArea; fin.plotArea=Math.round(p.landArea*10.764); p.sqf=fin.plotArea; }
+    else { fin.plotArea=p.landArea; fin.plotSqmt=Math.round(p.landArea/10.764); p.sqf=p.landArea; }
+  }
+  if(p.projectType){
+    fin.projectType=p.projectType;
+    fin.dealType=p.projectType+(p.jvSharingType?' — '+p.jvSharingType:'');
+  }
+  if(p.projectType==='JV'){
+    if(p.jvSharingType) fin.jvSharingType=p.jvSharingType;
+    if(p.commDevPct!=null&&!isNaN(p.commDevPct)) fin.commDevPct=p.commDevPct;
+    if(p.resDevPct!=null&&!isNaN(p.resDevPct)) fin.resDevPct=p.resDevPct;
+  }
+  if(p.refundableDeposit!=null&&!isNaN(p.refundableDeposit)) fin.refundableDeposit=p.refundableDeposit;
+  if(p.nonRefundableDeposit!=null&&!isNaN(p.nonRefundableDeposit)) fin.nonRefundableDeposit=p.nonRefundableDeposit;
+  if(p.googlePin) fin.googlePin=p.googlePin;
+}
+function syncFinDevPctToProject(pid){
+  var p=PROJS.find(function(x){return x.id===pid;});
+  var f=ST.fin[pid];
+  if(!p||!f) return;
+  if(f.commDevPct!=null) p.commDevPct=f.commDevPct;
+  if(f.resDevPct!=null) p.resDevPct=f.resDevPct;
 }
 
 // ── secHdr: section header ─────────────────────────────────────
@@ -1464,23 +1533,25 @@ function finCalc(pid){
   var rDevA=Math.max(0,rDevA_gross-invSqRes);
   if(finNum(f.developerResAreaSqft,0)>0) rDevA=finNum(f.developerResAreaSqft,0);
   const totDevA=cDevA+rDevA;
-  const cRev=cDevA*finNum(f.commRate,0), rRev=rDevA*finNum(f.resRate,0);
-  const invSaleResRev=finNum(f.investorSaleAreaSqft,0)*finNum(f.investorSaleRate,0);
-  const invSaleCommRev=finNum(f.investorSaleCommAreaSqft,0)*finNum(f.investorSaleCommRate,0);
+  const uSqmtCalc=finUsesSqmt(f);
+  const cRev=revFromAreaRateSqft(cDevA,f.commRate,uSqmtCalc), rRev=revFromAreaRateSqft(rDevA,f.resRate,uSqmtCalc);
+  const invSaleResRev=revFromAreaRateSqft(finNum(f.investorSaleAreaSqft,0),finNum(f.investorSaleRate,0),uSqmtCalc);
+  const invSaleCommRev=revFromAreaRateSqft(finNum(f.investorSaleCommAreaSqft,0),finNum(f.investorSaleCommRate,0),uSqmtCalc);
   const invSaleRev=invSaleResRev+invSaleCommRev;
-  const mhadaRev=Math.max(0,finNum(f.mhadaAreaSqft,0))*finNum(f.mhadaRate,0);
+  const mhadaRev=revFromAreaRateSqft(Math.max(0,finNum(f.mhadaAreaSqft,0)),finNum(f.mhadaRate,0),uSqmtCalc);
   const totRev=cRev+rRev+invSaleRev+mhadaRev;
-  const consCost=totSal*(f.constructionRate||0), intCost=(f.totalInvestment||0)*_nz(f.interestRate,18)/100*_nz(f.interestYears,2);
-  const appCost=totSal*(f.approvalsRate||0), miscCost=_nz(f.miscCost,0);
+  const consCost=revFromAreaRateSqft(totSal,f.constructionRate,uSqmtCalc), intCost=(f.totalInvestment||0)*_nz(f.interestRate,18)/100*_nz(f.interestYears,2);
+  const appCost=revFromAreaRateSqft(totSal,f.approvalsRate,uSqmtCalc), miscCost=_nz(f.miscCost,0);
   const dmFee=totRev*(f.dmFeePct||10)/100;
   const dur=f.dmProjectMonths!==undefined&&f.dmProjectMonths!==null?f.dmProjectMonths:48;
   const consultRows = getConsultantRows(f);
   const consultRateSum = consultRows.reduce(function(s, r){ return s + _nz(r.rate, 0); }, 0);
-  const consultFee=totSal*consultRateSum;
+  const consultFee=revFromAreaRateSqft(totSal,consultRateSum,uSqmtCalc);
   const salesSal=_nz(f.dmSalesMonthly,0)*dur, consSal=_nz(f.dmConsMonthly,0)*dur, hoSal=_nz(f.dmHoMonthly,0)*dur;
   const mktgCP=totRev*_nz(f.dmMktgCpPct,0)/100;
-  const spvLandCost=f.spvLandCost||0, spvLandDeposit=f.spvLandDeposit||0, spvLegalCost=f.spvLegalCost||0, spvOtherCost=f.spvOtherCost||0;
-  const totExp=consCost+intCost+appCost+miscCost+dmFee+spvLandCost+spvLandDeposit+spvLegalCost+spvOtherCost+consultFee+mktgCP;
+  const spvLandCost=f.spvLandCost||0, spvLegalCost=f.spvLegalCost||0, spvOtherCost=f.spvOtherCost||0;
+  const nonRefundableDeposit=finNum(f.nonRefundableDeposit,0);
+  const totExp=consCost+intCost+appCost+miscCost+dmFee+spvLandCost+nonRefundableDeposit+spvLegalCost+spvOtherCost+consultFee+mktgCP;
   const grossP=totRev-totExp, invPS=grossP*_nz(f.investorProfitSharePct,15)/100, netP=grossP-invPS;
   const absorb=!!f.spvAbsorbConsultMktg;
   const gaConsult=absorb?0:consultFee, gaMktg=absorb?0:mktgCP;
@@ -1524,7 +1595,7 @@ function finCalc(pid){
     consultFee,consultRateSum,consultRows,salesSal,consSal,hoSal,mktgCP,dmNetProfit,
     dmCost,dmConsTotal,dmSalTotal,dmMktgCost,dmTotCost,
     stampLand,stampCon,totStamp,stampDutyNote,invTotal,
-    spvLandCost,spvLandDeposit,spvLegalCost,spvOtherCost,spvTotCost,spvNetProfit,spvMargin,spvConsultShift,
+    spvLandCost,spvLegalCost,spvOtherCost,nonRefundableDeposit,spvTotCost,spvNetProfit,spvMargin,spvConsultShift,
     netPlotDisp,basicFSIDisp,paidFSIDisp,tdrDisp,additionalDisp,
     permFSIDisp,ancFSIDisp,totPermDisp,dpRoadDisp,truckTermDisp,totalDeducDisp,totalPlotDisp,
     disp,gaConsult,gaMktg,absorbSpvFees:absorb,
@@ -1558,17 +1629,6 @@ function saveCustomRole(){
 
 // ── Project Planning + Financial Model ───────────────────────
 // ── Project Planning Tab ──────────────────────────────────────
-const PROJ_FIELDS = [
-  {key:'name',     label:'Project name',        type:'text',   hint:'e.g. NKG Phase 2'},
-  {key:'location', label:'Location/City',       type:'text',   hint:'e.g. Pune'},
-  {key:'status',   label:'Status',              type:'select', opts:['Active','Planned','Pipeline']},
-  {key:'rev',      label:'GDV Revenue (₹)',      type:'number', hint:'Total project revenue'},
-  {key:'sqf',      label:'Saleable area (sqft)', type:'number', hint:'e.g. 140000'},
-  {key:'unt',      label:'Units',               type:'number'},
-  {key:'cmp',      label:'Completion %',        type:'number'},
-  {key:'startDate',label:'Start date',          type:'date'},
-  {key:'endDate',  label:'End date',            type:'date'},
-];
 let expandedFinId = null;
 let editingProjId = null;
 let newProjToggle = true;
@@ -1585,27 +1645,77 @@ function getPfVal(k,type){
   if(!el) return type==='number'?0:'';
   return type==='number'?parseFloat(el.value)||0:el.value||'';
 }
+function onProjTypeChange(){
+  var sel=document.getElementById('pf_projectType');
+  var show=sel&&sel.value==='JV';
+  document.querySelectorAll('.jv-only-field').forEach(function(el){ el.style.display=show?'':'none'; });
+}
+function collectProjectFromForm(){
+  var refundableDeposit=parseFloat((document.getElementById('pf_refundableDeposit')||{}).value)||0;
+  var nonRefundableDeposit=parseFloat((document.getElementById('pf_nonRefundableDeposit')||{}).value)||0;
+  if(gaV3CroreInputOn()){
+    refundableDeposit=v3CroreToStored('refundableDeposit',refundableDeposit);
+    nonRefundableDeposit=v3CroreToStored('nonRefundableDeposit',nonRefundableDeposit);
+  }
+  var commEl=document.getElementById('pf_commDevPct'), resEl=document.getElementById('pf_resDevPct');
+  return {
+    name:getPfVal('name','text'),
+    location:getPfVal('location','text'),
+    status:getPfVal('status','text')||'Pipeline',
+    landArea:getPfVal('landArea','number'),
+    landAreaUnit:(document.getElementById('pf_landAreaUnit')||{}).value||'sqft',
+    projectType:(document.getElementById('pf_projectType')||{}).value||'',
+    jvSharingType:(document.getElementById('pf_jvSharingType')||{}).value||'',
+    commDevPct:commEl&&commEl.value!==''?parseFloat(commEl.value):undefined,
+    resDevPct:resEl&&resEl.value!==''?parseFloat(resEl.value):undefined,
+    refundableDeposit:refundableDeposit,
+    nonRefundableDeposit:nonRefundableDeposit,
+    googlePin:getPfVal('googlePin','text')
+  };
+}
+function renderProjFormFields(p,isNew){
+  p=p||{};
+  var v=function(k,d){ return (p[k]!=null&&p[k]!=='')?p[k]:(d||''); };
+  var fin=p.id&&ST.fin[p.id]?ST.fin[p.id]:{};
+  var landUnit=v('landAreaUnit',fin.inputUnit||'sqft');
+  var landArea=v('landArea',landUnit==='sqmt'?(fin.plotSqmt||''):(fin.plotArea||p.sqf||''));
+  var pt=v('projectType',fin.projectType||'');
+  var jvShow=pt==='JV';
+  var crHint=gaV3CroreInputOn()?' (₹ Cr)':'';
+  var refDep=p.refundableDeposit!=null&&p.refundableDeposit!==''?v3StoredToCroreDisplay('refundableDeposit',p.refundableDeposit):'';
+  var nonRefDep=p.nonRefundableDeposit!=null&&p.nonRefundableDeposit!==''?v3StoredToCroreDisplay('nonRefundableDeposit',p.nonRefundableDeposit):'';
+  var statuses=['Active','Planned','Pipeline'];
+  var html='<div class="proj-form-grid">';
+  html+='<div class="full"><div class="proj-form-lbl">Project Name *</div><input class="proj-form-inp" type="text" id="pf_name" value="'+String(v('name')).replace(/"/g,'&quot;')+'" placeholder="e.g. NKG Phase 2"/></div>';
+  html+='<div><div class="proj-form-lbl">Location / City</div><input class="proj-form-inp" type="text" id="pf_location" value="'+String(v('location')).replace(/"/g,'&quot;')+'" placeholder="e.g. Pune"/></div>';
+  html+='<div><div class="proj-form-lbl">Status</div><select class="proj-form-inp" id="pf_status">'+statuses.map(function(s){
+    var sel=(v('status','Pipeline')===s)||(isNew&&s==='Pipeline'&&!v('status'));
+    return '<option'+(sel?' selected':'')+'>'+s+'</option>';
+  }).join('')+'</select></div>';
+  html+='<div><div class="proj-form-lbl">Land Area</div><input class="proj-form-inp" type="number" min="0" id="pf_landArea" value="'+landArea+'" placeholder="Enter area"/></div>';
+  html+='<div><div class="proj-form-lbl">Land Area Unit</div><select class="proj-form-inp" id="pf_landAreaUnit"><option value="sqft"'+(landUnit==='sqft'?' selected':'')+'>Sq. Ft</option><option value="sqmt"'+(landUnit==='sqmt'?' selected':'')+'>Sq. Mt</option></select></div>';
+  html+='<div><div class="proj-form-lbl">Type</div><select class="proj-form-inp" id="pf_projectType" onchange="onProjTypeChange()"><option value="">— Select —</option><option value="JV"'+(pt==='JV'?' selected':'')+'>JV</option><option value="Outright"'+(pt==='Outright'?' selected':'')+'>Outright</option></select></div>';
+  html+='<div class="jv-only-field"'+(jvShow?'':' style="display:none"')+'><div class="proj-form-lbl">Sharing Type (JV)</div><select class="proj-form-inp" id="pf_jvSharingType"><option value="">— Select —</option><option value="Area Share"'+(v('jvSharingType',fin.jvSharingType)==='Area Share'?' selected':'')+'>Area Share</option><option value="Revenue Share"'+(v('jvSharingType',fin.jvSharingType)==='Revenue Share'?' selected':'')+'>Revenue Share</option></select></div>';
+  html+='<div class="jv-only-field"'+(jvShow?'':' style="display:none"')+'><div class="proj-form-lbl">Commercial Ratio %</div><input class="proj-form-inp" type="number" min="0" max="100" step="0.1" id="pf_commDevPct" value="'+(v('commDevPct',fin.commDevPct)!==''?v('commDevPct',fin.commDevPct):'')+'" placeholder="e.g. 50 — links to Revenue §2"/></div>';
+  html+='<div class="jv-only-field"'+(jvShow?'':' style="display:none"')+'><div class="proj-form-lbl">Residential Ratio %</div><input class="proj-form-inp" type="number" min="0" max="100" step="0.1" id="pf_resDevPct" value="'+(v('resDevPct',fin.resDevPct)!==''?v('resDevPct',fin.resDevPct):'')+'" placeholder="e.g. 65 — links to Revenue §2"/></div>';
+  html+='<div><div class="proj-form-lbl">Refundable Deposit'+crHint+'</div><input class="proj-form-inp" type="number" min="0" step="'+(gaV3CroreInputOn()?'0.01':'100000')+'" id="pf_refundableDeposit" value="'+refDep+'" placeholder="Not in project cost"/></div>';
+  html+='<div><div class="proj-form-lbl">Non-Refundable Deposit'+crHint+'</div><input class="proj-form-inp" type="number" min="0" step="'+(gaV3CroreInputOn()?'0.01':'100000')+'" id="pf_nonRefundableDeposit" value="'+nonRefDep+'" placeholder="Added to project cost"/></div>';
+  html+='<div class="full"><div class="proj-form-lbl">Google Maps Pin</div><input class="proj-form-inp" type="text" id="pf_googlePin" value="'+String(v('googlePin',fin.googlePin)).replace(/"/g,'&quot;')+'" placeholder="Paste Google Maps link or coordinates"/></div>';
+  html+='</div>';
+  return html;
+}
 
 function saveProject(mode){
-  const name=getPfVal('name','text');
-  const location=getPfVal('location','text');
-  if(!name){alert('Project name is required.');return;}
-  var sdEl=document.getElementById('pf_startDate'), edEl=document.getElementById('pf_endDate');
-  const startDate=(sdEl&&sdEl.value)||'';
-  const endDate=(edEl&&edEl.value)||'';
-  const status=getPfVal('status','text')||'Pipeline';
+  const data=collectProjectFromForm();
+  if(!data.name){alert('Project name is required.');return;}
   if(mode==='new'){
     const newId='P'+String(Date.now()).slice(-4);
-    PROJS.push({id:newId,name,location,on:true,status,startDate,endDate,
-      rev:getPfVal('rev','number'),sqf:getPfVal('sqf','number'),
-      unt:getPfVal('unt','number'),slb:0,bkn:0,lds:0,trx:0,lab:0,
-      cmp:getPfVal('cmp','number'),mnt:0});
-    try { if (!ST.fin[newId]) ST.fin[newId] = {}; } catch (e) {}
+    PROJS.push(Object.assign({id:newId,on:true,rev:0,sqf:0,unt:0,slb:0,bkn:0,lds:0,trx:0,lab:0,cmp:0,mnt:0,startDate:'',endDate:''},data));
+    try { if (!ST.fin[newId]) ST.fin[newId] = {}; syncProjectToFin(PROJS[PROJS.length-1]); } catch (e) {}
   } else {
     const p=PROJS.find(x=>x.id===mode); if(!p) return;
-    Object.assign(p,{name,location,status,startDate,endDate,
-      rev:getPfVal('rev','number'),sqf:getPfVal('sqf','number'),
-      unt:getPfVal('unt','number'),cmp:getPfVal('cmp','number')});
+    Object.assign(p,data);
+    syncProjectToFin(p);
   }
   editingProjId=null; initProjBtns();
   // Auto-sync projects to Resource Planner
@@ -1679,44 +1789,16 @@ function openProjectModal(mode) {
   window._editMode = mode;
   var isNew = (mode === 'new');
   var p = isNew ? {} : (PROJS.find(function(x){return x.id===mode;}) || {});
-  var fv = function(k){ return p[k]||''; };
-  var statuses = ['Active','Planned','Pipeline'];
   var html = '<div id="proj-modal-overlay" onclick="if(event.target===this)closeProjectModal()" '
     +'style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.45);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px">'
-    +'<div style="background:#fff;border-radius:12px;width:100%;max-width:560px;max-height:90vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)">'
+    +'<div style="background:#fff;border-radius:12px;width:100%;max-width:640px;max-height:90vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.25)">'
     +'<div style="background:#0A3266;color:#fff;padding:16px 20px;border-radius:12px 12px 0 0;display:flex;align-items:center;justify-content:space-between">'
     +'<div style="font-size:15px;font-weight:800">'+(isNew?'➕ Add New Project':'✎ Edit Project: '+p.name)+'</div>'
     +'<button onclick="closeProjectModal()" style="background:transparent;border:none;color:#fff;font-size:20px;cursor:pointer;padding:0 4px">✕</button>'
     +'</div>'
     +'<div style="padding:20px">'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px">';
-  // Name
-  html += '<div style="grid-column:1/-1"><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Project Name *</label>'
-    +'<input type="text" id="pf_name" value="'+fv('name')+'" placeholder="e.g. NKG Phase 2" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  // Location + Status
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Location / City</label>'
-    +'<input type="text" id="pf_location" value="'+fv('location')+'" placeholder="e.g. Pune" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Status</label>'
-    +'<select id="pf_status" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px;background:#fff">'
-    +statuses.map(function(s){return '<option'+(fv('status')===s?' selected':s==='Pipeline'&&isNew?' selected':'')+'>'+s+'</option>';}).join('')
-    +'</select></div>';
-  // GDV + sqft
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">GDV Revenue (₹)</label>'
-    +'<input type="number" id="pf_rev" value="'+fv('rev')+'" placeholder="e.g. 950000000" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Saleable Area (sqft)</label>'
-    +'<input type="number" id="pf_sqf" value="'+fv('sqf')+'" placeholder="e.g. 140000" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  // Units + Completion
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Total Units</label>'
-    +'<input type="number" id="pf_unt" value="'+fv('unt')+'" placeholder="e.g. 180" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Completion %</label>'
-    +'<input type="number" id="pf_cmp" min="0" max="100" value="'+fv('cmp')+'" placeholder="0-100" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  // Dates
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">Start Date</label>'
-    +'<input type="date" id="pf_startDate" value="'+fv('startDate')+'" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  html += '<div><label style="font-size:10px;font-weight:700;color:#4A5568;text-transform:uppercase;letter-spacing:.06em;display:block;margin-bottom:4px">End Date</label>'
-    +'<input type="date" id="pf_endDate" value="'+fv('endDate')+'" style="width:100%;padding:9px 12px;border-radius:7px;border:1.5px solid #DDE2EA;font-size:13px"/></div>';
-  html += '</div>';
-  html += '<div style="display:flex;gap:10px;padding-top:4px">'
+    +renderProjFormFields(p,isNew)
+    +'<div style="display:flex;gap:10px;padding-top:4px;margin-top:8px">'
     +'<button onclick="saveProjectModal()" style="flex:1;padding:10px;background:#0A3266;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:13px;font-weight:700">'
     +(isNew?'Create Project':'Save Changes')+'</button>'
     +'<button onclick="closeProjectModal()" style="padding:10px 18px;border:1.5px solid #DDE2EA;border-radius:8px;cursor:pointer;font-size:13px">Cancel</button>'
@@ -1724,7 +1806,7 @@ function openProjectModal(mode) {
   var el = document.createElement('div');
   el.innerHTML = html;
   document.body.appendChild(el.firstChild);
-  setTimeout(function(){ var n=document.getElementById('pf_name');if(n)n.focus(); },60);
+  setTimeout(function(){ var n=document.getElementById('pf_name');if(n)n.focus(); onProjTypeChange(); },60);
 }
 function closeProjectModal(){
   var el=document.getElementById('proj-modal-overlay');
@@ -1732,24 +1814,16 @@ function closeProjectModal(){
 }
 function saveProjectModal(){
   var mode=window._editMode||'new';
-  var name=(document.getElementById('pf_name')||{}).value||'';
-  var location=(document.getElementById('pf_location')||{}).value||'';
-  var status=(document.getElementById('pf_status')||{}).value||'Pipeline';
-  var rev=parseFloat((document.getElementById('pf_rev')||{}).value)||0;
-  var sqf=parseFloat((document.getElementById('pf_sqf')||{}).value)||0;
-  var unt=parseFloat((document.getElementById('pf_unt')||{}).value)||0;
-  var cmp=parseFloat((document.getElementById('pf_cmp')||{}).value)||0;
-  var startDate=(document.getElementById('pf_startDate')||{}).value||'';
-  var endDate=(document.getElementById('pf_endDate')||{}).value||'';
-  if(!name){alert('Project name is required.');return;}
+  var data=collectProjectFromForm();
+  if(!data.name){alert('Project name is required.');return;}
   if(mode==='new'){
     var newId='P'+String(Date.now()).slice(-4);
-    PROJS.push({id:newId,name:name,location:location,on:true,status:status,startDate:startDate,endDate:endDate,
-      rev:rev,sqf:sqf,unt:unt,slb:0,bkn:0,lds:0,trx:0,lab:0,cmp:cmp,mnt:0});
-    try { if (!ST.fin[newId]) ST.fin[newId] = {}; } catch (e) {}
+    PROJS.push(Object.assign({id:newId,on:true,rev:0,sqf:0,unt:0,slb:0,bkn:0,lds:0,trx:0,lab:0,cmp:0,mnt:0,startDate:'',endDate:''},data));
+    try { if (!ST.fin[newId]) ST.fin[newId] = {}; syncProjectToFin(PROJS[PROJS.length-1]); } catch (e) {}
   } else {
     var px=PROJS.find(function(x){return x.id===mode;}); if(!px) return;
-    Object.assign(px,{name:name,location:location,status:status,startDate:startDate,endDate:endDate,rev:rev,sqf:sqf,unt:unt,cmp:cmp});
+    Object.assign(px,data);
+    syncProjectToFin(px);
   }
   closeProjectModal();
   editingProjId=null; initProjBtns();
@@ -1793,15 +1867,8 @@ function renderProjects(){
     ${isExp?`<tr><td colspan="8" style="padding:0">${typeof renderFinModel==='function'?renderFinModel(p.id):'<div style="padding:16px;color:var(--muted)">Financial model loading…</div>'}</td></tr>`:''}
     ${isEd?`<tr><td colspan="8" style="padding:12px;background:var(--blue-l)">
       <div style="font-size:13px;font-weight:700;margin-bottom:10px">Edit: ${p.name}</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        ${PROJ_FIELDS.map(f=>{
-          const val=p[f.key]||'';
-          if(f.type==='select') return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+f.label+'</div><select id="pf_'+f.key+'" style="padding:6px 10px;border-radius:6px;border:1.5px solid var(--border)">'+f.opts.map(o=>'<option'+(val===o?' selected':'')+'>'+o+'</option>').join('')+'</select></div>';
-          if(f.type==='date') return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+f.label+'</div><input type="date" id="pf_'+f.key+'" value="'+val+'" style="padding:6px 10px;border-radius:6px;border:1.5px solid var(--border)"/></div>';
-          return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+f.label+'</div><input type="'+(f.type==='number'?'number':'text')+'" id="pf_'+f.key+'" value="'+val+'" placeholder="'+(f.hint||'')+'" style="width:160px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border)"/></div>';
-        }).join('')}
-      </div>
-      <div style="display:flex;gap:8px">
+      ${renderProjFormFields(p,false)}
+      <div style="display:flex;gap:8px;margin-top:10px">
         <button onclick="saveProject('${p.id}')" style="padding:6px 16px;border-radius:7px;cursor:pointer;border:none;background:var(--blue);color:#fff;font-weight:700">Save</button>
         <button onclick="editingProjId=null;renderProjects()" style="padding:6px 14px;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:transparent">Cancel</button>
       </div>
@@ -1813,14 +1880,8 @@ function renderProjects(){
   const addForm = isAddNew ? `
     <div style="background:var(--blue-l);border-radius:10px;padding:14px 16px;margin-top:12px;border:1px solid var(--blue)">
       <div style="font-size:13px;font-weight:700;margin-bottom:10px">➕ Add new project</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px">
-        ${PROJ_FIELDS.map(f=>{
-          if(f.type==='select') return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+f.label+'</div><select id="pf_'+f.key+'" style="padding:6px 10px;border-radius:6px;border:1.5px solid var(--border)">'+f.opts.map(o=>'<option>'+o+'</option>').join('')+'</select></div>';
-          if(f.type==='date') return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+f.label+'</div><input type="date" id="pf_'+f.key+'" style="padding:6px 10px;border-radius:6px;border:1.5px solid var(--border)"/></div>';
-          return '<div><div style="font-size:10px;color:var(--muted);margin-bottom:3px">'+f.label+'</div><input type="'+(f.type==='number'?'number':'text')+'" id="pf_'+f.key+'" placeholder="'+(f.hint||'')+'" style="width:160px;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border)"/></div>';
-        }).join('')}
-      </div>
-      <div style="display:flex;gap:8px">
+      ${renderProjFormFields({},true)}
+      <div style="display:flex;gap:8px;margin-top:10px">
         <button onclick="saveProject('new')" style="padding:6px 16px;border-radius:7px;cursor:pointer;border:none;background:var(--blue);color:#fff;font-weight:700">Create project</button>
         <button onclick="editingProjId=null;renderProjects()" style="padding:6px 14px;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:transparent">Cancel</button>
       </div>
@@ -1882,6 +1943,12 @@ function renderFinModel(pid){
   if(typeof _collapsed['gadm-'+pid] === 'undefined') _collapsed['gadm-'+pid] = true;
   const invOutCollapsed = isCollapsed('invOut-'+pid);
   const uSqmtFin = (f.inputUnit||'sqft')==='sqmt';
+  const rateU = finRateUnitShort(uSqmtFin);
+  const areaU = finAreaUnitShort(uSqmtFin);
+  const cSalD = areaDispSqft(C.cSal,uSqmtFin);
+  const cDevD = areaDispSqft(C.cDevA,uSqmtFin);
+  const rDevD = areaDispSqft(C.rDevA,uSqmtFin);
+  const totSalD = areaDispSqft(C.totSal,uSqmtFin);
   const adSq = function(sqft,bold,valColor,unitColor){
     valColor=valColor||'var(--blue-b)';
     unitColor=unitColor||'var(--muted)';
@@ -1950,6 +2017,8 @@ function renderFinModel(pid){
         <label class="pf-label">Deal type</label>
         ${finTxt(pid,'dealType',f.dealType,'e.g. JV / Outright / DM')}
       </div>
+      ${p.projectType?`<div class="pf-field"><label class="pf-label">Project type</label><div style="font-size:12px;font-weight:700;color:var(--blue-b)">${p.projectType}${p.jvSharingType?' · '+p.jvSharingType:''}</div></div>`:''}
+      ${p.googlePin||f.googlePin?`<div class="pf-field" style="grid-column:span 2"><label class="pf-label">Google Maps Pin</label><div style="font-size:11px;color:var(--blue-b);word-break:break-all">${String(p.googlePin||f.googlePin).replace(/</g,'&lt;')}</div></div>`:''}
       <div class="pf-field">
         <label class="pf-label">Approval status</label>
         ${finTxt(pid,'projStatusDetail',f.projStatusDetail,'e.g. IOD & EC Received')}
@@ -1965,6 +2034,13 @@ function renderFinModel(pid){
           style="width:100%;padding:7px 10px;border:1.5px solid #1558A0;border-radius:6px;font-size:13px;font-weight:600;background:#F0F6FF;color:var(--text)"
           onchange="ufin('${pid}','totalInvestment',this.value)"/>
         <div class="pf-hint" style="margin-top:3px">${f.totalInvestment ? fmtC(f.totalInvestment) : 'Enter total investor capital'}</div>
+      </div>
+      <div class="pf-field">
+        <label class="pf-label">Refundable Deposit (excluded from project cost)</label>
+        <input type="number" min="0" step="${gaV3CroreInputOn()?'0.01':'100000'}" value="${f.refundableDeposit===undefined||f.refundableDeposit===null?'':v3StoredToCroreDisplay('refundableDeposit',f.refundableDeposit)}" placeholder="0"
+          style="width:100%;padding:7px 10px;border:1.5px solid #1558A0;border-radius:6px;font-size:13px;font-weight:600;background:#F0F6FF;color:var(--text)"
+          onchange="ufin('${pid}','refundableDeposit',this.value)"/>
+        <div class="pf-hint" style="margin-top:3px">${f.refundableDeposit ? fmtC(f.refundableDeposit) : 'Not counted in SPV expense total'}</div>
       </div>
     </div>
 
@@ -2004,11 +2080,11 @@ function renderFinModel(pid){
       <span style="font-size:10px;color:var(--teal-b);margin-left:8px">${uSqmtFin?'Plot &amp; deductions in sq.mt (converted to sq.ft internally).':'All areas in sq.ft.'} &nbsp;·&nbsp; TDR &amp; Paid FSI computed on net plot</span>
     </div>
     <div style="overflow-x:auto;margin-bottom:4px">
-      <table style="min-width:580px">
+      <table class="fin-table">
         <thead><tr style="background:#B2EAE8">
-          <th style="width:30px">#</th><th>Particular</th>
-          <th style="text-align:right;min-width:200px">Input / Calculated</th>
-          <th style="text-align:center;width:70px">Unit</th>
+          <th class="col-idx">#</th><th class="col-part">Particular</th>
+          <th class="col-mid">Input / Calculated</th>
+          <th class="col-unit">Unit</th>
         </tr></thead>
         <tbody>
           <!-- ─ Total Plot Area ─ -->
@@ -2207,11 +2283,11 @@ function renderFinModel(pid){
       </table>
     </div>`:`
     <div style="overflow-x:auto;margin-bottom:4px">
-      <table style="min-width:560px">
+      <table class="fin-table">
         <thead><tr style="background:var(--blue-l)">
-          <th style="width:30px">#</th><th>Particular</th>
-          <th style="text-align:right;min-width:180px">Area / Value</th>
-          <th style="text-align:center;width:80px">Unit</th>
+          <th class="col-idx">#</th><th class="col-part">Particular</th>
+          <th class="col-mid">Area / Value</th>
+          <th class="col-unit">Unit</th>
         </tr></thead>
         <tbody>
           <tr>
@@ -2275,29 +2351,29 @@ function renderFinModel(pid){
 
     ${secHdr(2,'Revenue for Developer','var(--green-b)','var(--green)')}
     <div style="overflow-x:auto;margin-bottom:4px">
-      <table style="min-width:640px">
+      <table class="fin-table fin-table-rev">
         <thead><tr style="background:var(--green-l)">
-          <th>#</th><th>Item Details</th>
-          <th style="text-align:right;min-width:130px">Developer %</th>
-          <th style="text-align:right;min-width:160px">Developer Area (sq.ft)</th>
-          <th style="text-align:right;min-width:160px">Rate (₹/sq.ft)</th>
-          <th style="text-align:right;min-width:130px">Revenue (₹)</th>
+          <th class="col-idx">#</th><th class="col-part">Item Details</th>
+          <th class="col-pct">Developer %</th>
+          <th class="col-area">Developer Area (${areaU})</th>
+          <th class="col-rate">Rate (${rateU})</th>
+          <th class="col-rev">Revenue (₹)</th>
         </tr></thead>
         <tbody>
           <tr>
             <td style="padding:6px 8px;color:var(--muted)">1</td>
-            <td style="padding:6px 8px">Commercial <span style="font-size:10px;color:var(--muted)">(Saleable: ${fmt(Math.round(C.cSal))} sq.ft)</span></td>
+            <td style="padding:6px 8px">Commercial <span style="font-size:10px;color:var(--muted)">(Saleable: ${cSalD.t} ${cSalD.u})</span></td>
             <td style="padding:5px 8px;text-align:right">${ti(pid,'commDevPct',f.commDevPct,110,'e.g. 50',1)}<span style="font-size:11px;color:var(--muted);margin-left:3px">%</span></td>
-            <td style="text-align:right;color:var(--blue-b);font-weight:700;padding:6px 8px">${fmt(Math.round(C.cDevA))}</td>
-            <td style="padding:5px 8px;text-align:right">${ti(pid,'commRate',f.commRate,130,'Rate ₹/sq.ft',100)}</td>
+            <td style="text-align:right;color:var(--blue-b);font-weight:700;padding:6px 8px">${cDevD.t}</td>
+            <td style="padding:5px 8px;text-align:right">${ti(pid,'commRate',f.commRate,130,'Rate '+rateU,100)}</td>
             <td style="text-align:right;color:var(--green-b);font-weight:700;padding:6px 8px">${fmtC(C.cRev)}</td>
           </tr>
           <tr style="background:var(--bg)">
             <td style="padding:6px 8px;color:var(--muted)">2</td>
             <td style="padding:6px 8px">Residential <span style="font-size:10px;color:var(--muted)">(Saleable: ${netHint(C.rSal)}; developer area below is <strong>net of investor sale</strong> when that block is filled)</span></td>
             <td style="padding:5px 8px;text-align:right">${ti(pid,'resDevPct',f.resDevPct,110,'e.g. 65',1)}<span style="font-size:11px;color:var(--muted);margin-left:3px">%</span></td>
-            <td style="text-align:right;color:var(--blue-b);font-weight:700;padding:6px 8px">${fmt(Math.round(C.rDevA))}</td>
-            <td style="padding:5px 8px;text-align:right">${ti(pid,'resRate',f.resRate,130,'Rate ₹/sq.ft',100)}</td>
+            <td style="text-align:right;color:var(--blue-b);font-weight:700;padding:6px 8px">${rDevD.t}</td>
+            <td style="padding:5px 8px;text-align:right">${ti(pid,'resRate',f.resRate,130,'Rate '+rateU,100)}</td>
             <td style="text-align:right;color:var(--green-b);font-weight:700;padding:6px 8px">${fmtC(C.rRev)}</td>
           </tr>
           <tr style="background:#F0FFF4">
@@ -2309,24 +2385,24 @@ function renderFinModel(pid){
               </div>
             </td>
             <td style="text-align:right;padding:6px 8px;color:var(--muted);font-size:11px">—</td>
-            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleAreaSqft',f.investorSaleAreaSqft,130,'sq.ft',1)}</td>
-            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleRate',f.investorSaleRate,130,'₹/sq.ft',10)}</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleAreaSqft',f.investorSaleAreaSqft,130,areaU,1)}</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleRate',f.investorSaleRate,130,rateU,10)}</td>
             <td style="text-align:right;color:var(--green-b);font-weight:700;padding:6px 8px">${fmtC(C.invSaleResRev||0)}</td>
           </tr>
           <tr style="background:#FAF5FF">
             <td style="padding:6px 8px;color:var(--muted)">3b</td>
             <td style="padding:6px 8px">Investor Sale — Commercial <span style="font-size:10px;color:var(--muted)">(same logic as residential; area net of commercial dev share)</span></td>
             <td style="text-align:right;padding:6px 8px;color:var(--muted);font-size:11px">—</td>
-            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleCommAreaSqft',f.investorSaleCommAreaSqft,130,'sq.ft',1)}</td>
-            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleCommRate',f.investorSaleCommRate,130,'₹/sq.ft',10)}</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleCommAreaSqft',f.investorSaleCommAreaSqft,130,areaU,1)}</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'investorSaleCommRate',f.investorSaleCommRate,130,rateU,10)}</td>
             <td style="text-align:right;color:var(--green-b);font-weight:700;padding:6px 8px">${fmtC(C.invSaleCommRev||0)}</td>
           </tr>
           ${(f.mhadaAreaSqft||0)>0?`<tr style="background:#E0F2FE">
             <td style="padding:6px 8px;color:var(--muted)">3c</td>
             <td style="padding:6px 8px">MHADA / affordable <span style="font-size:10px;color:var(--muted)">(from Area Working — separate rate line)</span></td>
             <td style="text-align:right;padding:6px 8px;color:var(--muted);font-size:11px">100%</td>
-            <td style="text-align:right;padding:5px 8px">${ti(pid,'mhadaAreaSqft',f.mhadaAreaSqft,130,'sq.ft',1)}</td>
-            <td style="text-align:right;padding:5px 8px">${ti(pid,'mhadaRate',f.mhadaRate,130,'₹/sq.ft',10)}</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'mhadaAreaSqft',f.mhadaAreaSqft,130,areaU,1)}</td>
+            <td style="text-align:right;padding:5px 8px">${ti(pid,'mhadaRate',f.mhadaRate,130,rateU,10)}</td>
             <td style="text-align:right;color:var(--green-b);font-weight:700;padding:6px 8px">${fmtC(C.mhadaRev||0)}</td>
           </tr>`:''}
           <tr style="background:var(--green-l)">
@@ -2342,11 +2418,11 @@ function renderFinModel(pid){
 
     ${secHdr(3,'Projected Expenses','var(--red-b)','var(--red)')}
     <div style="overflow-x:auto;margin-bottom:4px">
-      <table style="min-width:580px">
+      <table class="fin-table">
         <thead><tr style="background:var(--red-l)">
-          <th style="width:30px">#</th><th>Item Details</th>
-          <th style="text-align:right;min-width:260px">Rate / Parameters</th>
-          <th style="text-align:right;min-width:130px">Amount (₹)</th>
+          <th class="col-idx">#</th><th class="col-part">Item Details</th>
+          <th class="col-mid">Rate / Parameters</th>
+          <th class="col-amt">Amount (₹)</th>
         </tr></thead>
         <tbody>
           <tr>
@@ -2365,10 +2441,10 @@ function renderFinModel(pid){
           <tr style="background:var(--bg)">
             <td style="color:var(--muted);padding:6px 8px">2</td>
             <td style="padding:6px 8px">Cost of Construction
-              <div style="font-size:10px;color:var(--muted);margin-top:2px">Total Saleable (${fmt(Math.round(C.totSal))} sq.ft) × Rate</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">Total Saleable (${totSalD.t} ${totSalD.u}) × Rate</div>
             </td>
             <td style="padding:5px 8px;text-align:right">
-              ${ti(pid,'constructionRate',f.constructionRate,140,'Rate ₹/sq.ft',100)}<span style="font-size:11px;color:var(--muted);margin-left:4px">/sq.ft</span>
+              ${ti(pid,'constructionRate',f.constructionRate,140,'Rate '+rateU,100)}<span style="font-size:11px;color:var(--muted);margin-left:4px">${rateU.replace('₹/','/')}</span>
             </td>
             <td style="text-align:right;font-weight:700;color:var(--red-b);padding:6px 8px">${fmtC(C.conCost)}</td>
           </tr>
@@ -2385,10 +2461,10 @@ function renderFinModel(pid){
           <tr style="background:var(--bg)">
             <td style="color:var(--muted);padding:6px 8px">4</td>
             <td style="padding:6px 8px">Approvals
-              <div style="font-size:10px;color:var(--muted);margin-top:2px">Rate × Total Saleable (${fmt(Math.round(C.totSal))} sq.ft)</div>
+              <div style="font-size:10px;color:var(--muted);margin-top:2px">Rate × Total Saleable (${totSalD.t} ${totSalD.u})</div>
             </td>
             <td style="padding:5px 8px;text-align:right">
-              ${ti(pid,'approvalsRate',f.approvalsRate,140,'Rate ₹/sq.ft',10)}<span style="font-size:11px;color:var(--muted);margin-left:4px">/sq.ft</span>
+              ${ti(pid,'approvalsRate',f.approvalsRate,140,'Rate '+rateU,10)}<span style="font-size:11px;color:var(--muted);margin-left:4px">${rateU.replace('₹/','/')}</span>
             </td>
             <td style="text-align:right;font-weight:700;color:var(--red-b);padding:6px 8px">${fmtC(C.appCost)}</td>
           </tr>
@@ -2410,9 +2486,9 @@ function renderFinModel(pid){
           </tr>
           <tr>
             <td style="color:var(--muted);padding:6px 8px">7</td>
-            <td style="padding:6px 8px">SPV Land Deposit (Refundable)</td>
-            <td style="padding:5px 8px;text-align:right"><input type="number" min="0" step="${gaV3CroreInputOn()?'0.01':'500000'}" value="${f.spvLandDeposit!=null?v3StoredToCroreDisplay('spvLandDeposit',f.spvLandDeposit):''}" placeholder="0" style="width:180px;text-align:right;font-size:12px;font-weight:600;padding:5px 8px;border:1.5px solid #1558A0;border-radius:6px;background:#F0F6FF" onchange="ufin('${pid}','spvLandDeposit',this.value)"/></td>
-            <td style="text-align:right;font-weight:700;color:var(--red-b);padding:6px 8px">${fmtC(f.spvLandDeposit||0)}</td>
+            <td style="padding:6px 8px">Non-Refundable Deposit<div style="font-size:10px;color:var(--muted)">From project setup — included in project cost</div></td>
+            <td style="padding:5px 8px;text-align:right"><input type="number" min="0" step="${gaV3CroreInputOn()?'0.01':'100000'}" value="${f.nonRefundableDeposit!=null?v3StoredToCroreDisplay('nonRefundableDeposit',f.nonRefundableDeposit):''}" placeholder="0" style="width:180px;text-align:right;font-size:12px;font-weight:600;padding:5px 8px;border:1.5px solid #1558A0;border-radius:6px;background:#F0F6FF" onchange="ufin('${pid}','nonRefundableDeposit',this.value)"/></td>
+            <td style="text-align:right;font-weight:700;color:var(--red-b);padding:6px 8px">${fmtC(C.nonRefundableDeposit||0)}</td>
           </tr>
           <tr style="background:var(--bg)">
             <td style="color:var(--muted);padding:6px 8px">8</td>
@@ -2431,7 +2507,7 @@ function renderFinModel(pid){
             <td style="padding:6px 8px;font-weight:700;color:#5A1240">Consultant Fee
               <div style="font-size:10px;color:var(--muted);font-weight:500">Overall consultant cost is total of entries below (${_collapsed['consultExp-'+pid]?'collapsed':'expanded'})</div>
             </td>
-            <td style="text-align:right;padding:6px 8px;font-size:11px;color:var(--muted)">${C.consultRateSum.toFixed(2)} ₹/sq.ft</td>
+            <td style="text-align:right;padding:6px 8px;font-size:11px;color:var(--muted)">${C.consultRateSum.toFixed(2)} ${rateU}</td>
             <td style="text-align:right;font-weight:700;color:var(--red-b);padding:6px 8px">${fmtC(C.consultFee)}</td>
           </tr>
           ${_collapsed['consultExp-'+pid]?'':`

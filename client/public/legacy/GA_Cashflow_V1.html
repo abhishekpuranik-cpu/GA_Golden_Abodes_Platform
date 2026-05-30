@@ -821,6 +821,30 @@ function getMilestoneDefs(cfg){
   }
   return CONST_MILESTONES;
 }
+function constMilestonesFromPlinthToPossession(defs){
+  var all=Array.isArray(defs)?defs.slice():[];
+  if(!all.length) return all;
+  function hasPos(ms){
+    var k=String(ms&&ms.key||'').toLowerCase();
+    var l=String(ms&&ms.label||'').toLowerCase();
+    return k.indexOf('possession')>=0||l.indexOf('possession')>=0||l.indexOf('handover')>=0;
+  }
+  function hasPlinth(ms){
+    var k=String(ms&&ms.key||'').toLowerCase();
+    var l=String(ms&&ms.label||'').toLowerCase();
+    return k.indexOf('plinth')>=0||l.indexOf('plinth')>=0||l.indexOf('raft')>=0;
+  }
+  var i,start=-1,end=-1,span=[];
+  for(i=0;i<all.length;i++){
+    if(hasPlinth(all[i])){ start=i; break; }
+  }
+  if(start<0) return all.filter(function(ms){ return milestoneIsConstLink(ms); });
+  for(i=start;i<all.length;i++){
+    if(hasPos(all[i])){ end=i; break; }
+  }
+  span=(end>=start?all.slice(start,end+1):all.slice(start)).filter(function(ms){ return milestoneIsConstLink(ms); });
+  return span.length ? span : all.filter(function(ms){ return milestoneIsConstLink(ms); });
+}
 
 /** Winding-road anchors — stops are placed along this polyline (any count from milestone template). */
 var POST_SALES_ROAD_SVG_XY=[
@@ -3942,7 +3966,7 @@ function unitCollectedAmount(cfg, unit){
 
 function getConstSchedule(unit, cfg){
   var sched=[];
-  var defs=getMilestoneDefs(cfg);
+  var defs=constMilestonesFromPlinthToPossession(getMilestoneDefs(cfg));
   var b0=normalizeToISODate(unit.bookingDate)||'';
   var tv=coerceMoney(unit.totalValue);
   defs.forEach(function(ms){
@@ -4846,7 +4870,7 @@ function getUnitScheduleWithConstructionDelay(u,cfg,delayMo){
 
 function getConstScheduleShifted(unit,cfg,shiftMonths){
   var sched=[];
-  var defs=getMilestoneDefs(cfg);
+  var defs=constMilestonesFromPlinthToPossession(getMilestoneDefs(cfg));
   var b0=normalizeToISODate(unit.bookingDate)||'';
   var tv=coerceMoney(unit.totalValue);
   defs.forEach(function(ms){
