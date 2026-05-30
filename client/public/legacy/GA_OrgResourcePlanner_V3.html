@@ -40,6 +40,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-siz
 .pj-btn.Active{background:var(--green-l);color:var(--green-b);border-color:var(--green)}
 .pj-btn.Planned{background:var(--gold-l);color:var(--gold-b);border-color:var(--gold)}
 .pj-btn.Pipeline{background:var(--slate-l);color:var(--slate-b);border-color:var(--slate)}
+.pj-btn.Non\ Adopted{background:#F3E8FF;color:#6B21A8;border-color:#7C3AED}
 /* Cards */
 .card{background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);border:1px solid var(--border)}
 .card-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px}
@@ -264,8 +265,8 @@ function setDm(pid,key,val){
 }
 // helpers
 const cr2=n=>n===0?'—':'₹'+(n/1e7).toFixed(2)+' Cr';
-const STAC2={Active:'#1A7244',Planned:'#A07800',Pipeline:'#4A5568'};
-const STAB2={Active:'#E8F6EE',Planned:'#FDF8EC',Pipeline:'#F0F1F3'};
+const STAC2={Active:'#1A7244',Planned:'#A07800',Pipeline:'#4A5568','Non Adopted':'#7C3AED'};
+const STAB2={Active:'#E8F6EE',Planned:'#FDF8EC',Pipeline:'#F0F1F3','Non Adopted':'#F3E8FF'};
 
 const DRIVER_LABELS = {
   cnt:'Projects',slb:'Slabs/month',sqf:'Sqft',lab:'Labour clusters',
@@ -699,9 +700,9 @@ function renderDashboard() {
   var allOn    = PROJECTS.filter(function(p){return p.on;});
   var active   = allOn.filter(function(p){return p.status==='Active';});
   var planned  = allOn.filter(function(p){return p.status==='Planned';});
-  var pipeline = PROJECTS.filter(function(p){return p.status==='Pipeline';});
-  var SC  = function(s){return ({Active:'#1A7244',Planned:'#A07800',Pipeline:'#4A5568'})[s]||'#4A5568';};
-  var SBG = function(s){return ({Active:'var(--green-l)',Planned:'var(--gold-l)',Pipeline:'#EEF0F3'})[s]||'#EEF0F3';};
+  var pipeline = PROJECTS.filter(function(p){return p.status==='Pipeline'||p.status==='Non Adopted';});
+  var SC  = function(s){return ({Active:'#1A7244',Planned:'#A07800',Pipeline:'#4A5568','Non Adopted':'#7C3AED'})[s]||'#4A5568';};
+  var SBG = function(s){return ({Active:'var(--green-l)',Planned:'var(--gold-l)',Pipeline:'#EEF0F3','Non Adopted':'#F3E8FF'})[s]||'#EEF0F3';};
   var CR  = function(v){if(!v||isNaN(v)||v===0)return '—';var a=Math.abs(v),s=v<0?'−':'';return s+'₹'+(a/10000000).toFixed(2)+' Cr';};
   var PCT = function(a,b){return b>0?(a/b*100).toFixed(1)+'%':'—';};
   var totGDV=0,totDMFee=0,totSPVProfit=0,totLandCost=0,totConsCost=0;
@@ -728,7 +729,7 @@ function renderDashboard() {
   html+='<div><div style="font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.03em">Portfolio Dashboard</div>';
   html+='<div style="font-size:12px;color:var(--muted);margin-top:2px">Golden Abodes &nbsp;&middot;&nbsp; '+allOn.length+' projects'+(anyModel?'':' <span style="background:var(--gold-l);color:var(--gold-b);padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700">Target GDV</span>')+'</div></div>';
   html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">';
-  ['All','Active','Planned','Pipeline'].forEach(function(s){
+  ['All','Active','Planned','Pipeline','Non Adopted'].forEach(function(s){
     var n=s==='All'?PROJECTS.length:PROJECTS.filter(function(p){return p.status===s;}).length;
     var col=s==='All'?'var(--blue-b)':SC(s);
     var bg=s==='All'?'var(--blue-l)':SBG(s);
@@ -866,7 +867,7 @@ function renderDashboard() {
       ccmp._chart=new Chart(ccmp,{type:'bar',
         data:{labels:dvis.map(function(r){return r.p.name;}),
           datasets:[{label:'Completion %',data:dvis.map(function(r){return r.p.cmp||0;}),
-            backgroundColor:dvis.map(function(r){var st=r.p.status;return st==='Active'?'#1A7244':st==='Planned'?'#A07800':'#4A5568';}),borderRadius:4}]},
+            backgroundColor:dvis.map(function(r){var st=r.p.status;return st==='Active'?'#1A7244':st==='Planned'?'#A07800':st==='Non Adopted'?'#7C3AED':'#4A5568';}),borderRadius:4}]},
         options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{display:false}},
           scales:{y:{max:100,beginAtZero:true,ticks:{callback:function(v){return v+'%';}}},x:{grid:{display:false}}}}});
     }
@@ -945,8 +946,43 @@ function renderDashboard() {
 
 // ── Financial helpers + constants ─────────────────────────────
 // ── Financial model constants ─────────────────────────────────
-const STAC = {Active:'#1A7244', Planned:'#A07800', Pipeline:'#4A5568'};
-const STAB = {Active:'#E8F6EE',Planned:'#FDF8EC',Pipeline:'#F0F1F3'};
+const STAC = {Active:'#1A7244', Planned:'#A07800', Pipeline:'#4A5568', 'Non Adopted':'#7C3AED'};
+const STAB = {Active:'#E8F6EE',Planned:'#FDF8EC',Pipeline:'#F0F1F3','Non Adopted':'#F3E8FF'};
+const PROJ_STATUSES = ['Active','Planned','Pipeline','Non Adopted'];
+const PROJ_LIST_COLS = 14;
+function projStatusColor(st){ return STAC[st]||'#4A5568'; }
+function touchProjectModified(p){ if(p) p.lastModifiedAt=new Date().toISOString(); }
+function formatProjLastModified(p){
+  if(!p||!p.lastModifiedAt) return '—';
+  try{
+    var d=new Date(p.lastModifiedAt);
+    if(isNaN(d.getTime())) return '—';
+    return d.toLocaleString('en-IN',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});
+  }catch(e){ return '—'; }
+}
+function projListLandArea(p){
+  var fin=p.id&&ST.fin[p.id]?ST.fin[p.id]:{};
+  var unit=p.landAreaUnit||fin.inputUnit||'sqft';
+  var area=p.landArea||(unit==='sqmt'?(fin.plotSqmt||0):(fin.plotArea||p.sqf||0));
+  if(!area) return '—';
+  return fmt(area,0)+' '+(unit==='sqmt'?'sq.mt':'sq.ft');
+}
+function projListType(p){
+  var fin=p.id&&ST.fin[p.id]?ST.fin[p.id]:{};
+  var t=p.projectType||fin.projectType||'';
+  if(!t) return '—';
+  var jv=p.jvSharingType||fin.jvSharingType||'';
+  return t==='JV'&&jv ? t+' · '+jv : t;
+}
+function escProjCell(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
+function projListPinCell(p){
+  var fin=p.id&&ST.fin[p.id]?ST.fin[p.id]:{};
+  var pin=String(p.googlePin||fin.googlePin||'').trim();
+  if(!pin) return '—';
+  var safe=escProjCell(pin);
+  if(/^https?:\/\//i.test(pin)) return '<a href="'+safe.replace(/"/g,'&quot;')+'" target="_blank" rel="noopener" style="color:var(--blue-b);font-size:10px">Map</a>';
+  return '<span style="font-size:10px;color:var(--muted)" title="'+safe+'">'+safe.slice(0,24)+(pin.length>24?'…':'')+'</span>';
+}
 
 const FIN_DEF = {
   dealType:'', projStatusDetail:'', usp:'',
@@ -1670,7 +1706,9 @@ function collectProjectFromForm(){
     resDevPct:resEl&&resEl.value!==''?parseFloat(resEl.value):undefined,
     refundableDeposit:refundableDeposit,
     nonRefundableDeposit:nonRefundableDeposit,
-    googlePin:getPfVal('googlePin','text')
+    googlePin:getPfVal('googlePin','text'),
+    referredBy:getPfVal('referredBy','text'),
+    contactDetails:getPfVal('contactDetails','text')
   };
 }
 function renderProjFormFields(p,isNew){
@@ -1684,14 +1722,15 @@ function renderProjFormFields(p,isNew){
   var crHint=gaV3CroreInputOn()?' (₹ Cr)':'';
   var refDep=p.refundableDeposit!=null&&p.refundableDeposit!==''?v3StoredToCroreDisplay('refundableDeposit',p.refundableDeposit):'';
   var nonRefDep=p.nonRefundableDeposit!=null&&p.nonRefundableDeposit!==''?v3StoredToCroreDisplay('nonRefundableDeposit',p.nonRefundableDeposit):'';
-  var statuses=['Active','Planned','Pipeline'];
   var html='<div class="proj-form-grid">';
-  html+='<div class="full"><div class="proj-form-lbl">Project Name *</div><input class="proj-form-inp" type="text" id="pf_name" value="'+String(v('name')).replace(/"/g,'&quot;')+'" placeholder="e.g. NKG Phase 2"/></div>';
-  html+='<div><div class="proj-form-lbl">Location / City</div><input class="proj-form-inp" type="text" id="pf_location" value="'+String(v('location')).replace(/"/g,'&quot;')+'" placeholder="e.g. Pune"/></div>';
-  html+='<div><div class="proj-form-lbl">Status</div><select class="proj-form-inp" id="pf_status">'+statuses.map(function(s){
+  html+='<div class="full"><div class="proj-form-lbl">Project Name *</div><input class="proj-form-inp" type="text" id="pf_name" value="'+escProjCell(v('name'))+'" placeholder="e.g. NKG Phase 2"/></div>';
+  html+='<div><div class="proj-form-lbl">Location / City</div><input class="proj-form-inp" type="text" id="pf_location" value="'+escProjCell(v('location'))+'" placeholder="e.g. Pune"/></div>';
+  html+='<div><div class="proj-form-lbl">Status</div><select class="proj-form-inp" id="pf_status">'+PROJ_STATUSES.map(function(s){
     var sel=(v('status','Pipeline')===s)||(isNew&&s==='Pipeline'&&!v('status'));
     return '<option'+(sel?' selected':'')+'>'+s+'</option>';
   }).join('')+'</select></div>';
+  html+='<div><div class="proj-form-lbl">Referred By</div><input class="proj-form-inp" type="text" id="pf_referredBy" value="'+escProjCell(v('referredBy'))+'" placeholder="e.g. broker / partner name"/></div>';
+  html+='<div class="full"><div class="proj-form-lbl">Contact Details</div><input class="proj-form-inp" type="text" id="pf_contactDetails" value="'+escProjCell(v('contactDetails'))+'" placeholder="Phone, email, or other contact"/></div>';
   html+='<div><div class="proj-form-lbl">Land Area</div><input class="proj-form-inp" type="number" min="0" id="pf_landArea" value="'+landArea+'" placeholder="Enter area"/></div>';
   html+='<div><div class="proj-form-lbl">Land Area Unit</div><select class="proj-form-inp" id="pf_landAreaUnit"><option value="sqft"'+(landUnit==='sqft'?' selected':'')+'>Sq. Ft</option><option value="sqmt"'+(landUnit==='sqmt'?' selected':'')+'>Sq. Mt</option></select></div>';
   html+='<div><div class="proj-form-lbl">Type</div><select class="proj-form-inp" id="pf_projectType" onchange="onProjTypeChange()"><option value="">— Select —</option><option value="JV"'+(pt==='JV'?' selected':'')+'>JV</option><option value="Outright"'+(pt==='Outright'?' selected':'')+'>Outright</option></select></div>';
@@ -1700,7 +1739,7 @@ function renderProjFormFields(p,isNew){
   html+='<div class="jv-only-field"'+(jvShow?'':' style="display:none"')+'><div class="proj-form-lbl">Residential Ratio %</div><input class="proj-form-inp" type="number" min="0" max="100" step="0.1" id="pf_resDevPct" value="'+(v('resDevPct',fin.resDevPct)!==''?v('resDevPct',fin.resDevPct):'')+'" placeholder="e.g. 65 — links to Revenue §2"/></div>';
   html+='<div><div class="proj-form-lbl">Refundable Deposit'+crHint+'</div><input class="proj-form-inp" type="number" min="0" step="'+(gaV3CroreInputOn()?'0.01':'100000')+'" id="pf_refundableDeposit" value="'+refDep+'" placeholder="Not in project cost"/></div>';
   html+='<div><div class="proj-form-lbl">Non-Refundable Deposit'+crHint+'</div><input class="proj-form-inp" type="number" min="0" step="'+(gaV3CroreInputOn()?'0.01':'100000')+'" id="pf_nonRefundableDeposit" value="'+nonRefDep+'" placeholder="Added to project cost"/></div>';
-  html+='<div class="full"><div class="proj-form-lbl">Google Maps Pin</div><input class="proj-form-inp" type="text" id="pf_googlePin" value="'+String(v('googlePin',fin.googlePin)).replace(/"/g,'&quot;')+'" placeholder="Paste Google Maps link or coordinates"/></div>';
+  html+='<div class="full"><div class="proj-form-lbl">Google Maps Pin</div><input class="proj-form-inp" type="text" id="pf_googlePin" value="'+escProjCell(v('googlePin',fin.googlePin))+'" placeholder="Paste Google Maps link or coordinates"/></div>';
   html+='</div>';
   return html;
 }
@@ -1711,10 +1750,12 @@ function saveProject(mode){
   if(mode==='new'){
     const newId='P'+String(Date.now()).slice(-4);
     PROJS.push(Object.assign({id:newId,on:true,rev:0,sqf:0,unt:0,slb:0,bkn:0,lds:0,trx:0,lab:0,cmp:0,mnt:0,startDate:'',endDate:''},data));
+    touchProjectModified(PROJS[PROJS.length-1]);
     try { if (!ST.fin[newId]) ST.fin[newId] = {}; syncProjectToFin(PROJS[PROJS.length-1]); } catch (e) {}
   } else {
     const p=PROJS.find(x=>x.id===mode); if(!p) return;
     Object.assign(p,data);
+    touchProjectModified(p);
     syncProjectToFin(p);
   }
   editingProjId=null; initProjBtns();
@@ -1819,10 +1860,12 @@ function saveProjectModal(){
   if(mode==='new'){
     var newId='P'+String(Date.now()).slice(-4);
     PROJS.push(Object.assign({id:newId,on:true,rev:0,sqf:0,unt:0,slb:0,bkn:0,lds:0,trx:0,lab:0,cmp:0,mnt:0,startDate:'',endDate:''},data));
+    touchProjectModified(PROJS[PROJS.length-1]);
     try { if (!ST.fin[newId]) ST.fin[newId] = {}; syncProjectToFin(PROJS[PROJS.length-1]); } catch (e) {}
   } else {
     var px=PROJS.find(function(x){return x.id===mode;}); if(!px) return;
     Object.assign(px,data);
+    touchProjectModified(px);
     syncProjectToFin(px);
   }
   closeProjectModal();
@@ -1832,21 +1875,28 @@ function saveProjectModal(){
 }
 
 function renderProjects(){
-  const sc={Active:'#1A7244',Planned:'#A07800',Pipeline:'#4A5568'};
   const list = (GA_IS_DRAFT_MODE && GA_DRAFT_PID) ? PROJS.filter(function(x){ return x.id===GA_DRAFT_PID; }) : PROJS;
   const rows = list.map(p=>{
     const C = typeof finCalc==='function' ? finCalc(p.id) : {};
     const isExp = expandedFinId===p.id;
     const isEd  = editingProjId===p.id;
+    const stCol = projStatusColor(p.status);
+    const stBg = STAB[p.status]||'#F0F1F3';
     return `
-    <tr style="border-left:3px solid ${sc[p.status]||'#ccc'}">
-      <td><b>${p.name}</b><div style="font-size:10px;color:var(--muted)">${p.location||''}</div></td>
-      <td><span class="badge" style="background:${sc[p.status]}20;color:${sc[p.status]}">${p.status}</span></td>
+    <tr style="border-left:3px solid ${stCol}">
+      <td><b>${escProjCell(p.name)}</b><div style="font-size:10px;color:var(--muted)">${escProjCell(p.location||'—')}</div></td>
+      <td><span class="badge" style="background:${stBg};color:${stCol}">${escProjCell(p.status||'—')}</span></td>
+      <td style="font-size:10px">${escProjCell(projListType(p))}</td>
+      <td style="font-size:10px;white-space:nowrap">${escProjCell(projListLandArea(p))}</td>
+      <td style="font-size:10px;max-width:100px">${escProjCell(p.referredBy||'—')}</td>
+      <td style="font-size:10px;max-width:120px">${escProjCell(p.contactDetails||'—')}</td>
+      <td>${projListPinCell(p)}</td>
       <td style="text-align:right">${p.sqf?(p.sqf/1000).toFixed(0)+'K':'-'}</td>
       <td style="text-align:right">${p.unt||'-'}</td>
       <td style="text-align:right">${p.rev?(p.rev/10000000).toFixed(1)+' Cr':'-'}</td>
       <td style="text-align:right">${C.dmFee?(C.dmFee/10000000).toFixed(1)+' Cr':'-'}</td>
       <td style="text-align:right">${p.cmp?p.cmp+'%':'-'}</td>
+      <td style="font-size:10px;color:var(--muted);white-space:nowrap">${formatProjLastModified(p)}</td>
       <td>
         <div style="display:flex;gap:4px;flex-wrap:wrap">
           <button onclick="expandedFinId=expandedFinId==='${p.id}'?null:'${p.id}';renderProjects()"
@@ -1864,8 +1914,8 @@ function renderProjects(){
         </div>
       </td>
     </tr>
-    ${isExp?`<tr><td colspan="8" style="padding:0">${typeof renderFinModel==='function'?renderFinModel(p.id):'<div style="padding:16px;color:var(--muted)">Financial model loading…</div>'}</td></tr>`:''}
-    ${isEd?`<tr><td colspan="8" style="padding:12px;background:var(--blue-l)">
+    ${isExp?`<tr><td colspan="${PROJ_LIST_COLS}" style="padding:0">${typeof renderFinModel==='function'?renderFinModel(p.id):'<div style="padding:16px;color:var(--muted)">Financial model loading…</div>'}</td></tr>`:''}
+    ${isEd?`<tr><td colspan="${PROJ_LIST_COLS}" style="padding:12px;background:var(--blue-l)">
       <div style="font-size:13px;font-weight:700;margin-bottom:10px">Edit: ${p.name}</div>
       ${renderProjFormFields(p,false)}
       <div style="display:flex;gap:8px;margin-top:10px">
@@ -1898,9 +1948,12 @@ function renderProjects(){
   <div style="overflow-x:auto;background:var(--card);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow)">
     <table>
       <thead><tr>
-        <th>Project</th><th>Status</th><th style="text-align:right">Saleable sqft</th>
+        <th>Project</th><th>Status</th><th>Type</th><th>Land Area</th>
+        <th>Referred By</th><th>Contact</th><th>Map</th>
+        <th style="text-align:right">Saleable sqft</th>
         <th style="text-align:right">Units</th><th style="text-align:right">GDV</th>
-        <th style="text-align:right">DM Fee</th><th style="text-align:right">Completion</th><th>Actions</th>
+        <th style="text-align:right">DM Fee</th><th style="text-align:right">Completion</th>
+        <th>Last Modified</th><th>Actions</th>
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
@@ -2018,6 +2071,9 @@ function renderFinModel(pid){
         ${finTxt(pid,'dealType',f.dealType,'e.g. JV / Outright / DM')}
       </div>
       ${p.projectType?`<div class="pf-field"><label class="pf-label">Project type</label><div style="font-size:12px;font-weight:700;color:var(--blue-b)">${p.projectType}${p.jvSharingType?' · '+p.jvSharingType:''}</div></div>`:''}
+      ${p.referredBy?`<div class="pf-field"><label class="pf-label">Referred by</label><div style="font-size:12px;font-weight:600">${String(p.referredBy).replace(/</g,'&lt;')}</div></div>`:''}
+      ${p.contactDetails?`<div class="pf-field"><label class="pf-label">Contact details</label><div style="font-size:12px;font-weight:600">${String(p.contactDetails).replace(/</g,'&lt;')}</div></div>`:''}
+      ${p.lastModifiedAt?`<div class="pf-field"><label class="pf-label">Last modified</label><div style="font-size:11px;color:var(--muted)">${formatProjLastModified(p)}</div></div>`:''}
       ${p.googlePin||f.googlePin?`<div class="pf-field" style="grid-column:span 2"><label class="pf-label">Google Maps Pin</label><div style="font-size:11px;color:var(--blue-b);word-break:break-all">${String(p.googlePin||f.googlePin).replace(/</g,'&lt;')}</div></div>`:''}
       <div class="pf-field">
         <label class="pf-label">Approval status</label>
@@ -4918,6 +4974,11 @@ function printFinModel(pid, sections, selInvId) {
     tableRows += row2('Project Name',p.name||pid);
     tableRows += row2('Location',p.location||'—');
     tableRows += row2('Status',p.status||'—');
+    if(p.referredBy) tableRows += row2('Referred By',p.referredBy);
+    if(p.contactDetails) tableRows += row2('Contact Details',p.contactDetails);
+    if(p.lastModifiedAt) tableRows += row2('Last Modified',formatProjLastModified(p));
+    if(projListType(p)!=='—') tableRows += row2('Project Type',projListType(p));
+    if(projListLandArea(p)!=='—') tableRows += row2('Land Area',projListLandArea(p));
     if(f2.dealType) tableRows += row2('Deal Type',f2.dealType);
     if(f2.usp)      tableRows += row2('Unique Selling Proposition',f2.usp);
     if(p.startDate) tableRows += row2('Project Start',p.startDate);
