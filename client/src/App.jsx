@@ -5,6 +5,7 @@ import LegacyAppShell from './pages/LegacyAppShell.jsx';
 
 const VaultHome = lazy(() => import('./pages/VaultHome.jsx'));
 const AccessPage = lazy(() => import('./pages/AccessPage.jsx'));
+const AdminSecurityPage = lazy(() => import('./pages/AdminSecurityPage.jsx'));
 
 function Fall() {
   return (
@@ -29,6 +30,7 @@ export default function App() {
       <Routes>
         <Route path="/" element={<VaultHome />} />
         <Route path="/access" element={<AccessPage />} />
+        <Route path="/admin/security" element={<AdminSecurityPage />} />
         <Route
           path="/app/resource-planner"
           element={

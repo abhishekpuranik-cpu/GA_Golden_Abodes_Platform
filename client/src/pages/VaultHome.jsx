@@ -1,4 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { authApi } from '../lib/api.js';
 
 const card = {
   display: 'block',
@@ -71,6 +73,7 @@ const KPI_URL_LS_KEY = 'ga_marketing_kpi_url';
 const VAULT_HTML_URL_LS_KEY = 'ga_vault_html_url';
 
 export default function VaultHome() {
+  const [auth, setAuth] = useState({ checked: false, authenticated: false, user: null });
   const [cashflowVersion, setCashflowVersion] = useState('live');
   const [v3CustomUrl, setV3CustomUrl] = useState(() => localUrl(V3_URL_LS_KEY));
   const [v2CustomUrl, setV2CustomUrl] = useState(() => localUrl(V2_URL_LS_KEY));
@@ -111,6 +114,19 @@ export default function VaultHome() {
   const execEnabled = !!execVersionedUrl;
   const preEnabled = !!preVersionedUrl;
   const [apiOk, setApiOk] = useState(null);
+  const acl = useMemo(() => {
+    const a = new Set((auth.user?.allowedApps || []).map((x) => String(x)));
+    return {
+      v3: a.has('v3_project_acquisition'),
+      v2: a.has('v2_resource_planner'),
+      v1: a.has('v1_cashflow'),
+      sales: a.has('sales_dashboard'),
+      kpi: a.has('marketing_kpi'),
+      pre: a.has('preconstruction'),
+      exec: a.has('execution'),
+      admin: a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security')
+    };
+  }, [auth.user]);
 
   function setCustomDashboardUrl(label, lsKey, setValue) {
     const next = window.prompt(`${label} URL\n\nExample: https://your-app.onrender.com`, localUrl(lsKey) || 'https://');
@@ -139,6 +155,22 @@ export default function VaultHome() {
 
   useEffect(() => {
     let alive = true;
+    authApi
+      .session()
+      .then((s) => {
+        if (!alive) return;
+        setAuth({ checked: true, authenticated: !!s?.authenticated, user: s?.user || null });
+      })
+      .catch(() => {
+        if (alive) setAuth({ checked: true, authenticated: false, user: null });
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let alive = true;
     fetch('/api/health')
       .then((r) => r.json())
       .then((j) => {
@@ -158,6 +190,7 @@ export default function VaultHome() {
     };
   }, []);
   useEffect(() => {
+    if (!auth.authenticated) return undefined;
     let alive = true;
     async function syncAgent() {
       try {
@@ -176,7 +209,22 @@ export default function VaultHome() {
       alive = false;
       window.clearInterval(id);
     };
-  }, []);
+  }, [auth.authenticated]);
+
+  if (!auth.checked) {
+    return <div style={{ padding: 24, color: '#94a3b8' }}>Checking session…</div>;
+  }
+  if (!auth.authenticated) {
+    return (
+      <div style={{ maxWidth: 720, margin: '10vh auto', padding: 24, textAlign: 'center' }}>
+        <h2>Login required</h2>
+        <p style={{ color: 'var(--muted)' }}>Please sign in to open your assigned apps, projects, and tabs.</p>
+        <Link to="/access" style={{ color: '#93c5fd' }}>
+          Go to Login
+        </Link>
+      </div>
+    );
+  }
   useEffect(() => {
     let alive = true;
     fetch(`/legacy/GA_Cashflow_V1.html?probe=${Date.now()}`, { cache: 'no-store' })
@@ -197,6 +245,33 @@ export default function VaultHome() {
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: '36px 20px 80px' }}>
       <header style={{ textAlign: 'center', marginBottom: 40 }}>
+        <div style={{ marginBottom: 8, color: '#bfdbfe', fontSize: 13 }}>
+          Signed in as <strong>{auth.user?.email}</strong>
+          {' · '}
+          <button
+            type="button"
+            style={{ ...miniBtn, padding: '4px 8px', fontSize: 11 }}
+            onClick={async () => {
+              await authApi.logout();
+              window.location.href = '/access';
+            }}
+          >
+            Logout
+          </button>
+          {acl.admin ? (
+            <>
+              {' · '}
+              <Link to="/admin/security" style={{ color: '#93c5fd' }}>
+                Admin Security
+              </Link>
+            </>
+          ) : null}
+        </div>
+        {auth.user?.allowedProjects?.length ? (
+          <div style={{ marginBottom: 10, color: '#94a3b8', fontSize: 12 }}>
+            Projects: {auth.user.allowedProjects.join(', ')}
+          </div>
+        ) : null}
         {apiOk !== null ? (
           <div
             style={{
@@ -256,7 +331,7 @@ export default function VaultHome() {
           Planner suite (legacy HTML tools)
         </h2>
         <div style={grid}>
-          <a href={v3Url} target={isExternalUrl(v3Url) ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
+          {acl.v3 ? <a href={v3Url} target={isExternalUrl(v3Url) ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V3</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Project Acquisition</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
@@ -267,8 +342,8 @@ export default function VaultHome() {
                 Set URL for this browser
               </button>
             </p>
-          </a>
-          <a href={v2Url} target={isExternalUrl(v2Url) ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
+          </a> : null}
+          {acl.v2 ? <a href={v2Url} target={isExternalUrl(v2Url) ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V2</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Resource Planner</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
@@ -279,8 +354,8 @@ export default function VaultHome() {
                 Set URL for this browser
               </button>
             </p>
-          </a>
-          <a href={cashflowHref} target="_blank" rel="noopener noreferrer" style={card}>
+          </a> : null}
+          {acl.v1 ? <a href={cashflowHref} target="_blank" rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--gold)', fontSize: 13 }}>V1</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Cashflow Tracker</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
@@ -291,7 +366,7 @@ export default function VaultHome() {
                 Set URL for this browser
               </button>
             </p>
-          </a>
+          </a> : null}
         </div>
       </section>
 
@@ -300,7 +375,7 @@ export default function VaultHome() {
           Construction dashboards (standalone React)
         </h2>
         <div style={grid}>
-          <a href={execEnabled ? execVersionedUrl : '#'} target={execEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
+          {acl.exec ? <a href={execEnabled ? execVersionedUrl : '#'} target={execEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--blue)', fontSize: 13 }}>React</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Construction Execution Dashboard</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
@@ -326,8 +401,8 @@ export default function VaultHome() {
                 Set URL for this browser
               </button>
             </p>
-          </a>
-          <a href={preEnabled ? preVersionedUrl : '#'} target={preEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
+          </a> : null}
+          {acl.pre ? <a href={preEnabled ? preVersionedUrl : '#'} target={preEnabled ? '_blank' : undefined} rel="noopener noreferrer" style={card}>
             <strong style={{ color: 'var(--teal)', fontSize: 13 }}>React</strong>
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>PreConstruction</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
@@ -353,7 +428,7 @@ export default function VaultHome() {
                 Set URL for this browser
               </button>
             </p>
-          </a>
+          </a> : null}
         </div>
       </section>
 
@@ -362,24 +437,24 @@ export default function VaultHome() {
           Legacy HTML (optional direct open)
         </h2>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-          <a href={salesHref} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
+          {acl.sales ? <a href={salesHref} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
             Sales dashboard
-          </a>
-          <button type="button" onClick={() => setCustomDashboardUrl('Sales dashboard', SALES_URL_LS_KEY, setSalesCustomUrl)} style={miniBtn}>
+          </a> : null}
+          {acl.sales ? <button type="button" onClick={() => setCustomDashboardUrl('Sales dashboard', SALES_URL_LS_KEY, setSalesCustomUrl)} style={miniBtn}>
             Set URL for this browser
-          </button>
-          <span style={{ color: 'var(--muted)' }}>·</span>
-          <a
+          </button> : null}
+          {acl.sales && acl.kpi ? <span style={{ color: 'var(--muted)' }}>·</span> : null}
+          {acl.kpi ? <a
             href={kpiHref}
             target="_blank"
             rel="noopener noreferrer"
             style={{ color: 'var(--teal)' }}
           >
             Marketing KPIs
-          </a>
-          <button type="button" onClick={() => setCustomDashboardUrl('Marketing KPIs', KPI_URL_LS_KEY, setKpiCustomUrl)} style={miniBtn}>
+          </a> : null}
+          {acl.kpi ? <button type="button" onClick={() => setCustomDashboardUrl('Marketing KPIs', KPI_URL_LS_KEY, setKpiCustomUrl)} style={miniBtn}>
             Set URL for this browser
-          </button>
+          </button> : null}
           <span style={{ color: 'var(--muted)' }}>·</span>
           <a href={vaultHtmlHref} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--teal)' }}>
             Original vault HTML

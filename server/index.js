@@ -13,6 +13,7 @@ import { healthRouter } from './routes/health.js';
 import { workspaceRouter } from './routes/workspace.js';
 import { preconstructionRouter } from './routes/preconstruction.js';
 import { appStatesRouter } from './routes/appStates.js';
+import { authRouter } from './routes/auth.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
@@ -121,6 +122,7 @@ app.use('/api', healthRouter);
 app.use('/api', workspaceRouter);
 app.use('/api', preconstructionRouter);
 app.use('/api', appStatesRouter);
+app.use('/api/auth', authRouter);
 
 const clientDist = path.join(rootDir, 'client', 'dist');
 if (fs.existsSync(clientDist)) {
