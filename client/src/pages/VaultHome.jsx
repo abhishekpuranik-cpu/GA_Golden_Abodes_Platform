@@ -211,21 +211,8 @@ export default function VaultHome() {
     };
   }, [auth.authenticated]);
 
-  if (!auth.checked) {
-    return <div style={{ padding: 24, color: '#94a3b8' }}>Checking session…</div>;
-  }
-  if (!auth.authenticated) {
-    return (
-      <div style={{ maxWidth: 720, margin: '10vh auto', padding: 24, textAlign: 'center' }}>
-        <h2>Login required</h2>
-        <p style={{ color: 'var(--muted)' }}>Please sign in to open your assigned apps, projects, and tabs.</p>
-        <Link to="/access" style={{ color: '#93c5fd' }}>
-          Go to Login
-        </Link>
-      </div>
-    );
-  }
   useEffect(() => {
+    if (!auth.authenticated) return undefined;
     let alive = true;
     fetch(`/legacy/GA_Cashflow_V1.html?probe=${Date.now()}`, { cache: 'no-store' })
       .then((r) => r.text())
@@ -240,7 +227,22 @@ export default function VaultHome() {
     return () => {
       alive = false;
     };
-  }, [linkAgentTick]);
+  }, [auth.authenticated, linkAgentTick]);
+
+  if (!auth.checked) {
+    return <div style={{ padding: 24, color: '#94a3b8' }}>Checking session…</div>;
+  }
+  if (!auth.authenticated) {
+    return (
+      <div style={{ maxWidth: 720, margin: '10vh auto', padding: 24, textAlign: 'center' }}>
+        <h2>Login required</h2>
+        <p style={{ color: 'var(--muted)' }}>Please sign in to open your assigned apps, projects, and tabs.</p>
+        <Link to="/access" style={{ color: '#93c5fd' }}>
+          Go to Login
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 1180, margin: '0 auto', padding: '36px 20px 80px' }}>

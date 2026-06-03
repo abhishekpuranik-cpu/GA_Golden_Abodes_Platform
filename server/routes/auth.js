@@ -90,7 +90,20 @@ async function ensureDefaults(db) {
   await roles.updateOne({ _id: DEFAULT_ROLE._id }, { $setOnInsert: DEFAULT_ROLE }, { upsert: true });
 }
 
-async function resolveSession(db, req) {
+export function userHasApp(user, appId) {
+  const target = String(appId || '').trim();
+  const allowed = new Set((user?.allowedApps || []).map((x) => String(x)));
+  if (allowed.has(target)) return true;
+  if (target === 'v3_project_acquisition' && allowed.has('v3_org_planner')) return true;
+  if (target === 'v3_org_planner' && allowed.has('v3_project_acquisition')) return true;
+  return false;
+}
+
+export function userHasPermission(user, permission) {
+  return (user?.permissions || []).includes(String(permission || ''));
+}
+
+export async function resolveSession(db, req) {
   const sid = parseCookies(req)[AUTH_COOKIE];
   if (!sid) return null;
   const sessions = db.collection('auth_sessions');

@@ -14,6 +14,7 @@ import { workspaceRouter } from './routes/workspace.js';
 import { preconstructionRouter } from './routes/preconstruction.js';
 import { appStatesRouter } from './routes/appStates.js';
 import { authRouter } from './routes/auth.js';
+import { createRbacMiddleware } from './lib/rbac.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
@@ -25,7 +26,6 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: '50mb' }));
 
 const ACCESS_COOKIE = 'ga_v2v3_access';
-const PROTECTED_PATH_PREFIXES = ['/app/resource-planner', '/app/org-planner', '/legacy/GA_ResourcePlanner_V2.html', '/legacy/GA_OrgResourcePlanner_V3.html'];
 
 function parseCookies(req) {
   const raw = String(req.headers.cookie || '');
@@ -79,13 +79,7 @@ app.post('/api/access/logout', (_req, res) => {
   res.json({ ok: true, authenticated: false });
 });
 
-app.use((req, res, next) => {
-  if (!V2V3_ACCESS_CODE) return next();
-  if (!PROTECTED_PATH_PREFIXES.some((p) => req.path.startsWith(p))) return next();
-  if (isAccessAuthed(req)) return next();
-  const nextUrl = encodeURIComponent(`${req.path}${req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : ''}`);
-  return res.redirect(`/access?next=${nextUrl}`);
-});
+app.use(createRbacMiddleware());
 
 const preconPublicDir = path.join(rootDir, 'client', 'public', 'preconstruction');
 const preconBundled = fs.existsSync(path.join(preconPublicDir, 'index.html'));

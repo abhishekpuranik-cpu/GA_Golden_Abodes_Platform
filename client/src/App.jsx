@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { APP_IDS, APP_LOCAL_STORAGE_KEYS } from './appRegistry.js';
 import LegacyAppShell from './pages/LegacyAppShell.jsx';
+import RequireAuth from './components/RequireAuth.jsx';
 
 const VaultHome = lazy(() => import('./pages/VaultHome.jsx'));
 const AccessPage = lazy(() => import('./pages/AccessPage.jsx'));
@@ -28,32 +29,50 @@ export default function App() {
   return (
     <Suspense fallback={<Fall />}>
       <Routes>
-        <Route path="/" element={<VaultHome />} />
+        <Route
+          path="/"
+          element={
+            <RequireAuth>
+              <VaultHome />
+            </RequireAuth>
+          }
+        />
         <Route path="/access" element={<AccessPage />} />
-        <Route path="/admin/security" element={<AdminSecurityPage />} />
+        <Route
+          path="/admin/security"
+          element={
+            <RequireAuth permission="manage_security" appId="admin_security">
+              <AdminSecurityPage />
+            </RequireAuth>
+          }
+        />
         <Route
           path="/app/resource-planner"
           element={
-            <LegacyAppShell
-              title="Resource Planner (V2)"
-              htmlFile="GA_ResourcePlanner_V2.html"
-              appId={APP_IDS.V2_RESOURCE_PLANNER}
-              keysList={APP_LOCAL_STORAGE_KEYS[APP_IDS.V2_RESOURCE_PLANNER]}
-              workspaceBlobKey="ga_rp_state_v1"
-            />
+            <RequireAuth appId="v2_resource_planner">
+              <LegacyAppShell
+                title="Resource Planner (V2)"
+                htmlFile="GA_ResourcePlanner_V2.html"
+                appId={APP_IDS.V2_RESOURCE_PLANNER}
+                keysList={APP_LOCAL_STORAGE_KEYS[APP_IDS.V2_RESOURCE_PLANNER]}
+                workspaceBlobKey="ga_rp_state_v1"
+              />
+            </RequireAuth>
           }
         />
         <Route
           path="/app/org-planner"
           element={
-            <LegacyAppShell
-              title="Project Acquisition (V3)"
-              htmlFile="GA_OrgResourcePlanner_V3.html"
-              appId={APP_IDS.V3_ORG_PLANNER}
-              keysList={APP_LOCAL_STORAGE_KEYS[APP_IDS.V3_ORG_PLANNER]}
-              workspaceBlobKey="ga_planner_state_v1"
-              defaultAutoSave={false}
-            />
+            <RequireAuth appId="v3_project_acquisition">
+              <LegacyAppShell
+                title="Project Acquisition (V3)"
+                htmlFile="GA_OrgResourcePlanner_V3.html"
+                appId={APP_IDS.V3_ORG_PLANNER}
+                keysList={APP_LOCAL_STORAGE_KEYS[APP_IDS.V3_ORG_PLANNER]}
+                workspaceBlobKey="ga_planner_state_v1"
+                defaultAutoSave={false}
+              />
+            </RequireAuth>
           }
         />
         <Route path="*" element={<Navigate to="/" replace />} />
