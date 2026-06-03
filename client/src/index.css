@@ -22,3 +22,58 @@ body {
 a {
   color: var(--teal);
 }
+
+/* Mobile-friendly platform shell (Vault, login, admin, planner iframe) */
+html {
+  -webkit-text-size-adjust: 100%;
+}
+img,
+iframe {
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  .vault-shell {
+    padding: 20px 14px 64px !important;
+    max-width: 100% !important;
+  }
+  .vault-shell header h1 {
+    font-size: clamp(1.5rem, 6vw, 2rem) !important;
+  }
+  .vault-shell header p {
+    font-size: 14px !important;
+  }
+  .admin-security {
+    padding: 16px 12px !important;
+    max-width: 100% !important;
+  }
+  .admin-security section > div[style*='grid'] {
+    grid-template-columns: 1fr !important;
+  }
+  .admin-security input[style*='width: 300'] {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin-right: 0 !important;
+    margin-bottom: 8px;
+    box-sizing: border-box;
+  }
+  .planner-toolbar {
+    padding: 8px 10px !important;
+    gap: 8px !important;
+  }
+  .planner-toolbar button,
+  .planner-toolbar select,
+  .planner-toolbar label {
+    min-height: 44px;
+    font-size: 13px !important;
+  }
+  .planner-toolbar span[style*='flex: 1'] {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .vault-shell section h2 {
+    font-size: 11px !important;
+  }
+}

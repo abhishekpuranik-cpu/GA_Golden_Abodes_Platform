@@ -69,7 +69,7 @@ export default function AdminSecurityPage() {
   }
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
+    <div className="admin-security" style={{ maxWidth: 1100, margin: '0 auto', padding: 24 }}>
       <h1 style={{ marginTop: 0 }}>Admin Security</h1>
       <div style={{ marginBottom: 16 }}>
         <Link to="/">Back to Vault</Link>

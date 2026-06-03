@@ -30,6 +30,7 @@ export default function LegacyAppShell({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f4fa' }}>
       <div
+        className="planner-toolbar"
         style={{
           flexShrink: 0,
           display: 'flex',

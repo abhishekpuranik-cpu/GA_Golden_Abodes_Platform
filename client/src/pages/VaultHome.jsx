@@ -15,7 +15,7 @@ const card = {
 
 const grid = {
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+  gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))',
   gap: 18,
   maxWidth: 1100,
   margin: '0 auto'
@@ -245,7 +245,7 @@ export default function VaultHome() {
   }
 
   return (
-    <div style={{ maxWidth: 1180, margin: '0 auto', padding: '36px 20px 80px' }}>
+    <div className="vault-shell" style={{ maxWidth: 1180, margin: '0 auto', padding: '36px 20px 80px' }}>
       <header style={{ textAlign: 'center', marginBottom: 40 }}>
         <div style={{ marginBottom: 8, color: '#bfdbfe', fontSize: 13 }}>
           Signed in as <strong>{auth.user?.email}</strong>

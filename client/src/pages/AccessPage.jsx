@@ -85,11 +85,11 @@ export default function AccessPage() {
           style={{ width: '100%', padding: '11px 12px', borderRadius: 8, border: '1px solid #334155', background: '#020617', color: '#e2e8f0', marginBottom: 12 }}
         />
         {error ? <div style={{ color: '#fca5a5', marginBottom: 10, fontSize: 12 }}>{error}</div> : null}
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
           <button
             type="submit"
             disabled={busy}
-            style={{ padding: '9px 12px', borderRadius: 8, border: '1px solid #1558a0', background: '#1558a0', color: '#fff', fontWeight: 700, cursor: 'pointer' }}
+            style={{ padding: '12px 16px', borderRadius: 8, border: '1px solid #1558a0', background: '#1558a0', color: '#fff', fontWeight: 700, cursor: 'pointer', minHeight: 44 }}
           >
             {busy ? 'Checking…' : bootstrapMode ? 'Create Admin' : 'Continue'}
           </button>
