@@ -58,7 +58,11 @@ function resolveApiRule(pathname) {
   if (pathname === '/api/workspace-keys' || pathname.startsWith('/api/workspace-keys/')) {
     return { authOnly: true };
   }
-  if (pathname === '/api/preconstruction-state' || pathname.startsWith('/api/preconstruction-state/')) {
+  if (
+    pathname === '/api/preconstruction-state' ||
+    pathname.startsWith('/api/preconstruction-state/') ||
+    pathname.startsWith('/api/preconstruction/')
+  ) {
     return { appId: 'preconstruction' };
   }
   return null;
