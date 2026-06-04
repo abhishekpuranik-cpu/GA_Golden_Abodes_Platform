@@ -27,8 +27,24 @@ export default function AccessPage() {
     try {
       if (bootstrapMode) {
         await authApi.bootstrap({ email: email.trim(), password: password.trim(), name: name.trim() });
+        if (name.trim()) {
+          try {
+            window.localStorage.setItem('ga_user_name', name.trim());
+          } catch {
+            /* ignore */
+          }
+        }
       } else {
         await authApi.login(email.trim(), password.trim());
+      }
+      try {
+        const s = await authApi.session();
+        if (s?.authenticated && s.user) {
+          const dn = (s.user.name || '').trim() || String(s.user.email || '').split('@')[0] || 'User';
+          window.localStorage.setItem('ga_user_name', dn);
+        }
+      } catch {
+        /* ignore */
       }
       navigate(next, { replace: true });
     } catch (err) {
