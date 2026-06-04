@@ -246,3 +246,61 @@ export function assignableProjectNames(projects) {
     .filter((p) => p.assignable)
     .map((p) => p.name);
 }
+
+function uniqStrings(list) {
+  return [...new Set((list || []).map((x) => String(x || '').trim()).filter(Boolean))];
+}
+
+/** True when either side has no project filter (all projects) or lists overlap. */
+export function allowedProjectsOverlap(allowedA, allowedB) {
+  const a = uniqStrings(allowedA).map((x) => x.toLowerCase());
+  const b = uniqStrings(allowedB).map((x) => x.toLowerCase());
+  if (!a.length || !b.length) return true;
+  return a.some((x) => b.includes(x));
+}
+
+function mergeUserAccess(user, roleDocs) {
+  const apps = [];
+  const projects = [];
+  (roleDocs || []).forEach((r) => {
+    apps.push(...(r.allowedApps || []));
+    projects.push(...(r.allowedProjects || []));
+  });
+  apps.push(...(user.allowedApps || []));
+  projects.push(...(user.allowedProjects || []));
+  return {
+    allowedApps: uniqStrings(apps),
+    allowedProjects: uniqStrings(projects)
+  };
+}
+
+function userHasPreconApp(allowedApps) {
+  const apps = new Set((allowedApps || []).map((x) => String(x).trim().toLowerCase()));
+  return apps.has('preconstruction');
+}
+
+/**
+ * Names of active vault users with PreConstruction access who share Admin project assignment.
+ * @param {import('mongodb').Db} db
+ * @param {{ allowedProjects?: string[] }} sessionUser
+ */
+export async function listPreconTeamRosterNames(db, sessionUser) {
+  const rolesCol = db.collection('auth_roles');
+  const usersCol = db.collection('auth_users');
+  const allRoles = await rolesCol.find({}).toArray();
+  const roleById = Object.fromEntries(allRoles.map((r) => [r._id, r]));
+  const users = await usersCol.find({ status: { $ne: 'disabled' } }).toArray();
+  const myProjects = sessionUser?.allowedProjects || [];
+  const names = new Set();
+
+  for (const u of users) {
+    const roleDocs = (u.roleIds || ['viewer']).map((id) => roleById[id]).filter(Boolean);
+    const access = mergeUserAccess(u, roleDocs);
+    if (!userHasPreconApp(access.allowedApps)) continue;
+    if (!allowedProjectsOverlap(myProjects, access.allowedProjects)) continue;
+    const n = String(u.name || '').trim();
+    if (n) names.add(n);
+  }
+
+  return [...names].sort((a, b) => a.localeCompare(b));
+}

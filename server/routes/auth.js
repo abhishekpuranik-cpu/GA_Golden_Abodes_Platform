@@ -5,6 +5,7 @@ import { withDb } from '../lib/mongo.js';
 import {
   assignableProjectNames,
   computeBandwidthReport,
+  listPreconTeamRosterNames,
   listProjectCatalog
 } from '../lib/preconAdmin.js';
 
@@ -363,6 +364,17 @@ async function loadPreconProjects(db) {
     departments: Array.isArray(data.departments) ? data.departments : []
   };
 }
+
+authRouter.get(
+  '/preconstruction-team-roster',
+  withDb(async (req, res, db) => {
+    const sess = await resolveSession(db, req);
+    if (!sess) return res.status(401).json({ error: 'Unauthorized' });
+    if (!userHasApp(sess.user, PRECON_APP_ID)) return res.status(403).json({ error: 'Forbidden' });
+    const names = await listPreconTeamRosterNames(db, sess.user);
+    res.json({ names });
+  })
+);
 
 authRouter.get(
   '/admin/preconstruction-projects',
