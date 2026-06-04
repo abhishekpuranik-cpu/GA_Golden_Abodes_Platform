@@ -5,6 +5,7 @@ import { resolveSession, userHasApp } from './auth.js';
 import {
   MAX_UPLOAD_BYTES,
   readAttachmentBuffer,
+  getAttachmentMeta,
   openAttachmentStream,
   storePreconFile
 } from '../lib/preconAttachments.js';
@@ -20,6 +21,13 @@ import {
   uniqRecipients
 } from '../lib/preconNotify.js';
 import { parseAssignees } from '../lib/preconAdmin.js';
+import {
+  resolvePhonesForRecipients,
+  sendWhatsAppNotifications,
+  verifyWhatsAppMediaToken,
+  whatsappConfigured,
+  whatsappMediaPublicUrl
+} from '../lib/preconWhatsApp.js';
 
 export const preconstructionRouter = Router();
 const APP_ID = 'preconstruction';
@@ -144,6 +152,7 @@ preconstructionRouter.get(
       const autoRecipients = resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho });
       res.json({
         emailEnabled: emailNotifyEnabled(),
+        whatsappEnabled: whatsappConfigured(),
         groups,
         autoRecipients
       });
@@ -198,6 +207,26 @@ preconstructionRouter.post(
         res.status(400).json({ error: e?.message || String(e) });
       }
     });
+  })
+);
+
+preconstructionRouter.get(
+  '/preconstruction/attachments/:id/wa-media',
+  withDb(async (req, res, db) => {
+    try {
+      const attId = req.params.id;
+      const token = String(req.query.token || '');
+      if (!verifyWhatsAppMediaToken(attId, token)) {
+        return res.status(403).json({ error: 'Invalid or expired link' });
+      }
+      const opened = await openAttachmentStream(db, attId);
+      if (!opened) return res.status(404).json({ error: 'Attachment not found' });
+      res.setHeader('Content-Type', opened.meta.mimeType || 'application/octet-stream');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      opened.stream.pipe(res);
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
   })
 );
 
@@ -297,7 +326,7 @@ preconstructionRouter.post(
         ? `${author} added file(s) to ${body.taskName || 'activity'}: ${labels.join(', ')}`
         : `${body.text || ''}\n\nNext: ${body.nextAction || '—'} (${body.nextActionDate || '—'})`;
 
-      const result = await sendPreconNotification({
+      const emailResult = await sendPreconNotification({
         to: emails,
         subject,
         text,
@@ -305,7 +334,45 @@ preconstructionRouter.post(
         attachments: emailFiles
       });
 
-      res.json({ ...result, recipients, recipientCount: emails.length });
+      const waMimeOk = (mime) => {
+        const m = String(mime || '').toLowerCase();
+        return m.startsWith('image/') || m === 'application/pdf' || m.startsWith('video/');
+      };
+      const mediaUrls = [];
+      for (const id of attachmentIds) {
+        const meta = await getAttachmentMeta(db, id);
+        if (meta && waMimeOk(meta.mimeType)) mediaUrls.push(whatsappMediaPublicUrl(id));
+      }
+      const authUsers = await db
+        .collection('auth_users')
+        .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1 } })
+        .toArray();
+      const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
+      const toPhones = resolvePhonesForRecipients(recipients, usersByEmail);
+
+      const waResult = await sendWhatsAppNotifications({
+        toPhones,
+        ctx: {
+          kind: isActivity ? 'activity' : 'comment',
+          projectName: body.projectName,
+          phaseName: body.phaseName,
+          taskName: body.taskName,
+          author,
+          text: body.text,
+          nextAction: body.nextAction,
+          nextActionDate: body.nextActionDate,
+          fileLabels: labels
+        },
+        mediaUrls
+      });
+
+      res.json({
+        ...emailResult,
+        recipients,
+        recipientCount: emails.length,
+        whatsapp: waResult,
+        whatsappCount: waResult.sent?.length || 0
+      });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
     }

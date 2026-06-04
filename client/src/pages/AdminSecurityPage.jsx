@@ -16,6 +16,7 @@ function splitCsv(s) {
 const emptyNewUser = () => ({
   email: '',
   name: '',
+  phone: '',
   password: '',
   roleIds: 'viewer',
   allowedProjects: [],
@@ -87,6 +88,7 @@ export default function AdminSecurityPage() {
     await authApi.createUser({
       email: newUser.email,
       name: newUser.name,
+      phone: newUser.phone,
       password: newUser.password,
       roleIds: splitCsv(newUser.roleIds),
       allowedProjects: newUser.allowedProjects || [],
@@ -100,6 +102,7 @@ export default function AdminSecurityPage() {
   async function saveUser(u) {
     await authApi.updateUser(u.id, {
       name: u.name,
+      phone: u.phone,
       status: u.status,
       roleIds: Array.isArray(u.roleIds) ? u.roleIds : splitCsv(u.roleIds),
       allowedApps: u.allowedApps || [],
@@ -187,6 +190,12 @@ export default function AdminSecurityPage() {
             className="admin-inp"
           />
           <input
+            placeholder="WhatsApp phone (e.g. 9876543210 or +91…)"
+            value={newUser.phone}
+            onChange={(e) => setNewUser((x) => ({ ...x, phone: e.target.value }))}
+            className="admin-inp"
+          />
+          <input
             placeholder="Password (min 8)"
             type="password"
             value={newUser.password}
@@ -235,6 +244,12 @@ export default function AdminSecurityPage() {
                 value={u.name || ''}
                 onChange={(e) => setUsers((old) => old.map((x, idx) => (idx === i ? { ...x, name: e.target.value } : x)))}
                 placeholder="Name"
+                className="admin-inp"
+              />
+              <input
+                value={u.phone || ''}
+                onChange={(e) => setUsers((old) => old.map((x, idx) => (idx === i ? { ...x, phone: e.target.value } : x)))}
+                placeholder="WhatsApp phone"
                 className="admin-inp"
               />
               <select

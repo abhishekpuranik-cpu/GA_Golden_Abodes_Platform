@@ -6,7 +6,9 @@ function uniqRecipients(list) {
     const email = String(r.email || '').trim().toLowerCase();
     if (!email || !email.includes('@')) continue;
     const name = String(r.name || '').trim() || email;
-    if (!byEmail.has(email)) byEmail.set(email, { name, email });
+    const phone = String(r.phone || '').trim();
+    if (!byEmail.has(email)) byEmail.set(email, { name, email, phone });
+    else if (phone && !byEmail.get(email).phone) byEmail.get(email).phone = phone;
   }
   return [...byEmail.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -63,7 +65,7 @@ export async function buildLeadershipList(db) {
 
   const users = await db
     .collection('auth_users')
-    .find({ status: { $ne: 'disabled' } }, { projection: { name: 1, email: 1, roleIds: 1, permissions: 1 } })
+    .find({ status: { $ne: 'disabled' } }, { projection: { name: 1, email: 1, phone: 1, roleIds: 1, permissions: 1 } })
     .toArray();
 
   return uniqRecipients(
@@ -73,7 +75,11 @@ export async function buildLeadershipList(db) {
         if ((u.permissions || []).includes('manage_security')) return true;
         return (u.roleIds || []).some((id) => leadershipRoleIds.has(id));
       })
-      .map((u) => ({ name: String(u.name || '').trim() || u.email, email: String(u.email).trim() }))
+      .map((u) => ({
+        name: String(u.name || '').trim() || u.email,
+        email: String(u.email).trim(),
+        phone: String(u.phone || '').trim()
+      }))
   );
 }
 
@@ -87,15 +93,20 @@ export async function buildNotifyRecipientGroups(db, opts = {}) {
   const { departments = [], assigneeNames = [] } = opts;
   const users = await db
     .collection('auth_users')
-    .find({ status: { $ne: 'disabled' } }, { projection: { name: 1, email: 1 } })
+    .find({ status: { $ne: 'disabled' } }, { projection: { name: 1, email: 1, phone: 1 } })
     .toArray();
 
   const byName = (name) => {
     const n = String(name || '').trim();
     if (!n) return null;
     const hit = users.find((u) => nameMatches(u.name, n) || nameMatches(n, u.email?.split('@')[0]));
-    if (!hit?.email) return { name: n, email: '', noEmail: true };
-    return { name: hit.name || n, email: String(hit.email).trim() };
+    if (!hit) return { name: n, email: '', phone: '', noEmail: true };
+    return {
+      name: hit.name || n,
+      email: String(hit.email || '').trim(),
+      phone: String(hit.phone || '').trim(),
+      noEmail: !hit.email
+    };
   };
 
   const departmentHeads = uniqRecipients(
@@ -121,7 +132,11 @@ export async function buildNotifyRecipientGroups(db, opts = {}) {
   const team = uniqRecipients(
     users
       .filter((u) => u.email && String(u.name || '').trim())
-      .map((u) => ({ name: String(u.name).trim(), email: String(u.email).trim() }))
+      .map((u) => ({
+        name: String(u.name).trim(),
+        email: String(u.email).trim(),
+        phone: String(u.phone || '').trim()
+      }))
   );
 
   return { departmentHeads, leadership, assignees, team };

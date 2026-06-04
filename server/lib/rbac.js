@@ -34,6 +34,7 @@ const AUTH_ONLY_PREFIXES = ['/', '/legacy/Golden_Abodes_App_Vault.html'];
 function isPublicPath(pathname) {
   if (PUBLIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) return true;
   if (pathname.startsWith('/assets/')) return true;
+  if (/^\/api\/preconstruction\/attachments\/[^/]+\/wa-media$/.test(pathname)) return true;
   if (STATIC_EXT.test(pathname)) return true;
   return false;
 }

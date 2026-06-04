@@ -311,6 +311,7 @@ authRouter.post(
     await db.collection('auth_users').insertOne({
       email,
       name: String(req.body?.name || '').trim() || email,
+      phone: String(req.body?.phone || '').trim(),
       status: String(req.body?.status || 'active'),
       roleIds: uniq(req.body?.roleIds || ['viewer']),
       permissions: uniq(req.body?.permissions || []),
@@ -335,6 +336,7 @@ authRouter.put(
     if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid user id' });
     const patch = {
       name: String(req.body?.name || '').trim(),
+      phone: String(req.body?.phone || '').trim(),
       status: String(req.body?.status || 'active'),
       roleIds: uniq(req.body?.roleIds || ['viewer']),
       permissions: uniq(req.body?.permissions || []),
