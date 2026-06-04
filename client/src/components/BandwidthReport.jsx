@@ -1,14 +1,24 @@
 import { useMemo } from 'react';
 
-function heatColor(pct) {
-  if (pct >= 50) return 'rgba(179, 46, 30, 0.35)';
-  if (pct >= 25) return 'rgba(200, 154, 58, 0.35)';
-  if (pct > 0) return 'rgba(27, 94, 158, 0.25)';
-  return 'transparent';
+function heatColor(pct, allocated) {
+  if (!allocated) return 'transparent';
+  if (pct >= 60) return 'rgba(179, 46, 30, 0.4)';
+  if (pct >= 35) return 'rgba(200, 154, 58, 0.38)';
+  if (pct > 0) return 'rgba(27, 94, 158, 0.28)';
+  return 'rgba(255, 255, 255, 0.04)';
+}
+
+function sumRow(row, projectNames) {
+  return projectNames.reduce((s, n) => s + (row[n] || 0), 0);
 }
 
 export function BandwidthReport({ report, loading, error }) {
-  const { people, projects, matrix } = report || { people: [], projects: [], matrix: {} };
+  const { people, projects, matrix, personMeta } = report || {
+    people: [],
+    projects: [],
+    matrix: {},
+    personMeta: {}
+  };
   const projectNames = useMemo(
     () => (projects || []).map((p) => (typeof p === 'string' ? p : p.name)).filter(Boolean),
     [projects]
@@ -19,7 +29,8 @@ export function BandwidthReport({ report, loading, error }) {
   if (!people.length) {
     return (
       <div className="bwr-empty">
-        No assignees on open tasks yet. Set assignees on PreConstruction tasks to populate this report.
+        Assign projects to users in Admin (checkbox list below), and ensure tasks have assignees or process
+        roles. Bandwidth splits each person&apos;s <strong>100%</strong> across their allocated projects.
       </div>
     );
   }
@@ -27,8 +38,10 @@ export function BandwidthReport({ report, loading, error }) {
   return (
     <div className="bwr-wrap">
       <p className="bwr-desc">
-        Share of each project&apos;s <strong>open tasks</strong> assigned to each person (co-assignees split weight
-        equally). Rows = people · Columns = projects.
+        <strong>Inter-project bandwidth</strong> — each row totals <strong>100%</strong>. Projects come from
+        Admin assignment; split uses open in-scope work (you as assignee, matching process role, or department
+        head on that phase). One allocated project → 100% there. Multiple projects → share by activity load
+        (task duration); if no open load yet, split equally.
       </p>
       <div className="bwr-scroll">
         <table className="bwr-table">
@@ -40,31 +53,49 @@ export function BandwidthReport({ report, loading, error }) {
                   <span className="bwr-th-text">{name}</span>
                 </th>
               ))}
-              <th className="bwr-th-sum">Peak</th>
+              <th className="bwr-th-sum">Σ 100%</th>
             </tr>
           </thead>
           <tbody>
             {people.map((person) => {
               const row = matrix[person] || {};
-              const vals = projectNames.map((n) => row[n] || 0);
-              const peak = vals.length ? Math.max(...vals) : 0;
+              const meta = personMeta?.[person] || {};
+              const allocatedSet = new Set(meta.allocatedProjects || []);
+              const total = sumRow(row, projectNames);
+              const subtitle = meta.adminAllocated
+                ? `${meta.projectCount || allocatedSet.size} project${(meta.projectCount || 0) !== 1 ? 's' : ''} assigned · ${meta.splitMode === 'single' ? '100% single' : meta.splitMode === 'equal' ? 'equal split' : 'by activity load'}`
+                : `Workload only (set Admin projects) · ${meta.splitMode || ''}`;
               return (
                 <tr key={person}>
-                  <td className="bwr-td-person">{person}</td>
+                  <td className="bwr-td-person">
+                    <span className="bwr-person-name">{person}</span>
+                    <span className={`bwr-person-meta${meta.adminAllocated ? '' : ' warn'}`}>{subtitle}</span>
+                    {meta.totalOpenDays > 0 ? (
+                      <span className="bwr-person-load">{meta.totalOpenDays}d open in-scope</span>
+                    ) : null}
+                  </td>
                   {projectNames.map((name) => {
-                    const pct = row[name] || 0;
+                    const allocated = allocatedSet.has(name);
+                    const pct = allocated ? row[name] || 0 : null;
+                    const load = meta.openLoadByProject?.[name];
                     return (
                       <td
                         key={name}
-                        className="bwr-td-cell"
-                        style={{ background: heatColor(pct) }}
-                        title={`${person} · ${name}: ${pct}%`}
+                        className={`bwr-td-cell${allocated ? '' : ' na'}`}
+                        style={{ background: heatColor(pct || 0, allocated) }}
+                        title={
+                          allocated
+                            ? `${person} · ${name}: ${pct}% of bandwidth${load != null ? ` · ${load}d open load` : ''}`
+                            : `${person} not assigned to ${name} in Admin`
+                        }
                       >
-                        {pct > 0 ? `${pct}%` : '—'}
+                        {allocated ? (pct > 0 ? `${pct}%` : '0%') : '—'}
                       </td>
                     );
                   })}
-                  <td className="bwr-td-sum">{peak > 0 ? `${peak}%` : '—'}</td>
+                  <td className="bwr-td-sum" title="Should total 100% across allocated projects">
+                    {Math.round(total * 10) / 10}%
+                  </td>
                 </tr>
               );
             })}

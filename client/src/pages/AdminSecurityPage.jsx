@@ -125,7 +125,10 @@ export default function AdminSecurityPage() {
 
       <section className="admin-card">
         <h2>Bandwidth report</h2>
-        <p className="admin-card-sub">Allocation % per person per project (open tasks only)</p>
+        <p className="admin-card-sub">
+          Each person&apos;s 100% bandwidth split across Admin-assigned projects (weighted by open in-scope
+          activities and role)
+        </p>
         <div className="admin-card-actions">
           <button type="button" className="admin-btn" onClick={() => void loadBandwidth()} disabled={bwLoading}>
             {bwLoading ? 'Refreshing…' : 'Refresh report'}

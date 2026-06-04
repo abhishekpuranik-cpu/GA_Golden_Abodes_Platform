@@ -1,5 +1,5 @@
 /**
- * PreConstruction project catalog + bandwidth for Admin Security.
+ * PreConstruction project catalog + inter-project bandwidth for Admin Security.
  */
 
 const NON_ADOPTED_STATUSES = new Set(['pipeline', 'evaluation']);
@@ -10,6 +10,18 @@ export function parseAssignees(who) {
     .split(/[;,]/)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+export function nameMatches(a, b) {
+  const w = String(a || '').trim().toLowerCase();
+  const p = String(b || '').trim().toLowerCase();
+  if (!w || !p) return false;
+  if (w === p) return true;
+  const wParts = w.split(/\s+/);
+  const pParts = p.split(/\s+/);
+  if (wParts.some((x) => x && p.includes(x))) return true;
+  if (pParts.some((x) => x.length > 2 && w.includes(x))) return true;
+  return false;
 }
 
 /** Assignable in admin "Add all" — excludes non-adopted and completed-type statuses. */
@@ -23,63 +35,200 @@ export function isProjectAssignable(project) {
   return true;
 }
 
+function normPhaseName(name) {
+  return String(name || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function getDepartmentForPhase(phaseName, departments) {
+  const n = normPhaseName(phaseName);
+  if (!n) return null;
+  for (const dept of departments || []) {
+    if ((dept.phaseNames || []).some((pn) => n === pn || n.includes(pn) || pn.includes(n))) {
+      return dept;
+    }
+    const slug = n.replace(/\s+/g, '_');
+    if ((dept.phaseSlugs || []).some((s) => slug.includes(s) || s.includes(slug))) {
+      return dept;
+    }
+  }
+  return null;
+}
+
+function taskRolesList(task) {
+  const r = task?.roles;
+  if (Array.isArray(r)) return r.filter(Boolean);
+  if (typeof r === 'string' && r.trim()) {
+    return r
+      .split(/[,;|/]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function taskIsInScope(task, phaseName, person, departments) {
+  if (!person) return false;
+  if (parseAssignees(task.who).some((w) => nameMatches(w, person))) return true;
+  const roles = taskRolesList(task);
+  if (roles.some((role) => nameMatches(role, person) || nameMatches(person, role))) return true;
+  const dept = getDepartmentForPhase(phaseName, departments);
+  if (dept && nameMatches(dept.head, person)) return true;
+  return false;
+}
+
 function taskIsOpen(task) {
   const st = String(task?.status || '').trim().toLowerCase();
   if (st === 'completed' || task?.ae) return false;
   return true;
 }
 
-/**
- * Bandwidth % = share of open tasks on a project (split equally among co-assignees).
- * @param {object[]} projects — from preconstruction state.projects
- * @param {object[]} departments — optional, for roster of dept heads
- */
-export function computeBandwidthReport(projects, departments = []) {
-  const roster = new Set();
-  const projectMeta = [];
-  const matrix = {};
+/** Activity load: duration-weighted open in-scope tasks (current + future pipeline). */
+function workloadWeightForProject(person, project, departments) {
+  let w = 0;
+  for (const ph of project.phases || []) {
+    for (const task of ph.tasks || []) {
+      if (!taskIsOpen(task)) continue;
+      if (!taskIsInScope(task, ph.name, person, departments)) continue;
+      const dur = Number(task.dur);
+      w += Number.isFinite(dur) && dur > 0 ? dur : 1;
+    }
+  }
+  return w;
+}
 
+function resolveAllocatedProjectNames(user, projects) {
+  const allowed = user?.allowedProjects || [];
+  if (!Array.isArray(allowed) || !allowed.length) return [];
+  const keys = new Set(allowed.map((x) => String(x).trim().toLowerCase()).filter(Boolean));
+  return (projects || [])
+    .filter((p) => {
+      const id = String(p.id || '').toLowerCase();
+      const name = String(p.name || '').toLowerCase();
+      return keys.has(name) || keys.has(id);
+    })
+    .map((p) => String(p.name || '').trim())
+    .filter(Boolean);
+}
+
+function projectsWithInScopeWork(person, projects, departments) {
+  const names = [];
+  for (const proj of projects || []) {
+    const name = String(proj.name || '').trim();
+    if (!name) continue;
+    if (workloadWeightForProject(person, proj, departments) > 0) names.push(name);
+  }
+  return names;
+}
+
+function distributeTo100(weights) {
+  const keys = Object.keys(weights).filter((k) => weights[k] > 0);
+  const out = {};
+  if (!keys.length) return out;
+  const total = keys.reduce((s, k) => s + weights[k], 0);
+  if (total <= 0) {
+    const each = Math.round((1000 / keys.length)) / 10;
+    let sum = 0;
+    keys.forEach((k, i) => {
+      if (i < keys.length - 1) {
+        out[k] = each;
+        sum += each;
+      } else out[k] = Math.round((100 - sum) * 10) / 10;
+    });
+    return out;
+  }
+  const ranked = keys
+    .map((k) => ({ k, raw: (weights[k] / total) * 100 }))
+    .sort((a, b) => b.raw - a.raw);
+  let sum = 0;
+  ranked.forEach((r, i) => {
+    if (i < ranked.length - 1) {
+      r.pct = Math.round(r.raw * 10) / 10;
+      sum += r.pct;
+    } else r.pct = Math.round((100 - sum) * 10) / 10;
+    out[r.k] = r.pct;
+  });
+  return out;
+}
+
+/**
+ * Inter-project bandwidth: each person's row sums to 100% across admin-assigned projects.
+ * Split by in-scope open activity load (assignee, process role, or department head).
+ * One allocated project → 100% on that project.
+ *
+ * @param {object[]} projects
+ * @param {object[]} departments
+ * @param {object[]} users — auth users with allowedProjects
+ */
+export function computeBandwidthReport(projects, departments = [], users = []) {
+  const projectMeta = listProjectCatalog(projects);
+  const projectByName = new Map(
+    (projects || []).map((p) => [String(p.name || '').trim(), p]).filter(([n]) => n)
+  );
+  const matrix = {};
+  const personMeta = {};
+  const peopleSet = new Set();
+
+  const activeUsers = (users || []).filter((u) => u.status !== 'disabled' && String(u.name || '').trim());
+  activeUsers.forEach((u) => peopleSet.add(String(u.name).trim()));
   (departments || []).forEach((d) => {
     const h = String(d.head || '').trim();
-    if (h) roster.add(h);
+    if (h) peopleSet.add(h);
   });
 
-  for (const proj of projects || []) {
-    const name = String(proj.name || proj.id || '').trim();
-    if (!name) continue;
-    projectMeta.push({
-      id: proj.id,
-      name,
-      status: proj.status || '',
-      assignable: isProjectAssignable(proj)
+  for (const person of [...peopleSet].sort((a, b) => a.localeCompare(b))) {
+    const authUser = activeUsers.find((u) => nameMatches(u.name, person));
+    let allocated = authUser ? resolveAllocatedProjectNames(authUser, projects) : [];
+    let adminAllocated = allocated.length > 0;
+
+    if (!allocated.length) {
+      allocated = projectsWithInScopeWork(person, projects, departments);
+      if (!allocated.length) continue;
+    }
+
+    const openLoadByProject = {};
+    allocated.forEach((pname) => {
+      const proj = projectByName.get(pname);
+      openLoadByProject[pname] = proj ? workloadWeightForProject(person, proj, departments) : 0;
     });
 
-    let totalWeight = 0;
-    const load = {};
+    let split = {};
+    let splitMode = 'workload';
 
-    for (const ph of proj.phases || []) {
-      for (const task of ph.tasks || []) {
-        if (!taskIsOpen(task)) continue;
-        const assignees = parseAssignees(task.who);
-        assignees.forEach((a) => roster.add(a));
-        if (!assignees.length) continue;
-        totalWeight += 1;
-        const share = 1 / assignees.length;
-        assignees.forEach((a) => {
-          load[a] = (load[a] || 0) + share;
+    if (allocated.length === 1) {
+      split[allocated[0]] = 100;
+      splitMode = 'single';
+    } else {
+      const weights = { ...openLoadByProject };
+      const totalLoad = Object.values(weights).reduce((a, b) => a + b, 0);
+      if (totalLoad <= 0) {
+        const equal = {};
+        allocated.forEach((p) => {
+          equal[p] = 1;
         });
+        split = distributeTo100(equal);
+        splitMode = 'equal';
+      } else {
+        split = distributeTo100(weights);
+        splitMode = 'workload';
       }
     }
 
-    for (const [person, weight] of Object.entries(load)) {
-      if (!matrix[person]) matrix[person] = {};
-      matrix[person][name] =
-        totalWeight > 0 ? Math.round((weight / totalWeight) * 1000) / 10 : 0;
-    }
+    matrix[person] = split;
+    personMeta[person] = {
+      allocatedProjects: allocated,
+      adminAllocated,
+      projectCount: allocated.length,
+      splitMode,
+      openLoadByProject,
+      totalOpenDays: Object.values(openLoadByProject).reduce((a, b) => a + b, 0),
+    };
   }
 
-  const people = [...roster].sort((a, b) => a.localeCompare(b));
-  return { people, projects: projectMeta, matrix };
+  const people = Object.keys(matrix).sort((a, b) => a.localeCompare(b));
+  return { people, projects: projectMeta, matrix, personMeta };
 }
 
 export function listProjectCatalog(projects) {

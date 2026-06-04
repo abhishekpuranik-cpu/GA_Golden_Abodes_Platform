@@ -409,7 +409,34 @@ iframe {
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
-  min-width: 120px;
+  min-width: 140px;
+  vertical-align: top;
+}
+.bwr-person-name {
+  display: block;
+  font-weight: 700;
+  color: #f1f5f9;
+}
+.bwr-person-meta {
+  display: block;
+  font-size: 10px;
+  font-weight: 500;
+  color: #94a3b8;
+  margin-top: 4px;
+  line-height: 1.35;
+}
+.bwr-person-meta.warn {
+  color: #fbbf24;
+}
+.bwr-person-load {
+  display: block;
+  font-size: 10px;
+  color: #64748b;
+  margin-top: 2px;
+}
+.bwr-td-cell.na {
+  color: #475569;
+  opacity: 0.5;
 }
 .bwr-th-proj,
 .bwr-td-cell {

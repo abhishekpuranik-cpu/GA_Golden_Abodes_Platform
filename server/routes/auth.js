@@ -384,7 +384,17 @@ authRouter.get(
     const sess = await resolveSession(db, req);
     if (!sess || !sess.user.permissions.includes(PERM_ADMIN)) return res.status(403).json({ error: 'Forbidden' });
     const { projects, departments } = await loadPreconProjects(db);
-    const report = computeBandwidthReport(projects, departments);
+    const authUsers = await db
+      .collection('auth_users')
+      .find({ status: { $ne: 'disabled' } }, { projection: { passwordHash: 0, passwordSalt: 0 } })
+      .toArray();
+    const users = authUsers.map((u) => ({
+      name: u.name,
+      email: u.email,
+      status: u.status,
+      allowedProjects: u.allowedProjects || []
+    }));
+    const report = computeBandwidthReport(projects, departments, users);
     res.json(report);
   })
 );
