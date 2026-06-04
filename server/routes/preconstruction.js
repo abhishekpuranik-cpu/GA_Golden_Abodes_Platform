@@ -8,8 +8,17 @@ import {
   openAttachmentStream,
   storePreconFile
 } from '../lib/preconAttachments.js';
-import { buildCommentEmailHtml, emailNotifyEnabled, sendPreconNotification } from '../lib/preconEmail.js';
-import { buildNotifyRecipientGroups } from '../lib/preconNotify.js';
+import {
+  buildActivityFileEmailHtml,
+  buildCommentEmailHtml,
+  emailNotifyEnabled,
+  sendPreconNotification
+} from '../lib/preconEmail.js';
+import {
+  buildNotifyRecipientGroups,
+  resolveAutoNotifyRecipients,
+  uniqRecipients
+} from '../lib/preconNotify.js';
 import { parseAssignees } from '../lib/preconAdmin.js';
 
 export const preconstructionRouter = Router();
@@ -127,12 +136,16 @@ preconstructionRouter.get(
     if (!sess) return;
     try {
       const projectId = String(req.query.projectId || '').trim();
+      const phaseName = String(req.query.phaseName || '').trim();
+      const taskWho = String(req.query.taskWho || '').trim();
       const { projects, departments } = await loadWorkspace(db);
       const assigneeNames = projectId ? collectProjectAssigneeNames(projects, projectId) : [];
       const groups = await buildNotifyRecipientGroups(db, { departments, assigneeNames });
+      const autoRecipients = resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho });
       res.json({
         emailEnabled: emailNotifyEnabled(),
-        groups
+        groups,
+        autoRecipients
       });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
@@ -208,6 +221,24 @@ preconstructionRouter.get(
   })
 );
 
+async function resolveNotifyRecipients(db, body) {
+  const extra = Array.isArray(body.extraRecipients) ? body.extraRecipients : [];
+  const manual = Array.isArray(body.recipients) ? body.recipients : [];
+  if (body.autoNotify === false) {
+    return uniqRecipients([...manual, ...extra]);
+  }
+  const { projects, departments } = await loadWorkspace(db);
+  const projectId = String(body.projectId || '').trim();
+  const assigneeNames = projectId ? collectProjectAssigneeNames(projects, projectId) : [];
+  const groups = await buildNotifyRecipientGroups(db, { departments, assigneeNames });
+  const auto = resolveAutoNotifyRecipients(groups, {
+    departments,
+    phaseName: body.phaseName,
+    taskWho: body.taskWho
+  });
+  return uniqRecipients([...auto, ...extra, ...manual]);
+}
+
 preconstructionRouter.post(
   '/preconstruction/notify-comment',
   withDb(async (req, res, db) => {
@@ -215,10 +246,10 @@ preconstructionRouter.post(
     if (!sess) return;
     try {
       const body = req.body || {};
-      const recipients = Array.isArray(body.recipients) ? body.recipients : [];
-      const emails = recipients
-        .map((r) => String(r.email || '').trim().toLowerCase())
-        .filter((e) => e.includes('@'));
+      const kind = String(body.kind || 'comment').toLowerCase();
+      const recipients = await resolveNotifyRecipients(db, body);
+      const emails = recipients.map((r) => r.email).filter((e) => e.includes('@'));
+
       const attachmentIds = [
         ...(Array.isArray(body.attachmentIds) ? body.attachmentIds : []),
         ...(Array.isArray(body.taskAttachmentIds) ? body.taskAttachmentIds : [])
@@ -237,28 +268,44 @@ preconstructionRouter.post(
         });
       }
 
-      const html = buildCommentEmailHtml({
-        projectName: body.projectName,
-        phaseName: body.phaseName,
-        taskName: body.taskName,
-        author: body.author || sess.user.name,
-        text: body.text,
-        nextAction: body.nextAction,
-        nextActionDate: body.nextActionDate,
-        attachmentLabels: labels
-      });
+      const author = body.author || sess.user.name;
+      const isActivity = kind === 'activity';
+      const html = isActivity
+        ? buildActivityFileEmailHtml({
+            projectName: body.projectName,
+            phaseName: body.phaseName,
+            taskName: body.taskName,
+            author,
+            fileLabels: labels
+          })
+        : buildCommentEmailHtml({
+            projectName: body.projectName,
+            phaseName: body.phaseName,
+            taskName: body.taskName,
+            author,
+            text: body.text,
+            nextAction: body.nextAction,
+            nextActionDate: body.nextActionDate,
+            attachmentLabels: labels
+          });
 
-      const subject = `[PreConstruction] ${body.projectName || 'Project'} — ${body.taskName || 'Activity update'}`;
+      const subject = isActivity
+        ? `[PreConstruction] ${body.projectName || 'Project'} — New file(s): ${body.taskName || 'Activity'}`
+        : `[PreConstruction] ${body.projectName || 'Project'} — ${body.taskName || 'Activity update'}`;
+
+      const text = isActivity
+        ? `${author} added file(s) to ${body.taskName || 'activity'}: ${labels.join(', ')}`
+        : `${body.text || ''}\n\nNext: ${body.nextAction || '—'} (${body.nextActionDate || '—'})`;
 
       const result = await sendPreconNotification({
         to: emails,
         subject,
-        text: `${body.text || ''}\n\nNext: ${body.nextAction || '—'} (${body.nextActionDate || '—'})`,
+        text,
         html,
         attachments: emailFiles
       });
 
-      res.json(result);
+      res.json({ ...result, recipients, recipientCount: emails.length });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
     }

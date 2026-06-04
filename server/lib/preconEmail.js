@@ -122,6 +122,30 @@ export function buildCommentEmailHtml(ctx) {
 </body></html>`;
 }
 
+export function buildActivityFileEmailHtml(ctx) {
+  const { projectName, phaseName, taskName, author, fileLabels = [] } = ctx;
+  const files =
+    fileLabels.length > 0
+      ? `<ul style="margin:8px 0 0;padding-left:18px">${fileLabels.map((l) => `<li>${escapeHtml(l)}</li>`).join('')}</ul>`
+      : '';
+
+  return `
+<!DOCTYPE html>
+<html><body style="font-family:system-ui,sans-serif;color:#1a1815;line-height:1.5;max-width:640px">
+  <p style="margin:0 0 12px;font-size:13px;color:#6a6560">Golden Abodes · PreConstruction</p>
+  <h2 style="margin:0 0 8px;font-size:18px;color:#1a304a">${escapeHtml(projectName)}</h2>
+  <p style="margin:0 0 16px;font-size:13px;color:#55504a">
+    <strong>Phase:</strong> ${escapeHtml(phaseName)}<br/>
+    <strong>Activity:</strong> ${escapeHtml(taskName)}
+  </p>
+  <div style="background:#f8f6f1;border-left:4px solid #c89a3a;padding:12px 14px;border-radius:6px">
+    <p style="margin:0 0 6px;font-size:12px;color:#96918a"><strong>${escapeHtml(author || 'Team')}</strong> added file(s) to this activity</p>
+    ${files}
+  </div>
+  <p style="margin:20px 0 0;font-size:11px;color:#96918a">Open the activity in PreConstruction for the full file set and comment thread.</p>
+</body></html>`;
+}
+
 function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
