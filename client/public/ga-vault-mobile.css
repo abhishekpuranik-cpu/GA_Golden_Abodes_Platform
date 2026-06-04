@@ -1,0 +1,32 @@
+/**
+ * Injected into same-origin legacy planner iframes (V2/V3/Cashflow HTML) for touch-friendly UI.
+ */
+@media (max-width: 768px) {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    overflow-x: auto;
+    padding-left: max(8px, env(safe-area-inset-left, 0px));
+    padding-right: max(8px, env(safe-area-inset-right, 0px));
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+  input:not([type='checkbox']):not([type='radio']):not([type='hidden']),
+  select,
+  textarea {
+    font-size: 16px !important;
+    max-width: 100%;
+  }
+  button,
+  .btn,
+  [role='button'] {
+    min-height: 44px;
+    touch-action: manipulation;
+  }
+  table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

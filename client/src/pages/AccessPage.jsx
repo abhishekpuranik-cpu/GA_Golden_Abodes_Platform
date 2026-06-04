@@ -70,6 +70,7 @@ export default function AccessPage() {
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0f172a', color: '#e2e8f0', padding: 20 }}>
       <form
+        className="access-page-form"
         onSubmit={onSubmit}
         style={{ width: '100%', maxWidth: 420, background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(148, 163, 184, 0.4)', borderRadius: 12, padding: 18 }}
       >

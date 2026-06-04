@@ -70,11 +70,9 @@ export default function CashflowV1Embedded() {
   const statusColor = status?.level === 'err' ? '#b91c1c' : status?.level === 'ok' ? '#166534' : '#475569';
 
   return (
-    <div
-      className="ga-v1-embed"
-      style={{ display: 'flex', flexDirection: 'column', height: '100vh', minHeight: 0, background: '#f0f4fa' }}
-    >
+    <div className="ga-v1-embed app-shell-full" style={{ background: '#f0f4fa' }}>
       <div
+        className="planner-toolbar"
         style={{
           flexShrink: 0,
           display: 'flex',

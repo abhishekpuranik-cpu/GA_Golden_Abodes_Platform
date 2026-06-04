@@ -1,6 +1,7 @@
-import { useRef } from 'react';
+import { useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { usePlannerIframeSync } from '../hooks/usePlannerIframeSync.js';
+import { injectLegacyMobileCss } from '../lib/injectLegacyMobileCss.js';
 
 export default function LegacyAppShell({
   title,
@@ -26,9 +27,12 @@ export default function LegacyAppShell({
   /** e.g. `/v1/index.html` for React GA_Cashflow_V1 built with base `/v1/`; otherwise legacy single-file under `/legacy/`. */
   const src = iframeSrc?.trim() || `/legacy/${encodeURI(htmlFile || '')}`;
   const statusColor = status?.level === 'err' ? '#b91c1c' : status?.level === 'ok' ? '#166534' : '#475569';
+  const onIframeLoad = useCallback(() => {
+    injectLegacyMobileCss(iframeRef.current);
+  }, []);
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', background: '#f0f4fa' }}>
+    <div className="app-shell-full" style={{ background: '#f0f4fa' }}>
       <div
         className="planner-toolbar"
         style={{
@@ -102,7 +106,9 @@ export default function LegacyAppShell({
           {mongoAt ? ` · Last cloud: ${new Date(mongoAt).toLocaleString()}` : ''}
         </div>
       ) : null}
-      <iframe ref={iframeRef} title={title} src={src} style={{ flex: 1, width: '100%', border: 'none', background: '#fff' }} />
+      <div className="legacy-iframe-wrap">
+        <iframe ref={iframeRef} title={title} src={src} onLoad={onIframeLoad} />
+      </div>
     </div>
   );
 }
