@@ -2,6 +2,13 @@ import crypto from 'crypto';
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { withDb } from '../lib/mongo.js';
+import {
+  assignableProjectNames,
+  computeBandwidthReport,
+  listProjectCatalog
+} from '../lib/preconAdmin.js';
+
+const PRECON_APP_ID = 'preconstruction';
 
 export const authRouter = Router();
 
@@ -344,5 +351,40 @@ authRouter.put(
     }
     await db.collection('auth_users').updateOne({ _id: new ObjectId(id) }, { $set: patch });
     res.json({ ok: true });
+  })
+);
+
+async function loadPreconProjects(db) {
+  const doc = await db.collection('app_states').findOne({ _id: PRECON_APP_ID });
+  const data = doc?.data;
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return { projects: [], departments: [] };
+  return {
+    projects: Array.isArray(data.projects) ? data.projects : [],
+    departments: Array.isArray(data.departments) ? data.departments : []
+  };
+}
+
+authRouter.get(
+  '/admin/preconstruction-projects',
+  withDb(async (req, res, db) => {
+    const sess = await resolveSession(db, req);
+    if (!sess || !sess.user.permissions.includes(PERM_ADMIN)) return res.status(403).json({ error: 'Forbidden' });
+    const { projects } = await loadPreconProjects(db);
+    const catalog = listProjectCatalog(projects);
+    res.json({
+      projects: catalog,
+      assignableNames: assignableProjectNames(projects)
+    });
+  })
+);
+
+authRouter.get(
+  '/admin/bandwidth-report',
+  withDb(async (req, res, db) => {
+    const sess = await resolveSession(db, req);
+    if (!sess || !sess.user.permissions.includes(PERM_ADMIN)) return res.status(403).json({ error: 'Forbidden' });
+    const { projects, departments } = await loadPreconProjects(db);
+    const report = computeBandwidthReport(projects, departments);
+    res.json(report);
   })
 );

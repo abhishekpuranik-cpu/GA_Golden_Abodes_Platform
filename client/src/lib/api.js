@@ -193,5 +193,15 @@ export const authApi = {
     });
     if (!ok) throw new Error(data?.error || `Update user failed (${status})`);
     return data;
+  },
+  async listPreconstructionProjects() {
+    const { ok, data, status } = await apiFetch('/api/auth/admin/preconstruction-projects');
+    if (!ok) throw new Error(data?.error || `Project catalog failed (${status})`);
+    return data;
+  },
+  async bandwidthReport() {
+    const { ok, data, status } = await apiFetch('/api/auth/admin/bandwidth-report');
+    if (!ok) throw new Error(data?.error || `Bandwidth report failed (${status})`);
+    return data;
   }
 };
