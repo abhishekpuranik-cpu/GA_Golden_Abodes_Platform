@@ -18,8 +18,28 @@ function createTransport() {
     auth: {
       user: process.env.SMTP_USER,
       pass: process.env.SMTP_PASS
-    }
+    },
+    connectionTimeout: 12_000,
+    greetingTimeout: 12_000,
+    socketTimeout: 20_000
   });
+}
+
+const SMTP_SEND_TIMEOUT_MS = 28_000;
+
+async function sendMailWithTimeout(transport, mailOpts) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error('SMTP send timed out — check SMTP_HOST, SMTP_USER, and app password')),
+      SMTP_SEND_TIMEOUT_MS
+    );
+  });
+  try {
+    return await Promise.race([transport.sendMail(mailOpts), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function emailNotifyEnabled() {
@@ -71,14 +91,18 @@ export async function sendPreconNotification(opts) {
   }
 
   const transport = createTransport();
-  await transport.sendMail({
-    from,
-    to: to.join(', '),
-    subject: opts.subject,
-    text: opts.text || '',
-    html: opts.html || opts.text || '',
-    attachments
-  });
+  try {
+    await sendMailWithTimeout(transport, {
+      from,
+      to,
+      subject: opts.subject,
+      text: opts.text || '',
+      html: opts.html || opts.text || '',
+      attachments
+    });
+  } finally {
+    transport.close();
+  }
 
   return { ok: true, sentTo: to };
 }
