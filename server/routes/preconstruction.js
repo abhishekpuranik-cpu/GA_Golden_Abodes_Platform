@@ -10,7 +10,12 @@ import {
   storePreconFile
 } from '../lib/preconAttachments.js';
 import { emailNotifyEnabled } from '../lib/preconEmail.js';
-import { deliverPreconNotification } from '../lib/preconNotifyJob.js';
+import {
+  createNotifyJobId,
+  deliverPreconNotification,
+  getNotifyJob,
+  initNotifyJob
+} from '../lib/preconNotifyJob.js';
 import {
   buildNotifyRecipientGroups,
   resolveAutoNotifyRecipients,
@@ -270,19 +275,50 @@ preconstructionRouter.post(
       const body = req.body || {};
       const recipients = await resolveNotifyRecipients(db, body);
       const emails = recipients.map((r) => r.email).filter((e) => e.includes('@'));
+      const jobId = createNotifyJobId();
+
+      await initNotifyJob(db, jobId, {
+        kind: body.kind || 'comment',
+        projectId: body.projectId,
+        taskName: body.taskName,
+        author: body.author || sess.user.name,
+        recipientCount: emails.length
+      });
 
       res.status(202).json({
         ok: true,
         queued: true,
+        jobId,
         recipients,
         recipientCount: emails.length,
         message: 'Notifications queued'
       });
 
       setImmediate(() => {
-        deliverPreconNotification(db, { body, sess, recipients, emails }).catch((e) => {
+        deliverPreconNotification(db, { body, sess, recipients, emails, jobId }).catch((e) => {
           console.error('[precon-notify] background job failed:', e?.message || e);
         });
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.get(
+  '/preconstruction/notify-status/:jobId',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const job = await getNotifyJob(db, req.params.jobId);
+      if (!job) return res.status(404).json({ error: 'Job not found' });
+      res.json({
+        jobId: job._id,
+        status: job.status,
+        ok: job.result?.ok ?? job.status === 'sent',
+        error: job.error || job.result?.error || '',
+        result: job.result || null
       });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });

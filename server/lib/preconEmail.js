@@ -5,25 +5,36 @@ const MAX_EMAIL_ATTACH_BYTES = Math.min(
   Math.max(5, Number(process.env.PRECON_EMAIL_MAX_MB || 15))
 ) * 1024 * 1024;
 
-const SMTP_SEND_TIMEOUT_MS = 22_000;
+const SMTP_SEND_TIMEOUT_MS = 20_000;
 
 function smtpConfigured() {
   return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+}
+
+function smtpPass() {
+  return String(process.env.SMTP_PASS || '').replace(/\s+/g, '');
 }
 
 function smtpHost() {
   return String(process.env.SMTP_HOST || 'smtp.gmail.com').trim();
 }
 
+function defaultSmtpPort(host) {
+  if (process.env.SMTP_PORT) return Number(process.env.SMTP_PORT);
+  if (/gmail\.com|google\.com/i.test(host)) return 465;
+  return 587;
+}
+
 function transportProfiles() {
-  const preferred = Number(process.env.SMTP_PORT || 587);
   const host = smtpHost();
+  const preferred = defaultSmtpPort(host);
   const profiles = [];
   if (preferred === 465) {
     profiles.push({ host, port: 465, secure: true, requireTLS: false });
+    profiles.push({ host, port: 587, secure: false, requireTLS: true });
   } else {
     profiles.push({ host, port: preferred, secure: false, requireTLS: true });
-    if (preferred !== 465) profiles.push({ host, port: 465, secure: true, requireTLS: false });
+    profiles.push({ host, port: 465, secure: true, requireTLS: false });
   }
   return profiles;
 }
@@ -36,11 +47,11 @@ function createTransport(profile) {
     requireTLS: profile.requireTLS,
     auth: {
       user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
+      pass: smtpPass()
     },
-    connectionTimeout: 10_000,
-    greetingTimeout: 10_000,
-    socketTimeout: 18_000,
+    connectionTimeout: 8_000,
+    greetingTimeout: 8_000,
+    socketTimeout: 15_000,
     tls: { minVersion: 'TLSv1.2' },
     family: 4
   });
@@ -64,10 +75,10 @@ function isRetryableSmtpError(err) {
 function formatSmtpError(err, profile) {
   const base = String(err?.message || err || 'SMTP failed');
   if (base.toLowerCase().includes('timeout') || base.toLowerCase().includes('timed out')) {
-    return `SMTP connection timed out (${profile.host}:${profile.port}). Use a Google App password on ${process.env.SMTP_USER}, try SMTP_PORT=465, or allow smtp.gmail.com from your host.`;
+    return `SMTP timed out (${profile.host}:${profile.port}). Set SMTP_PORT=465 on Render and use a Google App password (no spaces) for ${process.env.SMTP_USER}.`;
   }
   if (base.toLowerCase().includes('invalid login') || base.toLowerCase().includes('authentication')) {
-    return `SMTP authentication failed for ${process.env.SMTP_USER}. Use a 16-character Google App password (no spaces) in SMTP_PASS.`;
+    return `SMTP login failed for ${process.env.SMTP_USER}. Use a Google App password in SMTP_PASS.`;
   }
   return base;
 }
@@ -95,11 +106,10 @@ async function deliverMail(mailOpts) {
       return { ok: true, via: `${profile.host}:${profile.port}` };
     } catch (err) {
       lastErr = err;
-      const retryable = isRetryableSmtpError(err);
-      if (!retryable || i === profiles.length - 1) {
+      if (!isRetryableSmtpError(err) || i === profiles.length - 1) {
         throw new Error(formatSmtpError(err, profile));
       }
-      console.warn(`[precon-email] retry SMTP via ${profiles[i + 1].host}:${profiles[i + 1].port} after: ${err?.message || err}`);
+      console.warn(`[precon-email] retry ${profiles[i + 1].port} after: ${err?.message || err}`);
     } finally {
       transport.close();
     }
@@ -107,22 +117,50 @@ async function deliverMail(mailOpts) {
   throw new Error(formatSmtpError(lastErr, profiles[profiles.length - 1]));
 }
 
-export function emailNotifyEnabled() {
-  return smtpConfigured();
+async function sendViaResend(opts) {
+  const apiKey = String(process.env.RESEND_API_KEY || '').trim();
+  if (!apiKey) return null;
+
+  const from =
+    process.env.PRECON_NOTIFY_FROM ||
+    process.env.RESEND_FROM ||
+    process.env.SMTP_FROM ||
+    process.env.SMTP_USER;
+  const to = [...new Set((opts.to || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
+  if (!to.length) return { ok: false, error: 'No recipient email addresses' };
+
+  const attachments = (opts.attachments || []).slice(0, 10).map((a) => ({
+    filename: a.filename,
+    content: Buffer.isBuffer(a.content) ? a.content.toString('base64') : String(a.content || '')
+  }));
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      from,
+      to,
+      subject: opts.subject,
+      html: opts.html,
+      text: opts.text,
+      attachments: attachments.length ? attachments : undefined
+    })
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    return { ok: false, error: data?.message || data?.error || `Resend failed (${res.status})` };
+  }
+  return { ok: true, sentTo: to, via: 'resend' };
 }
 
-/**
- * @param {object} opts
- * @param {string[]} opts.to - recipient emails
- * @param {string} opts.subject
- * @param {string} opts.html
- * @param {string} [opts.text]
- * @param {{ filename: string, content: Buffer, contentType?: string }[]} [opts.attachments]
- */
+export function emailNotifyEnabled() {
+  return smtpConfigured() || !!String(process.env.RESEND_API_KEY || '').trim();
+}
+
 export async function sendPreconNotification(opts) {
-  if (!smtpConfigured()) {
-    return { ok: false, error: 'Email not configured (set SMTP_HOST, SMTP_USER, SMTP_PASS on server)' };
-  }
   const to = [...new Set((opts.to || []).map((e) => String(e).trim().toLowerCase()).filter(Boolean))];
   if (!to.length) return { ok: false, error: 'No recipient email addresses' };
 
@@ -155,15 +193,24 @@ export async function sendPreconNotification(opts) {
     });
   }
 
+  const mailOpts = {
+    from,
+    to,
+    subject: opts.subject,
+    text: opts.text || '',
+    html: opts.html || opts.text || '',
+    attachments
+  };
+
+  const resendResult = await sendViaResend(mailOpts);
+  if (resendResult) return resendResult;
+
+  if (!smtpConfigured()) {
+    return { ok: false, error: 'Email not configured (set SMTP_* or RESEND_API_KEY on server)' };
+  }
+
   try {
-    const sent = await deliverMail({
-      from,
-      to,
-      subject: opts.subject,
-      text: opts.text || '',
-      html: opts.html || opts.text || '',
-      attachments
-    });
+    const sent = await deliverMail(mailOpts);
     return { ok: true, sentTo: to, via: sent.via };
   } catch (err) {
     return { ok: false, error: err?.message || String(err) };
