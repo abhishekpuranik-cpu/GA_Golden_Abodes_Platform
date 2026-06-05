@@ -9,7 +9,7 @@ import {
   openAttachmentStream,
   storePreconFile
 } from '../lib/preconAttachments.js';
-import { emailNotifyEnabled } from '../lib/preconEmail.js';
+import { emailNotifyEnabled, emailTransportHint } from '../lib/preconEmail.js';
 import {
   createNotifyJobId,
   deliverPreconNotification,
@@ -150,6 +150,7 @@ preconstructionRouter.get(
       const autoRecipients = resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho });
       res.json({
         emailEnabled: emailNotifyEnabled(),
+        emailTransport: emailTransportHint(),
         whatsappEnabled: whatsappConfigured(),
         groups,
         autoRecipients
