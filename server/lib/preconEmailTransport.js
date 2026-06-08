@@ -9,12 +9,22 @@ const HTTP_TIMEOUT_MS = 28_000;
 const SMTP_TIMEOUT_MS = 16_000;
 const MAX_RETRIES = 2;
 
+const GAS_SETUP_STEPS = [
+  'Open https://script.google.com → New project → paste scripts/gas-precon-email/Code.gs from the platform repo',
+  'Project Settings → Script properties → PRECON_EMAIL_SECRET = a long random string (copy for Render)',
+  'Deploy → New deployment → Web app · Execute as: Me · Who has access: Anyone',
+  'On Render set: EMAIL_PROVIDER=gas, PRECON_GAS_EMAIL_URL=<Web App URL>, PRECON_GAS_EMAIL_SECRET=<same secret>',
+  'Optional: PRECON_NOTIFY_FROM=Golden Abodes PreConstruction (display name in inbox)',
+  'Redeploy — email sends via your Gmail/Workspace (no DNS changes)'
+];
+
 const SETUP_STEPS = [
   'Create a Resend account at https://resend.com',
   'Verify domain goldenabodes.com (add DNS SPF + DKIM records in Google Domains / Workspace admin)',
   'Create an API key and set on Render: EMAIL_PROVIDER=resend, RESEND_API_KEY=re_...',
   'Set PRECON_NOTIFY_FROM=Golden Abodes <notifications@goldenabodes.com>',
-  'Redeploy — email sends over HTTPS (no SMTP timeouts from Render)'
+  'Redeploy — email sends over HTTPS (no SMTP timeouts from Render)',
+  'No IT for DNS? Use Google Apps Script relay instead (see gasSetupSteps)'
 ];
 
 function defaultFrom() {
@@ -170,6 +180,42 @@ function stripHtml(html) {
   return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+async function sendViaGasGmail({ to, from, subject, text, html, attachments }) {
+  const url = String(process.env.PRECON_GAS_EMAIL_URL || '').trim();
+  const secret = String(process.env.PRECON_GAS_EMAIL_SECRET || '').trim();
+  if (!url || !secret) return null;
+
+  const packed = packAttachments(attachments);
+  const res = await httpJson(url, {
+    body: {
+      secret,
+      to,
+      subject,
+      text: text || stripHtml(html),
+      html: html || text || '',
+      fromName: extractName(from || defaultFrom()) || 'Golden Abodes PreConstruction',
+      attachments: packed.map((a) => ({
+        filename: a.filename,
+        contentType: a.contentType,
+        contentBase64: a.content.toString('base64')
+      }))
+    }
+  });
+
+  const data = res.data || {};
+  if (data.ok === false) {
+    return { ok: false, status: res.status, error: data.error || 'GAS email relay rejected the request' };
+  }
+  if (!res.ok && !data.ok) {
+    return {
+      ok: false,
+      status: res.status,
+      error: data.error || res.error || `GAS email relay failed (${res.status || 'network'})`
+    };
+  }
+  return { ok: true, sentTo: data.sentTo || to, provider: 'gas-gmail' };
+}
+
 async function sendViaSmtp({ to, from, subject, text, html, attachments }) {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return null;
   if (process.env.EMAIL_ALLOW_SMTP !== '1') {
@@ -218,13 +264,22 @@ async function sendViaSmtp({ to, from, subject, text, html, attachments }) {
 const PROVIDER_SENDERS = {
   resend: (opts) => sendViaResend(opts),
   sendgrid: (opts) => sendViaSendGrid(opts),
+  gas: (opts) => sendViaGasGmail(opts),
   smtp: (opts) => sendViaSmtp(opts)
 };
+
+function gasEmailConfigured() {
+  return !!(
+    String(process.env.PRECON_GAS_EMAIL_URL || '').trim() &&
+    String(process.env.PRECON_GAS_EMAIL_SECRET || '').trim()
+  );
+}
 
 function detectAvailableProviders() {
   const list = [];
   if (String(process.env.RESEND_API_KEY || '').trim()) list.push('resend');
   if (String(process.env.SENDGRID_API_KEY || '').trim()) list.push('sendgrid');
+  if (gasEmailConfigured()) list.push('gas');
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) list.push('smtp');
   return list;
 }
@@ -234,9 +289,13 @@ export function resolveEmailProvider() {
   const available = detectAvailableProviders();
 
   if (forced && PROVIDER_SENDERS[forced]) {
-    if (forced === 'smtp' || available.includes(forced)) return forced;
+    if (forced === 'smtp' && process.env.EMAIL_ALLOW_SMTP !== '1') {
+      /* fall through */
+    } else if (forced === 'gas' && gasEmailConfigured()) return 'gas';
+    else if (forced === 'smtp' || available.includes(forced)) return forced;
   }
 
+  if (available.includes('gas')) return 'gas';
   if (available.includes('resend')) return 'resend';
   if (available.includes('sendgrid')) return 'sendgrid';
   if (available.includes('smtp') && process.env.EMAIL_ALLOW_SMTP === '1') return 'smtp';
@@ -246,14 +305,16 @@ export function resolveEmailProvider() {
 export function getEmailConfig() {
   const provider = resolveEmailProvider();
   const available = detectAvailableProviders();
+  const noDnsPath = gasEmailConfigured();
   return {
     enabled: !!provider,
     provider,
     from: defaultFrom(),
     availableProviders: available,
     setupRequired: !provider,
-    recommendedProvider: 'resend',
+    recommendedProvider: noDnsPath ? 'gas' : 'resend',
     setupSteps: SETUP_STEPS,
+    gasSetupSteps: GAS_SETUP_STEPS,
     smtpDeprecated: available.includes('smtp') && !available.includes('resend') && !available.includes('sendgrid')
   };
 }
@@ -274,7 +335,8 @@ export async function sendTransactionalEmail(opts) {
   if (!providerId) {
     return {
       ok: false,
-      error: 'Email not configured. Use Resend (recommended): EMAIL_PROVIDER=resend, RESEND_API_KEY, PRECON_NOTIFY_FROM on Render.'
+      error:
+        'Email not configured on Render. Without IT/DNS use Google Apps Script: EMAIL_PROVIDER=gas, PRECON_GAS_EMAIL_URL, PRECON_GAS_EMAIL_SECRET. Or Resend: RESEND_API_KEY + verified domain.'
     };
   }
 
