@@ -329,7 +329,7 @@ preconstructionRouter.post(
       const result = await sendWhatsAppNotifications({
         toPhones: [to],
         body:
-          '*Golden Abodes · PreConstruction test*\n\nIf you received this, WhatsApp notify is working.\n\nOpen: https://ga-golden-abodes-platform.onrender.com/preconstruction/'
+          '*Golden Abodes · Project Update*\n\nTest message — if you received this, WhatsApp notify is working.\n\nOpen: https://ga-golden-abodes-platform.onrender.com/preconstruction/'
       });
       res.json({ ok: result.ok, to, ...result });
     } catch (e) {

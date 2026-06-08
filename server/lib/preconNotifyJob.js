@@ -17,7 +17,8 @@ import {
   resolvePhonesForRecipients,
   sendWhatsAppNotifications,
   whatsappConfigured,
-  whatsappMediaPublicUrl
+  whatsappMediaPublicUrl,
+  whatsappSendableMime
 } from './preconWhatsApp.js';
 
 
@@ -190,22 +191,17 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
 
 
-    const waMimeOk = (mime) => {
-
-      const m = String(mime || '').toLowerCase();
-
-      return m.startsWith('image/') || m === 'application/pdf' || m.startsWith('video/');
-
-    };
-
-    const mediaUrls = [];
+    const attachmentLinks = [];
+    const mediaItems = [];
 
     for (const id of attachmentIds) {
-
       const meta = await getAttachmentMeta(db, id);
-
-      if (meta && waMimeOk(meta.mimeType)) mediaUrls.push(whatsappMediaPublicUrl(id));
-
+      if (!meta) continue;
+      const label = meta.label || meta.fileName || 'Attachment';
+      const url = whatsappMediaPublicUrl(id);
+      const asMedia = whatsappSendableMime(meta.mimeType);
+      attachmentLinks.push({ label, url, asMedia });
+      if (asMedia) mediaItems.push({ url, label, mimeType: meta.mimeType });
     }
 
     const authUsers = await db
@@ -252,11 +248,13 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
           nextActionDate: body.nextActionDate,
 
-          fileLabels: labels
+          fileLabels: labels,
+
+          attachmentLinks
 
         },
 
-        mediaUrls
+        mediaItems
 
       })
 
