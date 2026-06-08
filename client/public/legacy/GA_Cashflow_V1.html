@@ -1768,6 +1768,7 @@ var _cfTabGateInited = false;
 var _lastProjHash = '';
 var _collapseGroups = {inflows:false, outflows:false}; // false = expanded
 var _salesUIPanel = 'inventory'; // 'inventory' | 'postsales'
+var _postSalesSubPanel = 'overview'; // 'overview' | 'monthly' — nested under post-sales dashboard
 /** month | quarter | month-collapsed-per-Q — quarter = one col per Q; month = month cols; qCollapsed[qk]=true merges that Q to one col */
 var _salesGridMode = 'month';
 var _salesQCollapsed = {}; // { '2025-Q3': true }
@@ -5618,6 +5619,180 @@ function postSalesRowKind(mo, curMo){
   if(mo===curMo) return 'current';
   return 'future';
 }
+function htmlPostSalesInnerSubtabNav(){
+  var h='<div class="sales-subtab" style="margin-bottom:12px">';
+  h+='<button type="button" class="'+(_postSalesSubPanel==='overview'?'on':'')+'" data-action="post-sales-sub" data-panel="overview">Command center</button>';
+  h+='<button type="button" class="'+(_postSalesSubPanel==='monthly'?'on':'')+'" data-action="post-sales-sub" data-panel="monthly">Monthly performance</button>';
+  h+='</div>';
+  return h;
+}
+function postSalesSumForwardMonths(series, startMo, nMonths, pick){
+  if(!series||!series.length||!startMo||nMonths<=0) return 0;
+  var idx=-1,i;
+  for(i=0;i<series.length;i++){ if(series[i].mo===startMo){ idx=i; break; } }
+  if(idx<0){
+    for(i=0;i<series.length;i++){ if(series[i].mo>=startMo){ idx=i; break; } }
+  }
+  if(idx<0) return 0;
+  var t=0;
+  for(i=idx;i<series.length&&i<idx+nMonths;i++){
+    var r=series[i];
+    t+=(typeof pick==='function'?pick(r):0);
+  }
+  return t;
+}
+function computePostSalesPerformanceKpis(seriesFull, curMo){
+  var ytdRows=(seriesFull||[]).filter(function(r){ return r.mo&&r.mo<=curMo; });
+  var ytdDemand=ytdRows.reduce(function(s,r){ return s+(r.scheduled||0); },0);
+  var ytdExpected=ytdRows.reduce(function(s,r){ return s+(r.expected||0); },0);
+  var ytdReal=ytdRows.reduce(function(s,r){ return s+(r.realized||0); },0);
+  var fwdSold=postSalesSumForwardMonths(seriesFull,curMo,12,function(r){ return r.scheduled||0; });
+  var fwdUnsold=postSalesSumForwardMonths(seriesFull,curMo,12,function(r){ return r.unsoldProj||0; });
+  var fwdTotal=fwdSold+fwdUnsold;
+  return {
+    ytdDemand:ytdDemand,
+    ytdExpected:ytdExpected,
+    ytdReal:ytdReal,
+    ytdGap:Math.max(0,ytdDemand-ytdReal),
+    ytdEff:ytdDemand>0?(100*ytdReal/ytdDemand):0,
+    fwdSold:fwdSold,
+    fwdUnsold:fwdUnsold,
+    fwdTotal:fwdTotal
+  };
+}
+function buildPostSalesMonthlyPerformanceTableHtml(series, seriesFull, curMo){
+  var atMoMap={};
+  var cS=0,cR=0;
+  (seriesFull||[]).forEach(function(r){
+    cS+=(r.scheduled||0);
+    cR+=(r.realized||0);
+    atMoMap[r.mo]={cumDemand:cS,cumReal:cR};
+  });
+  var h='';
+  h+='<div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:10px;min-width:980px">';
+  h+='<thead>';
+  h+='<tr style="background:#E8EEF7;font-size:9px;font-weight:800;color:var(--blue-b)">';
+  h+='<th rowspan="2" style="padding:6px 8px;text-align:left;vertical-align:bottom;border-bottom:1px solid var(--border);min-width:92px">Month</th>';
+  h+='<th colspan="5" style="padding:5px 6px;text-align:center;border-bottom:1px solid var(--border)">Realized vs demand (sold inventory)</th>';
+  h+='<th colspan="4" style="padding:5px 6px;text-align:center;border-bottom:1px solid var(--border)">Projected collections (sold + unsold pipeline)</th>';
+  h+='</tr>';
+  h+='<tr style="background:var(--blue-l);font-size:9px">';
+  [
+    {lab:'Sold demand',title:'Payment schedule — all sold units (demand due this month)'},
+    {lab:'Realized',title:'Cash collected: Tally Customer Collections or CRM (received) tranches'},
+    {lab:'Mo gap',title:'Sold demand − realized (execution shortfall this month)'},
+    {lab:'Eff.%',title:'Realized ÷ sold demand'},
+    {lab:'Cum. outst.',title:'Cumulative sold demand − cumulative realized'}
+  ].forEach(function(col){
+    h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+escAttr(col.title)+'">'+col.lab+'</th>';
+  });
+  [
+    {lab:'Sold proj.',title:'Forward payment schedule from sold inventory (same as demand)'},
+    {lab:'Unsold @ bkgs',title:'CLP / installments due when unsold units book this month'},
+    {lab:'Unsold CLP',title:'Further unsold tranches in this month (not at booking)'},
+    {lab:'Total proj.',title:'Sold projected + full unsold pipeline cash in month'}
+  ].forEach(function(col){
+    h+='<th style="padding:5px 6px;text-align:right;border-bottom:2px solid var(--border)" title="'+escAttr(col.title)+'">'+col.lab+'</th>';
+  });
+  h+='</tr></thead><tbody>';
+  if(!series.length){
+    h+='<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--muted)">Upload sold-unit schedules (CRM Post-Sales) and unsold inventory to populate monthly performance.</td></tr>';
+  } else {
+    series.forEach(function(r){
+      var c=atMoMap[r.mo]||{cumDemand:0,cumReal:0};
+      var rk=postSalesRowKind(r.mo,curMo);
+      var bg=rk==='past'?'#faf5eb':(rk==='current'?'#fde68a':'#e0f2fe');
+      var fw=rk==='current'?800:600;
+      var demand=r.scheduled||0;
+      var real=r.realized||0;
+      var moGap=(rk==='future')?null:Math.max(0,demand-real);
+      var clpBk=r.pipelineClpAtBooking||0;
+      var unsoldTot=r.unsoldProj||0;
+      var clpLater=Math.max(0,unsoldTot-clpBk);
+      var totalProj=demand+unsoldTot;
+      var outst=(rk==='future')?'<span style="color:#64748b;font-style:italic;font-size:9px">modelled</span>':cr(Math.max(0,c.cumDemand-c.cumReal));
+      var moLab=formatMonthKey(r.mo)+(rk==='future'?' <span style="font-size:8px;font-weight:600;color:var(--muted)">proj.</span>':'');
+      var mtd=(rk==='current')?('<div style="font-size:8px;font-weight:600;color:#92400e;margin-top:2px">'+escHtml(postSalesMtdSubtitle())+'</div>'):'';
+      h+='<tr style="border-bottom:1px solid var(--border);background:'+bg+';font-weight:'+fw+'">';
+      h+='<td style="padding:6px 8px;vertical-align:top">'+(rk==='current'?'● ':'')+moLab+mtd+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--blue-b)">'+fmtPostSalesMaybeProj(rk,demand,false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--green-b)">'+fmtPostSalesMaybeProj(rk,real,false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--orange)">'+(moGap===null?'—':fmtPostSalesMaybeProj(rk,moGap,false))+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px">'+htmlPostSalesEffMiniBar(demand,real,rk)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;font-weight:700">'+outst+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:#1d4ed8">'+fmtPostSalesMaybeProj(rk,demand,false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--purple);font-weight:700">'+fmtPostSalesMaybeProj(rk,clpBk,false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;color:var(--purple)">'+fmtPostSalesMaybeProj(rk,clpLater,false)+'</td>';
+      h+='<td style="text-align:right;padding:6px 6px;font-weight:700;color:#0f766e">'+fmtPostSalesMaybeProj(rk,totalProj,false)+'</td>';
+      h+='</tr>';
+    });
+    var last=series[series.length-1];
+    var cEnd=last?atMoMap[last.mo]:{cumDemand:0,cumReal:0};
+    var totDem=series.reduce(function(s,r){ return s+(r.scheduled||0); },0);
+    var totReal=series.reduce(function(s,r){ return s+(r.realized||0); },0);
+    var totUnsold=series.reduce(function(s,r){ return s+(r.unsoldProj||0); },0);
+    h+='<tr style="background:var(--blue-l);font-weight:800;font-size:10px">';
+    h+='<td style="padding:8px 8px">Total (visible window)</td>';
+    h+='<td style="text-align:right">'+cr(totDem)+'</td><td style="text-align:right">'+cr(totReal)+'</td>';
+    h+='<td style="text-align:right">'+cr(Math.max(0,totDem-totReal))+'</td>';
+    h+='<td style="text-align:right">'+htmlPostSalesEffMiniBar(totDem,totReal,'past')+'</td>';
+    h+='<td style="text-align:right">'+cr(Math.max(0,(cEnd.cumDemand||0)-(cEnd.cumReal||0)))+'</td>';
+    h+='<td style="text-align:right">'+cr(totDem)+'</td><td style="text-align:right">—</td><td style="text-align:right">—</td>';
+    h+='<td style="text-align:right">'+cr(totDem+totUnsold)+'</td>';
+    h+='</tr>';
+  }
+  h+='</tbody></table></div>';
+  return h;
+}
+function renderPostSalesMonthlyPerformance(cfg){
+  var seriesFull=buildPostSalesSeries(cfg);
+  var cutY=calendarYearStartMonthKey();
+  var series=showPriorCalendarYears()?seriesFull:seriesFull.filter(function(r){ return r.mo>=cutY; });
+  var curMo=currentMonthStr();
+  var kpi=computePostSalesPerformanceKpis(seriesFull,curMo);
+  var h='';
+  h+='<div class="card" style="border-top:3px solid #0F766E">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Monthly collections performance</div>';
+  h+='<label style="font-size:10px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none">';
+  h+='<input type="checkbox" data-action="toggle-prior-years" '+(showPriorCalendarYears()?'checked':'')+' style="accent-color:var(--blue)"/>';
+  h+='Show prior calendar years</label></div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.5"><strong>Sold demand</strong> = payment schedule of booked inventory. <strong>Realized</strong> = cash received (ledger or CRM). <strong>Projected</strong> = sold schedule plus unsold pipeline (CLP at booking + later tranches). Use this view to track collection efficiency and forward liquidity from sold + unsold stock.'+(showPriorCalendarYears()?'':' Months before '+cutY+' hidden.')+'</div>';
+  h+='<div class="ps-dash-grid">';
+  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>YTD sold demand</h4><div class="v">'+cr(kpi.ytdDemand)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Payment schedule due through '+formatMonthKey(curMo)+'</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>YTD realized</h4><div class="v">'+cr(kpi.ytdReal)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Collections received in same window</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#B45309"><h4>YTD collection gap</h4><div class="v">'+cr(kpi.ytdGap)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Demand − realized · Eff. <strong>'+(kpi.ytdEff>0?kpi.ytdEff.toFixed(1)+'%':'—')+'</strong></div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#5B21B6"><h4>Clean demand (YTD)</h4><div class="v">'+cr(kpi.ytdExpected)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Excl. flagged units; agreement-pending only with a date</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#1D4ED8"><h4>Next 12M · sold projected</h4><div class="v">'+cr(kpi.fwdSold)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">From '+formatMonthKey(curMo)+' payment schedules</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#7C3AED"><h4>Next 12M · unsold pipeline</h4><div class="v">'+cr(kpi.fwdUnsold)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Projected unsold CLP / booking cash</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#0F766E"><h4>Next 12M · total projected</h4><div class="v">'+cr(kpi.fwdTotal)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Sold schedule + unsold pipeline</div></div>';
+  h+='</div>';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly parameter board'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
+  h+=buildPostSalesMonthlyPerformanceTableHtml(series,seriesFull,curMo);
+  h+='</div>';
+  return h;
+}
+function renderPostSalesMonthlyPerformanceRollup(vis){
+  var seriesFull=aggregatePostSalesSeriesForVisible(vis);
+  var cutY=calendarYearStartMonthKey();
+  var series=showPriorCalendarYears()?seriesFull:seriesFull.filter(function(r){ return r.mo>=cutY; });
+  var curMo=currentMonthStr();
+  var kpi=computePostSalesPerformanceKpis(seriesFull,curMo);
+  var h='';
+  h+='<div class="card" style="border-top:3px solid #0F766E">';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Monthly collections performance — rollup ('+(vis||[]).length+' projects)</div>';
+  h+='<div class="ps-dash-grid">';
+  h+='<div class="ps-dash-card"><h4>YTD sold demand</h4><div class="v">'+cr(kpi.ytdDemand)+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>YTD realized</h4><div class="v">'+cr(kpi.ytdReal)+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>YTD gap · Eff.</h4><div class="v">'+cr(kpi.ytdGap)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+(kpi.ytdEff>0?kpi.ytdEff.toFixed(1)+'%':'—')+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>Next 12M total proj.</h4><div class="v">'+cr(kpi.fwdTotal)+'</div></div>';
+  h+='</div>';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly parameter board — rollup</div>';
+  h+=buildPostSalesMonthlyPerformanceTableHtml(series,seriesFull,curMo);
+  h+='</div>';
+  return h;
+}
 function postSalesMtdSubtitle(){
   try{
     var d=new Date();
@@ -5854,7 +6029,12 @@ function renderSales(){
   h+='</div>';
 
   if(_salesUIPanel==='postsales'){
-    h+=(vis.length>1)?renderPostSalesPanelRollup(vis):renderPostSalesPanel(cfg);
+    h+=htmlPostSalesInnerSubtabNav();
+    if(_postSalesSubPanel==='monthly'){
+      h+=(vis.length>1)?renderPostSalesMonthlyPerformanceRollup(vis):renderPostSalesMonthlyPerformance(cfg);
+    }else{
+      h+=(vis.length>1)?renderPostSalesPanelRollup(vis):renderPostSalesPanel(cfg);
+    }
     el.innerHTML=h;
     return;
   }
@@ -9387,6 +9567,7 @@ document.addEventListener('click',function(e){
   if(a==='export-ppt')             { exportInvestorPPT(); return; }
   if(a==='gst-xlsx-export')        { exportVendorGstExcel(String(el.dataset.report||'bills-inr')); return; }
   if(a==='sales-sub')              { _salesUIPanel=el.dataset.panel||'inventory'; renderSales(); return; }
+  if(a==='post-sales-sub')         { _postSalesSubPanel=el.dataset.panel||'overview'; renderSales(); return; }
   if(a==='expense-sub')            { _expenseUIPanel=el.dataset.panel||'dashboard'; renderExpenses(); return; }
   if(a==='insight-apply'){
     _insightFrom=String((document.querySelector('[data-action="insight-f-from"]')||{}).value||'');
