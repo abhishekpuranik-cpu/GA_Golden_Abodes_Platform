@@ -23,6 +23,10 @@ import {
 } from '../lib/preconNotify.js';
 import { parseAssignees } from '../lib/preconAdmin.js';
 import {
+  normalizeWhatsAppFrom,
+  normalizeWhatsAppPhone,
+  resolvePhonesForRecipients,
+  sendWhatsAppNotifications,
   verifyWhatsAppMediaToken,
   whatsappConfigured
 } from '../lib/preconWhatsApp.js';
@@ -149,11 +153,37 @@ preconstructionRouter.get(
       const groups = await buildNotifyRecipientGroups(db, { departments, assigneeNames });
       const autoRecipients = resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho });
       const emailConfig = getEmailConfig();
+      const waOn = whatsappConfigured();
+      const withPhone = (autoRecipients || []).filter((r) => String(r.phone || '').replace(/\D/g, '').length >= 10);
+      const authUsers = await db
+        .collection('auth_users')
+        .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1 } })
+        .toArray();
+      const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
+      const resolvedPhones = resolvePhonesForRecipients(autoRecipients, usersByEmail);
+      const fromRaw = String(process.env.TWILIO_WHATSAPP_FROM || '').trim();
+      const fromNormalized = normalizeWhatsAppFrom(fromRaw);
       res.json({
         emailEnabled: emailNotifyEnabled(),
         emailTransport: emailConfig.provider || 'none',
         emailConfig,
-        whatsappEnabled: whatsappConfigured(),
+        whatsappEnabled: waOn,
+        whatsappDiagnostics: {
+          configured: waOn,
+          fromSet: !!fromRaw,
+          fromNormalized: fromNormalized || null,
+          fromFormatOk: !fromRaw || !!fromNormalized,
+          autoRecipientsWithPhone: withPhone.length,
+          autoRecipientsTotal: (autoRecipients || []).length,
+          phonesResolvedForNotify: resolvedPhones.length,
+          sandboxReminder:
+            'Each recipient phone must WhatsApp "join <your-code>" to +1 415 523 8886 (Twilio sandbox) — re-join every 72h.',
+          hint: waOn
+            ? resolvedPhones.length
+              ? 'Phones found. Ensure each number joined the Twilio sandbox; check Render logs for Twilio error codes (e.g. 63015 = not in sandbox).'
+              : 'Add mobile numbers in Admin → Security for assignees / dept heads (10-digit India OK).'
+            : 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM on Render.'
+        },
         groups,
         autoRecipients
       });
@@ -268,6 +298,45 @@ async function resolveNotifyRecipients(db, body) {
   });
   return uniqRecipients([...auto, ...extra, ...manual]);
 }
+
+preconstructionRouter.post(
+  '/preconstruction/test-whatsapp',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    const perms = sess.user.permissions || [];
+    if (!perms.includes('manage_security') && !perms.includes('admin')) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    if (!whatsappConfigured()) {
+      return res.status(503).json({
+        ok: false,
+        error: 'Twilio not configured on server',
+        hint: 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM on Render'
+      });
+    }
+    try {
+      const override = String(req.body?.phone || '').trim();
+      const u = await db.collection('auth_users').findOne({ email: sess.user.email });
+      const raw = override || u?.phone || '';
+      const to = normalizeWhatsAppPhone(raw);
+      if (!to) {
+        return res.status(400).json({
+          ok: false,
+          error: 'No phone — add your number in Admin Security or pass { "phone": "9876543210" }'
+        });
+      }
+      const result = await sendWhatsAppNotifications({
+        toPhones: [to],
+        body:
+          '*Golden Abodes · PreConstruction test*\n\nIf you received this, WhatsApp notify is working.\n\nOpen: https://ga-golden-abodes-platform.onrender.com/preconstruction/'
+      });
+      res.json({ ok: result.ok, to, ...result });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  })
+);
 
 preconstructionRouter.post(
   '/preconstruction/notify-comment',

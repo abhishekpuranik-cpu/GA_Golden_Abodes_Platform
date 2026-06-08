@@ -27,6 +27,16 @@ export function normalizeWhatsAppPhone(raw) {
   return `whatsapp:+${digits}`;
 }
 
+/** Twilio requires From like whatsapp:+14155238886 (not bare +141…). */
+export function normalizeWhatsAppFrom(raw) {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  if (s.toLowerCase().startsWith('whatsapp:')) return s;
+  const digits = s.replace(/\D/g, '');
+  if (!digits) return '';
+  return `whatsapp:+${digits}`;
+}
+
 export function signWhatsAppMediaToken(attId, ttlMs = 60 * 60 * 1000) {
   const exp = Date.now() + ttlMs;
   const payload = `${attId}:${exp}`;
@@ -98,7 +108,10 @@ export async function sendWhatsAppNotifications(opts) {
   const mediaUrls = (opts.mediaUrls || []).filter(Boolean).slice(0, 5);
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_WHATSAPP_FROM;
+  const from = normalizeWhatsAppFrom(process.env.TWILIO_WHATSAPP_FROM);
+  if (!from) {
+    return { ok: false, error: 'TWILIO_WHATSAPP_FROM invalid — use whatsapp:+14155238886' };
+  }
   const auth = Buffer.from(`${sid}:${token}`).toString('base64');
 
   const sent = [];
@@ -122,9 +135,13 @@ export async function sendWhatsAppNotifications(opts) {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        errors.push({ to, error: data.message || res.statusText });
+        const errMsg = data.message || res.statusText || `HTTP ${res.status}`;
+        const code = data.code != null ? ` [${data.code}]` : '';
+        errors.push({ to, error: `${errMsg}${code}`, code: data.code });
+        console.error('[precon-whatsapp] Twilio error:', to, errMsg, data.code || '');
       } else {
         sent.push(to);
+        console.log('[precon-whatsapp] sent:', to, data.sid || '');
       }
     } catch (e) {
       errors.push({ to, error: e?.message || String(e) });

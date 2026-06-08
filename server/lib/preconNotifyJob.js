@@ -14,13 +14,10 @@ import {
 import { getAttachmentMeta, readAttachmentBuffer } from './preconAttachments.js';
 
 import {
-
   resolvePhonesForRecipients,
-
   sendWhatsAppNotifications,
-
+  whatsappConfigured,
   whatsappMediaPublicUrl
-
 } from './preconWhatsApp.js';
 
 
@@ -267,28 +264,43 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
 
 
+    const waOk = !!(waResult.ok && (waResult.sent?.length || 0));
+    const anyOk = !!emailResult.ok || waOk;
+
     const result = {
-
-      ok: !!emailResult.ok || !!(waResult.ok && (waResult.sent?.length || 0)),
-
       ...emailResult,
-
       recipients,
-
       recipientCount: emails.length,
-
       whatsapp: waResult,
-
-      whatsappCount: waResult.sent?.length || 0
-
+      whatsappCount: waResult.sent?.length || 0,
+      ok: anyOk
     };
 
     if (!emailResult.ok) {
-
-      result.error = emailResult.error;
-
       console.error('[precon-notify] email failed:', emailResult.error);
+    }
+    if (!waOk && whatsappConfigured()) {
+      console.error(
+        '[precon-notify] whatsapp failed:',
+        waResult.error || waResult.errors?.map((e) => `${e.to}: ${e.error}`).join('; ') || 'no messages sent'
+      );
+    }
 
+    if (!anyOk) {
+      const parts = [];
+      if (!emailResult.ok && emailResult.error) parts.push(`Email: ${emailResult.error}`);
+      if (!waOk) {
+        const waErr =
+          waResult.error ||
+          (waResult.errors || []).map((e) => `${e.to}: ${e.error}`).join('; ') ||
+          'WhatsApp not sent';
+        parts.push(`WhatsApp: ${waErr}`);
+      }
+      result.error = parts.join(' · ') || 'Notify failed';
+    } else if (!emailResult.ok && emailResult.error) {
+      result.error = emailResult.error;
+    } else {
+      result.error = '';
     }
 
     await logEmailDelivery(db, {
