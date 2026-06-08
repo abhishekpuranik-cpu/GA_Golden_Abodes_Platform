@@ -2236,7 +2236,7 @@ function normalizeLoanSanction(v){
   return (s==='yes')?'yes':'no';
 }
 var OC_GST_ON_SALE_RATE=0.05;
-/** CRM columns omitted from Sold Units Due / Received / Pending (collection_report_stage_wise). */
+/** CRM columns omitted from CLP Due / Pending schedule — not from cash received totals. */
 function isExcludedCollectionColumn(labelOrBase){
   var base=installmentBaseLabel(String(labelOrBase||''));
   var s=base.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
@@ -2251,6 +2251,36 @@ function isExcludedCollectionColumn(labelOrBase){
 }
 function filterExcludedCollectionInstallRows(sched){
   return (sched||[]).filter(function(x){ return !isExcludedCollectionColumn(x.label); });
+}
+function isCrmTotalBreakColumn(label){
+  var labLow=String(label||'').trim().toLowerCase();
+  return labLow==='total agreement'||labLow==='total amount'||(labLow.indexOf('total')===0&&labLow.indexOf('agreement')>=0);
+}
+/** Prefer CRM Amount Received row "Total Amount" column; 0 if absent. */
+function crmReceivedToDateFromRecvRow(recvR,hdr,fromCol,maxC){
+  if(!recvR||!hdr) return 0;
+  var c,lab,v;
+  for(c=fromCol;c<maxC;c++){
+    lab=hdr[c];
+    if(lab===undefined||lab===null||String(lab).trim()==='') continue;
+    if(String(lab).trim().toLowerCase()==='total amount'){
+      v=parseCRMNumber(recvR[c]);
+      if(v>0) return v;
+    }
+  }
+  return 0;
+}
+/** Sum every Amount Received cell before Total Agreement / Total Amount columns. */
+function sumCrmRowReceived(recvR,hdr,fromCol,maxC){
+  if(!recvR||!hdr) return 0;
+  var t=0,c,lab;
+  for(c=fromCol;c<maxC;c++){
+    lab=hdr[c];
+    if(lab===undefined||lab===null||String(lab).trim()==='') break;
+    if(isCrmTotalBreakColumn(lab)) break;
+    t+=parseCRMNumber(recvR[c]);
+  }
+  return t;
 }
 function computeOwnContributionAmount(tv,loan,src){
   tv=Math.max(0,coerceMoney(tv));
@@ -5365,22 +5395,22 @@ function buildSalesGridCaches(cfg, units){
     if(u.payType==='install'){
       if(installUsesCRMDueLines(u)){
         groupCRMInstallmentsByBase(u,cfg).forEach(function(g){
-          if(isExcludedCollectionColumn(g.base||g.label)) return;
+          var excluded=isExcludedCollectionColumn(g.base||g.label);
           var dueMo=crmMilestoneMonthKey(g.dueIso||'', u);
           if(!dueMo) return;
           var rcv=coerceMoney(g.recv), pnd=coerceMoney(g.pend);
           recvByMo[dueMo]=(recvByMo[dueMo]||0)+rcv;
-          pendByMo[dueMo]=(pendByMo[dueMo]||0)+pnd;
+          if(!excluded) pendByMo[dueMo]=(pendByMo[dueMo]||0)+pnd;
           var gIso=normalizeToISODate(g.dueIso)||'';
           if(gIso&&gIso<=tdy){
             recvTillToday+=rcv;
-            pendTillToday+=pnd;
+            if(!excluded) pendTillToday+=pnd;
           }
         });
       } else {
         (u.installments||[]).forEach(function(ins){
           var L=String(ins.label||'');
-          if(isExcludedCollectionColumn(L)) return;
+          var excluded=isExcludedCollectionColumn(L);
           var iso=normalizeToISODate(effectiveInstallmentIso(u,cfg,ins));
           if(!iso) return;
           var mo=iso.slice(0,7);
@@ -5389,12 +5419,14 @@ function buildSalesGridCaches(cfg, units){
             recvByMo[mo]=(recvByMo[mo]||0)+amtIns;
             if(iso<=tdy) recvTillToday+=amtIns;
           }
-          if(L.indexOf('(pending)')>=0){
+          if(!excluded&&L.indexOf('(pending)')>=0){
             pendByMo[mo]=(pendByMo[mo]||0)+amtIns;
             if(iso<=tdy) pendTillToday+=amtIns;
           }
         });
       }
+      var rtdFloor=coerceMoney(u.receivedToDate);
+      if(rtdFloor>recvTillToday) recvTillToday=rtdFloor;
     }
     return {dueByMo:dueByMo,recvByMo:recvByMo,pendByMo:pendByMo,dueTillToday:dueTillToday,recvTillToday:recvTillToday,pendTillToday:pendTillToday};
   });
@@ -8728,33 +8760,59 @@ function parseCRMPostSalesRows(rows, cfg){
         return s + (String(it&&it.label||'').indexOf('(due)')>=0 ? coerceMoney(it.amount) : 0);
       },0);
     }
+    function crmColDateForUnit(c){
+      var d='';
+      if(datesR) d=cellToISODateCRM(datesR[c])||'';
+      if(!d) d=timeRow?cellToISODateCRM(timeRow[c]):'';
+      return d;
+    }
+    function pushRecvOnlyInstall(lab,recvAmt,dt){
+      if(recvAmt<=0) return;
+      var dtIso2=normalizeToISODate(dt)||'';
+      if(dtIso2) mergeAchievedDateForLabel(lab, dtIso2);
+      installments.push({date:dt,amount:recvAmt,label:String(lab).trim()+' (received)'});
+    }
     for(c=stageStartCol;c<=stageEndCol;c++){
       lab=hdr[c];
       if(lab===undefined||lab===null||String(lab).trim()==='') break;
-      var labLow=String(lab).trim().toLowerCase();
-      if(labLow==='total agreement'||labLow==='total amount'||(labLow.indexOf('total')===0&&labLow.indexOf('agreement')>=0)) break;
-      if(isExcludedCollectionColumn(lab)) continue;
+      if(isCrmTotalBreakColumn(lab)) break;
       recv=parseCRMNumber(recvR[c]);
       pend=parseCRMNumber(pendR[c]);
       dueAmt=parseCRMNumber(dueR[c]);
-      audit.due+=coerceMoney(dueAmt);
-      audit.received+=coerceMoney(recv);
-      audit.pending+=coerceMoney(pend);
-      sumRecv+=recv;
-      dt='';
-      if(datesR) dt=cellToISODateCRM(datesR[c])||'';
-      if(!dt) dt=timeRow?cellToISODateCRM(timeRow[c]):'';
+      dt=crmColDateForUnit(c);
       var dtIso=normalizeToISODate(dt)||'';
       if(dtIso && (!maxKnownIso || dtIso>maxKnownIso)) maxKnownIso=dtIso;
       var labNorm=String(lab||'').toLowerCase();
       if(!regIso && dtIso && (labNorm.indexOf('agreement')>=0 || labNorm.indexOf('registration')>=0 || labNorm.indexOf('stamp')>=0)){
         regIso=dtIso;
       }
+      if(isExcludedCollectionColumn(lab)){
+        audit.received+=coerceMoney(recv);
+        pushRecvOnlyInstall(lab,recv,dt);
+        continue;
+      }
+      audit.due+=coerceMoney(dueAmt);
+      audit.received+=coerceMoney(recv);
+      audit.pending+=coerceMoney(pend);
+      sumRecv+=recv;
       if(dtIso && recv>0) mergeAchievedDateForLabel(lab, dtIso);
       if(dueAmt>0) installments.push({date:dt,amount:dueAmt,label:String(lab).trim()+' (due)'});
       if(recv>0) installments.push({date:dt,amount:recv,label:String(lab).trim()+' (received)'});
       if(pend>0) installments.push({date:dt,amount:pend,label:String(lab).trim()+' (pending)'});
     }
+    for(c=stageEndCol+1;c<maxC;c++){
+      lab=hdr[c];
+      if(lab===undefined||lab===null||String(lab).trim()==='') break;
+      if(isCrmTotalBreakColumn(lab)) break;
+      recv=parseCRMNumber(recvR[c]);
+      if(recv<=0) continue;
+      dt=crmColDateForUnit(c);
+      audit.received+=coerceMoney(recv);
+      pushRecvOnlyInstall(lab,recv,dt);
+    }
+    var receivedTotal=crmReceivedToDateFromRecvRow(recvR,hdr,stageStartCol,maxC);
+    if(!receivedTotal) receivedTotal=sumCrmRowReceived(recvR,hdr,stageStartCol,maxC);
+    if(receivedTotal>0) sumRecv=receivedTotal;
     var dueTotal=sumInstallDue(installments);
     if(agr>0 && dueTotal<agr){
       var bal=agr-dueTotal;
