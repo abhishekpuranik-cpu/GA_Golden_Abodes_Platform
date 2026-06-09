@@ -5396,22 +5396,16 @@ function buildSalesGridCaches(cfg, units){
     if(u.payType==='install'){
       if(installUsesCRMDueLines(u)){
         groupCRMInstallmentsByBase(u,cfg).forEach(function(g){
-          var excluded=isExcludedCollectionColumn(g.base||g.label);
           var dueMo=crmMilestoneMonthKey(g.dueIso||'', u);
           if(!dueMo) return;
-          var rcv=coerceMoney(g.recv), pnd=coerceMoney(g.pend);
+          var rcv=coerceMoney(g.recv);
           recvByMo[dueMo]=(recvByMo[dueMo]||0)+rcv;
-          if(!excluded) pendByMo[dueMo]=(pendByMo[dueMo]||0)+pnd;
           var gIso=normalizeToISODate(g.dueIso)||'';
-          if(gIso&&gIso<=tdy){
-            recvTillToday+=rcv;
-            if(!excluded) pendTillToday+=pnd;
-          }
+          if(gIso&&gIso<=tdy) recvTillToday+=rcv;
         });
       } else {
         (u.installments||[]).forEach(function(ins){
           var L=String(ins.label||'');
-          var excluded=isExcludedCollectionColumn(L);
           var iso=normalizeToISODate(effectiveInstallmentIso(u,cfg,ins));
           if(!iso) return;
           var mo=iso.slice(0,7);
@@ -5420,14 +5414,17 @@ function buildSalesGridCaches(cfg, units){
             recvByMo[mo]=(recvByMo[mo]||0)+amtIns;
             if(iso<=tdy) recvTillToday+=amtIns;
           }
-          if(!excluded&&L.indexOf('(pending)')>=0){
-            pendByMo[mo]=(pendByMo[mo]||0)+amtIns;
-            if(iso<=tdy) pendTillToday+=amtIns;
-          }
         });
       }
       var rtdFloor=coerceMoney(u.receivedToDate);
       if(rtdFloor>recvTillToday) recvTillToday=rtdFloor;
+      var moKeys={};
+      function markMo(m){Object.keys(m||{}).forEach(function(k){moKeys[k]=1;});}
+      markMo(dueByMo); markMo(recvByMo);
+      Object.keys(moKeys).forEach(function(mo){
+        pendByMo[mo]=Math.max(0,(dueByMo[mo]||0)-(recvByMo[mo]||0));
+      });
+      pendTillToday=Math.max(0,dueTillToday-recvTillToday);
     }
     return {dueByMo:dueByMo,recvByMo:recvByMo,pendByMo:pendByMo,dueTillToday:dueTillToday,recvTillToday:recvTillToday,pendTillToday:pendTillToday};
   });
