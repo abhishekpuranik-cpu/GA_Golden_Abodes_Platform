@@ -5638,20 +5638,69 @@ function postSalesSumForwardMonths(series, startMo, nMonths, pick){
   }
   return t;
 }
-function computePostSalesPerformanceKpis(seriesFull, curMo){
-  var ytdRows=(seriesFull||[]).filter(function(r){ return r.mo&&r.mo<=curMo; });
-  var ytdDemand=ytdRows.reduce(function(s,r){ return s+(r.scheduled||0); },0);
-  var ytdExpected=ytdRows.reduce(function(s,r){ return s+(r.expected||0); },0);
-  var ytdReal=ytdRows.reduce(function(s,r){ return s+(r.realized||0); },0);
+/** As-of-today Due / Rcvd / Pend — same basis as Sales grid “As of today” (installment date ≤ today). */
+function sumSalesGridTillToday(cfg){
+  var units=(cfg&&cfg.units)||[];
+  if(!units.length) return {demand:0,recv:0,pend:0};
+  var caches=buildSalesGridCaches(cfg,units);
+  var demand=0,recv=0,pend=0;
+  caches.forEach(function(c){
+    demand+=coerceMoney(c.dueTillToday);
+    recv+=coerceMoney(c.recvTillToday);
+    pend+=coerceMoney(c.pendTillToday);
+  });
+  return {demand:demand,recv:recv,pend:pend};
+}
+function sumTillDateExpectedDemand(cfg){
+  var tdy=today();
+  var tot=0;
+  (cfg.units||[]).forEach(function(u){
+    if(!postSalesIncludeUnitInExpectedAmountRollup(u)) return;
+    getUnitSchedule(u,cfg).forEach(function(it){
+      var iso=normalizeToISODate(it.date);
+      if(iso&&iso<=tdy) tot+=coerceMoney(it.amount);
+    });
+  });
+  return tot;
+}
+function sumSalesGridTillTodayRollup(vis){
+  var demand=0,recv=0,pend=0,expected=0;
+  (vis||[]).forEach(function(p){
+    if(!p||!p.id) return;
+    var cfg=getCF(p.id);
+    if(!cfg) return;
+    var t=sumSalesGridTillToday(cfg);
+    demand+=t.demand; recv+=t.recv; pend+=t.pend;
+    expected+=sumTillDateExpectedDemand(cfg);
+  });
+  return {demand:demand,recv:recv,pend:pend,expected:expected};
+}
+function computePostSalesPerformanceKpis(seriesFull, curMo, tillOverride){
+  var tillDateDemand,tillDateReal,tillDateExpected;
+  if(tillOverride){
+    tillDateDemand=coerceMoney(tillOverride.demand);
+    tillDateReal=coerceMoney(tillOverride.recv);
+    tillDateExpected=coerceMoney(tillOverride.expected);
+  } else {
+    var ytdRows=(seriesFull||[]).filter(function(r){ return r.mo&&r.mo<=curMo; });
+    tillDateDemand=ytdRows.reduce(function(s,r){ return s+(r.scheduled||0); },0);
+    tillDateExpected=ytdRows.reduce(function(s,r){ return s+(r.expected||0); },0);
+    tillDateReal=ytdRows.reduce(function(s,r){ return s+(r.realized||0); },0);
+  }
   var fwdSold=postSalesSumForwardMonths(seriesFull,curMo,12,function(r){ return r.scheduled||0; });
   var fwdUnsold=postSalesSumForwardMonths(seriesFull,curMo,12,function(r){ return r.unsoldProj||0; });
   var fwdTotal=fwdSold+fwdUnsold;
   return {
-    ytdDemand:ytdDemand,
-    ytdExpected:ytdExpected,
-    ytdReal:ytdReal,
-    ytdGap:Math.max(0,ytdDemand-ytdReal),
-    ytdEff:ytdDemand>0?(100*ytdReal/ytdDemand):0,
+    tillDateDemand:tillDateDemand,
+    tillDateExpected:tillDateExpected,
+    tillDateReal:tillDateReal,
+    tillDateGap:Math.max(0,tillDateDemand-tillDateReal),
+    tillDateEff:tillDateDemand>0?(100*tillDateReal/tillDateDemand):0,
+    ytdDemand:tillDateDemand,
+    ytdExpected:tillDateExpected,
+    ytdReal:tillDateReal,
+    ytdGap:Math.max(0,tillDateDemand-tillDateReal),
+    ytdEff:tillDateDemand>0?(100*tillDateReal/tillDateDemand):0,
     fwdSold:fwdSold,
     fwdUnsold:fwdUnsold,
     fwdTotal:fwdTotal
@@ -5747,7 +5796,9 @@ function renderPostSalesMonthlyPerformance(cfg){
   var cutY=calendarYearStartMonthKey();
   var series=showPriorCalendarYears()?seriesFull:seriesFull.filter(function(r){ return r.mo>=cutY; });
   var curMo=currentMonthStr();
-  var kpi=computePostSalesPerformanceKpis(seriesFull,curMo);
+  var till=sumSalesGridTillToday(cfg);
+  till.expected=sumTillDateExpectedDemand(cfg);
+  var kpi=computePostSalesPerformanceKpis(seriesFull,curMo,till);
   var h='';
   h+='<div class="card" style="border-top:3px solid #0F766E">';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">';
@@ -5757,10 +5808,10 @@ function renderPostSalesMonthlyPerformance(cfg){
   h+='Show prior calendar years</label></div>';
   h+='<div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.5"><strong>Sold demand</strong> = payment schedule of booked inventory. <strong>Realized</strong> = cash received (ledger or CRM). <strong>Projected</strong> = sold schedule plus unsold pipeline (CLP at booking + later tranches). Use this view to track collection efficiency and forward liquidity from sold + unsold stock.'+(showPriorCalendarYears()?'':' Months before '+cutY+' hidden.')+'</div>';
   h+='<div class="ps-dash-grid">';
-  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>YTD sold demand</h4><div class="v">'+cr(kpi.ytdDemand)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Payment schedule due through '+formatMonthKey(curMo)+'</div></div>';
-  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>YTD realized</h4><div class="v">'+cr(kpi.ytdReal)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Collections received in same window</div></div>';
-  h+='<div class="ps-dash-card" style="border-color:#B45309"><h4>YTD collection gap</h4><div class="v">'+cr(kpi.ytdGap)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Demand − realized · Eff. <strong>'+(kpi.ytdEff>0?kpi.ytdEff.toFixed(1)+'%':'—')+'</strong></div></div>';
-  h+='<div class="ps-dash-card" style="border-color:#5B21B6"><h4>Clean demand (YTD)</h4><div class="v">'+cr(kpi.ytdExpected)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Excl. flagged units; agreement-pending only with a date</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>Sold demand (till date)</h4><div class="v">'+cr(kpi.tillDateDemand)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Σ As of today <strong>Due</strong> on Sales grid — all installments due on/before today</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>Realized (till date)</h4><div class="v">'+cr(kpi.tillDateReal)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Σ As of today <strong>Received</strong> on Sales grid (CRM + ledger)</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#B45309"><h4>Collection gap (till date)</h4><div class="v">'+cr(kpi.tillDateGap)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Due − received · Eff. <strong>'+(kpi.tillDateEff>0?kpi.tillDateEff.toFixed(1)+'%':'—')+'</strong></div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#5B21B6"><h4>Clean demand (till date)</h4><div class="v">'+cr(kpi.tillDateExpected)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">OK/untagged units; agreement-pending only with a date</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#1D4ED8"><h4>Next 12M · sold projected</h4><div class="v">'+cr(kpi.fwdSold)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">From '+formatMonthKey(curMo)+' payment schedules</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#7C3AED"><h4>Next 12M · unsold pipeline</h4><div class="v">'+cr(kpi.fwdUnsold)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Projected unsold CLP / booking cash</div></div>';
   h+='<div class="ps-dash-card" style="border-color:#0F766E"><h4>Next 12M · total projected</h4><div class="v">'+cr(kpi.fwdTotal)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Sold schedule + unsold pipeline</div></div>';
@@ -5775,14 +5826,15 @@ function renderPostSalesMonthlyPerformanceRollup(vis){
   var cutY=calendarYearStartMonthKey();
   var series=showPriorCalendarYears()?seriesFull:seriesFull.filter(function(r){ return r.mo>=cutY; });
   var curMo=currentMonthStr();
-  var kpi=computePostSalesPerformanceKpis(seriesFull,curMo);
+  var tillRoll=sumSalesGridTillTodayRollup(vis);
+  var kpi=computePostSalesPerformanceKpis(seriesFull,curMo,tillRoll);
   var h='';
   h+='<div class="card" style="border-top:3px solid #0F766E">';
   h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Monthly collections performance — rollup ('+(vis||[]).length+' projects)</div>';
   h+='<div class="ps-dash-grid">';
-  h+='<div class="ps-dash-card"><h4>YTD sold demand</h4><div class="v">'+cr(kpi.ytdDemand)+'</div></div>';
-  h+='<div class="ps-dash-card"><h4>YTD realized</h4><div class="v">'+cr(kpi.ytdReal)+'</div></div>';
-  h+='<div class="ps-dash-card"><h4>YTD gap · Eff.</h4><div class="v">'+cr(kpi.ytdGap)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+(kpi.ytdEff>0?kpi.ytdEff.toFixed(1)+'%':'—')+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>Sold demand (till date)</h4><div class="v">'+cr(kpi.tillDateDemand)+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>Realized (till date)</h4><div class="v">'+cr(kpi.tillDateReal)+'</div></div>';
+  h+='<div class="ps-dash-card"><h4>Gap · Eff.</h4><div class="v">'+cr(kpi.tillDateGap)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+(kpi.tillDateEff>0?kpi.tillDateEff.toFixed(1)+'%':'—')+'</div></div>';
   h+='<div class="ps-dash-card"><h4>Next 12M total proj.</h4><div class="v">'+cr(kpi.fwdTotal)+'</div></div>';
   h+='</div>';
   h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Monthly parameter board — rollup</div>';
@@ -5899,13 +5951,13 @@ function renderPostSalesPanel(cfg){
   var curMo=currentMonthStr();
   var schedCurMo=0, realCurMo=0, expCurMo=0;
   series.forEach(function(r){ if(r.mo===curMo){ schedCurMo=r.scheduled; realCurMo=r.realized; expCurMo=r.expected||0; } });
-  var ytdRealFull=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+r.realized; },0);
-  var totReal=ytdRealFull;
+  var tillPs=sumSalesGridTillToday(cfg);
+  var ytdSched=tillPs.demand;
+  var ytdExp=sumTillDateExpectedDemand(cfg);
+  var ytdReal=tillPs.recv;
+  var totReal=ytdReal;
   var totUns=seriesFull.reduce(function(s,r){ return s+(r.unsoldProj||0); },0);
   var totUnsVisible=series.reduce(function(s,r){ return s+(r.unsoldProj||0); },0);
-  var ytdSched=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+r.scheduled; },0);
-  var ytdExp=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+(r.expected||0); },0);
-  var ytdReal=ytdRealFull;
   var collPct=ytdSched>0?(100*ytdReal/ytdSched):0;
   var units=cfg.units||[];
   var gridCachesPs=units.length?buildSalesGridCaches(cfg,units):[];
@@ -5942,8 +5994,8 @@ function renderPostSalesPanel(cfg){
   h+='<div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45">Consolidated monthly <strong>scheduled</strong> (all units) vs <strong>expected amount</strong> (qualifying tags + agreement-pending with date) vs <strong>received</strong> — Tally <strong>Customer Collections</strong>, or CRM <code>(received)</code> when that replaces ledger; de-duplicated vs RTD. <strong>Unsold pipeline:</strong> <em>CLP @ bkgs</em> = CLP due when units book (construction stage at projected sale); <em>CLP later</em> = other unsold CLP in that month.'+(showPriorCalendarYears()?'':' <strong>Table:</strong> before '+cutY+' hidden — <strong>Show prior calendar years</strong> for full history.')+'</div>';
 
   h+='<div class="ps-dash-grid">';
-  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>Expected inflows (YTD)</h4><div class="v">'+(ytdExp>0?cr(ytdExp):'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">OK/untagged units; agreement-pending only if a date is set (same plan)</div></div>';
-  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>Collection vs schedule (YTD)</h4><div class="v">'+(ytdSched>0?collPct.toFixed(1)+'%':'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Received '+cr(ytdReal)+' / Due '+cr(ytdSched)+'</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>Expected inflows (till date)</h4><div class="v">'+(ytdExp>0?cr(ytdExp):'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">OK/untagged units; agreement-pending only if a date is set</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>Collection vs schedule (till date)</h4><div class="v">'+(ytdSched>0?collPct.toFixed(1)+'%':'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Received '+cr(ytdReal)+' / Due '+cr(ytdSched)+' (Σ Sales grid As of today)</div></div>';
   h+='<div class="ps-dash-card"><h4>Total scheduled (current month)</h4><div class="v">'+cr(schedCurMo)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+formatMonthKey(curMo)+' · expected '+cr(expCurMo)+' · received '+cr(realCurMo)+'</div></div>';
   h+='<div class="ps-dash-card"><h4>Amount received to date</h4><div class="v">'+cr(totReal)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">All receipts through '+formatMonthKey(curMo)+' (Tally+CRM, de-duplicated)</div></div>';
   h+='<div class="ps-dash-card"><h4>Unsold projection</h4><div class="v">'+cr(totUnsVisible)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Total of <strong>Unsold proj.</strong> column in the <strong>table as shown</strong> (by month). Full model horizon (incl. months not on screen): <strong>'+cr(totUns)+'</strong></div></div>';
@@ -5978,13 +6030,13 @@ function renderPostSalesPanelRollup(vis){
   var curMo=currentMonthStr();
   var schedCurMo=0, realCurMo=0, expCurMo=0;
   series.forEach(function(r){ if(r.mo===curMo){ schedCurMo=r.scheduled; realCurMo=r.realized; expCurMo=r.expected||0; } });
-  var ytdRealFull=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+r.realized; },0);
-  var totReal=ytdRealFull;
+  var tillPs=sumSalesGridTillTodayRollup(vis);
+  var ytdSched=tillPs.demand;
+  var ytdExp=tillPs.expected;
+  var ytdReal=tillPs.recv;
+  var totReal=ytdReal;
   var totUns=seriesFull.reduce(function(s,r){ return s+(r.unsoldProj||0); },0);
   var totUnsVisible=series.reduce(function(s,r){ return s+(r.unsoldProj||0); },0);
-  var ytdSched=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+r.scheduled; },0);
-  var ytdExp=seriesFull.filter(function(r){ return r.mo<=curMo; }).reduce(function(s,r){ return s+(r.expected||0); },0);
-  var ytdReal=ytdRealFull;
   var collPct=ytdSched>0?(100*ytdReal/ytdSched):0;
   var h='';
   h+='<div class="card" style="border-top:3px solid #1558A0">';
@@ -5995,8 +6047,8 @@ function renderPostSalesPanelRollup(vis){
   h+='Show prior calendar years</label></div>';
   h+='<div style="font-size:10px;color:var(--muted);margin-bottom:14px;line-height:1.45">Rollup of all visible projects by current Project/Phase/Building filters. Use this for portfolio-level post-sales tracking.</div>';
   h+='<div class="ps-dash-grid">';
-  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>Expected inflows (YTD)</h4><div class="v">'+(ytdExp>0?cr(ytdExp):'—')+'</div></div>';
-  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>Collection vs schedule (YTD)</h4><div class="v">'+(ytdSched>0?collPct.toFixed(1)+'%':'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Received '+cr(ytdReal)+' / Due '+cr(ytdSched)+'</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#047857"><h4>Expected inflows (till date)</h4><div class="v">'+(ytdExp>0?cr(ytdExp):'—')+'</div></div>';
+  h+='<div class="ps-dash-card" style="border-color:#1558A0"><h4>Collection vs schedule (till date)</h4><div class="v">'+(ytdSched>0?collPct.toFixed(1)+'%':'—')+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Received '+cr(ytdReal)+' / Due '+cr(ytdSched)+'</div></div>';
   h+='<div class="ps-dash-card"><h4>Total scheduled (current month)</h4><div class="v">'+cr(schedCurMo)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">'+formatMonthKey(curMo)+' · expected '+cr(expCurMo)+' · received '+cr(realCurMo)+'</div></div>';
   h+='<div class="ps-dash-card"><h4>Amount received to date</h4><div class="v">'+cr(totReal)+'</div></div>';
   h+='<div class="ps-dash-card"><h4>Unsold projection</h4><div class="v">'+cr(totUnsVisible)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Full horizon: <strong>'+cr(totUns)+'</strong></div></div>';
