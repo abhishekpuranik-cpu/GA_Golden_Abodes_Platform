@@ -198,7 +198,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 41;
+var CF_VERSION = 42;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1897,21 +1897,40 @@ function applyWorkbookEnvelope(env){
 function restoreWorkbookFromSnapshotId(snapshotId){
   if(!snapshotId) return Promise.reject(new Error('Missing snapshot id'));
   _mongoRestoringSnapshot=true;
+  var restoredUnits=0;
   return safeFetchJson(mongoSnapshotsApiUrl(snapshotId),{ credentials:'include', cache:'no-store' })
     .then(function(res){
       if(!res.ok) throw new Error((res.body&&res.body.error)||'Snapshot load failed');
       var env=(res.body&&res.body.data)||null;
       if(!isV1EnvelopeLike(env)) throw new Error('Snapshot envelope invalid');
       applyWorkbookEnvelope(env);
-      _mongoForceFullSave=true;
+      restoredUnits=countWorkbookSoldUnits(_cfData);
+      renderAll();
+      if(restoredUnits===0) throw new Error('This snapshot has 0 sold units. Pick an older line in the list with a higher unit count (e.g. 2, 3, 4…).');
+      return safeFetchJson(mongoImportApiUrl(),{
+        method:'POST',
+        credentials:'include',
+        cache:'no-store',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          data:env,
+          mode:'replace',
+          forceRestore:true,
+          updatedBy:currentCashflowUserName(),
+          note:'Snapshot restore · '+String(snapshotId)
+        })
+      });
+    })
+    .then(function(res){
+      if(!res||!res.ok) throw new Error((res&&res.body&&res.body.error)||'Could not write restored workbook to server (import failed). Your data is loaded in this browser — try Save to server after refresh.');
+      _mongoStateVersion=Number(res.body.version)||_mongoStateVersion;
+      _mongoForceFullSave=false;
       _mongoDirtyPids={};
       _mongoDirtyPidSections={};
-      return mongoStatePutNow();
-    })
-    .then(function(ok){
-      if(ok===false) throw new Error('Could not save restored workbook to server');
       localSnapshotSave();
-      return true;
+      mongoStateStatus('Restored '+restoredUnits+' sold units · server v'+_mongoStateVersion,'green');
+      updateMongoStatusLabel();
+      return {units:restoredUnits, version:_mongoStateVersion};
     })
     .finally(function(){ _mongoRestoringSnapshot=false; });
 }
@@ -2011,11 +2030,11 @@ function showRestoreWorkbookSnapshotModal(){
       if(!window.confirm('Restore snapshot from '+String(target.createdAt||'').slice(0,19)+'?\n\nThis reloads sold units, CRM imports, and comments from that backup, then saves to the server.')) return;
       return restoreWorkbookFromSnapshotId(target.id);
     })
-    .then(function(done){
-      if(!done) return;
+    .then(function(result){
+      if(!result) return;
       renderAll();
       setSS('Workbook restored from snapshot','green');
-      alert('Cashflow workbook restored. Sold units and comments should be back in the compact grid layout.');
+      alert('Restored '+result.units+' sold units to server (v'+result.version+'). Comments and manual fields are back for those units.');
     })
     .catch(function(e){
       alert('Restore failed: '+(e&&e.message?e.message:String(e)));
@@ -2655,7 +2674,7 @@ function mongoStatePutNow(){
       credentials:'include',
       cache:'no-store',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({data:data, expectedVersion:exp, updatedBy:user})
+      body:JSON.stringify({data:data, expectedVersion:exp, updatedBy:user, forceRestore:!!_mongoRestoringSnapshot})
     }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok,body:j}; }); });
   }
   return fetchMongoEnvelope().then(function(latest){
@@ -2800,9 +2819,10 @@ function loadAllFromMongo(){
       _mongoStateVersion=Number(res.body.version)||0;
       if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()) scheduleMongoStateSave(200);
       localSnapshotSave();
-      mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion,'green');
+      var loadedUnits=countWorkbookSoldUnits(_cfData);
+      mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion+' · '+loadedUnits+' sold units','green');
       updateMongoStatusLabel();
-      return true;
+      return {ok:true, units:loadedUnits};
     })
     .catch(function(e){
       mongoStateStatus('Mongo load failed: '+String(e&&e.message||e).slice(0,90),'red');
@@ -2968,8 +2988,8 @@ function migrateLegacyGaMonthlyDefault(){
 }
 function loadAll(){
   if(canUseMongoState()){
-    return loadAllFromMongo().then(function(ok){
-      if(ok) return true;
+    return loadAllFromMongo().then(function(res){
+      if(res&&res.ok) return true;
       try{
         var r=localStorage.getItem('ga_cf_v1');
         if(r){var d=JSON.parse(r);_cfData=d.data||{};
@@ -9809,8 +9829,15 @@ document.addEventListener('click',function(e){
   }
   if(a==='mongo-load-now'){
     if(!canUseMongoState()){ setSS('Open Set API + enable (or use localhost)','red'); return; }
-    loadAllFromMongo().then(function(){
+    loadAllFromMongo().then(function(r){
       try{ renderAll(); }catch(e3){ if(typeof setSS==='function') setSS('Re-render: '+e3,'red'); }
+      if(r&&r.ok){
+        var u=r.units||0;
+        if(u===0) alert('Load from server completed, but the server workbook currently has 0 sold units.\n\nUse ↺ Restore snapshot and pick a line with a positive unit count, or re-import CRM Post-Sales.');
+        else alert('Loaded from server: '+u+' sold units across all projects. Check the correct project in the top bar.');
+      }else{
+        alert('Load from server failed or returned no data. Check the sync bar for the error, then try ↺ Restore snapshot.');
+      }
     });
     return;
   }

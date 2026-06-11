@@ -128,7 +128,7 @@ appStatesRouter.put(
     const appId = ensureAppId(req, res);
     if (!appId) return;
     try {
-      const { data: rawData, expectedVersion, updatedBy } = req.body || {};
+      const { data: rawData, expectedVersion, updatedBy, forceRestore } = req.body || {};
       const data = normalizeData(rawData);
       const states = db.collection('app_states');
       const now = new Date();
@@ -156,7 +156,7 @@ appStatesRouter.put(
         const merged = await mergeV1CashflowForPut(db, existing?.data, data);
         const beforeUnits = countSoldUnitsInEnvelope(existingEnv);
         const afterUnits = countSoldUnitsInEnvelope(merged);
-        if (beforeUnits > 0 && afterUnits === 0 && !req.body?.allowUnitLoss) {
+        if (beforeUnits > 0 && afterUnits === 0 && !req.body?.allowUnitLoss && !forceRestore) {
           return res.status(409).json({
             error:
               'Save rejected: would remove all sold units from the server workbook. Load from server or restore a snapshot before saving.',
@@ -165,7 +165,7 @@ appStatesRouter.put(
             soldUnitsAfter: afterUnits
           });
         }
-        if (beforeUnits >= 3 && afterUnits < Math.floor(beforeUnits * 0.5) && !req.body?.allowUnitLoss) {
+        if (beforeUnits >= 3 && afterUnits < Math.floor(beforeUnits * 0.5) && !req.body?.allowUnitLoss && !forceRestore) {
           return res.status(409).json({
             error:
               'Save rejected: sold-unit count would drop sharply. Restore a snapshot or re-import CRM if data was lost.',
