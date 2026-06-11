@@ -42,10 +42,14 @@ export const V2V3_ACCESS_CODE =
 export const V1_AUTO_RESTORE_BEFORE =
   trimEnv('V1_AUTO_RESTORE_BEFORE') ||
   (process.env.NODE_ENV === 'production' ? '2026-06-11T17:27:00+05:30' : '');
+export const V1_AUTO_RESTORE_FORCE_RUN_DEFAULT =
+  process.env.NODE_ENV === 'production' ? '2026-06-11-morning' : '';
 export const V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW = Math.max(
   0,
   Number(process.env.V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW) || 5
 );
+/** When set (e.g. run id), always restore richest pre-cutoff snapshot once — even if units already exist. */
+export const V1_AUTO_RESTORE_FORCE_RUN = trimEnv('V1_AUTO_RESTORE_FORCE_RUN');
 
 /** Max string entries in one workspace PUT (planner localStorage keys). */
 export const WORKSPACE_MAX_KEYS = 250;

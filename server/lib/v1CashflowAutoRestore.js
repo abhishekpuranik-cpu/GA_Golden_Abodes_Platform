@@ -4,7 +4,12 @@ import {
   packV1CashflowRowData,
   countSoldUnitsInEnvelope
 } from './v1CashflowMongoPack.js';
-import { V1_AUTO_RESTORE_BEFORE, V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW } from './config.js';
+import {
+  V1_AUTO_RESTORE_BEFORE,
+  V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW,
+  V1_AUTO_RESTORE_FORCE_RUN,
+  V1_AUTO_RESTORE_FORCE_RUN_DEFAULT
+} from './config.js';
 
 async function unitsInStoredData(db, stored) {
   if (!stored) return 0;
@@ -99,7 +104,8 @@ export async function runV1AutoRestoreOnBoot(db) {
   const beforeRaw = String(V1_AUTO_RESTORE_BEFORE || '').trim();
   if (!beforeRaw) return null;
 
-  const flagId = `v1_auto_restore:${beforeRaw}`;
+  const forceRun = String(V1_AUTO_RESTORE_FORCE_RUN || V1_AUTO_RESTORE_FORCE_RUN_DEFAULT || '').trim();
+  const flagId = forceRun ? `v1_auto_restore:force:${forceRun}` : `v1_auto_restore:${beforeRaw}`;
   const flags = db.collection('platform_ops_flags');
   const prior = await flags.findOne({ _id: flagId });
   if (prior?.done) {
@@ -115,7 +121,7 @@ export async function runV1AutoRestoreOnBoot(db) {
     currentUnits = countSoldUnitsInEnvelope(await repairV1CashflowForRead(db, existing.data));
   }
 
-  if (currentUnits >= threshold) {
+  if (!forceRun && currentUnits >= threshold) {
     const skipped = {
       _id: flagId,
       done: true,
@@ -153,6 +159,7 @@ export async function runV1AutoRestoreOnBoot(db) {
     _id: flagId,
     done: true,
     before: beforeRaw,
+    forceRun: forceRun || null,
     priorUnits: currentUnits,
     ...result,
     at: new Date()
