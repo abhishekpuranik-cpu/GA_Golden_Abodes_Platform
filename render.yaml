@@ -17,6 +17,11 @@ services:
         sync: false
       - key: MONGODB_DB_NAME
         value: golden_abodes
+      # One-shot: restore Cashflow V1 sold units from best Mongo snapshot before layout deploy (Jun 11 ~17:27 IST).
+      - key: V1_AUTO_RESTORE_BEFORE
+        value: "2026-06-11T17:27:00+05:30"
+      - key: V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW
+        value: "5"
       - key: API_TOOL_PATH
         value: /opt/render/project/src/client/public/legacy
       # Vault → Construction Execution + PreConstruction (full URLs). No client rebuild needed.

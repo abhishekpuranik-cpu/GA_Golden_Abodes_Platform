@@ -11,6 +11,11 @@ export async function ensureMongo() {
       await client.connect();
       dbInstance = client.db(DB_NAME);
       console.log(`MongoDB connected (${DB_NAME})`);
+      if (String(process.env.V1_AUTO_RESTORE_BEFORE || '').trim()) {
+        import('./v1CashflowAutoRestore.js')
+          .then(({ runV1AutoRestoreOnBoot }) => runV1AutoRestoreOnBoot(dbInstance))
+          .catch((e) => console.error('[v1-auto-restore]', e?.message || e));
+      }
     }
     return dbInstance;
   } catch (e) {
