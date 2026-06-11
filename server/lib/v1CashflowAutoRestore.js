@@ -20,7 +20,7 @@ async function unitsInStoredData(db, stored) {
 /**
  * Pick the snapshot before `before` with the highest sold-unit count (tie → latest createdAt).
  */
-export async function pickBestV1SnapshotBefore(db, { before, minUnits = 1, scanLimit = 100 }) {
+export async function pickBestV1SnapshotBefore(db, { before, minUnits = 1, scanLimit = 400 }) {
   const beforeDate = before instanceof Date ? before : new Date(before);
   if (Number.isNaN(beforeDate.getTime())) {
     throw new Error(`Invalid before date: ${before}`);

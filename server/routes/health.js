@@ -12,7 +12,9 @@ import {
   EXECUTION_DASHBOARD_URL,
   PRECONSTRUCTION_APP_URL,
   V2V3_ACCESS_CODE,
-  V1_AUTO_RESTORE_BEFORE
+  V1_AUTO_RESTORE_BEFORE,
+  V1_AUTO_RESTORE_FORCE_RUN,
+  V1_AUTO_RESTORE_FORCE_RUN_DEFAULT
 } from '../lib/config.js';
 import { V1_CASHFLOW_APP_ID, repairV1CashflowForRead, countSoldUnitsInEnvelope } from '../lib/v1CashflowMongoPack.js';
 
@@ -43,9 +45,12 @@ healthRouter.get('/health', async (req, res) => {
       if (row?.data) {
         soldUnits = countSoldUnitsInEnvelope(await repairV1CashflowForRead(db, row.data));
       }
-      const flagId = `v1_auto_restore:${V1_AUTO_RESTORE_BEFORE}`;
-      const restoreFlag = V1_AUTO_RESTORE_BEFORE
-        ? await db.collection('platform_ops_flags').findOne({ _id: flagId })
+      const flagIds = [];
+      const forceRun = V1_AUTO_RESTORE_FORCE_RUN || V1_AUTO_RESTORE_FORCE_RUN_DEFAULT;
+      if (forceRun) flagIds.push(`v1_auto_restore:force:${forceRun}`);
+      if (V1_AUTO_RESTORE_BEFORE) flagIds.push(`v1_auto_restore:${V1_AUTO_RESTORE_BEFORE}`);
+      const restoreFlag = flagIds.length
+        ? await db.collection('platform_ops_flags').findOne({ _id: { $in: flagIds } })
         : null;
       v1Cashflow = {
         version: row?.version || 0,
