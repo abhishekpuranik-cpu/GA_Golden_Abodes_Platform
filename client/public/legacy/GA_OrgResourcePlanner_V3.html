@@ -22,6 +22,7 @@
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:var(--text);background:var(--bg)}
+html.ga-vault-embed,html.ga-vault-embed body{width:100%;min-height:100%}
 /* Layout */
 .header{background:var(--card);border-bottom:1px solid var(--border);padding:10px 18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:200;box-shadow:var(--shadow)}
 .logo{font-size:16px;font-weight:700;color:var(--gold-b);letter-spacing:-.2px}
@@ -124,6 +125,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
 </script>
 </head>
 <body>
+<script>try{if(window.self!==window.top)document.documentElement.classList.add('ga-vault-embed');}catch(e){}</script>
 <input type="file" id="v3-area-working-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importAreaWorkingFile(this)"/>
 
 <div class="header">
@@ -4778,6 +4780,12 @@ function gaConnectCloud() {
   showCloudStatus('Connected');
 }
 function renderCloudBar() {
+  /* Platform vault embeds this app in a full-height iframe with its own Save/Restore toolbar. */
+  if (window.self !== window.top) {
+    const existing = document.getElementById('ga-cloud-bar');
+    if (existing) existing.remove();
+    return;
+  }
   const existing = document.getElementById('ga-cloud-bar');
   if (existing) existing.remove();
   const bar = document.createElement('div');

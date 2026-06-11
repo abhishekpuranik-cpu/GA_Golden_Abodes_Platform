@@ -107,7 +107,13 @@ export default function LegacyAppShell({
         </div>
       ) : null}
       <div className="legacy-iframe-wrap">
-        <iframe ref={iframeRef} title={title} src={src} onLoad={onIframeLoad} />
+        <iframe
+          ref={iframeRef}
+          title={title}
+          src={src}
+          onLoad={onIframeLoad}
+          style={{ width: '100%', height: '100%', border: 'none', display: 'block', flex: 1, minHeight: 0 }}
+        />
       </div>
     </div>
   );
