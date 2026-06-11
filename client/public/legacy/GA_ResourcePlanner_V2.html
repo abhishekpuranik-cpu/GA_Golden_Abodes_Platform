@@ -89,6 +89,7 @@ tr:hover td{background:#FAFBFD}
 <div class="tabs">
   <button class="tab on" id="tab-dash" onclick="showTab('dash')">&#9650; Dashboard</button>
   <button class="tab" id="tab-band" onclick="showTab('band')">&#9699; Band Structure</button>
+  <button class="tab" id="tab-kpi" onclick="showTab('kpi')">&#127919; Team KPIs</button>
   <button class="tab" id="tab-res" onclick="showTab('res')">&#128202; Headcount Plan</button>
   <button class="tab" id="tab-cost" onclick="showTab('cost')">&#9878; Cost vs Plan</button>
   <button class="tab" id="tab-team" onclick="showTab('team')">&#128100; Team View</button>
@@ -97,6 +98,7 @@ tr:hover td{background:#FAFBFD}
 </div>
 <div id="page-dash" class="page"></div>
 <div id="page-band" class="page hidden"></div>
+<div id="page-kpi" class="page hidden"></div>
 <div id="page-res" class="page hidden"></div>
 
 <div id="page-cost" class="page hidden"></div>
@@ -328,6 +330,7 @@ var ROLES = [
   {id:'MIS-02', fn:'MIS & Systems',     role:'BI / Zoho Admin',      band:'A2',type:'Hybrid',   d:'cnt',cap:4, fix:423054, pri:'Medium',  par:'MIS-01',hyb:0.5},
   {id:'ADM-01', fn:'Admin',             role:'HR / Admin Manager',   band:'B1',type:'Shared',   d:'cnt',cap:4, fix:1426668,pri:'Medium',  par:'LEAD-01'},
   {id:'ADM-02', fn:'Admin',             role:'Admin / Front Office', band:'A1',type:'Dedicated',d:'cnt',cap:1, fix:276000, pri:'Low',     par:'ADM-01'},
+  {id:'ADM-03', fn:'Admin',             role:'Office Assistant',     band:'A1',type:'Shared',   d:'cnt',cap:8, fix:216000, pri:'Low',     par:'ADM-02'},
 ];
 
 // ═══════════════════════════════════════════════════════
@@ -399,7 +402,9 @@ var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
 var CUSTOM  = [];
 var HC_RULES = [];
-var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}};
+var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}};
+var kpiSetSel = 'HR';   // selected KPI set on the Team KPIs tab
+var kpiSlotSel = 0;     // selected person slot within the set
 
 // CONDITIONS: per-role suggestion overrides
 // COND[rid] = {withMgr: num|'', withoutMgr: num|'', withFinance: num|'', notes: str}
@@ -786,7 +791,7 @@ function calcEngine(){
 // NAV
 // ═══════════════════════════════════════════════════════
 function showTab(t){
-  ['dash','band','res','cost','team','shared','pnl'].forEach(function(x){
+  ['dash','band','kpi','res','cost','team','shared','pnl'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
@@ -808,7 +813,7 @@ function setScen(s){
   ['Lean','Base','Stretch'].forEach(function(x){document.getElementById('sc-'+x).className='sc-btn'+(x===s?' on':'');});
   renderAll();
 }
-function renderTab(t){ var f={dash:renderDash,band:renderBand,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL}; if(f[t])f[t](); }
+function renderTab(t){ var f={dash:renderDash,band:renderBand,kpi:renderKpi,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL}; if(f[t])f[t](); }
 function renderAll(){ renderTab(curTab); }
 
 // ═══════════════════════════════════════════════════════
@@ -857,14 +862,14 @@ function setSS(msg,col){
   if(el) el.innerHTML='<span style="color:var(--'+col+'-b)">&#9679; '+msg+'</span>';
 }
 function saveState(){
-  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
+  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
 }
 function loadState(){
   try{
     var raw=localStorage.getItem('ga_rp_state_v1');
     if(!raw) return;
     var d=JSON.parse(raw);
-    ['ex','ap','capOv','rel','col','alloc'].forEach(function(k){if(d[k])Object.assign(ST[k],d[k]);});
+    ['ex','ap','capOv','rel','col','alloc','kpiAct','kpiNames','kpiSlots'].forEach(function(k){if(d[k])Object.assign(ST[k],d[k]);});
     if(d.scen) scen=d.scen;
     if(d.hcRules) HC_RULES=d.hcRules;
     if(d.custom) CUSTOM=d.custom;
@@ -884,6 +889,8 @@ document.addEventListener('change',function(e){
   if(a.setalloc!==undefined)   setAlloc(a.pid, a.rid, el.value);
   if(a.setcond!==undefined)    setCond(a.rid, a.key, el.value);
   if(a.setpf!==undefined)      setPF(a.pid, a.key, el.type==='checkbox'?el.checked:el.value==='true');
+  if(a.kpiact!==undefined)     { setKpiAct(a.kpiact, el.value); }
+  if(a.kpiname!==undefined)    { if(el.value.trim()){ST.kpiNames[a.kpiname]=el.value.trim();}else{delete ST.kpiNames[a.kpiname];} saveState(); renderTab('kpi'); }
   // HC rule fields (data-rule-XXX -> dataset.ruleXxx)
   if(a.ruleProj!==undefined)   { HC_RULES[+a.idx].proj=el.value;   saveState(); renderTab('hire'); }
   if(a.ruleDriver!==undefined) { HC_RULES[+a.idx].driver=el.value; saveState(); renderTab('hire'); }
@@ -940,6 +947,19 @@ document.addEventListener('click',function(e){
   // Now check togcoll (section collapse/expand)
   var tc=findEl('togcoll'); if(tc){ togColl(tc.dataset.togcoll); return; }
   if(a.bandfilt!==undefined)   { bandProjFilt=a.bandfilt; renderTab('band'); return; }
+  if(a.kpiset!==undefined)     { kpiSetSel=a.kpiset; kpiSlotSel=0; renderTab('kpi'); return; }
+  if(a.kpislot!==undefined)    { kpiSlotSel=+a.kpislot; renderTab('kpi'); return; }
+  if(a.kpiaddslot!==undefined) { ST.kpiSlots[kpiSetSel]=kpiSlotCount(kpiSetSel)+1; saveState(); renderTab('kpi'); return; }
+  if(a.kpidelslot!==undefined) {
+    var nS=kpiSlotCount(kpiSetSel);
+    if(nS<=1) return;
+    if(!confirm('Remove "'+kpiSlotName(kpiSetSel,nS-1)+'" and their entered KPI data?')) return;
+    Object.keys(ST.kpiAct).forEach(function(k){ if(k.indexOf(kpiSetSel+'_'+(nS-1)+'_')===0) delete ST.kpiAct[k]; });
+    delete ST.kpiNames[kpiSetSel+'_'+(nS-1)];
+    ST.kpiSlots[kpiSetSel]=nS-1;
+    if(kpiSlotSel>=nS-1) kpiSlotSel=0;
+    saveState(); renderTab('kpi'); return;
+  }
   var bn=findEl('bandsel');
   if(bn){ selNode=bn.dataset.bandsel;
     // Re-render matrix (chip highlight) + detail panel
@@ -1403,6 +1423,270 @@ function renderBandDetail(D){
   var slot=document.getElementById('band-detail-slot');
   if(!slot) return;
   slot.innerHTML=selNode?detailPanel(D):'<div style="font-size:11px;color:var(--muted);text-align:center;padding:14px">Click a role chip above to open its planning panel</div>';
+}
+
+// ═══════════════════════════════════════════════════════
+// TAB — TEAM KPIs (KPI governance, mirrors the Excel KPI handbooks)
+// Same KPIs / weights / rating thresholds as GA_Accounting_KPI.xlsx and GA_HR_Admin_KPI.xlsx
+// ═══════════════════════════════════════════════════════
+var KPI_MONTHS=['Apr-26','May-26','Jun-26','Jul-26','Aug-26','Sep-26','Oct-26','Nov-26','Dec-26','Jan-27','Feb-27','Mar-27'];
+var KPI_QTR={2:1,5:1,8:1,11:1}; // quarter-end month indices (Jun/Sep/Dec/Mar)
+// rule: [type, t4, t3, t2]  →  le: <=t4→4 <=t3→3 <=t2→2 else 1 | ge: >= | eq: = | abs: ABS<=
+var KPI_SETS={
+ 'FIN-SR':{dept:'Finance & Accounts',title:'Sr. Accountant',link:'FIN-01',defSlots:['Sr. Accountant'],src:'GA_Accounting_KPI.xlsx',kpis:[
+  {c:'Financial Reporting & Accuracy',n:'Monthly book closure TAT',f:'M',w:10,t:'\u2264 5 working days',r:['le',3,5,7],h:'days'},
+  {c:'Financial Reporting & Accuracy',n:'P&L variance \u2014 budget vs actual',f:'M',w:10,t:'\u2264 \u00b15% per project',r:['abs',3,5,8],h:'%'},
+  {c:'Financial Reporting & Accuracy',n:'Audit findings count',f:'Q',w:5,t:'0 major, \u2264 2 minor',r:['eq',0,1,2],h:'0-3 scale'},
+  {c:'Statutory & Compliance',n:'GST filing timeliness',f:'M',w:10,t:'100% on-time',r:['ge',100,95,90],h:'%'},
+  {c:'Statutory & Compliance',n:'TDS compliance rate',f:'Q',w:8,t:'100% on-time',r:['ge',100,95,90],h:'%'},
+  {c:'Statutory & Compliance',n:'RERA compliance \u2014 financial filings',f:'Q',w:7,t:'100% on-time',r:['ge',100,95,85],h:'%'},
+  {c:'Statutory & Compliance',n:'Statutory notices / penalties',f:'Q',w:5,t:'Zero notices',r:['eq',0,1,2],h:'count'},
+  {c:'RA Bills & Contractor Payments',n:'RA bill processing cycle time',f:'M',w:10,t:'\u2264 10 working days',r:['le',7,10,15],h:'avg days'},
+  {c:'MIS & Management Reporting',n:'MIS report delivery timeliness',f:'M',w:10,t:'By 7th \u2014 100% on time',r:['ge',100,90,80],h:'%'},
+  {c:'MIS & Management Reporting',n:'Investor reporting accuracy',f:'Q',w:5,t:'Zero restatements',r:['eq',0,1,2],h:'count'},
+  {c:'Team Oversight & Quality Control',n:'Junior team error escalation rate',f:'M',w:8,t:'\u2264 5% of submissions',r:['le',2,5,8],h:'%'},
+  {c:'Team Oversight & Quality Control',n:'Team training completion',f:'Q',w:6,t:'\u2265 90% of modules',r:['ge',100,90,75],h:'%'},
+  {c:'Team Oversight & Quality Control',n:'SOP adherence rate',f:'Q',w:6,t:'\u2265 95% per audit',r:['ge',98,95,90],h:'%'}]},
+ 'FIN-JR':{dept:'Finance & Accounts',title:'Jr. Accountant',link:'FIN-03',defSlots:['Jr. Accountant 1','Jr. Accountant 2'],src:'GA_Accounting_KPI.xlsx',kpis:[
+  {c:'Data Entry & Transactional Accuracy',n:'Voucher entry accuracy rate',f:'M',w:12,t:'\u2265 98% before review',r:['ge',99,98,95],h:'%'},
+  {c:'Data Entry & Transactional Accuracy',n:'Bank reconciliation timeliness',f:'M',w:8,t:'\u2264 2 working days',r:['le',1,2,3],h:'avg days'},
+  {c:'Payables & Vendor Management',n:'Invoice processing TAT',f:'M',w:7,t:'\u2264 2 working days',r:['le',1,2,3],h:'avg days'},
+  {c:'Payables & Vendor Management',n:'RA bill data preparation accuracy',f:'M',w:8,t:'\u2265 98% before review',r:['ge',99,98,95],h:'%'},
+  {c:'Payables & Vendor Management',n:'Vendor ledger reconciliation',f:'M',w:6,t:'100% of active vendors',r:['ge',100,90,75],h:'%'},
+  {c:'Payables & Vendor Management',n:'Payment due-date alert timeliness',f:'M',w:4,t:'Zero missed alerts',r:['eq',0,1,2],h:'missed'},
+  {c:'Statutory Filing Support',n:'GST data compilation accuracy',f:'M',w:10,t:'\u2265 99% before review',r:['ge',100,99,97],h:'%'},
+  {c:'Statutory Filing Support',n:'TDS working sheet preparation',f:'M',w:8,t:'By 5th of month',r:['le',3,5,7],h:'day of month'},
+  {c:'Statutory Filing Support',n:'26AS / ITC reconciliation',f:'M',w:7,t:'By 15th of month',r:['le',12,15,20],h:'day of month'},
+  {c:'MIS & Reporting Support',n:'Ledger data submission for MIS',f:'M',w:8,t:'By 3rd of month',r:['le',2,3,5],h:'day of month'},
+  {c:'MIS & Reporting Support',n:'Document filing & retrieval',f:'M',w:7,t:'100% within 10 min',r:['ge',100,95,85],h:'%'},
+  {c:'Quality, Conduct & Growth',n:'Rework / error correction rate',f:'M',w:5,t:'\u2264 5% of submissions',r:['le',2,5,8],h:'%'},
+  {c:'Quality, Conduct & Growth',n:'Deadlines met without follow-up',f:'M',w:6,t:'\u2265 90% self-initiated',r:['ge',95,90,80],h:'%'},
+  {c:'Quality, Conduct & Growth',n:'Training module completion',f:'Q',w:4,t:'\u2265 90% per quarter',r:['ge',100,90,75],h:'%'}]},
+ 'HR':{dept:'HR & Admin',title:'HR Executive (A2)',link:'ADM-01',defSlots:['HR Executive'],src:'GA_HR_Admin_KPI.xlsx',kpis:[
+  {c:'Payroll & Statutory Compliance',n:'Payroll accuracy \u2014 salary errors',f:'M',w:10,t:'Zero errors per run',r:['eq',0,1,2],h:'errors'},
+  {c:'Payroll & Statutory Compliance',n:'Payroll timeliness \u2014 salary credit',f:'M',w:8,t:'By the 7th',r:['le',5,7,10],h:'day of month'},
+  {c:'Payroll & Statutory Compliance',n:'PF / ESIC / PT filing timeliness',f:'M',w:12,t:'100% on-time',r:['ge',100,95,90],h:'%'},
+  {c:'Recruitment & Onboarding',n:'Time-to-fill open positions',f:'M',w:10,t:'\u2264 45 days',r:['le',30,45,60],h:'avg days'},
+  {c:'Recruitment & Onboarding',n:'Offer-to-joining conversion',f:'Q',w:5,t:'\u2265 85%',r:['ge',95,85,70],h:'%'},
+  {c:'Recruitment & Onboarding',n:'Onboarding completion within 7 days',f:'M',w:10,t:'100% of joiners',r:['ge',100,90,75],h:'%'},
+  {c:'Attendance, Records & HR MIS',n:'Attendance & payroll inputs lock',f:'M',w:7,t:'By the 26th',r:['le',24,26,28],h:'day of month'},
+  {c:'Attendance, Records & HR MIS',n:'HR MIS delivery to MP/COO',f:'M',w:7,t:'By the 7th',r:['le',5,7,10],h:'day of month'},
+  {c:'Attendance, Records & HR MIS',n:'Personnel file completeness',f:'Q',w:6,t:'100% per spot-check',r:['ge',100,95,85],h:'%'},
+  {c:'Engagement & Discipline',n:'Regrettable attrition',f:'Q',w:5,t:'Zero per quarter',r:['eq',0,1,2],h:'exits'},
+  {c:'Engagement & Discipline',n:'Query / grievance resolution TAT',f:'M',w:6,t:'\u2265 90% in 3 days',r:['ge',95,90,80],h:'%'},
+  {c:'Engagement & Discipline',n:'Training calendar execution',f:'Q',w:4,t:'\u2265 90% delivered',r:['ge',100,90,75],h:'%'},
+  {c:'Admin Oversight',n:'Admin request closure within SLA',f:'M',w:6,t:'\u2265 90% in SLA',r:['ge',95,90,80],h:'%'},
+  {c:'Admin Oversight',n:'Admin & office cost vs budget',f:'M',w:4,t:'Within \u00b15%',r:['abs',3,5,10],h:'abs %'}]},
+ 'FD':{dept:'HR & Admin',title:'Front Desk Executive (A1)',link:'ADM-02',defSlots:['Front Desk Executive'],src:'GA_HR_Admin_KPI.xlsx',kpis:[
+  {c:'Reception & Communication',n:'Call handling rate',f:'M',w:10,t:'\u2265 95% answered / returned',r:['ge',98,95,90],h:'%'},
+  {c:'Reception & Communication',n:'Visitor handling',f:'M',w:10,t:'100% within 5 min',r:['ge',100,95,85],h:'%'},
+  {c:'Reception & Communication',n:'Front-desk escalations',f:'M',w:7,t:'Zero complaints',r:['eq',0,1,2],h:'count'},
+  {c:'Reception & Communication',n:'Courier, post & document routing',f:'M',w:8,t:'100% same-day',r:['ge',100,95,85],h:'%'},
+  {c:'Admin & Office Coordination',n:'Admin request logging & assignment',f:'M',w:8,t:'100% same day',r:['ge',100,95,85],h:'%'},
+  {c:'Admin & Office Coordination',n:'Meeting & visit coordination',f:'M',w:6,t:'Zero clashes',r:['eq',0,1,2],h:'incidents'},
+  {c:'Admin & Office Coordination',n:'Office supplies availability',f:'M',w:8,t:'Zero stock-outs',r:['eq',0,1,2],h:'stock-outs'},
+  {c:'Admin & Office Coordination',n:'Admin vendor bill submission',f:'M',w:8,t:'\u2264 2 working days',r:['le',1,2,3],h:'avg days'},
+  {c:'Records & Quality',n:'Register upkeep',f:'M',w:7,t:'100% current',r:['ge',100,95,85],h:'%'},
+  {c:'Records & Quality',n:'Document filing & retrieval',f:'M',w:6,t:'100% within 10 min',r:['ge',100,95,85],h:'%'},
+  {c:'Records & Quality',n:'Rework / error correction rate',f:'M',w:7,t:'\u2264 5% of tasks',r:['le',2,5,8],h:'%'},
+  {c:'Conduct & Growth',n:'Punctuality & desk coverage',f:'M',w:6,t:'Zero lapses',r:['eq',0,1,2],h:'lapses'},
+  {c:'Conduct & Growth',n:'Deadlines met without follow-up',f:'M',w:5,t:'\u2265 90%',r:['ge',95,90,80],h:'%'},
+  {c:'Conduct & Growth',n:'Training module completion',f:'Q',w:4,t:'\u2265 90% per quarter',r:['ge',100,90,75],h:'%'}]},
+ 'OS':{dept:'HR & Admin',title:'Office Assistant',link:'ADM-03',defSlots:['Office Assistant 1','Office Assistant 2'],src:'GA_HR_Admin_KPI.xlsx',kpis:[
+  {c:'Housekeeping & Office Upkeep',n:'Daily cleaning checklist completion',f:'M',w:15,t:'100% done & signed',r:['ge',100,95,85],h:'%'},
+  {c:'Housekeeping & Office Upkeep',n:'Office readiness by 9:15 AM',f:'M',w:10,t:'100% of days',r:['ge',100,95,85],h:'% days'},
+  {c:'Housekeeping & Office Upkeep',n:'Weekly upkeep audit score',f:'M',w:15,t:'\u2265 90% average',r:['ge',95,90,75],h:'avg %'},
+  {c:'Service & Errands',n:'Guest & meeting service TAT',f:'M',w:10,t:'Within 10 minutes',r:['ge',100,95,85],h:'%'},
+  {c:'Service & Errands',n:'Errand completion',f:'M',w:15,t:'100% same-day',r:['ge',100,95,85],h:'%'},
+  {c:'Service & Errands',n:'Document & material handling',f:'M',w:10,t:'Zero lost / damaged',r:['eq',0,1,2],h:'incidents'},
+  {c:'Conduct & Reliability',n:'Attendance & punctuality',f:'M',w:10,t:'\u2265 95% on time',r:['ge',98,95,90],h:'%'},
+  {c:'Conduct & Reliability',n:'Uniform & grooming',f:'M',w:5,t:'Zero lapses',r:['eq',0,1,2],h:'lapses'},
+  {c:'Conduct & Reliability',n:'Behaviour & cooperation',f:'M',w:5,t:'Zero complaints',r:['eq',0,1,2],h:'complaints'},
+  {c:'Conduct & Reliability',n:'Safety & training compliance',f:'Q',w:5,t:'100% of modules',r:['ge',100,90,75],h:'%'}]}
+};
+var KPI_SCOL={4:'#1A7244',3:'#1558A0',2:'#A07800',1:'#A8301E'};
+var KPI_SBG ={4:'#E8F6EE',3:'#EAF1FB',2:'#FDF8EC',1:'#FDECEA'};
+function kpiScore(r,v){
+  if(v===''||v===null||v===undefined||isNaN(v)) return null;
+  v=parseFloat(v);
+  var t=r[0];
+  if(t==='le')  return v<=r[1]?4:v<=r[2]?3:v<=r[3]?2:1;
+  if(t==='ge')  return v>=r[1]?4:v>=r[2]?3:v>=r[3]?2:1;
+  if(t==='eq')  return v===r[1]?4:v===r[2]?3:v===r[3]?2:1;
+  if(t==='abs') {v=Math.abs(v); return v<=r[1]?4:v<=r[2]?3:v<=r[3]?2:1;}
+  return null;
+}
+function kpiBandLabel(s){ return s>=3.5?'Outstanding':s>=3?'Exceeds Expectations':s>=2.5?'Meets Expectations':'Needs Improvement'; }
+function kpiBandCol(s){ return s>=3.5?'#1A7244':s>=3?'#1558A0':s>=2.5?'#A07800':'#A8301E'; }
+function kpiKey(setId,slot,ki,mi){ return setId+'_'+slot+'_'+ki+'_'+mi; }
+function kpiSlotCount(setId){ return ST.kpiSlots[setId]||KPI_SETS[setId].defSlots.length; }
+function kpiSlotName(setId,i){ return ST.kpiNames[setId+'_'+i]||KPI_SETS[setId].defSlots[i]||(KPI_SETS[setId].title+' '+(i+1)); }
+function setKpiAct(key,val){
+  if(val===''||val===null){ delete ST.kpiAct[key]; } else { ST.kpiAct[key]=parseFloat(val); }
+  saveState(); renderTab('kpi');
+}
+function kpiMonthScore(setId,slot,mi){
+  var set=KPI_SETS[setId],sw=0,tw=0;
+  set.kpis.forEach(function(k,ki){
+    if(k.f==='Q'&&!KPI_QTR[mi]) return;
+    var v=ST.kpiAct[kpiKey(setId,slot,ki,mi)];
+    var s=kpiScore(k.r,v);
+    if(s!==null){ sw+=s*k.w; tw+=k.w; }
+  });
+  return tw>0?Math.round(sw/tw*100)/100:null;
+}
+function exportKpiXlsx(){
+  if(!window.XLSX){alert('XLSX library not loaded');return;}
+  var set=KPI_SETS[kpiSetSel],slot=kpiSlotSel;
+  var rows=[['Golden Abodes \u2014 KPI Scores \u2014 '+set.title+' \u2014 '+kpiSlotName(kpiSetSel,slot)+' \u2014 FY 2026-27'],[],
+            ['#','Category','KPI','Freq','Wt%','Target'].concat(KPI_MONTHS.reduce(function(a,m){return a.concat([m+' Actual',m+' Score']);},[]))];
+  set.kpis.forEach(function(k,ki){
+    var row=[ki+1,k.c,k.n,k.f,k.w,k.t];
+    KPI_MONTHS.forEach(function(m,mi){
+      if(k.f==='Q'&&!KPI_QTR[mi]){ row.push('\u2014','\u2014'); return; }
+      var v=ST.kpiAct[kpiKey(kpiSetSel,slot,ki,mi)];
+      var s=kpiScore(k.r,v);
+      row.push(v!==undefined?v:'', s!==null?s:'');
+    });
+    rows.push(row);
+  });
+  var wrow=['','','Monthly Weighted Score','','',''];
+  KPI_MONTHS.forEach(function(m,mi){ var s=kpiMonthScore(kpiSetSel,slot,mi); wrow.push('',s!==null?s:''); });
+  rows.push([],wrow);
+  var wbx=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wbx,XLSX.utils.aoa_to_sheet(rows),'KPI Scores');
+  XLSX.writeFile(wbx,'GA_KPI_'+kpiSetSel+'_'+kpiSlotName(kpiSetSel,slot).replace(/[^A-Za-z0-9]+/g,'_')+'.xlsx');
+}
+function renderKpi(){
+  var el=document.getElementById('page-kpi'); if(!el) return;
+  var set=KPI_SETS[kpiSetSel];
+  if(kpiSlotSel>=kpiSlotCount(kpiSetSel)) kpiSlotSel=0;
+  var slot=kpiSlotSel;
+  var html='';
+  html+='<div class="info">KPI governance for the GA teams \u2014 same KPIs, weights and 4/3/2/1 rating thresholds as the signed Excel handbooks ';
+  html+='(<strong>GA_Accounting_KPI.xlsx</strong>, <strong>GA_HR_Admin_KPI.xlsx</strong>). Enter monthly actuals here; scores, weighted score and performance band auto-calculate ';
+  html+='and save to the planner state. Quarterly KPIs (Q) are scored only at quarter-end (Jun / Sep / Dec / Mar). The Excel handbook remains the appraisal sign-off record.</div>';
+
+  // ── Department / role-set pills ──
+  var depts=[];
+  Object.keys(KPI_SETS).forEach(function(id){ if(depts.indexOf(KPI_SETS[id].dept)<0) depts.push(KPI_SETS[id].dept); });
+  html+='<div style="display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px">';
+  depts.forEach(function(dp){
+    html+='<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:8px 12px">';
+    html+='<span style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-right:2px">'+dp+'</span>';
+    Object.keys(KPI_SETS).forEach(function(id){
+      var s=KPI_SETS[id]; if(s.dept!==dp) return;
+      var on=id===kpiSetSel;
+      html+='<button data-kpiset="'+id+'" style="padding:5px 13px;border-radius:18px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid '+(on?'var(--blue)':'var(--border)')+';background:'+(on?'var(--blue)':'transparent')+';color:'+(on?'#fff':'var(--muted)')+'">'+s.title+'</button>';
+    });
+    html+='</div>';
+  });
+  html+='</div>';
+
+  // ── Person slots + linked role + export ──
+  var nSlots=kpiSlotCount(kpiSetSel);
+  var linkRole=allR().find(function(r){return r.id===set.link;});
+  html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">';
+  html+='<span style="font-size:11px;color:var(--muted);font-weight:600">Person:</span>';
+  for(var si=0;si<nSlots;si++){
+    var on2=si===slot;
+    html+='<button data-kpislot="'+si+'" style="padding:4px 12px;border-radius:18px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid '+(on2?'var(--teal)':'var(--border)')+';background:'+(on2?'var(--teal)':'transparent')+';color:'+(on2?'#fff':'var(--muted)')+'">'+kpiSlotName(kpiSetSel,si)+'</button>';
+  }
+  html+='<button data-kpiaddslot="1" title="Add another person to this KPI set" style="padding:4px 10px;border-radius:18px;cursor:pointer;font-size:11px;font-weight:800;border:1.5px dashed var(--border);background:transparent;color:var(--muted)">+ person</button>';
+  if(nSlots>1) html+='<button data-kpidelslot="1" title="Remove last person slot" style="padding:4px 10px;border-radius:18px;cursor:pointer;font-size:11px;border:1.5px dashed #E5B5B5;background:transparent;color:#A8301E">&minus;</button>';
+  html+='<span style="font-size:10px;color:var(--muted);margin-left:6px">Rename:</span>';
+  html+='<input type="text" value="'+kpiSlotName(kpiSetSel,slot).replace(/"/g,'&quot;')+'" data-kpiname="'+kpiSetSel+'_'+slot+'" style="width:160px;font-size:11px"/>';
+  if(linkRole) html+='<button onclick="selNode=\''+set.link+'\';showTab(\'band\')" title="Open this role in Band Structure" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1.5px solid var(--border);background:var(--card);font-size:10px;font-weight:700;color:var(--blue-b);cursor:pointer">&#9699; '+linkRole.role+' \u2014 Band '+linkRole.band+'</button>';
+  html+='<button onclick="exportKpiXlsx()" style="padding:4px 12px;border-radius:6px;border:none;background:var(--teal);color:#fff;font-size:10px;font-weight:700;cursor:pointer">&#11123; Export scores (Excel)</button>';
+  html+='</div>';
+
+  // ── Summary cards ──
+  var mScores=KPI_MONTHS.map(function(m,mi){return kpiMonthScore(kpiSetSel,slot,mi);});
+  var scored=mScores.filter(function(s){return s!==null;});
+  var ytd=scored.length?Math.round(scored.reduce(function(a,b){return a+b;},0)/scored.length*100)/100:null;
+  var lastIdx=-1; mScores.forEach(function(s,i){if(s!==null)lastIdx=i;});
+  var latest=lastIdx>=0?mScores[lastIdx]:null;
+  var filled=0,onTarget=0,totalDue=0;
+  set.kpis.forEach(function(k,ki){
+    KPI_MONTHS.forEach(function(m,mi){
+      if(k.f==='Q'&&!KPI_QTR[mi]) return;
+      var s=kpiScore(k.r,ST.kpiAct[kpiKey(kpiSetSel,slot,ki,mi)]);
+      if(s!==null){ filled++; if(s>=3) onTarget++; }
+    });
+  });
+  html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
+  [{l:'YTD weighted score',v:ytd!==null?ytd.toFixed(2):'\u2014',c:ytd!==null?kpiBandCol(ytd):'var(--muted)',sub:ytd!==null?kpiBandLabel(ytd):'no data yet'},
+   {l:'Latest month'+(lastIdx>=0?' ('+KPI_MONTHS[lastIdx]+')':''),v:latest!==null?latest.toFixed(2):'\u2014',c:latest!==null?kpiBandCol(latest):'var(--muted)',sub:latest!==null?kpiBandLabel(latest):'enter actuals below'},
+   {l:'Entries on target (3+)',v:filled?onTarget+' / '+filled:'\u2014',c:filled&&onTarget/filled>=0.8?'#1A7244':filled?'#A07800':'var(--muted)',sub:filled?Math.round(onTarget/filled*100)+'% of scored entries':'\u2014'},
+   {l:'KPIs in set',v:set.kpis.length,c:'var(--blue-b)',sub:'weights total 100%'}].forEach(function(m){
+    html+='<div style="flex:1;min-width:160px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px">';
+    html+='<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">'+m.l+'</div>';
+    html+='<div style="font-size:20px;font-weight:800;color:'+m.c+'">'+m.v+'</div>';
+    html+='<div style="font-size:10px;color:'+m.c+'">'+m.sub+'</div></div>';
+  });
+  html+='</div>';
+
+  // ── Scoring matrix ──
+  html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">';
+  html+='<div style="overflow-x:auto"><table style="min-width:'+(330+KPI_MONTHS.length*74)+'px;border-collapse:separate;border-spacing:0">';
+  html+='<thead><tr><th style="position:sticky;left:0;background:var(--bg);z-index:2;min-width:240px">KPI \u2014 '+kpiSlotName(kpiSetSel,slot)+' &nbsp;<span style="font-weight:400;color:var(--muted)">FY 2026-27</span></th>';
+  html+='<th style="text-align:center;min-width:40px">Wt%</th>';
+  KPI_MONTHS.forEach(function(m,mi){
+    html+='<th style="text-align:center;min-width:64px'+(KPI_QTR[mi]?';border-bottom:2px solid var(--gold)':'')+'">'+m+(KPI_QTR[mi]?'<div style="font-size:7px;color:var(--gold-b)">QTR END</div>':'')+'</th>';
+  });
+  html+='</tr></thead><tbody>';
+  var lastCat=null;
+  set.kpis.forEach(function(k,ki){
+    if(k.c!==lastCat){
+      html+='<tr><td colspan="'+(KPI_MONTHS.length+2)+'" style="background:#F2ECF9;color:#534AB7;font-size:10px;font-weight:800;padding:5px 10px;position:sticky;left:0">'+k.c+'</td></tr>';
+      lastCat=k.c;
+    }
+    html+='<tr><td style="position:sticky;left:0;background:var(--card);z-index:1" title="Target: '+k.t.replace(/"/g,'&quot;')+' | Enter: '+k.h+'">';
+    html+='<div style="font-size:11px;font-weight:600;line-height:1.3">'+(ki+1)+'. '+k.n+(k.f==='Q'?' <span style="font-size:8px;font-weight:800;color:#534AB7;background:#F2ECF9;border-radius:4px;padding:1px 5px">Q</span>':'')+'</div>';
+    html+='<div style="font-size:9px;color:var(--muted)">'+k.t+' &middot; <em>'+k.h+'</em></div></td>';
+    html+='<td style="text-align:center;font-weight:700;font-size:11px">'+k.w+'</td>';
+    KPI_MONTHS.forEach(function(m,mi){
+      if(k.f==='Q'&&!KPI_QTR[mi]){ html+='<td style="text-align:center;background:var(--bg);color:var(--border)">\u2014</td>'; return; }
+      var key=kpiKey(kpiSetSel,slot,ki,mi);
+      var v=ST.kpiAct[key];
+      var s=kpiScore(k.r,v);
+      var bg=s!==null?KPI_SBG[s]:'#FFFFF4', bc=s!==null?KPI_SCOL[s]:'var(--border)';
+      html+='<td style="text-align:center;padding:3px 4px">';
+      html+='<input type="number" step="any" value="'+(v!==undefined?v:'')+'" data-kpiact="'+key+'" style="width:46px;font-size:11px;text-align:center;border:1.5px solid '+bc+';background:'+bg+';border-radius:5px"/>';
+      html+=s!==null?'<div style="font-size:9px;font-weight:800;color:'+KPI_SCOL[s]+';margin-top:1px">'+s+'</div>':'<div style="font-size:9px;color:transparent;margin-top:1px">.</div>';
+      html+='</td>';
+    });
+    html+='</tr>';
+  });
+  // weighted score + band rows
+  html+='<tr><td style="position:sticky;left:0;background:#0F1F3D;color:#fff;font-weight:800;font-size:11px;z-index:1">Monthly Weighted Score</td><td style="background:#0F1F3D"></td>';
+  KPI_MONTHS.forEach(function(m,mi){
+    var s=mScores[mi];
+    html+='<td style="text-align:center;background:#F8F2DC;font-weight:800;font-size:12px;color:'+(s!==null?kpiBandCol(s):'var(--muted)')+'">'+(s!==null?s.toFixed(2):'\u2014')+'</td>';
+  });
+  html+='</tr><tr><td style="position:sticky;left:0;background:#0F1F3D;color:#fff;font-weight:800;font-size:11px;z-index:1">Performance Band</td><td style="background:#0F1F3D"></td>';
+  KPI_MONTHS.forEach(function(m,mi){
+    var s=mScores[mi];
+    html+='<td style="text-align:center;font-size:8px;font-weight:800;color:'+(s!==null?kpiBandCol(s):'var(--muted)')+'">'+(s!==null?kpiBandLabel(s).split(' ')[0]:'\u2014')+'</td>';
+  });
+  html+='</tr></tbody></table></div></div>';
+
+  // ── Rating legend + handbook note ──
+  var lk2='kpi_legend';
+  html+='<div class="section-hdr" data-togcoll="'+lk2+'"><span style="font-size:12px;font-weight:700;color:var(--blue-b)">&#128214; Rating scale &amp; governance cadence</span>'+collBtn(lk2)+'</div>';
+  if(!isColl(lk2)){
+    html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
+    [{s:4,l:'Outstanding',d:'Exceeds target consistently'},{s:3,l:'Meets Expectations',d:'Achieves target reliably'},{s:2,l:'Needs Improvement',d:'Below target \u2014 corrective action'},{s:1,l:'Unsatisfactory',d:'Significantly below target'}].forEach(function(b){
+      html+='<div style="flex:1;min-width:150px;background:'+KPI_SBG[b.s]+';border-radius:8px;border:1px solid '+KPI_SCOL[b.s]+'40;padding:8px 12px">';
+      html+='<div style="font-size:13px;font-weight:800;color:'+KPI_SCOL[b.s]+'">'+b.s+' \u2014 '+b.l+'</div>';
+      html+='<div style="font-size:10px;color:'+KPI_SCOL[b.s]+'">'+b.d+'</div></div>';
+    });
+    html+='</div>';
+    html+='<div style="background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:11px;color:var(--muted);line-height:1.6">';
+    html+='<strong style="color:var(--blue-b)">Cadence:</strong> actuals entered monthly from the evidence registers (compliance calendars, payroll register, admin request log, correction log) &rarr; monthly 1:1 against this scorecard &rarr; data freeze on the 5th &rarr; KPI line in the monthly business review &rarr; semi-annual appraisal &amp; variable payout from the signed Excel scorecard. ';
+    html+='Source handbooks: <strong>'+set.src+'</strong> (definitions, formulas, evidence registers, appraisal sign-off).</div>';
+  }
+  el.innerHTML=html;
 }
 
 // ═══════════════════════════════════════════════════════
