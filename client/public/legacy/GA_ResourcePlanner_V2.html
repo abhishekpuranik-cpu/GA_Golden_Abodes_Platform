@@ -89,6 +89,7 @@ tr:hover td{background:#FAFBFD}
 <div class="tabs">
   <button class="tab on" id="tab-dash" onclick="showTab('dash')">&#9650; Dashboard</button>
   <button class="tab" id="tab-org" onclick="showTab('org')">&#11825; Org Chart</button>
+  <button class="tab" id="tab-band" onclick="showTab('band')">&#9699; Band Structure</button>
   <button class="tab" id="tab-res" onclick="showTab('res')">&#128202; Headcount Plan</button>
   <button class="tab" id="tab-cost" onclick="showTab('cost')">&#9878; Cost vs Plan</button>
   <button class="tab" id="tab-team" onclick="showTab('team')">&#128100; Team View</button>
@@ -97,6 +98,7 @@ tr:hover td{background:#FAFBFD}
 </div>
 <div id="page-dash" class="page"></div>
 <div id="page-org" class="page hidden"></div>
+<div id="page-band" class="page hidden"></div>
 <div id="page-res" class="page hidden"></div>
 
 <div id="page-cost" class="page hidden"></div>
@@ -283,17 +285,27 @@ html+='</div>';
 }
 
 // ═══════════════════════════════════════════════════════
-// ROLES — 32 roles matching V3 planner
+// ROLES — master list (V3-synced core + GA band-structure roles)
+// Bands follow the GA ladder: A1 entry → A2 → A3 (team lead) → B1 (manager) → B2 (function head)
 // ═══════════════════════════════════════════════════════
 var ROLES = [
-  {id:'LEAD-01',fn:'Leadership',        role:'Managing Partner',     band:'B2',type:'Shared',   d:'cnt',cap:6,fix:900000,  pri:'Critical',par:null},
+  {id:'LEAD-01',fn:'Leadership',        role:'Managing Partner / COO',band:'MP',type:'Shared',  d:'cnt',cap:6,fix:900000,  pri:'Critical',par:null},
+  {id:'BD-01',  fn:'Land & BD',         role:'Head - BD & Acquisition',band:'B2',type:'Shared', d:'cnt',cap:6,fix:1800000, pri:'High',    par:'LEAD-01'},
+  {id:'BD-02',  fn:'Land & BD',         role:'BD Manager (deal pipeline)',band:'B1',type:'Shared',d:'cnt',cap:4,fix:1200000,pri:'High',   par:'BD-01'},
+  {id:'BD-03',  fn:'Land & BD',         role:'Liaison Lead (title / DD)',band:'A3',type:'Shared',d:'cnt',cap:3,fix:700000, pri:'Medium',  par:'BD-02'},
+  {id:'BD-04',  fn:'Land & BD',         role:'Market Research Exec', band:'A1',type:'Shared',   d:'cnt',cap:3,fix:350000,  pri:'Low',     par:'BD-02'},
+  {id:'PRE-01', fn:'Pre-Construction',  role:'Head - Design & Approvals',band:'B2',type:'Shared',d:'cnt',cap:6,fix:1800000,pri:'High',    par:'LEAD-01'},
+  {id:'PRE-02', fn:'Pre-Construction',  role:'Design Manager',       band:'B1',type:'Shared',   d:'cnt',cap:3,fix:1200000, pri:'High',    par:'PRE-01'},
+  {id:'PRE-03', fn:'Pre-Construction',  role:'Approvals / RERA Manager',band:'B1',type:'Shared',d:'cnt',cap:3,fix:1100000, pri:'High',    par:'PRE-01'},
+  {id:'PRE-04', fn:'Pre-Construction',  role:'Architecture Coordinator',band:'A3',type:'Shared',d:'cnt',cap:2,fix:700000,  pri:'Medium',  par:'PRE-02'},
+  {id:'PRE-05', fn:'Pre-Construction',  role:'Draughtsman / Doc Control',band:'A1',type:'Shared',d:'cnt',cap:2,fix:400000, pri:'Low',     par:'PRE-04'},
   {id:'CONS-01',fn:'Construction',      role:'Construction Head',    band:'B2',type:'Shared',   d:'cnt',cap:2,fix:600000,  pri:'Critical',par:'LEAD-01'},
   {id:'CONS-02',fn:'Construction',      role:'Location Head',        band:'B1',type:'Shared',   d:'cnt',cap:2,fix:300000,  pri:'Critical',par:'CONS-01'},
-  {id:'CONS-03',fn:'Construction',      role:'Sr Engineer RCC',      band:'A2',type:'Dedicated',d:'slb',cap:4,fix:528000,  pri:'High',    par:'CONS-02'},
+  {id:'CONS-03',fn:'Construction',      role:'Sr Site Engineer RCC', band:'A3',type:'Dedicated',d:'slb',cap:4,fix:528000,  pri:'High',    par:'CONS-02'},
   {id:'CONS-04',fn:'Construction',      role:'Jr Engineer RCC',      band:'A1',type:'Dedicated',d:'slb',cap:4,fix:300000,  pri:'High',    par:'CONS-03'},
-  {id:'CONS-05',fn:'Construction',      role:'Supervisor Structure', band:'A2',type:'Dedicated',d:'lab',cap:1,fix:360000,  pri:'High',    par:'CONS-02'},
-  {id:'CONS-06',fn:'Construction',      role:'Sr Engr Finishing',    band:'A2',type:'Dedicated',d:'sqf',cap:50000,fix:528000,pri:'High',  par:'CONS-02'},
-  {id:'CONS-07',fn:'Construction',      role:'Supervisor Finishing', band:'A2',type:'Dedicated',d:'sqf',cap:15000,fix:360000,pri:'Medium',par:'CONS-06'},
+  {id:'CONS-05',fn:'Construction',      role:'Supervisor Structure', band:'A1',type:'Dedicated',d:'lab',cap:1,fix:360000,  pri:'High',    par:'CONS-02'},
+  {id:'CONS-06',fn:'Construction',      role:'Sr Site Engr Finishing',band:'A3',type:'Dedicated',d:'sqf',cap:50000,fix:528000,pri:'High', par:'CONS-02'},
+  {id:'CONS-07',fn:'Construction',      role:'Supervisor Finishing', band:'A1',type:'Dedicated',d:'sqf',cap:15000,fix:360000,pri:'Medium',par:'CONS-06'},
   {id:'CONS-08',fn:'Construction',      role:'Planning Engineer',    band:'A2',type:'Dedicated',d:'slb',cap:8,fix:396000,  pri:'High',    par:'CONS-02'},
   {id:'CONS-09',fn:'Construction',      role:'QS / Billing Engr',   band:'A2',type:'Dedicated',d:'cnt',cap:1,fix:396000,  pri:'High',    par:'CONS-02'},
   {id:'PROC-01',fn:'Procurement',       role:'Procurement Head',     band:'B1',type:'Shared',   d:'cnt',cap:3,fix:1426668, pri:'High',    par:'LEAD-01'},
@@ -305,10 +317,10 @@ var ROLES = [
   {id:'SAL-01', fn:'Sales & Marketing', role:'Sales Head',           band:'B1',type:'Shared',   d:'cnt',cap:3,fix:1200000, pri:'Critical',par:'LEAD-01'},
   {id:'SAL-02', fn:'Sales & Marketing', role:'Marketing Lead',       band:'B1',type:'Hybrid',   d:'bkn',cap:50000000,fix:780000,pri:'High',par:'SAL-01',hyb:1},
   {id:'SAL-03', fn:'Sales & Marketing', role:'Pre-Sales Exec',       band:'A1',type:'Dedicated',d:'lds',cap:150,fix:264000, pri:'High',    par:'SAL-01'},
-  {id:'SAL-04', fn:'Sales & Marketing', role:'Sales Manager',        band:'A2',type:'Dedicated',d:'bkn',cap:80000000,fix:620000,pri:'Critical',par:'SAL-01'},
-  {id:'CRM-01', fn:'CRM & CX',          role:'CRM Manager',          band:'A2',type:'Dedicated',d:'unt',cap:300,fix:480000, pri:'High',    par:'LEAD-01'},
+  {id:'SAL-04', fn:'Sales & Marketing', role:'Sales Manager (Closing Lead)',band:'A3',type:'Dedicated',d:'bkn',cap:80000000,fix:620000,pri:'Critical',par:'SAL-01'},
+  {id:'CRM-01', fn:'CRM & CX',          role:'Manager - CRM & Receivables',band:'B1',type:'Dedicated',d:'unt',cap:300,fix:480000,pri:'High',par:'LEAD-01'},
   {id:'CRM-02', fn:'CRM & CX',          role:'CRM Executive',        band:'A1',type:'Dedicated',d:'unt',cap:90, fix:300000, pri:'High',    par:'CRM-01'},
-  {id:'CRM-03', fn:'CRM & CX',          role:'Handover Manager',     band:'A2',type:'Dedicated',d:'unt',cap:250,fix:480000, pri:'High',    par:'CRM-01'},
+  {id:'CRM-03', fn:'CRM & CX',          role:'Handover / CX Lead',   band:'A3',type:'Dedicated',d:'unt',cap:250,fix:480000, pri:'High',    par:'CRM-01'},
   {id:'CRM-04', fn:'CRM & CX',          role:'Snag Engineer',        band:'A2',type:'Dedicated',d:'unt',cap:120,fix:528000, pri:'Medium',  par:'CRM-01'},
   {id:'CRM-05', fn:'CRM & CX',          role:'Customer Support',     band:'A1',type:'Dedicated',d:'unt',cap:150,fix:300000, pri:'Medium',  par:'CRM-01'},
   {id:'PM-01',  fn:'Property Mgmt',     role:'PM Head',              band:'B1',type:'Shared',   d:'mnt',cap:600,fix:1426668,pri:'High',    par:'LEAD-01'},
@@ -319,6 +331,21 @@ var ROLES = [
   {id:'ADM-01', fn:'Admin',             role:'HR / Admin Manager',   band:'B1',type:'Shared',   d:'cnt',cap:4, fix:1426668,pri:'Medium',  par:'LEAD-01'},
   {id:'ADM-02', fn:'Admin',             role:'Admin / Front Office', band:'A1',type:'Dedicated',d:'cnt',cap:1, fix:276000, pri:'Low',     par:'ADM-01'},
 ];
+
+// ═══════════════════════════════════════════════════════
+// BAND MASTER — GA org structure (A1 entry → B2 function head)
+// ═══════════════════════════════════════════════════════
+var BANDS_DEF=[
+  {id:'MP',title:'Managing Partner / COO',exp:'Apex',span:'All B2s + player-coach B1s',charter:'Above the band structure. Makes land/capital calls, B2 hires & promotions, DoA exceptions, weekly cash allocation. Everything else is delegated to a named owner.'},
+  {id:'B2',title:'Function Head (Sr Manager / GM)',exp:'12-18 yrs',span:'4-7 direct',charter:'Owns the function\'s outcomes and budget. Sets SOPs, signs off within DoA, develops B1s. Reports to MP/COO.'},
+  {id:'B1',title:'Manager / Sr Manager',exp:'7-12 yrs',span:'3-6 direct',charter:'Owns a vertical or one project\'s delivery end-to-end. Runs the weekly cadence; first approval gate.'},
+  {id:'A3',title:'Asst Manager / Team Lead',exp:'4-7 yrs',span:'2-5 direct',charter:'Owns a workstream or site section. Checks A1/A2 output; owns data quality going into dashboards.'},
+  {id:'A2',title:'Sr Executive',exp:'2-4 yrs',span:'Individual contributor',charter:'Independent executor. Runs a defined process end-to-end within SOP; no financial sign-off.'},
+  {id:'A1',title:'Executive / Trainee',exp:'0-2 yrs',span:'Individual contributor',charter:'Entry skillset in any department. Executes under supervision; primary data entry into the GA app suite.'}
+];
+var BAND_ORDER=['MP','B2','B1','A3','A2','A1'];
+var BAND_COL={MP:'#A07800',B2:'#6B5000',B1:'#0A3266',A3:'#341860',A2:'#064646',A1:'#4A5568'};
+var BAND_BGC={MP:'#FDF3D7',B2:'#FDF8EC',B1:'#EAF1FB',A3:'#F2ECF9',A2:'#E6F5F5',A1:'#F0F1F3'};
 
 // Default 8 projects — overridden by sync from V3
 var DEFAULT_PROJS = [
@@ -344,6 +371,8 @@ var PRIC  = {Critical:'#6E1D12',High:'#7A3205',Medium:'#0A3266',Low:'#2C3E50'};
 var PRIB  = {Critical:'#FDECEA',High:'#FEF0E5',Medium:'#EAF1FB',Low:'#F0F1F3'};
 var FN_COL= {
   'Leadership':{t:'#6B5000',b:'#FDF8EC',c:'#A07800'},
+  'Land & BD':{t:'#7A3205',b:'#FEF0E5',c:'#B54D0A'},
+  'Pre-Construction':{t:'#064646',b:'#E6F5F5',c:'#0B7070'},
   'Construction':{t:'#0A3266',b:'#EAF1FB',c:'#1558A0'},
   'Procurement':{t:'#341860',b:'#F2ECF9',c:'#542B8A'},
   'Finance':{t:'#0F4829',b:'#E8F6EE',c:'#1A7244'},
@@ -368,6 +397,7 @@ function clickFileInput(id){
 }
 var curTab  = 'dash';
 var orgFilt = 'All';
+var bandProjFilt = 'ALL';
 var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
 var CUSTOM  = [];
@@ -759,7 +789,7 @@ function calcEngine(){
 // NAV
 // ═══════════════════════════════════════════════════════
 function showTab(t){
-  ['dash','org','res','cost','team','shared','pnl'].forEach(function(x){
+  ['dash','org','band','res','cost','team','shared','pnl'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
@@ -781,7 +811,7 @@ function setScen(s){
   ['Lean','Base','Stretch'].forEach(function(x){document.getElementById('sc-'+x).className='sc-btn'+(x===s?' on':'');});
   renderAll();
 }
-function renderTab(t){ var f={dash:renderDash,org:renderOrg,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL}; if(f[t])f[t](); }
+function renderTab(t){ var f={dash:renderDash,org:renderOrg,band:renderBand,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL}; if(f[t])f[t](); }
 function renderAll(){ renderTab(curTab); }
 
 // ═══════════════════════════════════════════════════════
@@ -913,6 +943,15 @@ document.addEventListener('click',function(e){
   // Now check togcoll (section collapse/expand)
   var tc=findEl('togcoll'); if(tc){ togColl(tc.dataset.togcoll); return; }
   if(a.orgfilt!==undefined)    { orgFilt=a.orgfilt; renderTab('org'); }
+  if(a.bandfilt!==undefined)   { bandProjFilt=a.bandfilt; renderTab('band'); return; }
+  var bn=findEl('bandsel');
+  if(bn){ selNode=bn.dataset.bandsel;
+    // Re-render matrix (chip highlight) + detail panel
+    renderTab('band');
+    var bs=document.getElementById('band-detail-slot');
+    if(bs) bs.scrollIntoView({behavior:'smooth',block:'nearest'});
+    return;
+  }
   if(a.selnode!==undefined)    { selNode=a.selnode;
     // Fast path: only update detail panel, skip tree rebuild
     var D2=calcEngine(); renderOrgDetail(D2);
@@ -1306,6 +1345,162 @@ function detailPanel(D){
   html+='</div></div>';
   html+='</div>';
   return html;
+}
+
+// ═══════════════════════════════════════════════════════
+// TAB — BAND STRUCTURE (GA org bands A1→B2, linked to live E/S/A data)
+// ═══════════════════════════════════════════════════════
+function bandRoleNums(r,D){
+  // Numbers shown per role chip, respecting the project filter
+  if(bandProjFilt==='ALL') return {ex:D.nEx(r.id),sg:D.nSg(r.id),ap:D.nAp(r.id),dim:false};
+  if(r.type==='Shared') return {ex:getEx(gk(r.id)),sg:D.sug[gk(r.id)]||0,ap:getAp(gk(r.id)),dim:true};
+  var k=pk(bandProjFilt,r.id);
+  var n={ex:getEx(k),sg:D.sug[k]||0,ap:getAp(k),dim:false};
+  if(r.type==='Hybrid'){ n.ex+=getEx(gk(r.id)); n.sg+=D.sug[gk(r.id)]||0; n.ap+=getAp(gk(r.id)); }
+  return n;
+}
+function renderBand(){
+  var D=calcEngine();
+  var html='';
+  html+='<div class="info">GA band structure <strong>A1 &#8594; A2 &#8594; A3 &#8594; B1 &#8594; B2</strong> (Managing Partner / COO sits above the bands) mapped to live planning data. ';
+  html+='Every chip is a role from the Headcount Plan: <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. ';
+  html+='Click a chip to open the same planning panel as the Org Chart (edit E/A, capacity, conditions, JD). Changes save to the planner state and flow to Cost, P&amp;L and Org Chart.</div>';
+
+  // ── Project filter pills ──
+  html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
+  html+='<span style="font-size:11px;color:var(--muted);font-weight:600">View:</span>';
+  html+='<button class="sc-btn'+(bandProjFilt==='ALL'?' on':'')+'" data-bandfilt="ALL">All Projects</button>';
+  D.active.forEach(function(p){
+    var sc=STAC[p.status]||'#4A5568',isSel=bandProjFilt===p.id;
+    html+='<button data-bandfilt="'+p.id+'" style="padding:4px 12px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:600;border:1.5px solid '+sc+';background:'+(isSel?sc:'transparent')+';color:'+(isSel?'#fff':sc)+'">'+p.name+'</button>';
+  });
+  if(bandProjFilt!=='ALL') html+='<span style="font-size:10px;color:var(--muted)">Shared roles shown dimmed with corporate numbers</span>';
+  html+='</div>';
+
+  // ── Band KPI strip (portfolio-wide, approved basis) ──
+  var bandTot={};
+  BAND_ORDER.forEach(function(b){bandTot[b]={ex:0,sg:0,ap:0,cost:0};});
+  allR().forEach(function(r){
+    var b=bandTot[r.band]; if(!b) return;
+    b.ex+=D.nEx(r.id); b.sg+=D.nSg(r.id); b.ap+=D.nAp(r.id);
+    b.cost+=D.nAp(r.id)*r.fix*(1+D.vp);
+  });
+  html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
+  BAND_ORDER.forEach(function(bid){
+    var bt=bandTot[bid],bdf=null;
+    BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
+    var gap=bt.ap-bt.ex;
+    html+='<div style="flex:1;min-width:150px;background:'+BAND_BGC[bid]+';border-radius:10px;padding:10px 14px;border:1.5px solid '+BAND_COL[bid]+'30" title="'+(bdf?bdf.charter.replace(/"/g,'&quot;'):'')+'">';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bid+'</span><span style="font-size:9px;color:'+BAND_COL[bid]+'">'+(bdf?bdf.exp:'')+'</span></div>';
+    html+='<div style="font-size:10px;color:'+BAND_COL[bid]+';margin:2px 0 6px">'+(bdf?bdf.title:'')+'</div>';
+    html+='<div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:18px;font-weight:800;color:'+BAND_COL[bid]+'">'+bt.ap+'</span><span style="font-size:9px;color:var(--muted)">approved</span>';
+    html+='<span style="font-size:11px;color:var(--muted)">E '+bt.ex+' &middot; S '+bt.sg+'</span></div>';
+    html+='<div style="display:flex;justify-content:space-between;margin-top:3px"><span style="font-size:9px;color:var(--muted)">'+cr(bt.cost)+'/yr</span>'+gpill(gap)+'</div>';
+    html+='</div>';
+  });
+  html+='</div>';
+
+  // ── Site vs Shared deployment strip (approved HC by role type) ──
+  var depl={Dedicated:0,Hybrid:0,Shared:0};
+  allR().forEach(function(r){ if(depl[r.type]!==undefined) depl[r.type]+=D.nAp(r.id); });
+  var deplTot=depl.Dedicated+depl.Hybrid+depl.Shared;
+  html+='<div class="card" style="margin-bottom:14px;padding:10px 14px"><div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center">';
+  html+='<span style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Deployment (approved HC):</span>';
+  [{l:'Site-dedicated',k:'Dedicated',c:TYPC.Dedicated,b:TYPB.Dedicated},
+   {l:'Hybrid (corp + site)',k:'Hybrid',c:TYPC.Hybrid,b:TYPB.Hybrid},
+   {l:'Shared / corporate',k:'Shared',c:TYPC.Shared,b:TYPB.Shared}].forEach(function(t){
+    var v=depl[t.k],pc=deplTot>0?Math.round(v/deplTot*100):0;
+    html+='<span class="badge" style="color:'+t.c+';background:'+t.b+';font-size:11px;padding:4px 10px">'+t.l+': <strong>'+v+'</strong> ('+pc+'%)</span>';
+  });
+  html+='<span style="font-size:10px;color:var(--muted)">Total approved: <strong>'+deplTot+'</strong></span>';
+  html+='</div></div>';
+
+  // ── Band × Department matrix ──
+  var fns=[];
+  Object.keys(FN_COL).forEach(function(f){ if(allR().some(function(r){return r.fn===f;})) fns.push(f); });
+  allR().forEach(function(r){ if(fns.indexOf(r.fn)<0) fns.push(r.fn); });
+
+  html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">';
+  html+='<div style="overflow-x:auto"><table style="min-width:'+(120+fns.length*150)+'px;border-collapse:separate;border-spacing:0">';
+  html+='<thead><tr><th style="position:sticky;left:0;background:var(--bg);z-index:2;min-width:96px">Band</th>';
+  fns.forEach(function(f){
+    var f2=fc(f);
+    html+='<th style="border-bottom:2.5px solid '+f2.c+';min-width:146px"><span style="color:'+f2.t+'">'+f+'</span></th>';
+  });
+  html+='</tr></thead><tbody>';
+  BAND_ORDER.forEach(function(bid){
+    var bdf=null; BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
+    html+='<tr><td style="position:sticky;left:0;background:'+BAND_BGC[bid]+';z-index:1;vertical-align:top;border-right:2px solid '+BAND_COL[bid]+'40">';
+    html+='<div style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bid+'</div>';
+    html+='<div style="font-size:9px;color:'+BAND_COL[bid]+';line-height:1.3">'+(bdf?bdf.title:'')+'</div>';
+    html+='<div style="font-size:8px;color:var(--muted);margin-top:2px">'+(bdf?bdf.span:'')+'</div>';
+    html+='</td>';
+    fns.forEach(function(f){
+      var cellRoles=allR().filter(function(r){return r.fn===f&&r.band===bid;});
+      html+='<td style="vertical-align:top;padding:5px 6px">';
+      if(!cellRoles.length){
+        html+='<div style="font-size:9px;color:var(--border);text-align:center;padding:6px 0">&mdash;</div>';
+      } else {
+        cellRoles.forEach(function(r){
+          var n=bandRoleNums(r,D);
+          var gap=n.ap-n.ex;
+          var tc=gap>0?'#A8301E':gap<0?'#B54D0A':n.ap>0?'#1A7244':'#94A3B8';
+          var f2=fc(r.fn);
+          html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px solid var(--border);border-left:3px solid '+f2.c+';border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card);'+(n.dim?'opacity:.5;':'')+(selNode===r.id?'box-shadow:0 0 0 2px var(--blue);':'')+'" title="'+r.role+' — click to plan">';
+          html+='<div style="font-size:10px;font-weight:700;line-height:1.25;margin-bottom:2px">'+r.role+'</div>';
+          html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">';
+          html+='<span style="font-size:8px;font-weight:700;color:'+TYPC[r.type]+'">'+(r.type==='Dedicated'?'SITE':r.type==='Hybrid'?'HYBRID':'SHARED')+'</span>';
+          html+='<span style="font-size:9px;color:var(--muted)">E'+n.ex+' S'+n.sg+' <strong style="color:var(--blue)">A'+n.ap+'</strong></span>';
+          html+='<span style="font-size:9px;font-weight:700;color:'+tc+'">'+(gap>0?'+'+gap:gap<0?gap:'&#10003;')+'</span>';
+          html+='</div></div>';
+        });
+      }
+      html+='</td>';
+    });
+    html+='</tr>';
+  });
+  // Fallback row for roles whose band is outside the A1–B2 ladder (e.g. custom roles)
+  var oddRoles=allR().filter(function(r){return BAND_ORDER.indexOf(r.band)<0;});
+  if(oddRoles.length){
+    html+='<tr><td style="position:sticky;left:0;background:var(--bg);z-index:1;vertical-align:top"><div style="font-size:11px;font-weight:800;color:var(--muted)">Other</div><div style="font-size:8px;color:var(--muted)">unbanded roles</div></td>';
+    fns.forEach(function(f){
+      html+='<td style="vertical-align:top;padding:5px 6px">';
+      oddRoles.filter(function(r){return r.fn===f;}).forEach(function(r){
+        var n=bandRoleNums(r,D);
+        html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px dashed var(--border);border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card)'+(n.dim?';opacity:.5':'')+'">';
+        html+='<div style="font-size:10px;font-weight:700">'+r.role+' <span style="font-size:8px;color:var(--muted)">('+(r.band||'?')+')</span></div>';
+        html+='<div style="font-size:9px;color:var(--muted)">E'+n.ex+' S'+n.sg+' <strong style="color:var(--blue)">A'+n.ap+'</strong></div>';
+        html+='</div>';
+      });
+      html+='</td>';
+    });
+    html+='</tr>';
+  }
+  html+='</tbody></table></div></div>';
+
+  // ── Band charters legend ──
+  var lk='band_charters';
+  html+='<div class="section-hdr" data-togcoll="'+lk+'"><span style="font-size:12px;font-weight:700;color:var(--blue-b)">&#128214; Band charters &amp; promotion ladder</span>'+collBtn(lk)+'</div>';
+  if(!isColl(lk)){
+    html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
+    BANDS_DEF.forEach(function(b){
+      html+='<div style="flex:1;min-width:190px;background:var(--card);border-radius:8px;border:1px solid var(--border);border-top:3px solid '+BAND_COL[b.id]+';padding:10px 12px">';
+      html+='<div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:800;color:'+BAND_COL[b.id]+'">'+b.id+' &middot; '+b.title+'</span></div>';
+      html+='<div style="font-size:10px;color:var(--muted);margin:4px 0">'+b.exp+' &middot; span '+b.span+'</div>';
+      html+='<div style="font-size:10px;line-height:1.45">'+b.charter+'</div>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+
+  html+='<div id="band-detail-slot"></div>';
+  document.getElementById('page-band').innerHTML=html;
+  renderBandDetail(D);
+}
+function renderBandDetail(D){
+  var slot=document.getElementById('band-detail-slot');
+  if(!slot) return;
+  slot.innerHTML=selNode?detailPanel(D):'<div style="font-size:11px;color:var(--muted);text-align:center;padding:14px">Click a role chip above to open its planning panel</div>';
 }
 
 // ═══════════════════════════════════════════════════════
