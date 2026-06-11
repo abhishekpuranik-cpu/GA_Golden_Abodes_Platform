@@ -404,9 +404,10 @@ var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
 var CUSTOM  = [];
 var HC_RULES = [];
-var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}};
+var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}};
 var kpiSetSel = 'HR';   // selected KPI set on the Team KPIs tab
 var kpiSlotSel = 0;     // selected person slot within the set
+var kpiMode = 'score';  // 'score' = scorecard | 'edit' = KPI definitions editor
 
 // CONDITIONS: per-role suggestion overrides
 // COND[rid] = {withMgr: num|'', withoutMgr: num|'', withFinance: num|'', notes: str}
@@ -866,14 +867,14 @@ function setSS(msg,col){
   if(el) el.innerHTML='<span style="color:var(--'+col+'-b)">&#9679; '+msg+'</span>';
 }
 function saveState(){
-  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
+  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
 }
 function loadState(){
   try{
     var raw=localStorage.getItem('ga_rp_state_v1');
     if(!raw) return;
     var d=JSON.parse(raw);
-    ['ex','ap','capOv','rel','col','alloc','kpiAct','kpiNames','kpiSlots'].forEach(function(k){if(d[k])Object.assign(ST[k],d[k]);});
+    ['ex','ap','capOv','rel','col','alloc','kpiAct','kpiNames','kpiSlots','kpiDefs'].forEach(function(k){if(d[k])Object.assign(ST[k],d[k]);});
     if(d.scen) scen=d.scen;
     if(d.hcRules) HC_RULES=d.hcRules;
     if(d.custom) CUSTOM=d.custom;
@@ -895,6 +896,7 @@ document.addEventListener('change',function(e){
   if(a.setpf!==undefined)      setPF(a.pid, a.key, el.type==='checkbox'?el.checked:el.value==='true');
   if(a.kpiact!==undefined)     { setKpiAct(a.kpiact, el.value); }
   if(a.kpiname!==undefined)    { if(el.value.trim()){ST.kpiNames[a.kpiname]=el.value.trim();}else{delete ST.kpiNames[a.kpiname];} saveState(); renderTab('kpi'); }
+  if(a.kpidef!==undefined)     { updateKpiDef(kpiSetSel, +a.ki, a.kpidef, el.value); }
   // HC rule fields (data-rule-XXX -> dataset.ruleXxx)
   if(a.ruleProj!==undefined)   { HC_RULES[+a.idx].proj=el.value;   saveState(); renderTab('hire'); }
   if(a.ruleDriver!==undefined) { HC_RULES[+a.idx].driver=el.value; saveState(); renderTab('hire'); }
@@ -953,6 +955,10 @@ document.addEventListener('click',function(e){
   if(a.bandfilt!==undefined)   { bandProjFilt=a.bandfilt; renderTab('band'); return; }
   if(a.kpiset!==undefined)     { kpiSetSel=a.kpiset; kpiSlotSel=0; renderTab('kpi'); return; }
   if(a.kpislot!==undefined)    { kpiSlotSel=+a.kpislot; renderTab('kpi'); return; }
+  if(a.kpimode!==undefined)    { kpiMode=a.kpimode; renderTab('kpi'); return; }
+  if(a.kpiadd!==undefined)     { kpiAddDef(kpiSetSel); return; }
+  if(a.kpidel!==undefined)     { kpiDelDef(kpiSetSel, +a.kpidel); return; }
+  if(a.kpireset!==undefined)   { kpiResetDefs(kpiSetSel); return; }
   if(a.kpiaddslot!==undefined) { ST.kpiSlots[kpiSetSel]=kpiSlotCount(kpiSetSel)+1; saveState(); renderTab('kpi'); return; }
   if(a.kpidelslot!==undefined) {
     var nS=kpiSlotCount(kpiSetSel);
@@ -1525,13 +1531,51 @@ function kpiBandCol(s){ return s>=3.5?'#1A7244':s>=3?'#1558A0':s>=2.5?'#A07800':
 function kpiKey(setId,slot,ki,mi){ return setId+'_'+slot+'_'+ki+'_'+mi; }
 function kpiSlotCount(setId){ return ST.kpiSlots[setId]||KPI_SETS[setId].defSlots.length; }
 function kpiSlotName(setId,i){ return ST.kpiNames[setId+'_'+i]||KPI_SETS[setId].defSlots[i]||(KPI_SETS[setId].title+' '+(i+1)); }
+// Editable definitions: ST.kpiDefs[setId] overrides the built-in handbook list once the user edits
+function kpiList(setId){ return ST.kpiDefs[setId]||KPI_SETS[setId].kpis; }
+function kpiEnsureCustom(setId){ if(!ST.kpiDefs[setId]) ST.kpiDefs[setId]=JSON.parse(JSON.stringify(KPI_SETS[setId].kpis)); return ST.kpiDefs[setId]; }
+function updateKpiDef(setId,ki,fld,val){
+  var k=kpiEnsureCustom(setId)[ki]; if(!k) return;
+  if(fld==='w')       k.w=Math.max(0,parseFloat(val)||0);
+  else if(fld==='f')  k.f=(val==='Q'?'Q':'M');
+  else if(fld==='rt') k.r[0]=val;
+  else if(fld==='r4') k.r[1]=parseFloat(val)||0;
+  else if(fld==='r3') k.r[2]=parseFloat(val)||0;
+  else if(fld==='r2') k.r[3]=parseFloat(val)||0;
+  else                k[fld]=val;
+  saveState(); renderTab('kpi');
+}
+function kpiAddDef(setId){
+  kpiEnsureCustom(setId).push({c:'New Category',n:'New KPI',f:'M',w:5,t:'Define target',r:['ge',100,95,90],h:'%'});
+  saveState(); renderTab('kpi');
+}
+function kpiDelDef(setId,ki){
+  var list=kpiEnsureCustom(setId);
+  if(!confirm('Delete KPI "'+(list[ki]?list[ki].n:'')+'" and its entered scores (all persons, all months)?')) return;
+  list.splice(ki,1);
+  var na={};
+  Object.keys(ST.kpiAct).forEach(function(key){
+    var p=key.split('_');
+    if(p[0]!==setId){ na[key]=ST.kpiAct[key]; return; }
+    var kk=+p[2];
+    if(kk===ki) return;
+    na[p[0]+'_'+p[1]+'_'+(kk>ki?kk-1:kk)+'_'+p[3]]=ST.kpiAct[key];
+  });
+  ST.kpiAct=na;
+  saveState(); renderTab('kpi');
+}
+function kpiResetDefs(setId){
+  if(!confirm('Reset this KPI set to the handbook defaults? Your custom KPIs are discarded (entered scores stay where row positions match).')) return;
+  delete ST.kpiDefs[setId];
+  saveState(); renderTab('kpi');
+}
 function setKpiAct(key,val){
   if(val===''||val===null){ delete ST.kpiAct[key]; } else { ST.kpiAct[key]=parseFloat(val); }
   saveState(); renderTab('kpi');
 }
 function kpiMonthScore(setId,slot,mi){
-  var set=KPI_SETS[setId],sw=0,tw=0;
-  set.kpis.forEach(function(k,ki){
+  var sw=0,tw=0;
+  kpiList(setId).forEach(function(k,ki){
     if(k.f==='Q'&&!KPI_QTR[mi]) return;
     var v=ST.kpiAct[kpiKey(setId,slot,ki,mi)];
     var s=kpiScore(k.r,v);
@@ -1544,7 +1588,7 @@ function exportKpiXlsx(){
   var set=KPI_SETS[kpiSetSel],slot=kpiSlotSel;
   var rows=[['Golden Abodes \u2014 KPI Scores \u2014 '+set.title+' \u2014 '+kpiSlotName(kpiSetSel,slot)+' \u2014 FY 2026-27'],[],
             ['#','Category','KPI','Freq','Wt%','Target'].concat(KPI_MONTHS.reduce(function(a,m){return a.concat([m+' Actual',m+' Score']);},[]))];
-  set.kpis.forEach(function(k,ki){
+  kpiList(kpiSetSel).forEach(function(k,ki){
     var row=[ki+1,k.c,k.n,k.f,k.w,k.t];
     KPI_MONTHS.forEach(function(m,mi){
       if(k.f==='Q'&&!KPI_QTR[mi]){ row.push('\u2014','\u2014'); return; }
@@ -1600,9 +1644,61 @@ function renderKpi(){
   if(nSlots>1) html+='<button data-kpidelslot="1" title="Remove last person slot" style="padding:4px 10px;border-radius:18px;cursor:pointer;font-size:11px;border:1.5px dashed #E5B5B5;background:transparent;color:#A8301E">&minus;</button>';
   html+='<span style="font-size:10px;color:var(--muted);margin-left:6px">Rename:</span>';
   html+='<input type="text" value="'+kpiSlotName(kpiSetSel,slot).replace(/"/g,'&quot;')+'" data-kpiname="'+kpiSetSel+'_'+slot+'" style="width:160px;font-size:11px"/>';
-  if(linkRole) html+='<button onclick="selNode=\''+set.link+'\';showTab(\'band\')" title="Open this role in Band Structure" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1.5px solid var(--border);background:var(--card);font-size:10px;font-weight:700;color:var(--blue-b);cursor:pointer">&#9699; '+linkRole.role+' \u2014 Band '+linkRole.band+'</button>';
+  // Sub-view toggle: Scorecard | Edit KPIs
+  html+='<span style="margin-left:auto;display:inline-flex;border:1.5px solid var(--border);border-radius:7px;overflow:hidden">';
+  [['score','Scorecard'],['edit','&#9998; Edit KPIs']].forEach(function(m){
+    var on3=kpiMode===m[0];
+    html+='<button data-kpimode="'+m[0]+'" style="padding:4px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:'+(on3?'var(--blue)':'var(--card)')+';color:'+(on3?'#fff':'var(--muted)')+'">'+m[1]+'</button>';
+  });
+  html+='</span>';
+  if(linkRole) html+='<button onclick="selNode=\''+set.link+'\';showTab(\'band\')" title="Open this role in Band Structure" style="padding:4px 12px;border-radius:6px;border:1.5px solid var(--border);background:var(--card);font-size:10px;font-weight:700;color:var(--blue-b);cursor:pointer">&#9699; '+linkRole.role+' \u2014 Band '+linkRole.band+'</button>';
   html+='<button onclick="exportKpiXlsx()" style="padding:4px 12px;border-radius:6px;border:none;background:var(--teal);color:#fff;font-size:10px;font-weight:700;cursor:pointer">&#11123; Export scores (Excel)</button>';
   html+='</div>';
+
+  var list=kpiList(kpiSetSel);
+
+  // ── EDIT KPIs sub-view ──
+  if(kpiMode==='edit'){
+    var totW=list.reduce(function(a,k){return a+(+k.w||0);},0);
+    var custom=!!ST.kpiDefs[kpiSetSel];
+    html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">';
+    html+='<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 14px;border-bottom:1px solid var(--border)">';
+    html+='<span style="font-size:13px;font-weight:800;color:var(--blue-b)">Edit KPIs \u2014 '+set.title+'</span>';
+    html+='<span class="badge" style="color:'+(totW===100?'#1A7244':'#A8301E')+';background:'+(totW===100?'#E8F6EE':'#FDECEA')+'">Weights: '+totW+'%'+(totW===100?'':' \u2014 should total 100')+'</span>';
+    if(custom) html+='<span class="badge" style="color:#A07800;background:#FDF8EC">customised vs handbook</span>';
+    html+='<span style="font-size:10px;color:var(--muted)">Changes apply to every person in this set; entered scores stay with their KPI row.</span>';
+    html+='<button data-kpiadd="1" style="margin-left:auto;padding:5px 13px;border-radius:6px;border:none;background:var(--green);color:#fff;font-size:11px;font-weight:700;cursor:pointer">+ Add KPI</button>';
+    if(custom) html+='<button data-kpireset="1" style="padding:5px 13px;border-radius:6px;border:1.5px solid var(--border);background:var(--card);color:var(--muted);font-size:11px;font-weight:700;cursor:pointer">&#8634; Reset to handbook</button>';
+    html+='</div>';
+    html+='<div style="overflow-x:auto"><table style="min-width:1040px"><thead><tr>';
+    html+='<th style="width:24px">#</th><th style="min-width:130px">Category</th><th style="min-width:200px">KPI</th><th style="min-width:140px">Target</th><th style="min-width:90px">Entry unit</th>';
+    html+='<th style="width:58px">Freq</th><th style="width:48px">Wt%</th><th style="width:88px">Rule</th><th style="width:50px;color:#1A7244">4 if</th><th style="width:50px;color:#1558A0">3 if</th><th style="width:50px;color:#A07800">2 if</th><th style="width:30px"></th>';
+    html+='</tr></thead><tbody>';
+    var RULE_OPTS=[['le','\u2264 (lower better)'],['ge','\u2265 (higher better)'],['eq','= (exact)'],['abs','|\u00b1| (variance)']];
+    list.forEach(function(k,ki){
+      html+='<tr>';
+      html+='<td style="font-size:10px;color:var(--muted)">'+(ki+1)+'</td>';
+      html+='<td><input type="text" value="'+String(k.c).replace(/"/g,'&quot;')+'" data-kpidef="c" data-ki="'+ki+'" style="width:100%;font-size:10px"/></td>';
+      html+='<td><input type="text" value="'+String(k.n).replace(/"/g,'&quot;')+'" data-kpidef="n" data-ki="'+ki+'" style="width:100%;font-size:11px;font-weight:600"/></td>';
+      html+='<td><input type="text" value="'+String(k.t).replace(/"/g,'&quot;')+'" data-kpidef="t" data-ki="'+ki+'" style="width:100%;font-size:10px"/></td>';
+      html+='<td><input type="text" value="'+String(k.h).replace(/"/g,'&quot;')+'" data-kpidef="h" data-ki="'+ki+'" style="width:100%;font-size:10px"/></td>';
+      html+='<td><select data-kpidef="f" data-ki="'+ki+'" style="font-size:10px"><option value="M"'+(k.f==='M'?' selected':'')+'>M</option><option value="Q"'+(k.f==='Q'?' selected':'')+'>Q</option></select></td>';
+      html+='<td><input type="number" min="0" value="'+k.w+'" data-kpidef="w" data-ki="'+ki+'" style="width:44px;font-size:11px;text-align:center;font-weight:700"/></td>';
+      html+='<td><select data-kpidef="rt" data-ki="'+ki+'" style="font-size:10px;width:86px">';
+      RULE_OPTS.forEach(function(o){ html+='<option value="'+o[0]+'"'+(k.r[0]===o[0]?' selected':'')+'>'+o[1]+'</option>'; });
+      html+='</select></td>';
+      html+='<td><input type="number" step="any" value="'+k.r[1]+'" data-kpidef="r4" data-ki="'+ki+'" style="width:46px;font-size:10px;text-align:center;border-color:#1A7244"/></td>';
+      html+='<td><input type="number" step="any" value="'+k.r[2]+'" data-kpidef="r3" data-ki="'+ki+'" style="width:46px;font-size:10px;text-align:center;border-color:#1558A0"/></td>';
+      html+='<td><input type="number" step="any" value="'+k.r[3]+'" data-kpidef="r2" data-ki="'+ki+'" style="width:46px;font-size:10px;text-align:center;border-color:#A07800"/></td>';
+      html+='<td style="text-align:center"><button data-kpidel="'+ki+'" title="Delete this KPI" style="border:none;background:none;color:#A8301E;font-size:13px;font-weight:800;cursor:pointer">&times;</button></td>';
+      html+='</tr>';
+    });
+    html+='</tbody></table></div>';
+    html+='<div style="padding:9px 14px;font-size:10px;color:var(--muted);border-top:1px solid var(--border)">Scoring: actual is compared against the three thresholds &rarr; score 4 / 3 / 2; anything worse scores 1. Q KPIs are entered only at quarter-end (Jun / Sep / Dec / Mar).</div>';
+    html+='</div>';
+    el.innerHTML=html;
+    return;
+  }
 
   // ── Summary cards ──
   var mScores=KPI_MONTHS.map(function(m,mi){return kpiMonthScore(kpiSetSel,slot,mi);});
@@ -1611,7 +1707,7 @@ function renderKpi(){
   var lastIdx=-1; mScores.forEach(function(s,i){if(s!==null)lastIdx=i;});
   var latest=lastIdx>=0?mScores[lastIdx]:null;
   var filled=0,onTarget=0,totalDue=0;
-  set.kpis.forEach(function(k,ki){
+  list.forEach(function(k,ki){
     KPI_MONTHS.forEach(function(m,mi){
       if(k.f==='Q'&&!KPI_QTR[mi]) return;
       var s=kpiScore(k.r,ST.kpiAct[kpiKey(kpiSetSel,slot,ki,mi)]);
@@ -1622,7 +1718,7 @@ function renderKpi(){
   [{l:'YTD weighted score',v:ytd!==null?ytd.toFixed(2):'\u2014',c:ytd!==null?kpiBandCol(ytd):'var(--muted)',sub:ytd!==null?kpiBandLabel(ytd):'no data yet'},
    {l:'Latest month'+(lastIdx>=0?' ('+KPI_MONTHS[lastIdx]+')':''),v:latest!==null?latest.toFixed(2):'\u2014',c:latest!==null?kpiBandCol(latest):'var(--muted)',sub:latest!==null?kpiBandLabel(latest):'enter actuals below'},
    {l:'Entries on target (3+)',v:filled?onTarget+' / '+filled:'\u2014',c:filled&&onTarget/filled>=0.8?'#1A7244':filled?'#A07800':'var(--muted)',sub:filled?Math.round(onTarget/filled*100)+'% of scored entries':'\u2014'},
-   {l:'KPIs in set',v:set.kpis.length,c:'var(--blue-b)',sub:'weights total 100%'}].forEach(function(m){
+   {l:'KPIs in set',v:list.length,c:'var(--blue-b)',sub:'weights total '+list.reduce(function(a,k){return a+(+k.w||0);},0)+'%'}].forEach(function(m){
     html+='<div style="flex:1;min-width:160px;background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px 14px">';
     html+='<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em">'+m.l+'</div>';
     html+='<div style="font-size:20px;font-weight:800;color:'+m.c+'">'+m.v+'</div>';
@@ -1640,7 +1736,7 @@ function renderKpi(){
   });
   html+='</tr></thead><tbody>';
   var lastCat=null;
-  set.kpis.forEach(function(k,ki){
+  list.forEach(function(k,ki){
     if(k.c!==lastCat){
       html+='<tr><td colspan="'+(KPI_MONTHS.length+2)+'" style="background:#F2ECF9;color:#534AB7;font-size:10px;font-weight:800;padding:5px 10px;position:sticky;left:0">'+k.c+'</td></tr>';
       lastCat=k.c;
