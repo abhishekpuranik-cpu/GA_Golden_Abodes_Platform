@@ -1,0 +1,947 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>GA Finance KPI &amp; Governance</title>
+<link rel="preconnect" href="https://cdn.sheetjs.com" crossorigin />
+<style>
+:root{
+  --gold:#A07800;--gold-l:#FDF8EC;--gold-b:#6B5000;
+  --blue:#1558A0;--blue-l:#EAF1FB;--blue-b:#0A3266;
+  --red:#A8301E;--red-l:#FDECEA;--red-b:#6E1D12;
+  --green:#1A7244;--green-l:#E8F6EE;--green-b:#0F4829;
+  --purple:#542B8A;--purple-l:#F2ECF9;--purple-b:#341860;
+  --teal:#0B7070;--teal-l:#E6F5F5;--teal-b:#064646;
+  --orange:#B54D0A;--orange-l:#FEF0E5;--orange-b:#7A3205;
+  --slate:#4A5568;--slate-l:#F0F1F3;--slate-b:#1A202C;
+  --bg:#F5F7FA;--card:#FFFFFF;--border:#DDE2EA;
+  --text:#1A202C;--muted:#64748B;--radius:10px;
+  --shadow:0 1px 3px rgba(0,0,0,.07);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:13px;color:var(--text);background:var(--bg)}
+html.ga-vault-embed,html.ga-vault-embed body{width:100%;min-height:100%}
+.hdr{background:var(--card);border-bottom:1px solid var(--border);padding:10px 20px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;position:sticky;top:0;z-index:200;box-shadow:var(--shadow)}
+.logo{font-size:15px;font-weight:800;color:var(--blue-b)}.logo span{color:var(--gold-b)}
+.tabs{background:var(--card);border-bottom:1px solid var(--border);padding:0 20px;display:flex;overflow-x:auto}
+.tab{padding:10px 18px;border:none;background:transparent;cursor:pointer;font-size:13px;font-weight:600;color:var(--muted);border-bottom:2.5px solid transparent;white-space:nowrap}
+.tab.on{color:var(--blue);border-bottom-color:var(--blue)}
+.page{padding:16px 20px;min-height:80vh}.hidden{display:none!important}
+.card{background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);border:1px solid var(--border)}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700}
+.kpi-stat{background:var(--card);border-radius:var(--radius);padding:12px 14px;border:1px solid var(--border);box-shadow:var(--shadow)}
+.kpi-stat .v{font-size:22px;font-weight:800;line-height:1.1;margin-top:4px}
+.kpi-stat .l{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.kpi-stat .s{font-size:10px;color:var(--muted);margin-top:3px}
+input[type=number]{padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600;background:var(--bg);text-align:center;width:74px}
+input[type=number]:focus{border-color:var(--blue);outline:none;background:#F0F6FF}
+input[type=text],input[type=date],input[type=month]{padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg)}
+input[type=text]{width:100%}
+textarea{padding:6px 10px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg);width:100%;font-family:inherit;resize:vertical}
+select{padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;background:var(--bg)}
+.btn{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:700;border:none;cursor:pointer}
+.btn-blue{background:var(--blue);color:#fff}.btn-ghost{background:transparent;border:1.5px solid var(--border);color:var(--muted)}
+.btn-green{background:var(--green);color:#fff}.btn-red{background:transparent;border:1.5px solid var(--red);color:var(--red-b)}
+.btn-gold{background:var(--gold);color:#fff}
+.sc-btn{padding:4px 11px;border-radius:20px;font-size:11px;font-weight:600;border:1.5px solid var(--border);background:var(--card);color:var(--muted);cursor:pointer}
+.sc-btn.on{background:var(--gold-l);color:var(--gold-b);border-color:var(--gold)}
+table{width:100%;border-collapse:collapse;font-size:11px}
+th{padding:7px 10px;text-align:left;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--bg);border-bottom:2px solid var(--border)}
+td{padding:6px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+tr:hover td{background:#FAFBFD}
+.info{background:var(--blue-l);border-radius:8px;padding:10px 14px;font-size:11px;margin-bottom:12px;color:var(--blue-b)}
+.warn{background:var(--red-l);border-radius:8px;padding:10px 14px;font-size:11px;margin-bottom:12px;color:var(--red-b);font-weight:600}
+.ok-strip{background:var(--green-l);border-radius:8px;padding:10px 14px;font-size:11px;margin-bottom:12px;color:var(--green-b);font-weight:600}
+.cat-row td{background:var(--slate-l)!important;font-weight:800;font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--slate-b)}
+.sug{display:inline-block;margin-left:6px;padding:2px 7px;border-radius:10px;font-size:10px;font-weight:700;background:var(--teal-l);color:var(--teal-b);cursor:pointer;border:1px solid var(--teal)}
+.grid{display:grid;gap:12px}
+.lockbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
+.muted{color:var(--muted)}
+.r4{color:var(--green-b);font-weight:800}.r3{color:var(--blue-b);font-weight:800}.r2{color:var(--orange-b);font-weight:800}.r1{color:var(--red-b);font-weight:800}
+</style>
+</head>
+<body>
+<script>try{if(window.self!==window.top)document.documentElement.classList.add('ga-vault-embed');}catch(e){}</script>
+<div class="hdr">
+  <div>
+    <div class="logo">Golden Abodes <span>Finance KPI &amp; Governance</span></div>
+    <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-top:1px">Finance &amp; Accounts · FY 2025-26 · KPI tracking, registers &amp; appraisals</div>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto">
+    <span id="save-status" style="font-size:10px;color:var(--muted)"></span>
+    <label class="btn btn-ghost" style="cursor:pointer">Import Excel<input type="file" id="imp-file" accept=".xlsx,.xls" style="display:none" onchange="importExcel(this.files[0]);this.value=''"/></label>
+    <button class="btn btn-ghost" onclick="exportExcel()">Export Excel</button>
+    <button class="btn btn-blue" onclick="saveState(true)">Save</button>
+  </div>
+</div>
+<div class="tabs">
+  <button class="tab on" id="tab-dash" onclick="showTab('dash')">Dashboard</button>
+  <button class="tab" id="tab-comp" onclick="showTab('comp')">Compliance Calendar</button>
+  <button class="tab" id="tab-reg" onclick="showTab('reg')">Registers</button>
+  <button class="tab" id="tab-score" onclick="showTab('score')">Monthly Scoring</button>
+  <button class="tab" id="tab-appr" onclick="showTab('appr')">1:1 &amp; Appraisal</button>
+  <button class="tab" id="tab-master" onclick="showTab('master')">KPI Master</button>
+  <button class="tab" id="tab-team" onclick="showTab('team')">Team &amp; Data</button>
+</div>
+<div class="page" id="page-dash"></div>
+<div class="page hidden" id="page-comp"></div>
+<div class="page hidden" id="page-reg"></div>
+<div class="page hidden" id="page-score"></div>
+<div class="page hidden" id="page-appr"></div>
+<div class="page hidden" id="page-master"></div>
+<div class="page hidden" id="page-team"></div>
+
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<script>
+'use strict';
+/* =====================================================================
+   GA Finance KPI & Governance — single-file vault app (HTML-first).
+   State: localStorage 'ga_finkpi_state_v1'. Mongo sync planned (V3)
+   via the platform contract GET/PUT /api/apps/finance_kpi/state.
+===================================================================== */
+var LS_KEY='ga_finkpi_state_v1';
+var UNLOCK_PW='ga@admin';
+
+/* ---------------- KPI definitions (from GA_Accounting_KPI.xlsx) ----- */
+/* dir:'lte' = lower is better (<=t4 ->4, <=t3 ->3, <=t2 ->2, else 1)
+   dir:'gte' = higher is better. th=[t4,t3,t2]. */
+var KPI={
+SR:[
+ {id:'SR1',cat:'Financial Reporting & Accuracy',name:'Monthly book closure TAT',freq:'M',wt:10,target:'\u2264 5 working days after month-end',hint:'Enter days taken',dir:'lte',th:[3,5,7],formula:'Working days from month-end to finalized TB sign-off.',src:'Tally date stamps; book-close checklist'},
+ {id:'SR2',cat:'Financial Reporting & Accuracy',name:'P&L variance \u2014 budget vs actual',freq:'M',wt:10,target:'\u2264 \u00b15% per project',hint:'Enter absolute % (e.g. 4)',dir:'lte',th:[3,5,8],formula:'|Actual \u2212 Budget| \u00f7 Budget \u00d7 100.',src:'Sanctioned budget vs Tally project cost ledger'},
+ {id:'SR3',cat:'Financial Reporting & Accuracy',name:'Audit findings count',freq:'Q',wt:5,target:'0 major, \u2264 2 minor findings',hint:'0=none, 1=minor, 2=1 major, 3=2+ major',dir:'lte',th:[0,1,2],formula:'Severity score from audit report.',src:'Internal audit / CA management letter',rlab:['Score 0 \u2014 none','Score 1 \u2014 minor','Score 2 \u2014 1 major','Score 3 \u2014 2+ major']},
+ {id:'SR4',cat:'Statutory & Compliance',name:'GST filing timeliness',freq:'M',wt:10,target:'100% on-time, zero late filings',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,95,90],formula:'On-time GSTR-1/3B \u00f7 returns due \u00d7 100.',src:'GST portal acknowledgements',auto:'gst'},
+ {id:'SR5',cat:'Statutory & Compliance',name:'TDS compliance rate',freq:'Q',wt:8,target:'100% on-time, zero defaults',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,95,90],formula:'On-time deduction+deposit+return \u00f7 total TDS txns \u00d7 100.',src:'TRACES; Challan 281; Tally TDS ledger'},
+ {id:'SR6',cat:'Statutory & Compliance',name:'RERA compliance \u2014 financial submissions',freq:'Q',wt:7,target:'100% on-time, zero show-cause notices',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,95,85],formula:'On-time RERA disclosures \u00f7 due \u00d7 100.',src:'MahaRERA portal; CA certification dates'},
+ {id:'SR7',cat:'Statutory & Compliance',name:'Statutory notices / penalties received',freq:'Q',wt:5,target:'Zero notices per year',hint:'Enter count',dir:'lte',th:[0,1,2],formula:'Count of demand/penalty/interest notices.',src:'Compliance notice register'},
+ {id:'SR8',cat:'RA Bills & Contractor Payments',name:'RA bill processing cycle time',freq:'M',wt:10,target:'\u2264 10 working days from approved bill receipt',hint:'Enter average days',dir:'lte',th:[7,10,15],formula:'Avg working days: received-in-accounts \u2192 payment released.',src:'RA Bill Register',auto:'ra'},
+ {id:'SR9',cat:'MIS & Management Reporting',name:'MIS report delivery timeliness',freq:'M',wt:10,target:'100% on time \u2014 by 7th of each month',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,90,80],formula:'% months MIS delivered by the 7th.',src:'Email timestamp; Principal confirmation'},
+ {id:'SR10',cat:'MIS & Management Reporting',name:'Investor reporting accuracy',freq:'Q',wt:5,target:'Zero restatements per reporting cycle',hint:'Enter count',dir:'lte',th:[0,1,2],formula:'Count of restated investor reports.',src:'Investor reporting log'},
+ {id:'SR11',cat:'Team Oversight & Quality Control',name:'Junior team error escalation rate',freq:'M',wt:8,target:'\u2264 5% of total submissions',hint:'Enter % (0\u2013100)',dir:'lte',th:[2,5,8],formula:'Jr submissions returned \u00f7 total Jr submissions \u00d7 100.',src:'Correction Log',auto:'corrSr'},
+ {id:'SR12',cat:'Team Oversight & Quality Control',name:'Team training / upskilling completion',freq:'Q',wt:6,target:'\u2265 90% of modules per quarter',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,90,75],formula:'Modules completed \u00f7 assigned \u00d7 100.',src:'Training Tracker',auto:'trainSr'},
+ {id:'SR13',cat:'Team Oversight & Quality Control',name:'SOP adherence rate',freq:'Q',wt:6,target:'\u2265 95% adherence per audit check',hint:'Enter % (0\u2013100)',dir:'gte',th:[98,95,90],formula:'SOP-compliant sampled txns \u00f7 sample \u00d7 100 (min 20).',src:'Spot audit vs SOP checklist'}
+],
+JR:[
+ {id:'JR1',cat:'Data Entry & Transactional Accuracy',name:'Voucher entry accuracy rate',freq:'M',wt:12,target:'\u2265 98% accurate before supervisor check',hint:'Enter % (0\u2013100)',dir:'gte',th:[99,98,95],formula:'(Vouchers \u2212 returned) \u00f7 vouchers \u00d7 100.',src:'Tally entry log; correction register'},
+ {id:'JR2',cat:'Data Entry & Transactional Accuracy',name:'Bank reconciliation timeliness',freq:'M',wt:8,target:'Within 2 working days of statement receipt',hint:'Enter average days',dir:'lte',th:[1,2,3],formula:'Days from statement receipt to BRS submission.',src:'Statement receipt date; Tally BRS stamp'},
+ {id:'JR3',cat:'Payables & Vendor Management',name:'Invoice processing TAT',freq:'M',wt:7,target:'\u2264 2 working days from receipt',hint:'Enter average days',dir:'lte',th:[1,2,3],formula:'Avg days: invoice receipt \u2192 Tally entry + routing.',src:'Receipt stamp; Tally entry date'},
+ {id:'JR4',cat:'Payables & Vendor Management',name:'RA bill data preparation accuracy',freq:'M',wt:8,target:'\u2265 98% accurate before Sr. review',hint:'Enter % (0\u2013100)',dir:'gte',th:[99,98,95],formula:'Error-free RA preps \u00f7 total \u00d7 100.',src:'Sr. review log'},
+ {id:'JR5',cat:'Payables & Vendor Management',name:'Vendor ledger reconciliation',freq:'M',wt:6,target:'100% of active vendors reconciled monthly',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,90,75],formula:'Vendors reconciled \u00f7 active vendors \u00d7 100.',src:'Reconciliation register'},
+ {id:'JR6',cat:'Payables & Vendor Management',name:'Payment due-date alert timeliness',freq:'M',wt:4,target:'Zero missed alerts \u2014 flag \u2265 3 days in advance',hint:'Enter missed count',dir:'lte',th:[0,1,2],formula:'Dues NOT flagged \u2265 3 working days ahead.',src:'Payment Tracker',auto:'pay'},
+ {id:'JR7',cat:'Statutory Filing Support',name:'GST data compilation accuracy',freq:'M',wt:10,target:'\u2265 99% accurate before Sr. review',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,99,97],formula:'Error-free line items \u00f7 total \u00d7 100.',src:'Sr. pre-filing review'},
+ {id:'JR8',cat:'Statutory Filing Support',name:'TDS working sheet preparation',freq:'M',wt:8,target:'Submitted by 5th of each month',hint:'Enter day of month (e.g. 4)',dir:'lte',th:[3,5,7],formula:'Day of month TDS workings submitted.',src:'Submission timestamp'},
+ {id:'JR9',cat:'Statutory Filing Support',name:'26AS / ITC reconciliation completion',freq:'M',wt:7,target:'100% completed by 15th of each month',hint:'Enter day of month (e.g. 12)',dir:'lte',th:[12,15,20],formula:'Day both reconciliations submitted.',src:'Reconciliation file timestamp'},
+ {id:'JR10',cat:'MIS & Reporting Support',name:'Ledger data submission for MIS',freq:'M',wt:8,target:'By 3rd of each month \u2014 no extensions',hint:'Enter day of month (e.g. 2)',dir:'lte',th:[2,3,5],formula:'Day ledger extracts submitted.',src:'Submission timestamp'},
+ {id:'JR11',cat:'MIS & Reporting Support',name:'Document filing & retrieval readiness',freq:'M',wt:7,target:'100% retrievable within 10 minutes',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,95,85],formula:'Docs retrieved \u226410 min \u00f7 requested \u00d7 100 (min 10).',src:'Spot audit'},
+ {id:'JR12',cat:'Quality, Conduct & Growth',name:'Rework / error correction rate',freq:'M',wt:5,target:'\u2264 5% of total submissions',hint:'Enter % (0\u2013100)',dir:'lte',th:[2,5,8],formula:'Items returned \u00f7 items submitted \u00d7 100.',src:'Correction Log',auto:'corrJr'},
+ {id:'JR13',cat:'Quality, Conduct & Growth',name:'Deadlines met without follow-up',freq:'M',wt:6,target:'\u2265 90% self-initiated on-time delivery',hint:'Enter % (0\u2013100)',dir:'gte',th:[95,90,80],formula:'On-time without reminder \u00f7 tasks \u00d7 100.',src:'Task log vs follow-up records'},
+ {id:'JR14',cat:'Quality, Conduct & Growth',name:'Training module completion',freq:'Q',wt:4,target:'\u2265 90% of modules per quarter',hint:'Enter % (0\u2013100)',dir:'gte',th:[100,90,75],formula:'Modules completed \u00f7 assigned \u00d7 100.',src:'Training Tracker',auto:'trainJr'}
+],
+FIN:[
+ {id:'FN1',cat:'Treasury & Liquidity',name:'13-week cashflow forecast accuracy',freq:'M',wt:0,target:'Draft \u2014 variance \u2264 \u00b110% vs actual',hint:'TBD',dir:null,th:null,formula:'Forecast vs actual net cashflow variance.',src:'Cashflow V1 / bank statements',draft:true},
+ {id:'FN2',cat:'Treasury & Liquidity',name:'Liquidity runway (weeks of cash cover)',freq:'M',wt:0,target:'Draft \u2014 \u2265 8 weeks of committed outflows',hint:'TBD',dir:null,th:null,formula:'Available liquidity \u00f7 avg weekly committed outflow.',src:'Bank balances; payment tracker',draft:true},
+ {id:'FN3',cat:'Funding & Lenders',name:'Cost of borrowed funds vs benchmark',freq:'Q',wt:0,target:'Draft \u2014 blended rate \u2264 agreed benchmark',hint:'TBD',dir:null,th:null,formula:'Weighted avg interest cost vs benchmark.',src:'Loan statements',draft:true},
+ {id:'FN4',cat:'Funding & Lenders',name:'Lender covenant & banking compliance',freq:'Q',wt:0,target:'Draft \u2014 zero covenant breaches / missed submissions',hint:'TBD',dir:null,th:null,formula:'Count of breaches or late lender submissions.',src:'Lender correspondence',draft:true},
+ {id:'FN5',cat:'Capital Deployment',name:'Fund utilization vs approved plan',freq:'M',wt:0,target:'Draft \u2014 \u2264 \u00b15% deviation per project',hint:'TBD',dir:null,th:null,formula:'Actual utilization vs sanctioned plan.',src:'RERA designated a/c; project budgets',draft:true},
+ {id:'FN6',cat:'Investor Relations',name:'Investor reporting & communication cadence',freq:'Q',wt:0,target:'Draft \u2014 100% reports on committed dates',hint:'TBD',dir:null,th:null,formula:'On-time investor packs \u00f7 due \u00d7 100.',src:'Investor reporting log',draft:true},
+ {id:'FN7',cat:'Receivables',name:'Collections efficiency (with CRM)',freq:'M',wt:0,target:'Draft \u2014 \u2265 95% of demanded amount collected in cycle',hint:'TBD',dir:null,th:null,formula:'Collected \u00f7 demanded \u00d7 100 per demand cycle.',src:'CRM receivables register',draft:true},
+ {id:'FN8',cat:'Planning & Control',name:'Budget re-forecast discipline',freq:'Q',wt:0,target:'Draft \u2014 quarterly re-forecast within 10 days of quarter close',hint:'TBD',dir:null,th:null,formula:'Days from quarter-end to approved re-forecast.',src:'Budget files',draft:true}
+]};
+var ROLE_LABEL={SR:'Senior Accountant',JR:'Junior Accountant',FIN:'Finance Head / Treasury (draft)'};
+
+/* --------------- Compliance calendar seed (FY 2025-26) -------------- */
+var COMP_SEED=[
+['TDS deposit \u2014 Challan 281','Income Tax','Mar-25','2025-04-07'],['GSTR-1 filing','GSTN','Mar-25','2025-04-11'],['GSTR-3B filing','GSTN','Mar-25','2025-04-20'],['RERA Q4 financial disclosure','MahaRERA','Q4 FY24-25','2025-04-30'],
+['TDS deposit \u2014 Challan 281','Income Tax','Apr-25','2025-05-07'],['GSTR-1 filing','GSTN','Apr-25','2025-05-11'],['GSTR-3B filing','GSTN','Apr-25','2025-05-20'],['TDS Q4 return \u2014 Form 24Q / 26Q','Income Tax / TRACES','Jan\u2013Mar 2025','2025-05-31'],
+['TDS deposit \u2014 Challan 281','Income Tax','May-25','2025-06-07'],['GSTR-1 filing','GSTN','May-25','2025-06-11'],['Advance tax \u2014 1st installment (15%)','Income Tax','FY25-26','2025-06-15'],['GSTR-3B filing','GSTN','May-25','2025-06-20'],
+['TDS deposit \u2014 Challan 281','Income Tax','Jun-25','2025-07-07'],['GSTR-1 filing','GSTN','Jun-25','2025-07-11'],['GSTR-3B filing','GSTN','Jun-25','2025-07-20'],['TDS Q1 return \u2014 Form 24Q / 26Q','Income Tax / TRACES','Apr\u2013Jun 2025','2025-07-31'],['RERA Q1 financial disclosure','MahaRERA','Q1 FY25-26','2025-07-31'],
+['TDS deposit \u2014 Challan 281','Income Tax','Jul-25','2025-08-07'],['GSTR-1 filing','GSTN','Jul-25','2025-08-11'],['GSTR-3B filing','GSTN','Jul-25','2025-08-20'],
+['TDS deposit \u2014 Challan 281','Income Tax','Aug-25','2025-09-07'],['GSTR-1 filing','GSTN','Aug-25','2025-09-11'],['Advance tax \u2014 2nd installment (45%)','Income Tax','FY25-26','2025-09-15'],['GSTR-3B filing','GSTN','Aug-25','2025-09-20'],
+['TDS deposit \u2014 Challan 281','Income Tax','Sep-25','2025-10-07'],['GSTR-1 filing','GSTN','Sep-25','2025-10-11'],['GSTR-3B filing','GSTN','Sep-25','2025-10-20'],['TDS Q2 return \u2014 Form 24Q / 26Q','Income Tax / TRACES','Jul\u2013Sep 2025','2025-10-31'],['RERA Q2 financial disclosure','MahaRERA','Q2 FY25-26','2025-10-31'],
+['TDS deposit \u2014 Challan 281','Income Tax','Oct-25','2025-11-07'],['GSTR-1 filing','GSTN','Oct-25','2025-11-11'],['GSTR-3B filing','GSTN','Oct-25','2025-11-20'],
+['TDS deposit \u2014 Challan 281','Income Tax','Nov-25','2025-12-07'],['GSTR-1 filing','GSTN','Nov-25','2025-12-11'],['Advance tax \u2014 3rd installment (75%)','Income Tax','FY25-26','2025-12-15'],['GSTR-3B filing','GSTN','Nov-25','2025-12-20'],['GSTR-9 annual return (FY24-25)','GSTN','FY24-25','2025-12-31'],['GSTR-9C reconciliation statement (FY24-25)','GSTN','FY24-25','2025-12-31'],
+['TDS deposit \u2014 Challan 281','Income Tax','Dec-25','2026-01-07'],['GSTR-1 filing','GSTN','Dec-25','2026-01-11'],['GSTR-3B filing','GSTN','Dec-25','2026-01-20'],['TDS Q3 return \u2014 Form 24Q / 26Q','Income Tax / TRACES','Oct\u2013Dec 2025','2026-01-31'],['RERA Q3 financial disclosure','MahaRERA','Q3 FY25-26','2026-01-31'],
+['TDS deposit \u2014 Challan 281','Income Tax','Jan-26','2026-02-07'],['GSTR-1 filing','GSTN','Jan-26','2026-02-11'],['GSTR-3B filing','GSTN','Jan-26','2026-02-20'],
+['TDS deposit \u2014 Challan 281','Income Tax','Feb-26','2026-03-07'],['GSTR-1 filing','GSTN','Feb-26','2026-03-11'],['Advance tax \u2014 4th installment (100%)','Income Tax','FY25-26','2026-03-15'],['GSTR-3B filing','GSTN','Feb-26','2026-03-20'],
+['RERA Q4 financial disclosure','MahaRERA','Q4 FY25-26','2026-04-30'],['TDS Q4 return \u2014 Form 24Q / 26Q','Income Tax / TRACES','Jan\u2013Mar 2026','2026-05-31']
+];
+var TRAIN_SEED=[
+['Jr. Accountant 1','JR','Tally ERP \u2014 advanced cost centre accounting','Tally ERP','Q1','2025-04-01','2025-05-31'],
+['Jr. Accountant 1','JR','Tally ERP \u2014 inventory & material tracking','Tally ERP','Q1','2025-04-01','2025-05-31'],
+['Jr. Accountant 1','JR','GST portal \u2014 GSTR-1 filing & data reconciliation','GST Compliance','Q1','2025-04-01','2025-06-15'],
+['Jr. Accountant 1','JR','GST portal \u2014 GSTR-3B filing & ITC reconciliation','GST Compliance','Q1','2025-04-01','2025-06-15'],
+['Jr. Accountant 1','JR','TRACES \u2014 26AS download & TDS reconciliation','TDS / Income Tax','Q2','2025-07-01','2025-08-31'],
+['Jr. Accountant 1','JR','TDS provisions for real estate (Sec 194C, 194I, 194J)','TDS / Income Tax','Q2','2025-07-01','2025-08-31'],
+['Jr. Accountant 1','JR','MahaRERA portal \u2014 financial disclosure navigation','RERA Compliance','Q3','2025-10-01','2025-11-30'],
+['Jr. Accountant 1','JR','GA internal SOPs \u2014 voucher & payment procedures','Internal SOPs','Q3','2025-10-01','2025-11-30'],
+['Jr. Accountant 2','JR','Tally ERP \u2014 advanced cost centre accounting','Tally ERP','Q1','2025-04-01','2025-05-31'],
+['Jr. Accountant 2','JR','GST portal \u2014 GSTR-1 filing & data reconciliation','GST Compliance','Q1','2025-04-01','2025-06-15'],
+['Jr. Accountant 2','JR','TRACES \u2014 26AS download & TDS reconciliation','TDS / Income Tax','Q2','2025-07-01','2025-08-31'],
+['Jr. Accountant 2','JR','MahaRERA portal \u2014 financial disclosure navigation','RERA Compliance','Q3','2025-10-01','2025-11-30'],
+['Sr. Accountant','SR','Advanced GST \u2014 annual return GSTR-9 / GSTR-9C','GST Compliance','Q2','2025-07-01','2025-09-30'],
+['Sr. Accountant','SR','MahaRERA \u2014 CA certification & financial format','RERA Compliance','Q2','2025-07-01','2025-09-30'],
+['Sr. Accountant','SR','EVM / project cost accounting for real estate','Project Accounting','Q3','2025-10-01','2025-12-31'],
+['Sr. Accountant','SR','GA internal SOPs \u2014 review & update procedures','Internal SOPs','Q4','2026-01-01','2026-02-28']
+];
+
+/* ---------------------------- State -------------------------------- */
+var S=null;
+function defaultState(){
+  var comp=COMP_SEED.map(function(r,i){return {id:'C'+(i+1),obligation:r[0],authority:r[1],period:r[2],due:r[3],actual:'',remarks:''};});
+  var train=TRAIN_SEED.map(function(r,i){return {id:'T'+(i+1),emp:r[0],role:r[1],module:r[2],category:r[3],quarter:r[4],assigned:r[5],target:r[6],completed:'',remarks:''};});
+  return {
+    meta:{fy:'2025-26',created:new Date().toISOString(),v:1},
+    employees:[{id:'E1',name:'Sr. Accountant',role:'SR',active:true},{id:'E2',name:'Jr. Accountant 1',role:'JR',active:true},{id:'E3',name:'Jr. Accountant 2',role:'JR',active:true}],
+    compliance:comp, raBills:[], corrections:[], payments:[], training:train,
+    scores:{}, locks:{}, ones:{}, appraisals:{}, audit:[]
+  };
+}
+function loadState(){
+  try{var raw=localStorage.getItem(LS_KEY); if(raw){S=JSON.parse(raw); return;}}catch(e){}
+  S=defaultState();
+}
+var _saveT=null;
+function saveState(manual){
+  try{localStorage.setItem(LS_KEY,JSON.stringify(S));
+    var el=document.getElementById('save-status');
+    el.textContent='Saved '+new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    if(manual){el.style.color='var(--green-b)';setTimeout(function(){el.style.color='var(--muted)';},1500);}
+  }catch(e){alert('Save failed: '+e.message);}
+}
+function touch(){if(_saveT)clearTimeout(_saveT);_saveT=setTimeout(function(){saveState(false);},400);}
+function logAudit(action,detail){S.audit.unshift({ts:new Date().toISOString(),action:action,detail:detail});if(S.audit.length>500)S.audit.length=500;touch();}
+
+/* --------------------------- Helpers ------------------------------- */
+function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function fmtD(iso){if(!iso)return '';var d=new Date(iso+'T00:00:00');if(isNaN(d))return iso;return d.toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'2-digit'});}
+function todayISO(){return new Date().toISOString().slice(0,10);}
+function dayDiff(a,b){return Math.round((new Date(b+'T00:00:00')-new Date(a+'T00:00:00'))/86400000);}
+function workDays(a,b){ // working days from a to b (excl a, incl b)
+  if(!a||!b)return null;var d=new Date(a+'T00:00:00'),e=new Date(b+'T00:00:00');if(e<d)return 0;var n=0;
+  while(d<e){d.setDate(d.getDate()+1);var w=d.getDay();if(w!==0&&w!==6)n++;}
+  return n;
+}
+function ymOf(iso){return iso?iso.slice(0,7):'';}
+function ymLabel(ym){if(!ym)return '';var d=new Date(ym+'-01T00:00:00');return d.toLocaleDateString('en-IN',{month:'short',year:'2-digit'});}
+function isQtrEnd(ym){var m=+ym.slice(5,7);return m===3||m===6||m===9||m===12;}
+function fyQuarter(ym){var m=+ym.slice(5,7);if(m>=4&&m<=6)return 'Q1';if(m>=7&&m<=9)return 'Q2';if(m>=10&&m<=12)return 'Q3';return 'Q4';}
+function fyOfYm(ym){var y=+ym.slice(0,4),m=+ym.slice(5,7);return m>=4?y:y-1;}
+function curYm(){return new Date().toISOString().slice(0,7);}
+function inr(n){if(n==null||n==='')return '';return Number(n).toLocaleString('en-IN');}
+function rate(k,v){
+  if(!k.dir||v===''||v==null||isNaN(+v))return null;v=+v;
+  if(k.dir==='lte'){if(v<=k.th[0])return 4;if(v<=k.th[1])return 3;if(v<=k.th[2])return 2;return 1;}
+  if(v>=k.th[0])return 4;if(v>=k.th[1])return 3;if(v>=k.th[2])return 2;return 1;
+}
+var RATE_LABEL={4:'Outstanding',3:'Meets',2:'Needs Improv.',1:'Unsatisfactory'};
+function rateLabels(k){
+  if(k.rlab)return k.rlab;
+  if(!k.th)return ['','','',''];
+  var u=k.dir==='lte'?['\u2264 '+k.th[0],'\u2264 '+k.th[1],'\u2264 '+k.th[2],'beyond '+k.th[2]]:['\u2265 '+k.th[0],'\u2265 '+k.th[1],'\u2265 '+k.th[2],'below '+k.th[2]];
+  return u;
+}
+function band(score){
+  if(score==null)return null;
+  if(score>=3.5)return {l:'\u2605 Outstanding',c:'var(--green-b)',bg:'var(--green-l)'};
+  if(score>=3.0)return {l:'Exceeds Expectations',c:'var(--blue-b)',bg:'var(--blue-l)'};
+  if(score>=2.5)return {l:'Meets Expectations',c:'var(--gold-b)',bg:'var(--gold-l)'};
+  return {l:'Needs Improvement',c:'var(--red-b)',bg:'var(--red-l)'};
+}
+function empById(id){for(var i=0;i<S.employees.length;i++)if(S.employees[i].id===id)return S.employees[i];return null;}
+function dueKpis(role,ym){return (KPI[role]||[]).filter(function(k){return !k.draft&&(k.freq==='M'||isQtrEnd(ym));});}
+function monthScore(empId,ym){
+  var emp=empById(empId);if(!emp||!KPI[emp.role])return null;
+  var ks=dueKpis(emp.role,ym),vals=S.scores[empId+'|'+ym]||{},sw=0,tw=0,n=0;
+  ks.forEach(function(k){var r=rate(k,vals[k.id]);if(r!=null){sw+=r*k.wt;tw+=k.wt;n++;}});
+  if(!n)return null;
+  return {score:sw/tw,rated:n,due:ks.length};
+}
+function compStatus(c){
+  if(c.actual){var d=dayDiff(c.actual,c.due);return d>=0?{l:'On time',cls:'var(--green-b)',bg:'var(--green-l)',late:false,days:d}:{l:'Late '+(-d)+'d',cls:'var(--red-b)',bg:'var(--red-l)',late:true,days:d};}
+  var d2=dayDiff(todayISO(),c.due);
+  if(d2<0)return {l:'OVERDUE '+(-d2)+'d',cls:'#fff',bg:'var(--red)',late:true,days:d2};
+  return {l:'Due in '+d2+'d',cls:d2<=14?'var(--orange-b)':'var(--muted)',bg:d2<=14?'var(--orange-l)':'var(--slate-l)',late:false,days:d2};
+}
+
+/* ------------------- Auto-suggested KPI actuals --------------------- */
+function suggest(kpi,empId,ym){
+  if(!kpi.auto)return null;
+  if(kpi.auto==='gst'){
+    var rows=S.compliance.filter(function(c){return c.authority==='GSTN'&&ymOf(c.due)===ym;});
+    var done=rows.filter(function(c){return c.actual;});
+    if(!rows.length||done.length<rows.length)return null;
+    var ok=done.filter(function(c){return dayDiff(c.actual,c.due)>=0;}).length;
+    return {v:Math.round(ok/rows.length*100),why:ok+'/'+rows.length+' GST filings on time (Compliance Calendar)'};
+  }
+  if(kpi.auto==='ra'){
+    var bills=S.raBills.filter(function(b){return b.paymentDate&&ymOf(b.paymentDate)===ym&&b.received;});
+    if(!bills.length)return null;
+    var tot=0;bills.forEach(function(b){tot+=workDays(b.received,b.paymentDate);});
+    return {v:Math.round(tot/bills.length*10)/10,why:bills.length+' bills paid this month (RA Bill Register)'};
+  }
+  if(kpi.auto==='pay'){
+    var rows2=S.payments.filter(function(p){return p.due&&ymOf(p.due)===ym;});
+    if(!rows2.length)return null;
+    var missed=rows2.filter(function(p){return !p.flagged||workDays(p.flagged,p.due)<3;}).length;
+    return {v:missed,why:missed+' of '+rows2.length+' dues flagged late/never (Payment Tracker)'};
+  }
+  if(kpi.auto==='trainSr'||kpi.auto==='trainJr'){
+    if(!isQtrEnd(ym))return null;
+    var q=fyQuarter(ym),emp=empById(empId);
+    var rows3=S.training.filter(function(t){
+      if(t.quarter!==q)return false;
+      return kpi.auto==='trainSr'?t.role==='JR':(emp&&t.emp===emp.name);
+    });
+    if(!rows3.length)return null;
+    var c2=rows3.filter(function(t){return t.completed;}).length;
+    return {v:Math.round(c2/rows3.length*100),why:c2+'/'+rows3.length+' modules completed in '+q+' (Training Tracker)'};
+  }
+  if(kpi.auto==='corrSr'||kpi.auto==='corrJr'){
+    var emp2=empById(empId);
+    var rows4=S.corrections.filter(function(c){
+      if(ymOf(c.date)!==ym)return false;
+      return kpi.auto==='corrSr'?true:(emp2&&c.emp===emp2.name);
+    });
+    if(!rows4.length)return null;
+    return {v:null,why:rows4.length+' corrections logged this month (Correction Log) \u2014 enter % vs total submissions'};
+  }
+  return null;
+}
+
+/* --------------------------- Navigation ----------------------------- */
+var TAB_IDS=['dash','comp','reg','score','appr','master','team'];
+var curTab='dash';
+function showTab(t){
+  curTab=t;
+  TAB_IDS.forEach(function(x){
+    document.getElementById('tab-'+x).classList.toggle('on',x===t);
+    document.getElementById('page-'+x).classList.toggle('hidden',x!==t);
+  });
+  renderTab(t);
+}
+function renderTab(t){
+  if(t==='dash')renderDash();
+  else if(t==='comp')renderComp();
+  else if(t==='reg')renderReg();
+  else if(t==='score')renderScore();
+  else if(t==='appr')renderAppr();
+  else if(t==='master')renderMaster();
+  else if(t==='team')renderTeam();
+}
+
+/* --------------------------- Dashboard ------------------------------ */
+function renderDash(){
+  var t=todayISO();
+  var fyStart='2025-04-01';
+  var past=S.compliance.filter(function(c){return c.due>=fyStart&&c.due<=t;});
+  var filedOnTime=past.filter(function(c){return c.actual&&dayDiff(c.actual,c.due)>=0;}).length;
+  var late=past.filter(function(c){var st=compStatus(c);return st.late;}).length;
+  var next14=S.compliance.filter(function(c){return !c.actual&&dayDiff(t,c.due)>=0&&dayDiff(t,c.due)<=14;});
+  var overdue=S.compliance.filter(function(c){return !c.actual&&c.due<t;});
+  var openRa=S.raBills.filter(function(b){return !b.paymentDate;});
+  var corrM=S.corrections.filter(function(c){return ymOf(c.date)===curYm();}).length;
+  var trainDone=S.training.filter(function(x){return x.completed;}).length;
+  var trainPct=S.training.length?Math.round(trainDone/S.training.length*100):0;
+  var otPct=past.length?Math.round(filedOnTime/past.length*100):null;
+
+  var h='';
+  if(overdue.length)h+='<div class="warn">\u26a0 '+overdue.length+' statutory filing(s) OVERDUE \u2014 open the Compliance Calendar and act today.</div>';
+  else h+='<div class="ok-strip">\u2713 No overdue statutory filings on record.</div>';
+
+  h+='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));margin-bottom:14px">';
+  h+=stat('Compliance on-time FYTD',otPct==null?'\u2014':otPct+'%',past.length+' filings due to date',otPct!=null&&otPct<95?'var(--red-b)':'var(--green-b)');
+  h+=stat('Overdue now',String(overdue.length),'unfiled past due date',overdue.length?'var(--red-b)':'var(--green-b)');
+  h+=stat('Due next 14 days',String(next14.length),'see list below','var(--orange-b)');
+  h+=stat('Late filings FYTD',String(late),'filed after due date',late?'var(--red-b)':'var(--green-b)');
+  h+=stat('Open RA bills',String(openRa.length),'awaiting payment release','var(--blue-b)');
+  h+=stat('Corrections \u2014 '+ymLabel(curYm()),String(corrM),'logged this month',corrM>5?'var(--orange-b)':'var(--text)');
+  h+=stat('Training completion',trainPct+'%',trainDone+'/'+S.training.length+' modules',trainPct<75?'var(--red-b)':'var(--green-b)');
+  h+='</div>';
+
+  /* team scoreboard */
+  h+='<h3 class="sec">Team scoreboard \u2014 latest scored month</h3><div class="card" style="margin-bottom:14px;overflow-x:auto"><table><tr><th>Employee</th><th>Role</th><th>Month</th><th>Weighted score</th><th>Band</th><th>KPIs rated</th><th>Status</th></tr>';
+  S.employees.filter(function(e){return e.active;}).forEach(function(e){
+    var latest=null,latestYm=null;
+    Object.keys(S.scores).forEach(function(k){
+      if(k.indexOf(e.id+'|')!==0)return;var ym=k.split('|')[1];var ms=monthScore(e.id,ym);
+      if(ms&&(!latestYm||ym>latestYm)){latestYm=ym;latest=ms;}
+    });
+    var b=latest?band(latest.score):null;
+    var locked=latestYm&&S.locks[e.id+'|'+latestYm];
+    h+='<tr><td><b>'+esc(e.name)+'</b></td><td>'+esc(ROLE_LABEL[e.role]||e.role)+'</td><td>'+(latestYm?ymLabel(latestYm):'\u2014')+'</td>'+
+       '<td>'+(latest?'<b>'+latest.score.toFixed(2)+'</b> / 4.00':'<span class="muted">not scored yet</span>')+'</td>'+
+       '<td>'+(b?'<span class="badge" style="background:'+b.bg+';color:'+b.c+'">'+b.l+'</span>':'\u2014')+'</td>'+
+       '<td>'+(latest?latest.rated+'/'+latest.due:'\u2014')+'</td>'+
+       '<td>'+(locked?'<span class="badge" style="background:var(--green-l);color:var(--green-b)">\u{1F512} Locked</span>':(latestYm?'<span class="badge" style="background:var(--orange-l);color:var(--orange-b)">Open</span>':'\u2014'))+'</td></tr>';
+  });
+  h+='</table></div>';
+
+  /* due next 14 days */
+  h+='<h3 class="sec">Statutory dues \u2014 next 14 days</h3><div class="card" style="margin-bottom:14px;overflow-x:auto">';
+  if(next14.length){
+    h+='<table><tr><th>Due</th><th>Obligation</th><th>Authority</th><th>Period</th><th>Status</th></tr>';
+    next14.sort(function(a,b2){return a.due<b2.due?-1:1;}).forEach(function(c){
+      var st=compStatus(c);
+      h+='<tr><td><b>'+fmtD(c.due)+'</b></td><td>'+esc(c.obligation)+'</td><td>'+esc(c.authority)+'</td><td>'+esc(c.period)+'</td><td><span class="badge" style="background:'+st.bg+';color:'+st.cls+'">'+st.l+'</span></td></tr>';
+    });
+    h+='</table>';
+  } else h+='<span class="muted">Nothing due in the next 14 days.</span>';
+  h+='</div>';
+
+  /* register health + MBR */
+  h+='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">';
+  h+='<div class="card"><h3 class="sec" style="margin-top:0">Register health</h3><table><tr><th>Register</th><th>Entries</th><th>Last entry</th></tr>'+
+    regHealth('Compliance Calendar',S.compliance.filter(function(c){return c.actual;}),function(c){return c.actual;})+
+    regHealth('RA Bill Register',S.raBills,function(b){return b.received;})+
+    regHealth('Correction Log',S.corrections,function(c){return c.date;})+
+    regHealth('Payment Tracker',S.payments,function(p){return p.due;})+
+    regHealth('Training Tracker',S.training.filter(function(x){return x.completed;}),function(x){return x.completed;})+
+    '</table><div class="muted" style="font-size:10px;margin-top:8px">A register going quiet means KPI evidence is not being captured \u2014 chase it in the weekly review.</div></div>';
+  h+='<div class="card"><h3 class="sec" style="margin-top:0">MBR one-liner</h3><div id="mbr-line" style="font-size:11px;background:var(--bg);border-radius:8px;padding:10px;line-height:1.6">'+esc(mbrLine(otPct,overdue.length,late,openRa.length))+'</div>'+
+    '<button class="btn btn-blue" style="margin-top:10px" onclick="copyMbr()">Copy to clipboard</button>'+
+    '<div class="muted" style="font-size:10px;margin-top:8px">Paste into the Monthly Business Review pack.</div></div>';
+  h+='</div>';
+  document.getElementById('page-dash').innerHTML=h;
+}
+function stat(l,v,s,c){return '<div class="kpi-stat"><div class="l">'+l+'</div><div class="v" style="color:'+(c||'var(--text)')+'">'+v+'</div><div class="s">'+s+'</div></div>';}
+function regHealth(name,rows,getD){
+  var last='';rows.forEach(function(r){var d=getD(r);if(d&&d>last)last=d;});
+  return '<tr><td>'+name+'</td><td>'+rows.length+'</td><td>'+(last?fmtD(last):'<span style="color:var(--red-b);font-weight:700">never</span>')+'</td></tr>';
+}
+function mbrLine(otPct,overdue,late,openRa){
+  var parts=['F&A '+ymLabel(curYm())+':','compliance on-time '+(otPct==null?'n/a':otPct+'%'),overdue+' overdue',late+' late FYTD',openRa+' RA bills open'];
+  S.employees.filter(function(e){return e.active&&KPI[e.role]&&e.role!=='FIN';}).forEach(function(e){
+    var ms=monthScore(e.id,curYm());if(ms)parts.push(e.name+' '+ms.score.toFixed(2)+'/4');
+  });
+  return parts.join(' \u00b7 ');
+}
+function copyMbr(){
+  var txt=document.getElementById('mbr-line').textContent;
+  if(navigator.clipboard&&navigator.clipboard.writeText)navigator.clipboard.writeText(txt).then(function(){alert('Copied.');});
+  else {window.prompt('Copy this line:',txt);}
+}
+
+/* ----------------------- Compliance Calendar ------------------------ */
+var compFilter='all';
+function renderComp(){
+  var t=todayISO();
+  var h='<div class="info">Enter the <b>actual filing date</b> the moment each filing is completed \u2014 status updates instantly. This calendar feeds Sr. KPIs #4 (GST), #5 (TDS), #6 (RERA), #7 (notices). Red = late or overdue.</div>';
+  h+='<div class="lockbar">';
+  ['all','pending','overdue','filed'].forEach(function(f){
+    h+='<button class="sc-btn'+(compFilter===f?' on':'')+'" onclick="compFilter=\''+f+'\';renderComp()">'+f.charAt(0).toUpperCase()+f.slice(1)+'</button>';
+  });
+  h+='<span style="flex:1"></span><button class="btn btn-ghost" onclick="addCompRow()">+ Add obligation</button></div>';
+  h+='<div class="card" style="overflow-x:auto"><table><tr><th>Month</th><th>Obligation</th><th>Authority</th><th>Period</th><th>Due date</th><th>Actual date</th><th>Early/(Late)</th><th>Status</th><th>Remarks</th><th></th></tr>';
+  S.compliance.forEach(function(c,i){
+    var st=compStatus(c);
+    if(compFilter==='pending'&&(c.actual||c.due<t))return;
+    if(compFilter==='overdue'&&!(st.l.indexOf('OVERDUE')===0))return;
+    if(compFilter==='filed'&&!c.actual)return;
+    var early=c.actual?dayDiff(c.actual,c.due):null;
+    h+='<tr><td>'+ymLabel(ymOf(c.due))+'</td><td><b>'+esc(c.obligation)+'</b></td><td>'+esc(c.authority)+'</td><td>'+esc(c.period)+'</td><td>'+fmtD(c.due)+'</td>'+
+       '<td><input type="date" value="'+esc(c.actual)+'" onchange="S.compliance['+i+'].actual=this.value;touch();renderComp()"/></td>'+
+       '<td>'+(early==null?'':(early>=0?'<span class="r4">+'+early+'d</span>':'<span class="r1">'+early+'d</span>'))+'</td>'+
+       '<td><span class="badge" style="background:'+st.bg+';color:'+st.cls+'">'+st.l+'</span></td>'+
+       '<td><input type="text" style="width:120px" value="'+esc(c.remarks)+'" onchange="S.compliance['+i+'].remarks=this.value;touch()"/></td>'+
+       '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delCompRow('+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table></div>';
+  document.getElementById('page-comp').innerHTML=h;
+}
+function addCompRow(){
+  var ob=window.prompt('Obligation name (e.g. PT return filing):');if(!ob)return;
+  var au=window.prompt('Authority (GSTN / Income Tax / MahaRERA / Other):','Other')||'Other';
+  var due=window.prompt('Due date (YYYY-MM-DD):',todayISO());if(!due)return;
+  S.compliance.push({id:'C'+Date.now(),obligation:ob,authority:au,period:'',due:due,actual:'',remarks:''});
+  S.compliance.sort(function(a,b){return a.due<b.due?-1:1;});
+  logAudit('compliance.add',ob+' due '+due);renderComp();
+}
+function delCompRow(i){
+  if(!window.confirm('Remove "'+S.compliance[i].obligation+'" ('+fmtD(S.compliance[i].due)+')?'))return;
+  logAudit('compliance.del',S.compliance[i].obligation+' '+S.compliance[i].due);
+  S.compliance.splice(i,1);touch();renderComp();
+}
+
+/* --------------------------- Registers ------------------------------ */
+var regSub='ra';
+function renderReg(){
+  var h='<div class="lockbar">';
+  [['ra','RA Bill Register'],['corr','Correction Log'],['pay','Payment Tracker'],['train','Training Tracker']].forEach(function(p){
+    h+='<button class="sc-btn'+(regSub===p[0]?' on':'')+'" onclick="regSub=\''+p[0]+'\';renderReg()">'+p[1]+'</button>';
+  });
+  h+='</div>';
+  if(regSub==='ra')h+=renderRa();
+  else if(regSub==='corr')h+=renderCorr();
+  else if(regSub==='pay')h+=renderPay();
+  else h+=renderTrain();
+  document.getElementById('page-reg').innerHTML=h;
+}
+/* RA bills */
+function renderRa(){
+  var paidThis=S.raBills.filter(function(b){return b.paymentDate&&ymOf(b.paymentDate)===curYm();});
+  var avg=null;if(paidThis.length){var tot=0;paidThis.forEach(function(b){tot+=workDays(b.received,b.paymentDate);});avg=Math.round(tot/paidThis.length*10)/10;}
+  var h='<div class="info">Clock starts when the <b>approved</b> RA bill reaches accounts (QS/site sign-off) \u2014 target payment within <b>10 working days</b>. Feeds Sr. KPI #8. '+(avg!=null?('This month\u2019s average: <b>'+avg+' working days</b> across '+paidThis.length+' bill(s).'):'')+'</div>';
+  h+='<div style="margin-bottom:10px"><button class="btn btn-blue" onclick="addRa()">+ Add RA bill</button></div>';
+  h+='<div class="card" style="overflow-x:auto"><table><tr><th>Bill ref</th><th>Contractor</th><th>Project</th><th>QS approval</th><th>Received in accounts</th><th>Gross \u20b9</th><th>TDS %</th><th>Retention %</th><th>Net \u20b9</th><th>Payment date</th><th>Working days</th><th>Status</th><th></th></tr>';
+  S.raBills.forEach(function(b,i){
+    var wd=b.paymentDate?workDays(b.received,b.paymentDate):(b.received?workDays(b.received,todayISO()):null);
+    var stc=b.paymentDate?(wd<=10?'var(--green-b)':'var(--red-b)'):(wd>10?'var(--red-b)':'var(--orange-b)');
+    var net=b.gross?Math.round(b.gross*(1-(+b.tds||0)/100-(+b.ret||0)/100)):'';
+    h+='<tr>'+
+      '<td><input type="text" style="width:80px" value="'+esc(b.ref)+'" onchange="S.raBills['+i+'].ref=this.value;touch()"/></td>'+
+      '<td><input type="text" style="width:110px" value="'+esc(b.contractor)+'" onchange="S.raBills['+i+'].contractor=this.value;touch()"/></td>'+
+      '<td><input type="text" style="width:90px" value="'+esc(b.project)+'" onchange="S.raBills['+i+'].project=this.value;touch()"/></td>'+
+      '<td><input type="date" value="'+esc(b.qs)+'" onchange="S.raBills['+i+'].qs=this.value;touch()"/></td>'+
+      '<td><input type="date" value="'+esc(b.received)+'" onchange="S.raBills['+i+'].received=this.value;touch();renderReg()"/></td>'+
+      '<td><input type="number" style="width:100px" value="'+esc(b.gross)+'" onchange="S.raBills['+i+'].gross=+this.value;touch();renderReg()"/></td>'+
+      '<td><input type="number" style="width:55px" value="'+esc(b.tds)+'" onchange="S.raBills['+i+'].tds=+this.value;touch();renderReg()"/></td>'+
+      '<td><input type="number" style="width:55px" value="'+esc(b.ret)+'" onchange="S.raBills['+i+'].ret=+this.value;touch();renderReg()"/></td>'+
+      '<td>'+inr(net)+'</td>'+
+      '<td><input type="date" value="'+esc(b.paymentDate)+'" onchange="S.raBills['+i+'].paymentDate=this.value;touch();renderReg()"/></td>'+
+      '<td style="font-weight:800;color:'+stc+'">'+(wd==null?'':wd+'d')+'</td>'+
+      '<td>'+(b.paymentDate?'<span class="badge" style="background:var(--green-l);color:var(--green-b)">Paid</span>':'<span class="badge" style="background:var(--orange-l);color:var(--orange-b)">Open</span>')+'</td>'+
+      '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delRow(\'raBills\','+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table></div>';
+  return h;
+}
+function addRa(){S.raBills.push({ref:'',contractor:'',project:'',qs:'',received:todayISO(),gross:'',tds:2,ret:5,paymentDate:''});touch();renderReg();}
+/* Corrections */
+function renderCorr(){
+  var h='<div class="info">Log <b>every work item returned for correction</b> \u2014 daily, right after each review. Feeds Sr. KPI #11 and Jr. KPIs #12 &amp; #13. The monthly count appears as a hint in the scoring grid.</div>';
+  h+='<div style="margin-bottom:10px"><button class="btn btn-blue" onclick="addCorr()">+ Log correction</button></div>';
+  h+='<div class="card" style="overflow-x:auto"><table><tr><th>Date</th><th>Employee</th><th>Task type</th><th>Error / issue</th><th>Corrective action</th><th>Resubmitted</th><th>Days to fix</th><th></th></tr>';
+  S.corrections.forEach(function(c,i){
+    h+='<tr>'+
+      '<td><input type="date" value="'+esc(c.date)+'" onchange="S.corrections['+i+'].date=this.value;touch()"/></td>'+
+      '<td>'+empSelect('S.corrections['+i+'].emp',c.emp)+'</td>'+
+      '<td><input type="text" style="width:110px" value="'+esc(c.task)+'" onchange="S.corrections['+i+'].task=this.value;touch()"/></td>'+
+      '<td><input type="text" style="width:170px" value="'+esc(c.issue)+'" onchange="S.corrections['+i+'].issue=this.value;touch()"/></td>'+
+      '<td><input type="text" style="width:170px" value="'+esc(c.action)+'" onchange="S.corrections['+i+'].action=this.value;touch()"/></td>'+
+      '<td><input type="date" value="'+esc(c.resub)+'" onchange="S.corrections['+i+'].resub=this.value;touch();renderReg()"/></td>'+
+      '<td>'+(c.date&&c.resub?dayDiff(c.date,c.resub)+'d':'')+'</td>'+
+      '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delRow(\'corrections\','+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table></div>';
+  return h;
+}
+function addCorr(){S.corrections.unshift({date:todayISO(),emp:'',task:'',issue:'',action:'',resub:''});touch();renderReg();}
+function empSelect(path,val){
+  var h='<select onchange="'+path+'=this.value;touch()">'+'<option value=""></option>';
+  S.employees.forEach(function(e){h+='<option value="'+esc(e.name)+'"'+(val===e.name?' selected':'')+'>'+esc(e.name)+'</option>';});
+  return h+'</select>';
+}
+/* Payments */
+function renderPay(){
+  var h='<div class="info">Jr. Accountant flags every payment to the Sr. Accountant <b>\u2265 3 working days before due date</b>. Feeds Jr. KPI #6. RED alert = flagged late or not flagged.</div>';
+  h+='<div style="margin-bottom:10px"><button class="btn btn-blue" onclick="addPay()">+ Add payment due</button></div>';
+  h+='<div class="card" style="overflow-x:auto"><table><tr><th>Category</th><th>Description</th><th>Amount \u20b9</th><th>Due date</th><th>Flagged to Sr.</th><th>Days in advance</th><th>Alert</th><th>Payment date</th><th>Status</th><th></th></tr>';
+  S.payments.forEach(function(p,i){
+    var adv=p.flagged&&p.due?workDays(p.flagged,p.due):null;
+    var ok=adv!=null&&adv>=3;
+    h+='<tr>'+
+      '<td><select onchange="S.payments['+i+'].cat=this.value;touch()">'+['Contractor','Statutory','Vendor','Utility','Other'].map(function(c){return '<option'+(p.cat===c?' selected':'')+'>'+c+'</option>';}).join('')+'</select></td>'+
+      '<td><input type="text" style="width:170px" value="'+esc(p.desc)+'" onchange="S.payments['+i+'].desc=this.value;touch()"/></td>'+
+      '<td><input type="number" style="width:100px" value="'+esc(p.amount)+'" onchange="S.payments['+i+'].amount=+this.value;touch()"/></td>'+
+      '<td><input type="date" value="'+esc(p.due)+'" onchange="S.payments['+i+'].due=this.value;touch();renderReg()"/></td>'+
+      '<td><input type="date" value="'+esc(p.flagged)+'" onchange="S.payments['+i+'].flagged=this.value;touch();renderReg()"/></td>'+
+      '<td>'+(adv==null?'':adv+' wd')+'</td>'+
+      '<td>'+(p.flagged?(ok?'<span class="badge" style="background:var(--green-l);color:var(--green-b)">OK</span>':'<span class="badge" style="background:var(--red-l);color:var(--red-b)">LATE FLAG</span>'):(p.due&&p.due<todayISO()?'<span class="badge" style="background:var(--red);color:#fff">NOT FLAGGED</span>':'<span class="badge" style="background:var(--orange-l);color:var(--orange-b)">Pending</span>'))+'</td>'+
+      '<td><input type="date" value="'+esc(p.paid)+'" onchange="S.payments['+i+'].paid=this.value;touch();renderReg()"/></td>'+
+      '<td>'+(p.paid?'<span class="badge" style="background:var(--green-l);color:var(--green-b)">Paid</span>':'<span class="badge" style="background:var(--slate-l);color:var(--slate-b)">Pending</span>')+'</td>'+
+      '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delRow(\'payments\','+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table></div>';
+  return h;
+}
+function addPay(){S.payments.unshift({cat:'Contractor',desc:'',amount:'',due:'',flagged:'',paid:''});touch();renderReg();}
+/* Training */
+function renderTrain(){
+  var h='<div class="info">Sr. Accountant assigns modules at the start of each quarter; completion date is entered when finished. Feeds Sr. KPI #12 and Jr. KPI #14.</div>';
+  h+='<div style="margin-bottom:10px"><button class="btn btn-blue" onclick="addTrain()">+ Assign module</button></div>';
+  h+='<div class="card" style="overflow-x:auto"><table><tr><th>Employee</th><th>Module</th><th>Category</th><th>Qtr</th><th>Assigned</th><th>Target</th><th>Completed</th><th>Status</th><th></th></tr>';
+  S.training.forEach(function(x,i){
+    var st=x.completed?(x.completed<=x.target?['Done on time','var(--green-l)','var(--green-b)']:['Done late','var(--orange-l)','var(--orange-b)']):(x.target<todayISO()?['Overdue \u26a0','var(--red-l)','var(--red-b)']:['In progress','var(--slate-l)','var(--slate-b)']);
+    h+='<tr>'+
+      '<td>'+empSelect('S.training['+i+'].emp',x.emp)+'</td>'+
+      '<td><input type="text" style="width:240px" value="'+esc(x.module)+'" onchange="S.training['+i+'].module=this.value;touch()"/></td>'+
+      '<td><input type="text" style="width:110px" value="'+esc(x.category)+'" onchange="S.training['+i+'].category=this.value;touch()"/></td>'+
+      '<td><select onchange="S.training['+i+'].quarter=this.value;touch()">'+['Q1','Q2','Q3','Q4'].map(function(q){return '<option'+(x.quarter===q?' selected':'')+'>'+q+'</option>';}).join('')+'</select></td>'+
+      '<td><input type="date" value="'+esc(x.assigned)+'" onchange="S.training['+i+'].assigned=this.value;touch()"/></td>'+
+      '<td><input type="date" value="'+esc(x.target)+'" onchange="S.training['+i+'].target=this.value;touch();renderReg()"/></td>'+
+      '<td><input type="date" value="'+esc(x.completed)+'" onchange="S.training['+i+'].completed=this.value;touch();renderReg()"/></td>'+
+      '<td><span class="badge" style="background:'+st[1]+';color:'+st[2]+'">'+st[0]+'</span></td>'+
+      '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delRow(\'training\','+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table></div>';
+  return h;
+}
+function addTrain(){S.training.unshift({emp:'',role:'',module:'',category:'',quarter:'Q1',assigned:todayISO(),target:'',completed:''});touch();renderReg();}
+function delRow(coll,i){
+  if(!window.confirm('Remove this row?'))return;
+  logAudit(coll+'.del',JSON.stringify(S[coll][i]).slice(0,120));
+  S[coll].splice(i,1);touch();renderReg();
+}
+
+/* ------------------------ Monthly Scoring --------------------------- */
+var scEmp=null,scYm=curYm();
+function renderScore(){
+  var emps=S.employees.filter(function(e){return e.active&&KPI[e.role];});
+  if(!scEmp||!empById(scEmp))scEmp=emps.length?emps[0].id:null;
+  var h='<div class="lockbar">'+
+    '<select id="sc-emp" onchange="scEmp=this.value;renderScore()">'+emps.map(function(e){return '<option value="'+e.id+'"'+(e.id===scEmp?' selected':'')+'>'+esc(e.name)+' \u2014 '+esc(ROLE_LABEL[e.role])+'</option>';}).join('')+'</select>'+
+    '<input type="month" value="'+scYm+'" onchange="scYm=this.value;renderScore()"/>';
+  var emp=empById(scEmp);
+  if(!emp){document.getElementById('page-score').innerHTML=h+'</div><div class="info">Add an active employee with a Sr/Jr role in Team &amp; Data.</div>';return;}
+  if(emp.role==='FIN'){document.getElementById('page-score').innerHTML=h+'</div><div class="info">Finance-head KPIs are drafts \u2014 define weights and thresholds in the KPI Master with the Principal before scoring.</div>';return;}
+  var key=scEmp+'|'+scYm, locked=S.locks[key];
+  if(locked)h+='<span class="badge" style="background:var(--green-l);color:var(--green-b)">\u{1F512} Locked by '+esc(locked.by)+' on '+fmtD(locked.ts.slice(0,10))+'</span><button class="btn btn-red" onclick="unlockMonth(\''+key+'\')">Unlock</button>';
+  else h+='<button class="btn btn-green" onclick="lockMonth(\''+key+'\')">\u{1F512} Lock month</button>';
+  h+='</div>';
+
+  /* freeze notice: month M freezes on the 5th of M+1 */
+  var freeze=new Date(scYm+'-01T00:00:00');freeze.setMonth(freeze.getMonth()+1);freeze.setDate(5);
+  if(new Date()>freeze&&!locked)h+='<div class="warn">\u23F0 Freeze date ('+freeze.toLocaleDateString('en-IN',{day:'2-digit',month:'short'})+') has passed \u2014 finalise actuals and lock this month.</div>';
+
+  var ks=dueKpis(emp.role,scYm), vals=S.scores[key]||{};
+  var qNote=isQtrEnd(scYm)?' (quarter-end \u2014 quarterly KPIs due)':' (quarterly KPIs not due this month)';
+  h+='<div class="info">'+esc(emp.name)+' \u00b7 '+ymLabel(scYm)+qNote+'. Enter actuals \u2014 ratings and the weighted score compute instantly. Teal chips are <b>auto-suggested from the registers</b>; click to accept.</div>';
+
+  h+='<div class="card" style="overflow-x:auto;margin-bottom:14px"><table><tr><th>#</th><th>KPI</th><th>Freq</th><th>Wt%</th><th>Target</th><th>Actual</th><th>Rating</th><th>Weighted</th></tr>';
+  var lastCat='';
+  (KPI[emp.role]||[]).forEach(function(k,idx){
+    if(k.cat!==lastCat){lastCat=k.cat;h+='<tr class="cat-row"><td colspan="8">'+esc(k.cat)+'</td></tr>';}
+    var due=k.freq==='M'||isQtrEnd(scYm);
+    if(!due){h+='<tr><td>'+(idx+1)+'</td><td>'+esc(k.name)+'</td><td>Q</td><td>'+k.wt+'</td><td class="muted">'+esc(k.target)+'</td><td colspan="3" class="muted">\u2014 not due this month</td></tr>';return;}
+    var v=vals[k.id], r=rate(k,v), sug=(!locked&&(v===''||v==null))?suggest(k,scEmp,scYm):null;
+    h+='<tr><td>'+(idx+1)+'</td><td><b>'+esc(k.name)+'</b><div class="muted" style="font-size:10px">'+esc(k.hint)+'</div></td><td>'+k.freq+'</td><td>'+k.wt+'</td><td style="font-size:10px">'+esc(k.target)+'</td>'+
+      '<td><input type="number" step="any" '+(locked?'disabled ':'')+'value="'+(v==null?'':v)+'" onchange="setActual(\''+key+'\',\''+k.id+'\',this.value)"/>'+
+      (sug&&sug.v!=null?'<span class="sug" title="'+esc(sug.why)+'" onclick="setActual(\''+key+'\',\''+k.id+'\','+sug.v+');renderScore()">\u2192 '+sug.v+'</span>':'')+
+      (sug&&sug.v==null?'<div class="muted" style="font-size:9px;margin-top:2px">'+esc(sug.why)+'</div>':'')+
+      '</td>'+
+      '<td>'+(r==null?'\u2014':'<span class="r'+r+'">'+r+' \u00b7 '+RATE_LABEL[r]+'</span>')+'</td>'+
+      '<td>'+(r==null?'\u2014':(r*k.wt/100).toFixed(2))+'</td></tr>';
+  });
+  var ms=monthScore(scEmp,scYm), b=ms?band(ms.score):null;
+  h+='<tr><td colspan="6" style="text-align:right;font-weight:800">MONTHLY WEIGHTED SCORE ('+(ms?ms.rated:0)+'/'+ks.length+' KPIs rated, renormalized)</td>'+
+     '<td colspan="2" style="font-weight:800;font-size:14px">'+(ms?ms.score.toFixed(2)+' / 4.00 \u00b7 <span class="badge" style="background:'+b.bg+';color:'+b.c+'">'+b.l+'</span>':'\u2014')+'</td></tr>';
+  h+='</table></div>';
+  h+='<div class="muted" style="font-size:10px">Band guide: 3.50\u20134.00 \u2605 Outstanding \u00b7 3.00\u20133.49 Exceeds \u00b7 2.50\u20132.99 Meets \u00b7 below 2.50 Needs Improvement. Locking freezes entries; unlock requires the admin password and is recorded in the audit trail.</div>';
+  document.getElementById('page-score').innerHTML=h;
+}
+function setActual(key,kpiId,v){
+  if(S.locks[key]){alert('This month is locked.');return;}
+  if(!S.scores[key])S.scores[key]={};
+  S.scores[key][kpiId]=(v===''?'':+v);
+  touch();renderScore();
+}
+function lockMonth(key){
+  var by=window.prompt('Lock '+ymLabel(key.split('|')[1])+' for '+(empById(key.split('|')[0])||{}).name+'?\n\nEnter reviewer name to confirm:');
+  if(!by)return;
+  S.locks[key]={by:by,ts:new Date().toISOString()};
+  logAudit('score.lock',key+' by '+by);saveState(true);renderScore();
+}
+function unlockMonth(key){
+  var pw=window.prompt('Unlocking a signed month is exceptional and is recorded.\n\nEnter admin password:');
+  if(pw!==UNLOCK_PW){if(pw!=null)alert('Wrong password.');return;}
+  var why=window.prompt('Reason for unlock (recorded in audit trail):')||'(none given)';
+  logAudit('score.unlock',key+' \u2014 '+why);
+  delete S.locks[key];saveState(true);renderScore();
+}
+
+/* ----------------------- 1:1 & Appraisal ---------------------------- */
+var apEmp=null,apPeriod='H1';
+function fyMonths(period){
+  var months=[];
+  if(period==='H1'){for(var m=4;m<=9;m++)months.push('2025-'+('0'+m).slice(-2));}
+  else {months.push('2025-10','2025-11','2025-12','2026-01','2026-02','2026-03');}
+  return months;
+}
+function renderAppr(){
+  var emps=S.employees.filter(function(e){return e.active&&KPI[e.role]&&e.role!=='FIN';});
+  if(!apEmp||!empById(apEmp))apEmp=emps.length?emps[0].id:null;
+  var h='<div class="lockbar">'+
+    '<select onchange="apEmp=this.value;renderAppr()">'+emps.map(function(e){return '<option value="'+e.id+'"'+(e.id===apEmp?' selected':'')+'>'+esc(e.name)+'</option>';}).join('')+'</select>'+
+    '<select onchange="apPeriod=this.value;renderAppr()"><option value="H1"'+(apPeriod==='H1'?' selected':'')+'>H1 \u2014 Apr to Sep 2025</option><option value="H2"'+(apPeriod==='H2'?' selected':'')+'>H2 \u2014 Oct 2025 to Mar 2026</option></select>'+
+    '</div>';
+  var emp=empById(apEmp);
+  if(!emp){document.getElementById('page-appr').innerHTML=h+'<div class="info">Add a Sr/Jr employee first.</div>';return;}
+
+  /* 1:1 log */
+  h+='<h3 class="sec">Monthly 1:1 log \u2014 '+esc(emp.name)+'</h3>';
+  h+='<div class="card" style="overflow-x:auto;margin-bottom:16px"><table><tr><th>Month</th><th>1:1 date</th><th>Band (auto)</th><th>Wins &amp; strengths</th><th>Issues / attention</th><th>Agreed actions &amp; owner</th><th>Deadline</th><th>Prior actions status</th><th>Sign-off</th></tr>';
+  fyMonths(apPeriod).forEach(function(ym){
+    var k=apEmp+'|'+ym, o=S.ones[k]||{}, ms=monthScore(apEmp,ym), b=ms?band(ms.score):null;
+    var qe=isQtrEnd(ym)?' \u25c6':'';
+    h+='<tr><td><b>'+ymLabel(ym)+qe+'</b></td>'+
+      '<td><input type="date" value="'+esc(o.date||'')+'" onchange="setOne(\''+k+'\',\'date\',this.value)"/></td>'+
+      '<td>'+(b?'<span class="badge" style="background:'+b.bg+';color:'+b.c+'">'+ms.score.toFixed(2)+'</span>':'\u2014')+'</td>'+
+      '<td><textarea rows="1" style="min-width:140px" onchange="setOne(\''+k+'\',\'wins\',this.value)">'+esc(o.wins||'')+'</textarea></td>'+
+      '<td><textarea rows="1" style="min-width:140px" onchange="setOne(\''+k+'\',\'issues\',this.value)">'+esc(o.issues||'')+'</textarea></td>'+
+      '<td><textarea rows="1" style="min-width:140px" onchange="setOne(\''+k+'\',\'actions\',this.value)">'+esc(o.actions||'')+'</textarea></td>'+
+      '<td><input type="date" value="'+esc(o.deadline||'')+'" onchange="setOne(\''+k+'\',\'deadline\',this.value)"/></td>'+
+      '<td><select onchange="setOne(\''+k+'\',\'prior\',this.value)">'+['','Done','Partial','Not done','n/a'].map(function(x){return '<option'+(o.prior===x?' selected':'')+'>'+x+'</option>';}).join('')+'</select></td>'+
+      '<td><input type="text" style="width:90px" placeholder="Mgr / Emp" value="'+esc(o.sign||'')+'" onchange="setOne(\''+k+'\',\'sign\',this.value)"/></td></tr>';
+  });
+  h+='</table></div>';
+
+  /* appraisal scorecard */
+  var akey=apEmp+'|'+apPeriod, ap=S.appraisals[akey]||{};
+  var months=fyMonths(apPeriod), scored=[],lockedN=0;
+  months.forEach(function(ym){var ms=monthScore(apEmp,ym);if(ms){scored.push({ym:ym,score:ms.score});if(S.locks[apEmp+'|'+ym])lockedN++;}});
+  var avg=scored.length?scored.reduce(function(a,x){return a+x.score;},0)/scored.length:null;
+  var b2=avg!=null?band(avg):null;
+
+  h+='<h3 class="sec">Semi-annual appraisal scorecard \u2014 '+(apPeriod==='H1'?'Apr\u2013Sep 2025':'Oct 2025\u2013Mar 2026')+'</h3>';
+  h+='<div class="card" style="margin-bottom:16px">';
+  if(ap.locked)h+='<div class="ok-strip">\u{1F512} Signed off and locked on '+fmtD((ap.ts||'').slice(0,10))+'. Unlocking requires admin password.</div>';
+  h+='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:12px">'+
+    stat('Months scored',scored.length+'/'+months.length,lockedN+' locked',null)+
+    stat('Period average',avg!=null?avg.toFixed(2)+' / 4.00':'\u2014','mean of monthly weighted scores',b2?b2.c:null)+
+    stat('Band',b2?b2.l:'\u2014','payout gate input',b2?b2.c:null)+
+    '</div>';
+  if(scored.length){
+    h+='<table style="margin-bottom:12px"><tr><th>Month</th>'+scored.map(function(x){return '<th>'+ymLabel(x.ym)+(S.locks[apEmp+'|'+x.ym]?' \u{1F512}':'')+'</th>';}).join('')+'</tr>'+
+      '<tr><td><b>Weighted score</b></td>'+scored.map(function(x){var bb=band(x.score);return '<td><span class="badge" style="background:'+bb.bg+';color:'+bb.c+'">'+x.score.toFixed(2)+'</span></td>';}).join('')+'</tr></table>';
+    if(lockedN<scored.length)h+='<div class="warn" style="margin-bottom:12px">'+(scored.length-lockedN)+' scored month(s) not locked \u2014 lock all months before sign-off so the appraisal is tamper-proof.</div>';
+  } else h+='<div class="info">No scored months in this period yet \u2014 score months in the Monthly Scoring tab first.</div>';
+  var dis=ap.locked?'disabled ':'';
+  h+='<div class="grid" style="grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">'+
+    '<div><div class="muted" style="font-size:10px;font-weight:700;margin-bottom:3px">REVIEWER COMMENTS &amp; OBSERVATIONS</div><textarea rows="3" '+dis+'onchange="setAppr(\''+akey+'\',\'comments\',this.value)">'+esc(ap.comments||'')+'</textarea></div>'+
+    '<div><div class="muted" style="font-size:10px;font-weight:700;margin-bottom:3px">DEVELOPMENT / VARIABLE-PAY NOTE</div><textarea rows="3" '+dis+'onchange="setAppr(\''+akey+'\',\'paynote\',this.value)">'+esc(ap.paynote||'')+'</textarea></div></div>';
+  h+='<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">'+
+    signBox(akey,'signEmp','EMPLOYEE',ap)+signBox(akey,'signRev','REVIEWER / SR. ACCOUNTANT',ap)+signBox(akey,'signPrin','PRINCIPAL / DIRECTOR \u2014 FINANCE',ap)+'</div>';
+  if(!ap.locked)h+='<button class="btn btn-green" onclick="lockAppr(\''+akey+'\')">\u{1F512} Sign off &amp; lock appraisal</button>';
+  else h+='<button class="btn btn-red" onclick="unlockAppr(\''+akey+'\')">Unlock (admin)</button>';
+  h+='</div>';
+  document.getElementById('page-appr').innerHTML=h;
+}
+function signBox(akey,field,label,ap){
+  var dis=ap.locked?'disabled ':'';
+  return '<div><div class="muted" style="font-size:10px;font-weight:700;margin-bottom:3px">'+label+'</div><input type="text" '+dis+'placeholder="Name & date" value="'+esc(ap[field]||'')+'" onchange="setAppr(\''+akey+'\',\''+field+'\',this.value)"/></div>';
+}
+function setOne(key,f,v){if(!S.ones[key])S.ones[key]={};S.ones[key][f]=v;touch();if(f==='date'||f==='prior')renderAppr();}
+function setAppr(key,f,v){if(S.appraisals[key]&&S.appraisals[key].locked){alert('Appraisal is locked.');return;}if(!S.appraisals[key])S.appraisals[key]={};S.appraisals[key][f]=v;touch();}
+function lockAppr(key){
+  var ap=S.appraisals[key]||{};
+  if(!ap.signEmp||!ap.signRev||!ap.signPrin){alert('All three sign-off fields (Employee, Reviewer, Principal) must be filled before locking.');return;}
+  if(!window.confirm('Sign off and lock this appraisal? It becomes read-only.'))return;
+  ap.locked=true;ap.ts=new Date().toISOString();S.appraisals[key]=ap;
+  logAudit('appraisal.lock',key);saveState(true);renderAppr();
+}
+function unlockAppr(key){
+  var pw=window.prompt('Enter admin password to unlock:');
+  if(pw!==UNLOCK_PW){if(pw!=null)alert('Wrong password.');return;}
+  var why=window.prompt('Reason for unlock (recorded):')||'(none given)';
+  logAudit('appraisal.unlock',key+' \u2014 '+why);
+  S.appraisals[key].locked=false;saveState(true);renderAppr();
+}
+
+/* --------------------------- KPI Master ----------------------------- */
+var masterRole='SR';
+function renderMaster(){
+  var h='<div class="lockbar">';
+  ['SR','JR','FIN'].forEach(function(r){
+    h+='<button class="sc-btn'+(masterRole===r?' on':'')+'" onclick="masterRole=\''+r+'\';renderMaster()">'+ROLE_LABEL[r]+' ('+KPI[r].length+')</button>';
+  });
+  h+='</div>';
+  if(masterRole==='FIN')h+='<div class="warn">DRAFT \u2014 Finance-head / Treasury KPIs are placeholders. Weights, targets and thresholds to be finalised with the Principal before this role can be scored.</div>';
+  else h+='<div class="info">Definitions are the single source of truth, embedded from <b>GA_Accounting_KPI.xlsx</b> (FY 2025-26 v1.0). All KPIs use the 1\u20134 rating scale; weights sum to 100.</div>';
+  var totWt=0;KPI[masterRole].forEach(function(k){totWt+=k.wt;});
+  h+='<div class="card" style="overflow-x:auto"><table><tr><th>#</th><th>KPI</th><th>Freq</th><th>Wt%</th><th>Target</th><th>Formula</th><th>Evidence source</th><th>4 \u2014 Outstanding</th><th>3 \u2014 Meets</th><th>2 \u2014 Needs Imp.</th><th>1 \u2014 Unsat.</th></tr>';
+  var lastCat='';
+  KPI[masterRole].forEach(function(k,i){
+    if(k.cat!==lastCat){lastCat=k.cat;h+='<tr class="cat-row"><td colspan="11">'+esc(k.cat)+'</td></tr>';}
+    var rl=rateLabels(k);
+    h+='<tr><td>'+(i+1)+'</td><td><b>'+esc(k.name)+'</b>'+(k.auto?'<div style="font-size:9px;color:var(--teal-b);font-weight:700">AUTO-SUGGESTED FROM REGISTER</div>':'')+'</td><td>'+k.freq+'</td><td>'+(k.draft?'TBD':k.wt)+'</td>'+
+      '<td style="font-size:10px">'+esc(k.target)+'</td><td style="font-size:10px">'+esc(k.formula)+'</td><td style="font-size:10px">'+esc(k.src)+'</td>'+
+      '<td class="r4" style="font-size:10px">'+esc(rl[0])+'</td><td class="r3" style="font-size:10px">'+esc(rl[1])+'</td><td class="r2" style="font-size:10px">'+esc(rl[2])+'</td><td class="r1" style="font-size:10px">'+esc(rl[3])+'</td></tr>';
+  });
+  h+='<tr><td colspan="3" style="text-align:right;font-weight:800">TOTAL WEIGHT</td><td style="font-weight:800">'+(masterRole==='FIN'?'TBD':totWt)+'</td><td colspan="7"></td></tr>';
+  h+='</table></div>';
+  document.getElementById('page-master').innerHTML=h;
+}
+
+/* --------------------------- Team & Data ---------------------------- */
+function renderTeam(){
+  var h='<h3 class="sec" style="margin-top:0">Team</h3><div class="card" style="margin-bottom:16px;overflow-x:auto"><table><tr><th>Name</th><th>Role / KPI set</th><th>Active</th><th></th></tr>';
+  S.employees.forEach(function(e,i){
+    h+='<tr><td><input type="text" style="width:200px" value="'+esc(e.name)+'" onchange="S.employees['+i+'].name=this.value;touch()"/></td>'+
+      '<td><select onchange="S.employees['+i+'].role=this.value;touch()">'+['SR','JR','FIN'].map(function(r){return '<option value="'+r+'"'+(e.role===r?' selected':'')+'>'+ROLE_LABEL[r]+'</option>';}).join('')+'</select></td>'+
+      '<td><input type="checkbox" '+(e.active?'checked':'')+' onchange="S.employees['+i+'].active=this.checked;touch()"/></td>'+
+      '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delEmp('+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table><button class="btn btn-blue" style="margin-top:10px" onclick="addEmp()">+ Add employee</button></div>';
+
+  h+='<h3 class="sec">Data</h3><div class="card" style="margin-bottom:16px"><div style="display:flex;gap:8px;flex-wrap:wrap">'+
+    '<button class="btn btn-ghost" onclick="backupJson()">Download JSON backup</button>'+
+    '<label class="btn btn-ghost" style="cursor:pointer">Restore JSON<input type="file" accept=".json" style="display:none" onchange="restoreJson(this.files[0]);this.value=\'\'"/></label>'+
+    '<button class="btn btn-red" onclick="resetAll()">Reset to seed data</button></div>'+
+    '<div class="muted" style="font-size:10px;margin-top:8px">State lives in this browser (localStorage <code>'+LS_KEY+'</code>) and auto-saves on every change. Use Export Excel for sharing; server-backed multi-user sync (Mongo via <code>/api/apps/finance_kpi/state</code>) is planned as V3.</div></div>';
+
+  h+='<h3 class="sec">Audit trail (last 50)</h3><div class="card" style="overflow-x:auto"><table><tr><th>When</th><th>Action</th><th>Detail</th></tr>';
+  if(!S.audit.length)h+='<tr><td colspan="3" class="muted">No governance events yet \u2014 locks, unlocks and deletions appear here.</td></tr>';
+  S.audit.slice(0,50).forEach(function(a){
+    h+='<tr><td style="white-space:nowrap">'+new Date(a.ts).toLocaleString('en-IN',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})+'</td><td><b>'+esc(a.action)+'</b></td><td>'+esc(a.detail)+'</td></tr>';
+  });
+  h+='</table></div>';
+  document.getElementById('page-team').innerHTML=h;
+}
+function addEmp(){
+  var n=window.prompt('Employee name:');if(!n)return;
+  S.employees.push({id:'E'+Date.now(),name:n,role:'JR',active:true});
+  logAudit('emp.add',n);renderTeam();
+}
+function delEmp(i){
+  if(!window.confirm('Remove '+S.employees[i].name+'? Their scores remain in storage but will no longer display.'))return;
+  logAudit('emp.del',S.employees[i].name);S.employees.splice(i,1);touch();renderTeam();
+}
+function backupJson(){
+  var blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'});
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);
+  a.download='GA_Finance_KPI_backup_'+todayISO()+'.json';a.click();
+}
+function restoreJson(file){
+  if(!file)return;var r=new FileReader();
+  r.onload=function(e){
+    try{var d=JSON.parse(e.target.result);
+      if(!d.employees||!d.compliance)throw new Error('Not a Finance KPI backup.');
+      if(!window.confirm('Replace ALL current data with this backup?'))return;
+      S=d;saveState(true);renderTab(curTab);alert('Restored.');
+    }catch(err){alert('Restore failed: '+err.message);}
+  };r.readAsText(file);
+}
+function resetAll(){
+  if(!window.confirm('Reset EVERYTHING to factory seed data? All entries, scores and locks are erased.'))return;
+  if(window.prompt('Type RESET to confirm:')!=='RESET')return;
+  S=defaultState();saveState(true);renderTab(curTab);
+}
+
+/* --------------------------- Excel I/O ------------------------------ */
+function exDate(v){
+  if(v==null||v==='')return '';
+  if(v instanceof Date)return v.toISOString().slice(0,10);
+  if(typeof v==='number'){var d=new Date(Math.round((v-25569)*86400000));return d.toISOString().slice(0,10);}
+  var s=String(v).trim();var d2=new Date(s);if(!isNaN(d2))return d2.toISOString().slice(0,10);
+  return '';
+}
+function sheetRows(wb,name){
+  var ws=wb.Sheets[name];if(!ws)return null;
+  return XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true});
+}
+function findHeader(rows,firstCell){
+  for(var i=0;i<rows.length;i++){if(String(rows[i][0]).trim()===firstCell)return i;}
+  return -1;
+}
+function importExcel(file){
+  if(!file)return;
+  if(!window.XLSX){alert('Excel library still loading \u2014 try again in a few seconds.');return;}
+  var r=new FileReader();
+  r.onload=function(e){
+    try{
+      var wb=XLSX.read(e.target.result,{type:'array',cellDates:true});
+      var report=[];
+      /* Compliance Calendar: header row starts 'Month' */
+      var rows=sheetRows(wb,'Compliance Calendar');
+      if(rows){
+        var hi=findHeader(rows,'Month'),merged=0,added=0;
+        if(hi>=0)for(var i=hi+1;i<rows.length;i++){
+          var ro=rows[i];if(!ro[1]||!ro[4])continue;
+          var due=exDate(ro[4]),act=exDate(ro[6]);
+          var hit=null;
+          S.compliance.forEach(function(c){if(c.obligation===String(ro[1]).trim()&&c.due===due)hit=c;});
+          if(hit){if(act&&!hit.actual){hit.actual=act;merged++;}}
+          else {S.compliance.push({id:'C'+Date.now()+'_'+i,obligation:String(ro[1]).trim(),authority:String(ro[2]||''),period:String(ro[3]||''),due:due,actual:act,remarks:String(ro[8]&&typeof ro[8]==='string'?'':'')});added++;}
+        }
+        S.compliance.sort(function(a,b){return a.due<b.due?-1:1;});
+        report.push('Compliance: '+merged+' actual dates merged, '+added+' new rows');
+      }
+      /* RA Bill Register: header starts '#' */
+      rows=sheetRows(wb,'RA Bill Register');
+      if(rows){
+        var hi2=findHeader(rows,'#'),n2=0;
+        if(hi2>=0)for(var j=hi2+1;j<rows.length;j++){
+          var b=rows[j];if(!b[1]&&!b[2])continue;
+          if(String(b[0]).indexOf('MONTHLY')===0)break;
+          S.raBills.push({ref:String(b[1]||''),contractor:String(b[2]||''),project:String(b[3]||''),qs:exDate(b[4]),received:exDate(b[5]),gross:+b[6]||'',tds:+b[7]||'',ret:+b[9]||'',paymentDate:exDate(b[11])});n2++;
+        }
+        report.push('RA bills: '+n2+' imported');
+      }
+      /* Correction Log: header starts 'Date' */
+      rows=sheetRows(wb,'Correction Log');
+      if(rows){
+        var hi3=findHeader(rows,'Date'),n3=0;
+        if(hi3>=0)for(var k2=hi3+1;k2<rows.length;k2++){
+          var c2=rows[k2];if(!c2[1])continue;
+          S.corrections.push({date:exDate(c2[0]),emp:String(c2[1]||''),task:String(c2[3]||''),issue:String(c2[4]||''),action:String(c2[5]||''),resub:exDate(c2[6])});n3++;
+        }
+        report.push('Corrections: '+n3+' imported');
+      }
+      /* Payment Tracker: header starts '#' */
+      rows=sheetRows(wb,'Payment Tracker');
+      if(rows){
+        var hi4=findHeader(rows,'#'),n4=0;
+        if(hi4>=0)for(var m2=hi4+1;m2<rows.length;m2++){
+          var p2=rows[m2];if(!p2[2])continue;
+          if(String(p2[0]).indexOf('PERIOD')===0)break;
+          S.payments.push({cat:String(p2[1]||'Other'),desc:String(p2[2]||''),amount:+p2[3]||'',due:exDate(p2[4]),flagged:exDate(p2[5]),paid:exDate(p2[8])});n4++;
+        }
+        report.push('Payments: '+n4+' imported');
+      }
+      /* Training Tracker: header starts '#' */
+      rows=sheetRows(wb,'Training Tracker');
+      if(rows){
+        var hi5=findHeader(rows,'#'),merged5=0,added5=0;
+        if(hi5>=0)for(var q2=hi5+1;q2<rows.length;q2++){
+          var t2=rows[q2];if(!t2[3])continue;
+          var comp=exDate(t2[8]),hit5=null;
+          S.training.forEach(function(x){if(x.emp===String(t2[1]).trim()&&x.module===String(t2[3]).trim())hit5=x;});
+          if(hit5){if(comp&&!hit5.completed){hit5.completed=comp;merged5++;}}
+          else {S.training.push({emp:String(t2[1]||''),role:String(t2[2]||''),module:String(t2[3]||''),category:String(t2[4]||''),quarter:String(t2[5]||'Q1'),assigned:exDate(t2[6]),target:exDate(t2[7]),completed:comp});added5++;}
+        }
+        report.push('Training: '+merged5+' completions merged, '+added5+' new modules');
+      }
+      logAudit('excel.import',file.name+' \u2014 '+report.join('; '));
+      saveState(true);renderTab(curTab);
+      alert('Import complete:\n\n'+report.join('\n'));
+    }catch(err){alert('Import failed: '+err.message);}
+  };
+  r.readAsArrayBuffer(file);
+}
+function exportExcel(){
+  if(!window.XLSX){alert('Excel library still loading \u2014 try again in a few seconds.');return;}
+  var wb=XLSX.utils.book_new();
+  function add(name,header,rows){
+    var ws=XLSX.utils.aoa_to_sheet([header].concat(rows));
+    XLSX.utils.book_append_sheet(wb,ws,name);
+  }
+  add('Compliance',['Month','Obligation','Authority','Period','Due','Actual','Days Early/(Late)','Status','Remarks'],
+    S.compliance.map(function(c){var st=compStatus(c);return [ymLabel(ymOf(c.due)),c.obligation,c.authority,c.period,c.due,c.actual,c.actual?dayDiff(c.actual,c.due):'',st.l,c.remarks||''];}));
+  add('RA Bills',['Bill Ref','Contractor','Project','QS Approval','Received','Gross','TDS %','Retention %','Payment Date','Working Days','Status'],
+    S.raBills.map(function(b){return [b.ref,b.contractor,b.project,b.qs,b.received,b.gross,b.tds,b.ret,b.paymentDate,b.paymentDate?workDays(b.received,b.paymentDate):'',b.paymentDate?'Paid':'Open'];}));
+  add('Corrections',['Date','Employee','Task','Issue','Action','Resubmitted','Days to Fix'],
+    S.corrections.map(function(c){return [c.date,c.emp,c.task,c.issue,c.action,c.resub,c.date&&c.resub?dayDiff(c.date,c.resub):''];}));
+  add('Payments',['Category','Description','Amount','Due','Flagged','Working Days Advance','Paid'],
+    S.payments.map(function(p){return [p.cat,p.desc,p.amount,p.due,p.flagged,p.flagged&&p.due?workDays(p.flagged,p.due):'',p.paid];}));
+  add('Training',['Employee','Module','Category','Quarter','Assigned','Target','Completed'],
+    S.training.map(function(t){return [t.emp,t.module,t.category,t.quarter,t.assigned,t.target,t.completed];}));
+  var scoreRows=[];
+  Object.keys(S.scores).sort().forEach(function(key){
+    var p=key.split('|'),emp=empById(p[0]);if(!emp)return;
+    var ms=monthScore(p[0],p[1]);if(!ms)return;
+    var locked=S.locks[key];
+    scoreRows.push([emp.name,ROLE_LABEL[emp.role],p[1],ms.score.toFixed(2),band(ms.score).l,ms.rated+'/'+ms.due,locked?'Locked by '+locked.by:'Open']);
+  });
+  add('Scores',['Employee','Role','Month','Weighted Score','Band','KPIs Rated','Lock'],scoreRows);
+  XLSX.writeFile(wb,'GA_Finance_KPI_'+todayISO()+'.xlsx');
+}
+
+/* ----------------------------- Boot --------------------------------- */
+loadState();
+saveState(false);
+renderTab('dash');
+</script>
+</body>
+</html>

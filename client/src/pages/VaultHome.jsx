@@ -124,6 +124,7 @@ export default function VaultHome() {
       kpi: a.has('marketing_kpi'),
       pre: a.has('preconstruction'),
       exec: a.has('execution'),
+      finkpi: a.has('finance_kpi') || a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security'),
       admin: a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security')
     };
   }, [auth.user]);
@@ -367,6 +368,14 @@ export default function VaultHome() {
               <button type="button" onClick={() => setCustomDashboardUrl('V1 Cashflow Tracker', V1_URL_LS_KEY, setV1CustomUrl)} style={miniBtn}>
                 Set URL for this browser
               </button>
+            </p>
+          </a> : null}
+          {acl.finkpi ? <a href="/legacy/GA_Finance_KPI.html" target="_blank" rel="noopener noreferrer" style={card}>
+            <strong style={{ color: 'var(--gold)', fontSize: 13 }}>F&amp;A</strong>
+            <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Finance KPI &amp; Governance</div>
+            <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
+              Accounting &amp; Finance KPIs, compliance calendar, registers, monthly scoring and appraisals.
+              Opens <code>/legacy/GA_Finance_KPI.html</code>.
             </p>
           </a> : null}
         </div>
