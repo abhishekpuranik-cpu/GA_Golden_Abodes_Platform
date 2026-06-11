@@ -88,7 +88,6 @@ tr:hover td{background:#FAFBFD}
 </div>
 <div class="tabs">
   <button class="tab on" id="tab-dash" onclick="showTab('dash')">&#9650; Dashboard</button>
-  <button class="tab" id="tab-org" onclick="showTab('org')">&#11825; Org Chart</button>
   <button class="tab" id="tab-band" onclick="showTab('band')">&#9699; Band Structure</button>
   <button class="tab" id="tab-res" onclick="showTab('res')">&#128202; Headcount Plan</button>
   <button class="tab" id="tab-cost" onclick="showTab('cost')">&#9878; Cost vs Plan</button>
@@ -97,7 +96,6 @@ tr:hover td{background:#FAFBFD}
   <button class="tab" id="tab-pnl" onclick="showTab('pnl')">&#128200; P&amp;L View</button>
 </div>
 <div id="page-dash" class="page"></div>
-<div id="page-org" class="page hidden"></div>
 <div id="page-band" class="page hidden"></div>
 <div id="page-res" class="page hidden"></div>
 
@@ -396,7 +394,6 @@ function clickFileInput(id){
   el.click();
 }
 var curTab  = 'dash';
-var orgFilt = 'All';
 var bandProjFilt = 'ALL';
 var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
@@ -789,7 +786,7 @@ function calcEngine(){
 // NAV
 // ═══════════════════════════════════════════════════════
 function showTab(t){
-  ['dash','org','band','res','cost','team','shared','pnl'].forEach(function(x){
+  ['dash','band','res','cost','team','shared','pnl'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
@@ -811,7 +808,7 @@ function setScen(s){
   ['Lean','Base','Stretch'].forEach(function(x){document.getElementById('sc-'+x).className='sc-btn'+(x===s?' on':'');});
   renderAll();
 }
-function renderTab(t){ var f={dash:renderDash,org:renderOrg,band:renderBand,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL}; if(f[t])f[t](); }
+function renderTab(t){ var f={dash:renderDash,band:renderBand,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL}; if(f[t])f[t](); }
 function renderAll(){ renderTab(curTab); }
 
 // ═══════════════════════════════════════════════════════
@@ -942,7 +939,6 @@ document.addEventListener('click',function(e){
   if(a.delsc!==undefined){ SHARED_COSTS=SHARED_COSTS.filter(function(c){return c.id!==a.delsc;});saveSharedCosts();renderShared();return;}
   // Now check togcoll (section collapse/expand)
   var tc=findEl('togcoll'); if(tc){ togColl(tc.dataset.togcoll); return; }
-  if(a.orgfilt!==undefined)    { orgFilt=a.orgfilt; renderTab('org'); }
   if(a.bandfilt!==undefined)   { bandProjFilt=a.bandfilt; renderTab('band'); return; }
   var bn=findEl('bandsel');
   if(bn){ selNode=bn.dataset.bandsel;
@@ -951,12 +947,6 @@ document.addEventListener('click',function(e){
     var bs=document.getElementById('band-detail-slot');
     if(bs) bs.scrollIntoView({behavior:'smooth',block:'nearest'});
     return;
-  }
-  if(a.selnode!==undefined)    { selNode=a.selnode;
-    // Fast path: only update detail panel, skip tree rebuild
-    var D2=calcEngine(); renderOrgDetail(D2);
-    // If panel not rendered yet (first click), do full render
-    if(!document.getElementById('org-detail-slot')) renderTab('org');
   }
   if(a.setrel!==undefined)     { setRel(a.rid, a.scope, a.setrel==='1'); }
   if(a.delrule!==undefined)    { HC_RULES.splice(+a.delrule,1); saveState(); renderTab('hire'); }
@@ -1174,95 +1164,7 @@ function renderDash(){
 }
 
 
-function renderOrg(){
-  var D=calcEngine();
-  var html='';
-  html+='<div class="info">Click any node to open planning panel. <strong>E</strong>=Existing &nbsp;<strong>S</strong>=Suggested (conditions-based) &nbsp;<strong>A</strong>=Approved. Filter shows dedicated roles per project; shared roles are shown dimmed when filtering.</div>';
-
-  // Project filter pills
-  html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
-  html+='<span style="font-size:11px;color:var(--muted);font-weight:600">View:</span>';
-  html+='<button class="sc-btn'+(orgFilt==='All'?' on':'')+'" data-orgfilt="All">All Projects</button>';
-  D.active.forEach(function(p){
-    var sc=STAC[p.status]||'#4A5568',isSel=orgFilt===p.id;
-    html+='<button data-orgfilt="'+p.id+'" style="padding:4px 12px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:600;border:1.5px solid '+sc+';background:'+(isSel?sc:'transparent')+';color:'+(isSel?'#fff':sc)+'">'+p.name+'</button>';
-  });
-  html+='</div>';
-
-  // Legend
-  html+='<div class="card" style="margin-bottom:12px">';
-  html+='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:10px">';
-  [{l:'Open hire',c:'#A8301E'},{l:'Filled',c:'#1A7244'},{l:'Overstaffed',c:'#B54D0A'},{l:'Not started',c:'#DDE2EA'}].forEach(function(k){
-    html+='<div style="display:flex;align-items:center;gap:5px;font-size:11px"><div style="width:12px;height:4px;border-radius:2px;background:'+k.c+'"></div>'+k.l+'</div>';
-  });
-  html+='<span style="font-size:10px;color:var(--muted)">Dimmed = shared role (portfolio-level, not project-specific)</span>';
-  html+='</div>';
-  html+='<div style="overflow-x:auto;padding:10px 0"><div style="display:flex;justify-content:flex-start;min-width:900px">'+orgNode('LEAD-01',D)+'</div></div></div>';
-  // Use 2-div structure: org tree (expensive) + detail panel (cheap)
-  // org tree only re-renders when orgFilt changes, not on selNode click
-  html+='<div id="org-detail-slot"></div>';
-  document.getElementById('page-org').innerHTML=html;
-  // Now render detail panel into its own slot (fast path)
-  renderOrgDetail(D);
-}
-
-function orgNode(rid,D){
-  var r=allR().find(function(x){return x.id===rid;}); if(!r) return '';
-  var children=allR().filter(function(x){return x.par===rid;});
-  var f2=fc(r.fn);
-  var ex=D.nEx(rid),sg=D.nSg(rid),ap=D.nAp(rid),gap=ap-ex;
-  var tc=gap>0?'#A8301E':gap<0?'#B54D0A':ap>0?'#1A7244':'#DDE2EA';
-  var isSel=selNode===rid;
-
-  // Filter logic: when project selected, dim shared roles, hide irrelevant dedicated
-  var isDimmed=false,isHidden=false;
-  if(orgFilt!=='All'){
-    if(r.type==='Shared'||r.type==='Hybrid'){
-      isDimmed=true; // shared roles show but dimmed
-    } else {
-      // dedicated: show only if relevant to filtered project
-      var hasSug=(D.sug[pk(orgFilt,rid)]||0)>0||getAp(pk(orgFilt,rid))>0;
-      if(!hasSug&&!isRel(rid,orgFilt)) isHidden=true;
-    }
-  }
-  if(isHidden) return '';
-
-  var html='<div style="display:flex;flex-direction:column;align-items:center;margin:0 2px">';
-  html+='<div class="o-node'+(isSel?' sel':'')+(isDimmed?' dim':'')+'" style="border-top-color:'+f2.c+'" data-selnode="'+rid+'">';
-  html+='<div class="o-fn" style="color:'+f2.t+'">'+r.fn.split(' ').slice(0,2).join(' ')+'</div>';
-  html+='<div class="o-role">'+r.role+'</div>';
-  html+='<div style="display:flex;gap:3px;justify-content:center;flex-wrap:wrap;margin-bottom:3px">'+bd(r.band,f2.t,f2.b)+' '+bd(r.type.slice(0,3),TYPC[r.type],TYPB[r.type])+'</div>';
-  html+='<div class="esa-row">';
-  html+='<div class="esa-box"><div class="esa-lbl">E</div><div class="esa-num" style="color:var(--muted)">'+ex+'</div></div>';
-  html+='<div style="font-size:10px;color:var(--border)">|</div>';
-  html+='<div class="esa-box"><div class="esa-lbl">S</div><div class="esa-num" style="color:'+f2.c+'">'+sg+'</div></div>';
-  html+='<div style="font-size:10px;color:var(--border)">|</div>';
-  html+='<div class="esa-box"><div class="esa-lbl">A</div><div class="esa-num" style="color:var(--blue);font-size:14px">'+ap+'</div></div>';
-  html+='</div>';
-  html+='<div class="o-gap" style="color:'+tc+'">'+(gap>0?'+'+gap+' open':gap<0?Math.abs(gap)+' over':'&#10003; filled')+'</div>';
-  html+='</div>';
-  if(children.length){
-    html+='<div style="display:flex;flex-direction:column;align-items:center;width:100%"><div class="vline"></div>';
-    html+='<div class="children-wrap">';
-    if(children.length>1) html+='<div style="height:1px;background:var(--border);position:absolute;top:0;left:8%;width:84%"></div>';
-    children.forEach(function(ch){
-      var chHtml=orgNode(ch.id,D);
-      if(chHtml) html+='<div class="child-col"><div class="vline"></div>'+chHtml+'</div>';
-    });
-    html+='</div></div>';
-  }
-  html+='</div>';
-  return html;
-}
-
-// Fast path: only re-render the detail panel (not the full org tree)
-// Called when user clicks a node (selNode change only, no tree rebuild)
-function renderOrgDetail(D){
-  var slot=document.getElementById('org-detail-slot');
-  if(!slot) return;
-  slot.innerHTML=detailPanel(D);
-}
-
+// Role planning panel — opened from Band Structure chips
 function detailPanel(D){
   if(!selNode) return '';
   var r=allR().find(function(x){return x.id===selNode;}); if(!r) return '';
@@ -1364,7 +1266,7 @@ function renderBand(){
   var html='';
   html+='<div class="info">GA band structure <strong>A1 &#8594; A2 &#8594; A3 &#8594; B1 &#8594; B2</strong> (Managing Partner / COO sits above the bands) mapped to live planning data. ';
   html+='Every chip is a role from the Headcount Plan: <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. ';
-  html+='Click a chip to open the same planning panel as the Org Chart (edit E/A, capacity, conditions, JD). Changes save to the planner state and flow to Cost, P&amp;L and Org Chart.</div>';
+  html+='Click a chip to open its planning panel (edit E/A, capacity, conditions, JD). Changes save to the planner state and flow to Headcount, Cost and P&amp;L.</div>';
 
   // ── Project filter pills ──
   html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
