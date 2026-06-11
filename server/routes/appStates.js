@@ -6,6 +6,7 @@ import {
   mergeV1CashflowForPut,
   mergeV1CashflowEnvelopes,
   repairV1CashflowForRead,
+  countSoldUnitsInEnvelope,
   V1_CASHFLOW_APP_ID
 } from '../lib/v1CashflowMongoPack.js';
 import {
@@ -151,7 +152,28 @@ appStatesRouter.put(
       const nextVersion = currentVersion + 1;
       let toSave = data;
       if (appId === V1_CASHFLOW_APP_ID) {
+        const existingEnv = existing?.data ? await repairV1CashflowForRead(db, existing.data) : null;
         const merged = await mergeV1CashflowForPut(db, existing?.data, data);
+        const beforeUnits = countSoldUnitsInEnvelope(existingEnv);
+        const afterUnits = countSoldUnitsInEnvelope(merged);
+        if (beforeUnits > 0 && afterUnits === 0 && !req.body?.allowUnitLoss) {
+          return res.status(409).json({
+            error:
+              'Save rejected: would remove all sold units from the server workbook. Load from server or restore a snapshot before saving.',
+            currentVersion,
+            soldUnitsBefore: beforeUnits,
+            soldUnitsAfter: afterUnits
+          });
+        }
+        if (beforeUnits >= 3 && afterUnits < Math.floor(beforeUnits * 0.5) && !req.body?.allowUnitLoss) {
+          return res.status(409).json({
+            error:
+              'Save rejected: sold-unit count would drop sharply. Restore a snapshot or re-import CRM if data was lost.',
+            currentVersion,
+            soldUnitsBefore: beforeUnits,
+            soldUnitsAfter: afterUnits
+          });
+        }
         toSave = await packV1CashflowRowData(db, merged, {
           version: nextVersion,
           updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system'

@@ -166,6 +166,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
     <button type="button" class="btn btn-outline" data-action="mongo-server-setup" style="font-size:10px;padding:4px 8px">Set API + enable</button>
     <button type="button" class="btn btn-primary" data-action="mongo-save-now" style="font-size:10px;padding:4px 8px" title="PUT state now">Save to server</button>
     <button type="button" class="btn btn-outline" data-action="mongo-load-now" style="font-size:10px;padding:4px 8px" title="GET state from server">Load from server</button>
+    <button type="button" class="btn btn-outline" data-action="mongo-restore-snapshot" style="font-size:10px;padding:4px 8px;color:#166534;border-color:#86efac" title="Restore full workbook from an automatic server backup">↺ Restore snapshot</button>
     <button type="button" class="btn btn-primary" data-action="mongo-import-v3-projects" style="font-size:10px;padding:4px 10px" title="Load ga_rp_projects from v3_org_planner in Mongo, apply here, then save Cashflow to the server">Import V3 list from server</button>
     <span id="mongo-cf-status" style="font-size:10px;color:var(--muted);flex:1;min-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
   </div>
@@ -197,7 +198,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 39;
+var CF_VERSION = 40;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1859,6 +1860,30 @@ function mongoSnapshotsApiUrl(snapshotId){
   if(snapshotId) return base+'/'+encodeURIComponent(String(snapshotId));
   return base;
 }
+function mongoRestoreApiUrl(snapshotId){
+  return mongoStateApiUrl().replace(/\/state$/,'/restore/'+encodeURIComponent(String(snapshotId)));
+}
+function countWorkbookSoldUnits(dataMap){
+  var n=0;
+  Object.keys(dataMap||{}).forEach(function(pid){
+    var u=(dataMap[pid]&&dataMap[pid].units)||[];
+    if(Array.isArray(u)) n+=u.length;
+  });
+  return n;
+}
+function guardMongoSaveAgainstUnitLoss(serverEnv, payload){
+  if(!serverEnv||!isV1EnvelopeLike(serverEnv)) return true;
+  var serverN=countWorkbookSoldUnits(serverEnv.data);
+  var localN=countWorkbookSoldUnits(payload&&payload.data);
+  if(serverN>0&&localN===0){
+    alert('Save blocked: this browser has 0 sold units but the server has '+serverN+'.\n\nUse **Load from server** or **Restore snapshot** — do not save until your data is back.');
+    return false;
+  }
+  if(serverN>=3&&localN<Math.floor(serverN*0.5)){
+    if(!window.confirm('Warning: you are about to save '+localN+' sold units but the server has '+serverN+'.\n\nOnly continue if you intentionally removed units.\n\nCancel and use Load from server / Restore snapshot to recover.')) return false;
+  }
+  return true;
+}
 function createDeleteSnapshot(pid, projectName){
   if(!canUseMongoState()) return Promise.resolve(null);
   return fetch(mongoSnapshotsApiUrl(),{
@@ -1908,6 +1933,46 @@ function restoreLastDeletedProject(){
       renderAll();
       setSS('Restored "'+nm+'" from snapshot','green');
       alert('Project restored successfully.');
+    })
+    .catch(function(e){
+      alert('Restore failed: '+(e&&e.message?e.message:String(e)));
+    });
+}
+function showRestoreWorkbookSnapshotModal(){
+  if(!canUseMongoState()){ alert('Enable Server / Mongo first (Set API + enable), then reload.'); return; }
+  fetch(mongoSnapshotsApiUrl(),{ credentials:'include', cache:'no-store' })
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+    .then(function(res){
+      if(!res.ok) throw new Error((res.body&&res.body.error)||'Could not list snapshots');
+      var snaps=(res.body&&res.body.snapshots)||[];
+      if(!snaps.length){ alert('No server snapshots found yet.\n\nSnapshots are created automatically before imports and project deletes.'); return; }
+      var lines=snaps.slice(0,25).map(function(s,ix){
+        var when=s.createdAt?String(s.createdAt).replace('T',' ').slice(0,19):'';
+        return (ix+1)+'. '+when+' · v'+(s.sourceVersion||'?')+' · '+(s.label||'Snapshot')+(s.createdBy?' · '+s.createdBy:'');
+      });
+      var pick=window.prompt('Restore full Cashflow workbook from a server snapshot.\n\nPick a line number (1 = newest):\n\n'+lines.join('\n'),'1');
+      if(pick===null) return;
+      var ix=parseInt(String(pick).trim(),10)-1;
+      if(!Number.isFinite(ix)||ix<0||ix>=snaps.length){ alert('Invalid selection.'); return; }
+      var target=snaps[ix];
+      if(!window.confirm('Restore snapshot from '+String(target.createdAt||'').slice(0,19)+'?\n\nThis replaces the live server workbook with that backup (a new snapshot of current state is taken first).')) return;
+      return fetch(mongoRestoreApiUrl(target.id),{
+        method:'POST',
+        credentials:'include',
+        cache:'no-store',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({updatedBy:currentCashflowUserName(), note:'UI restore from snapshot '+target.id})
+      }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); });
+    })
+    .then(function(res){
+      if(!res) return;
+      if(!res.ok) throw new Error((res.body&&res.body.error)||'Restore failed');
+      return loadAllFromMongo();
+    })
+    .then(function(){
+      renderAll();
+      setSS('Workbook restored from snapshot','green');
+      alert('Cashflow workbook restored from snapshot. Sold units and comments should be back — hard-refresh if anything still looks wrong.');
     })
     .catch(function(e){
       alert('Restore failed: '+(e&&e.message?e.message:String(e)));
@@ -2550,7 +2615,10 @@ function mongoStatePutNow(){
       body:JSON.stringify({data:data, expectedVersion:exp, updatedBy:user})
     }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok,body:j}; }); });
   }
-  return sendPut(payload, expected)
+  return fetchMongoEnvelope().then(function(latest){
+    if(latest&&latest.data&&!guardMongoSaveAgainstUnitLoss(latest.data, payload)) return {ok:false, body:{error:'Save blocked to protect sold-unit data'}};
+    return sendPut(payload, expected);
+  })
   .then(function(res){
     if(res.ok) return res;
     if(res.body && res.body.currentVersion!==undefined && String(res.body.error||'').toLowerCase().indexOf('version conflict')>=0){
@@ -2866,7 +2934,8 @@ function loadAll(){
           mergeProjectsFromCfData();
           if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
           var needVersionBump=!d.v||d.v<CF_VERSION;
-          if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
+          if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()) localSnapshotSave();
+          else if(needVersionBump) localSnapshotSave();
         }
         _curProjectGroup='__all__';
         if(_curProjRoot==='__all__') _curProjRoot=localStorage.getItem('ga_v1_proj_root_filter')||'__all__';
@@ -6183,6 +6252,11 @@ function renderSales(){
   h+='<div class="card">';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px">';
   h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b)">Sold Units ('+sold+') — revenue timing</div>';
+  if(!sold&&canUseMongoState()){
+    h+='<div style="width:100%;margin:-2px 0 8px;padding:8px 10px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;font-size:10px;color:#92400E;line-height:1.45">';
+    h+='<strong>No sold units in this project.</strong> If you had CRM / inventory data before, use <strong>Load from server</strong> or <strong>↺ Restore snapshot</strong> in the Server / Mongo bar (do not save until data is back).';
+    h+='</div>';
+  }
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
   h+='<span style="font-size:10px;color:var(--muted)">Columns:</span>';
   h+='<button class="btn '+(_salesGridMode==='month'?'btn-primary':'btn-outline')+'" data-action="sales-grid-mode" data-mode="month" style="font-size:10px;padding:4px 8px">Months</button>';
@@ -6489,7 +6563,7 @@ function renderSales(){
   h+='</tbody></table></div>';
   h+='</div>';
   el.innerHTML=h;
-  var freezeCols=(units&&units.some(function(u){return u.payType==='install';}))?10:9;
+  var freezeCols=SALES_GRID_FIXED_COLS+((units&&units.some(function(u){return u.payType==='install';}))?1:0);
   applySalesGridFreeze(freezeCols);
   setTimeout(function(){ applySalesGridFreeze(freezeCols); }, 0);
 }
@@ -9697,6 +9771,7 @@ document.addEventListener('click',function(e){
     });
     return;
   }
+  if(a==='mongo-restore-snapshot'){ showRestoreWorkbookSnapshotModal(); return; }
   if(a==='mongo-import-v3-projects'){
     importV3ProjectListFromServer();
     return;

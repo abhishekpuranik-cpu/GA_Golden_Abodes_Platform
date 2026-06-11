@@ -159,12 +159,6 @@ function deepMergeWorkbook(existing, incoming, path = '') {
   return out;
 }
 
-/**
- * Union-merge per-project workbook keys so a short client save cannot drop projects
- * that exist only in Mongo.
- * @param {object | null} existingEnv
- * @param {object} incomingEnv
- */
 export function mergeV1CashflowEnvelopes(existingEnv, incomingEnv) {
   if (!incomingEnv || typeof incomingEnv !== 'object') {
     throw new Error('v1_cashflow merge requires incoming envelope');
@@ -192,6 +186,17 @@ export function mergeV1CashflowEnvelopes(existingEnv, incomingEnv) {
       ...(incomingEnv.ui && typeof incomingEnv.ui === 'object' && !Array.isArray(incomingEnv.ui) ? incomingEnv.ui : {})
     }
   };
+}
+
+/** Count sold-unit rows across all projects in a client envelope. */
+export function countSoldUnitsInEnvelope(env) {
+  if (!env?.data || typeof env.data !== 'object' || Array.isArray(env.data)) return 0;
+  let n = 0;
+  for (const pid of Object.keys(env.data)) {
+    const units = env.data[pid]?.units;
+    if (Array.isArray(units)) n += units.length;
+  }
+  return n;
 }
 
 /**
