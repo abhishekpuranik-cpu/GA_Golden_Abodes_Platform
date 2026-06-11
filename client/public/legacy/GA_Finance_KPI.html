@@ -77,8 +77,8 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
     <div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;margin-top:1px">Finance &amp; Accounts · FY 2026-27 · KPI tracking, registers &amp; appraisals</div>
   </div>
   <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto">
-    <span id="adm-badge" class="adm hidden">ADMIN · Abhishek Puranik</span>
-    <button class="btn btn-ghost" id="adm-btn" onclick="toggleAdmin()">Admin login</button>
+    <span id="adm-badge" class="adm hidden"></span>
+    <button class="btn btn-ghost" id="adm-btn" onclick="adminInfo()">Admin access</button>
     <span id="save-status" style="font-size:10px;color:var(--muted)"></span>
     <label class="btn btn-ghost" style="cursor:pointer">Import Excel<input type="file" id="imp-file" accept=".xlsx,.xls" style="display:none" onchange="importExcel(this.files[0]);this.value=''"/></label>
     <button class="btn btn-ghost" onclick="exportExcel()">Export Excel</button>
@@ -108,17 +108,21 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
 /* =====================================================================
    GA Finance KPI & Governance — single-file vault app (HTML-first).
    FY 2026-27. State: localStorage 'ga_finkpi_state_v2' (migrates v1).
-   Admin (Abhishek Puranik): KPI editing per individual, compliance
-   calendar replace/upload, unlocks. Mongo sync planned (V3) via
-   GET/PUT /api/apps/finance_kpi/state.
+   Admin rights come from the PLATFORM LOGIN (GET /api/auth/session):
+   users with the 'finance_kpi_admin' app right or 'manage_security'
+   (e.g. abhishek.puranik@goldenabodes.com) get admin automatically.
+   Granted/revoked in the Admin Security console. Offline password
+   fallback only when the API is unreachable. Mongo sync planned (V3)
+   via GET/PUT /api/apps/finance_kpi/state.
 ===================================================================== */
 var LS_KEY='ga_finkpi_state_v2';
 var LS_KEY_V1='ga_finkpi_state_v1';
-var ADMIN_PW='ga@admin';
-var ADMIN_NAME='Abhishek Puranik';
+var ADMIN_PW='ga@admin'; /* offline fallback only */
+var ADMIN_APP='finance_kpi_admin';
+var PRINCIPAL_NAME='Abhishek Puranik';
 var FY_START_YEAR=2026; /* FY 2026-27: Apr 2026 - Mar 2027 */
 var FY_LABEL='2026-27';
-var ADMIN=false;
+var ADMIN=false, ADMIN_NAME='', ADMIN_VIA='';
 
 /* ------------- Role KPI templates (from GA_Accounting_KPI.xlsx) ----- */
 /* dir:'lte' lower is better; 'gte' higher is better. th=[t4,t3,t2]. */
@@ -275,19 +279,61 @@ function touch(){if(_saveT)clearTimeout(_saveT);_saveT=setTimeout(function(){sav
 function logAudit(action,detail){S.audit.unshift({ts:new Date().toISOString(),action:action,detail:detail});if(S.audit.length>500)S.audit.length=500;touch();}
 
 /* --------------------------- Admin mode ----------------------------- */
-function toggleAdmin(){
-  if(ADMIN){ADMIN=false;logAudit('admin.off',ADMIN_NAME+' logged out');}
-  else{
-    var pw=window.prompt('Admin login \u2014 '+ADMIN_NAME+'\n\nEnter admin password:');
-    if(pw==null)return;
-    if(pw!==ADMIN_PW){alert('Wrong password.');return;}
-    ADMIN=true;logAudit('admin.on',ADMIN_NAME+' logged in');
-  }
-  document.getElementById('adm-badge').classList.toggle('hidden',!ADMIN);
-  document.getElementById('adm-btn').textContent=ADMIN?'Exit admin':'Admin login';
-  renderTab(curTab);
+/* Admin = platform session with 'finance_kpi_admin' app right or
+   'manage_security' permission. Managed in the Admin Security console. */
+function checkAdminSession(cb){
+  fetch('/api/auth/session',{credentials:'same-origin',cache:'no-store'})
+    .then(function(r){return r.json().then(function(j){return {reach:true,j:j};}).catch(function(){return {reach:true,j:null};});})
+    .catch(function(){return {reach:false,j:null};})
+    .then(function(res){
+      var authed=false;
+      if(res.j&&res.j.authenticated&&res.j.user){
+        authed=true;
+        var u=res.j.user;
+        var apps=(u.allowedApps||[]).map(String),perms=(u.permissions||[]).map(String);
+        if(perms.indexOf('manage_security')>=0||apps.indexOf(ADMIN_APP)>=0){
+          ADMIN=true;ADMIN_VIA='platform';ADMIN_NAME=u.name||u.email||'Admin';
+        }else if(ADMIN_VIA!=='password'){
+          ADMIN=false;ADMIN_NAME=u.name||u.email||'';
+        }
+      }
+      updateAdminUi();
+      if(cb)cb(res.reach,authed);
+    });
 }
-function needAdmin(){if(!ADMIN){alert('Admin rights required \u2014 use "Admin login" in the header ('+ADMIN_NAME+').');return true;}return false;}
+function updateAdminUi(){
+  var badge=document.getElementById('adm-badge'),btn=document.getElementById('adm-btn');
+  badge.classList.toggle('hidden',!ADMIN);
+  if(ADMIN)badge.textContent='ADMIN \u00b7 '+ADMIN_NAME+(ADMIN_VIA==='platform'?' \u00b7 via Admin Security':' \u00b7 offline');
+  btn.textContent=ADMIN?(ADMIN_VIA==='password'?'Exit admin':'Admin info'):'Admin access';
+}
+function adminInfo(){
+  if(ADMIN&&ADMIN_VIA==='password'){
+    ADMIN=false;ADMIN_VIA='';ADMIN_NAME='';
+    logAudit('admin.off','offline admin ended');
+    updateAdminUi();renderTab(curTab);return;
+  }
+  if(ADMIN){
+    alert('Admin is active via your App Vault login ('+ADMIN_NAME+').\n\nTo give admin to someone else: Admin Security console \u2192 add the app right "'+ADMIN_APP+'" to their user. Accounts with the manage_security permission (e.g. abhishek.puranik@goldenabodes.com) are admins automatically.');
+    return;
+  }
+  checkAdminSession(function(reach,authed){
+    if(ADMIN){renderTab(curTab);return;}
+    if(reach&&authed){
+      alert('Your App Vault account does not have Finance KPI admin rights.\n\nAsk Abhishek Puranik to add the app right "'+ADMIN_APP+'" to your user in the Admin Security console.');
+    }else if(reach){
+      alert('You are not logged into the App Vault in this browser.\n\nOpen the vault, log in (e.g. abhishek.puranik@goldenabodes.com), then return here \u2014 admin activates automatically.');
+    }else{
+      var pw=window.prompt('Platform API unreachable (offline / local file).\n\nEnter the offline admin password:');
+      if(pw==null)return;
+      if(pw!==ADMIN_PW){alert('Wrong password.');return;}
+      ADMIN=true;ADMIN_VIA='password';ADMIN_NAME='Offline admin';
+      logAudit('admin.on','offline password fallback');
+      updateAdminUi();renderTab(curTab);
+    }
+  });
+}
+function needAdmin(){if(!ADMIN){alert('Admin rights required.\n\nAdmin is tied to your App Vault login \u2014 granted in the Admin Security console (app right "'+ADMIN_APP+'"). Click "Admin access" in the header to re-check.');return true;}return false;}
 
 /* --------------------------- Helpers ------------------------------- */
 function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -513,7 +559,7 @@ function copyMbr(){
 var compFilter='all';
 function renderComp(){
   var t=todayISO();
-  var h='<div class="info">FY '+FY_LABEL+' calendar. Enter the <b>actual filing date</b> the moment each filing is completed \u2014 status updates instantly. Feeds Sr. KPIs (GST / TDS / RERA / notices).'+(ADMIN?'':' Structural changes (add / delete / upload) need <b>admin login</b>.')+'</div>';
+  var h='<div class="info">FY '+FY_LABEL+' calendar. Enter the <b>actual filing date</b> the moment each filing is completed \u2014 status updates instantly. Feeds Sr. KPIs (GST / TDS / RERA / notices).'+(ADMIN?'':' Structural changes (add / delete / upload) need admin rights \u2014 tied to your App Vault login, granted in <b>Admin Security</b>.')+'</div>';
   h+='<div class="lockbar">';
   ['all','pending','overdue','filed'].forEach(function(f){
     h+='<button class="sc-btn'+(compFilter===f?' on':'')+'" onclick="compFilter=\''+f+'\';renderComp()">'+f.charAt(0).toUpperCase()+f.slice(1)+'</button>';
@@ -576,7 +622,7 @@ function downloadCalTemplate(){
   S.compliance.forEach(function(c){rows.push([ymLabel(ymOf(c.due)),c.obligation,c.authority,c.period,c.due,'Sr. Accountant',c.actual||'',c.remarks||'']);});
   rows.push([]);
   rows.push(['HOW TO USE: edit/add rows above. Dates must be YYYY-MM-DD (or Excel dates). Keep the header row.','','','','','','','']);
-  rows.push(['Then in the app: Admin login \u2192 Compliance Calendar \u2192 Upload calendar. Choose Replace or Merge.','','','','','','','']);
+  rows.push(['Then in the app (logged in as an admin, e.g. abhishek.puranik@goldenabodes.com): Compliance Calendar \u2192 Upload calendar. Choose Replace or Merge.','','','','','','','']);
   var ws=XLSX.utils.aoa_to_sheet(rows);
   ws['!cols']=[{wch:9},{wch:44},{wch:22},{wch:16},{wch:12},{wch:16},{wch:12},{wch:24}];
   XLSX.utils.book_append_sheet(wb,ws,'Compliance Calendar');
@@ -866,10 +912,10 @@ function completeReview(key){
   saveState(true);renderReview();
 }
 function unlockReview(key){
-  var pw=window.prompt('Unlocking a completed review is exceptional and is recorded.\n\nEnter admin password ('+ADMIN_NAME+'):');
-  if(pw!==ADMIN_PW){if(pw!=null)alert('Wrong password.');return;}
-  var why=window.prompt('Reason for unlock (recorded in audit trail):')||'(none given)';
-  logAudit('review.unlock',key+' \u2014 '+why);
+  if(needAdmin())return;
+  var why=window.prompt('Unlocking a completed review is exceptional and is recorded against '+ADMIN_NAME+'.\n\nReason for unlock:');
+  if(why==null)return;
+  logAudit('review.unlock',key+' \u2014 '+(why||'(none given)')+' (by '+ADMIN_NAME+')');
   var rv=reviewOf(key);rv.lockBy='';rv.lockTs='';
   saveState(true);renderReview();
 }
@@ -929,7 +975,7 @@ function renderAppr(){
     '<div><div class="muted" style="font-size:10px;font-weight:700;margin-bottom:3px">REVIEWER COMMENTS &amp; OBSERVATIONS</div><textarea rows="3" '+dis+'onchange="setAppr(\''+akey+'\',\'comments\',this.value)">'+esc(ap.comments||'')+'</textarea></div>'+
     '<div><div class="muted" style="font-size:10px;font-weight:700;margin-bottom:3px">DEVELOPMENT / VARIABLE-PAY NOTE</div><textarea rows="3" '+dis+'onchange="setAppr(\''+akey+'\',\'paynote\',this.value)">'+esc(ap.paynote||'')+'</textarea></div></div>';
   h+='<div class="grid" style="grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:12px">'+
-    signBox(akey,'signEmp','EMPLOYEE',ap)+signBox(akey,'signRev','REVIEWER',ap)+signBox(akey,'signPrin','PRINCIPAL / MP \u2014 '+ADMIN_NAME.toUpperCase(),ap)+'</div>';
+    signBox(akey,'signEmp','EMPLOYEE',ap)+signBox(akey,'signRev','REVIEWER',ap)+signBox(akey,'signPrin','PRINCIPAL / MP \u2014 '+PRINCIPAL_NAME.toUpperCase(),ap)+'</div>';
   if(!ap.locked)h+='<button class="btn btn-green" onclick="lockAppr(\''+akey+'\')">\u{1F512} Sign off &amp; lock appraisal</button>';
   else h+='<button class="btn btn-red" onclick="unlockAppr(\''+akey+'\')">Unlock (admin)</button>';
   h+='</div>';
@@ -948,10 +994,10 @@ function lockAppr(key){
   logAudit('appraisal.lock',key);saveState(true);renderAppr();
 }
 function unlockAppr(key){
-  var pw=window.prompt('Enter admin password to unlock:');
-  if(pw!==ADMIN_PW){if(pw!=null)alert('Wrong password.');return;}
-  var why=window.prompt('Reason for unlock (recorded):')||'(none given)';
-  logAudit('appraisal.unlock',key+' \u2014 '+why);
+  if(needAdmin())return;
+  var why=window.prompt('Reason for unlock (recorded against '+ADMIN_NAME+'):');
+  if(why==null)return;
+  logAudit('appraisal.unlock',key+' \u2014 '+(why||'(none given)')+' (by '+ADMIN_NAME+')');
   S.appraisals[key].locked=false;saveState(true);renderAppr();
 }
 
@@ -973,7 +1019,7 @@ function renderKpiMgr(){
   var totWt=0,activeN=0;ks.forEach(function(k){if(scoreable(k)){totWt+=+k.wt;activeN++;}});
 
   if(ADMIN)h+='<div class="info"><b>Admin mode ('+ADMIN_NAME+'):</b> edit any cell directly \u2014 changes apply to <b>'+esc(emp.name)+' only</b>. A KPI scores only when it has a direction, thresholds and a weight above 0. T4/T3/T2 are the rating cut-offs for 4 / 3 / 2 (anything beyond scores 1). Aim for weights totalling 100.</div>';
-  else h+='<div class="info">KPI set for <b>'+esc(emp.name)+'</b> \u2014 read-only. <b>Admin login</b> (header) to add, modify or delete KPIs for this individual.</div>';
+  else h+='<div class="info">KPI set for <b>'+esc(emp.name)+'</b> \u2014 read-only. Admin rights (granted in the <b>Admin Security</b> console, app right "'+ADMIN_APP+'") are needed to add, modify or delete KPIs for this individual.</div>';
   if(totWt!==100&&activeN)h+='<div class="warn">Active weights total <b>'+totWt+'</b> (not 100). Scores still compute correctly (renormalized), but clean weights are easier to explain.</div>';
 
   h+='<div class="card kpi-edit" style="overflow-x:auto"><table><tr><th>#</th><th>Category</th><th>KPI</th><th>Freq</th><th>Wt%</th><th>Dir</th><th>T4</th><th>T3</th><th>T2</th><th>Target / benchmark</th><th>Input hint</th><th>Evidence source</th><th>Status</th>'+(ADMIN?'<th></th>':'')+'</tr>';
@@ -1215,6 +1261,7 @@ function exportExcel(){
 loadState();
 saveState(false);
 renderTab('dash');
+checkAdminSession(function(){renderTab(curTab);});
 </script>
 </body>
 </html>

@@ -4,7 +4,7 @@ import { authApi } from '../lib/api.js';
 import { ProjectAssignPicker } from '../components/ProjectAssignPicker.jsx';
 import { BandwidthReport } from '../components/BandwidthReport.jsx';
 
-const ALL_APPS = ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'admin_security'];
+const ALL_APPS = ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'admin_security'];
 
 function splitCsv(s) {
   return String(s || '')

@@ -165,7 +165,7 @@ authRouter.post(
       status: 'active',
       roleIds: ['admin'],
       permissions: [PERM_ADMIN],
-      allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'admin_security'],
+      allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'admin_security'],
       allowedProjects: [],
       allowedTabs: [],
       passwordSalt: salt,
@@ -181,7 +181,7 @@ authRouter.post(
           name: 'Admin',
           description: 'Full access',
           permissions: [PERM_ADMIN],
-          allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'admin_security'],
+          allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'admin_security'],
           allowedProjects: [],
           allowedTabs: []
         }
