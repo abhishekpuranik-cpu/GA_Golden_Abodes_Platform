@@ -198,7 +198,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 40;
+var CF_VERSION = 41;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1830,6 +1830,7 @@ var _mongoStateVersion = 0;
 var _mongoSaveTimer = null;
 var _mongoSaveBusy = false;
 var _mongoSaveQueued = false;
+var _mongoRestoringSnapshot = false;
 var _mongoDirtyPids = {};
 var _mongoDirtyPidSections = {};
 var _mongoForceFullSave = false;
@@ -1863,6 +1864,57 @@ function mongoSnapshotsApiUrl(snapshotId){
 function mongoRestoreApiUrl(snapshotId){
   return mongoStateApiUrl().replace(/\/state$/,'/restore/'+encodeURIComponent(String(snapshotId)));
 }
+function mongoImportApiUrl(){
+  return mongoStateApiUrl().replace(/\/state$/,'/import');
+}
+function safeFetchJson(url, opts){
+  opts=opts||{};
+  return fetch(url, opts).then(function(r){
+    var ct=String(r.headers.get('content-type')||'');
+    if(ct.indexOf('json')<0){
+      return r.text().then(function(t){
+        var hint=(r.status===404)?' API route not found on server — try hard-refresh after deploy.':'';
+        throw new Error('Server returned non-JSON (HTTP '+r.status+').'+hint+' Use Load from server or retry after refresh.');
+      });
+    }
+    return r.json().then(function(j){ return {ok:r.ok, status:r.status, body:j}; });
+  });
+}
+function applyWorkbookEnvelope(env){
+  if(!isV1EnvelopeLike(env)) throw new Error('Snapshot data shape is invalid');
+  _cfData=env.data||{};
+  if(Array.isArray(env.manualProjs)){
+    env.manualProjs.forEach(function(mp){
+      if(mp&&mp.id!=null&&!PROJS.find(function(p){ return p&&String(p.id)===String(mp.id); })) PROJS.push(mp);
+    });
+  }
+  mergeProjectsFromCfData();
+  _curProjectGroup='__all__';
+  if(env.ui&&env.ui.projRoot) _curProjRoot=env.ui.projRoot;
+  if(env.ui&&env.ui.phase) _curPhase=env.ui.phase;
+  if(env.ui&&env.ui.building) _curBuilding=env.ui.building;
+}
+function restoreWorkbookFromSnapshotId(snapshotId){
+  if(!snapshotId) return Promise.reject(new Error('Missing snapshot id'));
+  _mongoRestoringSnapshot=true;
+  return safeFetchJson(mongoSnapshotsApiUrl(snapshotId),{ credentials:'include', cache:'no-store' })
+    .then(function(res){
+      if(!res.ok) throw new Error((res.body&&res.body.error)||'Snapshot load failed');
+      var env=(res.body&&res.body.data)||null;
+      if(!isV1EnvelopeLike(env)) throw new Error('Snapshot envelope invalid');
+      applyWorkbookEnvelope(env);
+      _mongoForceFullSave=true;
+      _mongoDirtyPids={};
+      _mongoDirtyPidSections={};
+      return mongoStatePutNow();
+    })
+    .then(function(ok){
+      if(ok===false) throw new Error('Could not save restored workbook to server');
+      localSnapshotSave();
+      return true;
+    })
+    .finally(function(){ _mongoRestoringSnapshot=false; });
+}
 function countWorkbookSoldUnits(dataMap){
   var n=0;
   Object.keys(dataMap||{}).forEach(function(pid){
@@ -1872,6 +1924,7 @@ function countWorkbookSoldUnits(dataMap){
   return n;
 }
 function guardMongoSaveAgainstUnitLoss(serverEnv, payload){
+  if(_mongoRestoringSnapshot) return true;
   if(!serverEnv||!isV1EnvelopeLike(serverEnv)) return true;
   var serverN=countWorkbookSoldUnits(serverEnv.data);
   var localN=countWorkbookSoldUnits(payload&&payload.data);
@@ -1940,39 +1993,29 @@ function restoreLastDeletedProject(){
 }
 function showRestoreWorkbookSnapshotModal(){
   if(!canUseMongoState()){ alert('Enable Server / Mongo first (Set API + enable), then reload.'); return; }
-  fetch(mongoSnapshotsApiUrl(),{ credentials:'include', cache:'no-store' })
-    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); })
+  safeFetchJson(mongoSnapshotsApiUrl(),{ credentials:'include', cache:'no-store' })
     .then(function(res){
       if(!res.ok) throw new Error((res.body&&res.body.error)||'Could not list snapshots');
       var snaps=(res.body&&res.body.snapshots)||[];
       if(!snaps.length){ alert('No server snapshots found yet.\n\nSnapshots are created automatically before imports and project deletes.'); return; }
       var lines=snaps.slice(0,25).map(function(s,ix){
         var when=s.createdAt?String(s.createdAt).replace('T',' ').slice(0,19):'';
-        return (ix+1)+'. '+when+' · v'+(s.sourceVersion||'?')+' · '+(s.label||'Snapshot')+(s.createdBy?' · '+s.createdBy:'');
+        var units=s.soldUnitCount!=null?(' · '+s.soldUnitCount+' units'):'';
+        return (ix+1)+'. '+when+' · v'+(s.sourceVersion||'?')+units+' · '+(s.label||'Snapshot')+(s.createdBy?' · '+s.createdBy:'');
       });
-      var pick=window.prompt('Restore full Cashflow workbook from a server snapshot.\n\nPick a line number (1 = newest):\n\n'+lines.join('\n'),'1');
+      var pick=window.prompt('Restore full Cashflow workbook from a server snapshot.\n\nPick a line number (1 = newest with data — try 2 or 3 if #1 is empty):\n\n'+lines.join('\n'),'1');
       if(pick===null) return;
       var ix=parseInt(String(pick).trim(),10)-1;
       if(!Number.isFinite(ix)||ix<0||ix>=snaps.length){ alert('Invalid selection.'); return; }
       var target=snaps[ix];
-      if(!window.confirm('Restore snapshot from '+String(target.createdAt||'').slice(0,19)+'?\n\nThis replaces the live server workbook with that backup (a new snapshot of current state is taken first).')) return;
-      return fetch(mongoRestoreApiUrl(target.id),{
-        method:'POST',
-        credentials:'include',
-        cache:'no-store',
-        headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({updatedBy:currentCashflowUserName(), note:'UI restore from snapshot '+target.id})
-      }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok, body:j}; }); });
+      if(!window.confirm('Restore snapshot from '+String(target.createdAt||'').slice(0,19)+'?\n\nThis reloads sold units, CRM imports, and comments from that backup, then saves to the server.')) return;
+      return restoreWorkbookFromSnapshotId(target.id);
     })
-    .then(function(res){
-      if(!res) return;
-      if(!res.ok) throw new Error((res.body&&res.body.error)||'Restore failed');
-      return loadAllFromMongo();
-    })
-    .then(function(){
+    .then(function(done){
+      if(!done) return;
       renderAll();
       setSS('Workbook restored from snapshot','green');
-      alert('Cashflow workbook restored from snapshot. Sold units and comments should be back — hard-refresh if anything still looks wrong.');
+      alert('Cashflow workbook restored. Sold units and comments should be back in the compact grid layout.');
     })
     .catch(function(e){
       alert('Restore failed: '+(e&&e.message?e.message:String(e)));

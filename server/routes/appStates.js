@@ -277,12 +277,13 @@ appStatesRouter.get(
       const rows = await db
         .collection('app_state_snapshots')
         .find({ appId })
-        .project({ appId: 1, sourceVersion: 1, createdAt: 1, createdBy: 1, label: 1, note: 1 })
+        .project({ appId: 1, sourceVersion: 1, createdAt: 1, createdBy: 1, label: 1, note: 1, data: appId === V1_CASHFLOW_APP_ID ? 1 : 0 })
         .sort({ createdAt: -1 })
         .limit(limit)
         .toArray();
-      res.json({
-        snapshots: rows.map((r) => ({
+      const snapshots = [];
+      for (const r of rows) {
+        const item = {
           id: r._id.toString(),
           appId: r.appId,
           sourceVersion: r.sourceVersion,
@@ -290,8 +291,18 @@ appStatesRouter.get(
           createdBy: r.createdBy,
           label: r.label,
           note: r.note
-        }))
-      });
+        };
+        if (appId === V1_CASHFLOW_APP_ID && r.data) {
+          try {
+            const env = await repairV1CashflowForRead(db, r.data);
+            item.soldUnitCount = countSoldUnitsInEnvelope(env);
+          } catch {
+            item.soldUnitCount = null;
+          }
+        }
+        snapshots.push(item);
+      }
+      res.json({ snapshots });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
     }
@@ -361,7 +372,15 @@ appStatesRouter.get(
 
 appStatesRouter.post(
   '/apps/:appId/restore/:snapshotId',
-  withDb(async (req, res, db) => {
+  withDb(restoreAppStateFromSnapshotHandler)
+);
+
+appStatesRouter.post(
+  '/apps/:appId/snapshots/:snapshotId/restore',
+  withDb(restoreAppStateFromSnapshotHandler)
+);
+
+async function restoreAppStateFromSnapshotHandler(req, res, db) {
     const appId = ensureAppId(req, res);
     if (!appId) return;
     try {
@@ -409,5 +428,4 @@ appStatesRouter.post(
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
     }
-  })
-);
+}
