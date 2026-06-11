@@ -308,16 +308,18 @@ var ROLES = [
   {id:'CONS-07',fn:'Construction',      role:'Supervisor Finishing', band:'A1',type:'Dedicated',d:'sqf',cap:15000,fix:360000,pri:'Medium',par:'CONS-06'},
   {id:'CONS-08',fn:'Construction',      role:'Planning Engineer',    band:'A2',type:'Dedicated',d:'slb',cap:8,fix:396000,  pri:'High',    par:'CONS-02'},
   {id:'CONS-09',fn:'Construction',      role:'QS / Billing Engr',   band:'A2',type:'Dedicated',d:'cnt',cap:1,fix:396000,  pri:'High',    par:'CONS-02'},
-  {id:'PROC-01',fn:'Procurement',       role:'Procurement Head',     band:'B1',type:'Shared',   d:'cnt',cap:3,fix:1426668, pri:'High',    par:'LEAD-01'},
+  {id:'PROC-01',fn:'Procurement',       role:'Procurement Head',     band:'B2',type:'Shared',   d:'cnt',cap:3,fix:1426668, pri:'High',    par:'LEAD-01'},
   {id:'PROC-02',fn:'Procurement',       role:'Procurement Exec',     band:'A2',type:'Hybrid',   d:'rev',cap:600000000,fix:372000,pri:'High',par:'PROC-01',hyb:0.5},
   {id:'PROC-03',fn:'Procurement',       role:'Store Manager',        band:'A2',type:'Dedicated',d:'rev',cap:800000000,fix:449538,pri:'Medium',par:'PROC-01'},
-  {id:'FIN-01', fn:'Finance',           role:'Finance Head',         band:'B1',type:'Shared',   d:'cnt',cap:3,fix:1426668, pri:'Critical',par:'LEAD-01'},
+  {id:'FIN-01', fn:'Finance',           role:'Finance Head',         band:'B2',type:'Shared',   d:'cnt',cap:3,fix:1426668, pri:'Critical',par:'LEAD-01'},
   {id:'FIN-02', fn:'Finance',           role:'Project Accountant',   band:'A2',type:'Dedicated',d:'trx',cap:350,fix:480000,pri:'High',    par:'FIN-01'},
   {id:'FIN-03', fn:'Finance',           role:'Accounts Executive',   band:'A1',type:'Hybrid',   d:'trx',cap:600,fix:332000,pri:'Medium',  par:'FIN-01',hyb:0.5},
-  {id:'SAL-01', fn:'Sales & Marketing', role:'Sales Head',           band:'B1',type:'Shared',   d:'cnt',cap:3,fix:1200000, pri:'Critical',par:'LEAD-01'},
+  {id:'SAL-01', fn:'Sales & Marketing', role:'Sales Head',           band:'B2',type:'Shared',   d:'cnt',cap:3,fix:1200000, pri:'Critical',par:'LEAD-01'},
   {id:'SAL-02', fn:'Sales & Marketing', role:'Marketing Lead',       band:'B1',type:'Hybrid',   d:'bkn',cap:50000000,fix:780000,pri:'High',par:'SAL-01',hyb:1},
+  {id:'SAL-05', fn:'Sales & Marketing', role:'Sr. Manager - Sales (Site)',band:'B1',type:'Dedicated',d:'bkn',cap:150000000,fix:1000000,pri:'High',par:'SAL-01',flr:1},
   {id:'SAL-03', fn:'Sales & Marketing', role:'Pre-Sales Exec',       band:'A1',type:'Dedicated',d:'lds',cap:150,fix:264000, pri:'High',    par:'SAL-01'},
-  {id:'SAL-04', fn:'Sales & Marketing', role:'Sales Manager (Closing Lead)',band:'A3',type:'Dedicated',d:'bkn',cap:80000000,fix:620000,pri:'Critical',par:'SAL-01'},
+  {id:'SAL-04', fn:'Sales & Marketing', role:'Sales Manager',        band:'A3',type:'Dedicated',d:'bkn',cap:80000000,fix:620000,pri:'Critical',par:'SAL-05'},
+  {id:'SAL-06', fn:'Sales & Marketing', role:'Asst. Sales Manager',  band:'A2',type:'Dedicated',d:'bkn',cap:50000000,fix:480000,pri:'High',  par:'SAL-04'},
   {id:'CRM-01', fn:'CRM & CX',          role:'Manager - CRM & Receivables',band:'B1',type:'Dedicated',d:'unt',cap:300,fix:480000,pri:'High',par:'LEAD-01'},
   {id:'CRM-02', fn:'CRM & CX',          role:'CRM Executive',        band:'A1',type:'Dedicated',d:'unt',cap:90, fix:300000, pri:'High',    par:'CRM-01'},
   {id:'CRM-03', fn:'CRM & CX',          role:'Handover / CX Lead',   band:'A3',type:'Dedicated',d:'unt',cap:250,fix:480000, pri:'High',    par:'CRM-01'},
@@ -417,6 +419,7 @@ var COND = {
   'CONS-08':{withMgr:'1',withoutMgr:'1',withFinance:'1',notes:'Estimation/Planning; +1 finance'},
   'PROC-03':{withMgr:'1',withoutMgr:'1',withFinance:'',notes:'Store per project'},
   'ADM-02': {withMgr:'1',withoutMgr:'1',withFinance:'1',notes:'Compliance/Site Safety/Health'},
+  'SAL-05': {withMgr:'',withoutMgr:'',withFinance:'',notes:'Site sales head only when site crosses ~Rs 15 Cr/yr bookings or runs 2+ closing managers; smaller sites report to B2 Sales Head'},
 };
 // PROJ_FLAGS[pid] = {hasMgr: bool, isFinance: bool}
 var PROJ_FLAGS = {};
@@ -727,7 +730,8 @@ function calcEngine(){
       });
     } else {
       active.forEach(function(p){
-        var base=cc(dv(p,r.d)/cap);
+        // flr roles only suggest once the driver fully crosses the cap (volume-gated seats, e.g. site sales head)
+        var base=r.flr?Math.floor(dv(p,r.d)/cap):cc(dv(p,r.d)/cap);
         sug[pk(p.id,r.id)]=computeSug(r,p.id,base);
       });
     }
