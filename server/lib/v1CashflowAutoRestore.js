@@ -4,6 +4,7 @@ import {
   packV1CashflowRowData,
   countSoldUnitsInEnvelope
 } from './v1CashflowMongoPack.js';
+import { V1_AUTO_RESTORE_BEFORE, V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW } from './config.js';
 
 async function unitsInStoredData(db, stored) {
   if (!stored) return 0;
@@ -95,7 +96,7 @@ export async function restoreV1CashflowFromSnapshot(db, target, updatedBy = 'res
  * restore the richest snapshot from before that cutoff (e.g. this morning before layout deploy).
  */
 export async function runV1AutoRestoreOnBoot(db) {
-  const beforeRaw = String(process.env.V1_AUTO_RESTORE_BEFORE || '').trim();
+  const beforeRaw = String(V1_AUTO_RESTORE_BEFORE || '').trim();
   if (!beforeRaw) return null;
 
   const flagId = `v1_auto_restore:${beforeRaw}`;
@@ -106,7 +107,7 @@ export async function runV1AutoRestoreOnBoot(db) {
     return prior;
   }
 
-  const threshold = Math.max(0, Number(process.env.V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW) || 5);
+  const threshold = V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW;
   const states = db.collection('app_states');
   const existing = await states.findOne({ _id: V1_CASHFLOW_APP_ID });
   let currentUnits = 0;

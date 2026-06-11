@@ -1,5 +1,5 @@
 import { MongoClient } from 'mongodb';
-import { MONGODB_URI, DB_NAME } from './config.js';
+import { MONGODB_URI, DB_NAME, V1_AUTO_RESTORE_BEFORE } from './config.js';
 
 const client = new MongoClient(MONGODB_URI);
 
@@ -11,7 +11,7 @@ export async function ensureMongo() {
       await client.connect();
       dbInstance = client.db(DB_NAME);
       console.log(`MongoDB connected (${DB_NAME})`);
-      if (String(process.env.V1_AUTO_RESTORE_BEFORE || '').trim()) {
+      if (V1_AUTO_RESTORE_BEFORE) {
         import('./v1CashflowAutoRestore.js')
           .then(({ runV1AutoRestoreOnBoot }) => runV1AutoRestoreOnBoot(dbInstance))
           .catch((e) => console.error('[v1-auto-restore]', e?.message || e));

@@ -38,6 +38,15 @@ export const V2V3_ACCESS_CODE =
   trimEnv('V2V3_ACCESS_CODE') ||
   trimEnv('PLANNER_ACCESS_CODE');
 
+/** One-shot Cashflow V1 sold-unit restore on boot (see v1CashflowAutoRestore.js). */
+export const V1_AUTO_RESTORE_BEFORE =
+  trimEnv('V1_AUTO_RESTORE_BEFORE') ||
+  (process.env.NODE_ENV === 'production' ? '2026-06-11T17:27:00+05:30' : '');
+export const V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW = Math.max(
+  0,
+  Number(process.env.V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW) || 5
+);
+
 /** Max string entries in one workspace PUT (planner localStorage keys). */
 export const WORKSPACE_MAX_KEYS = 250;
 /** Per-key value max length (chars) — keeps documents under MongoDB limits. */
