@@ -79,6 +79,8 @@ tr:hover td{background:#FAFBFD}
     <button class="sc-btn" id="sc-Stretch" onclick="setScen('Stretch')">Stretch 15%</button>
   </div>
   <div style="display:flex;gap:6px;align-items:center;margin-left:8px">
+    <span id="adm-badge" style="display:none;font-size:10px;font-weight:800;background:#FDF3D7;color:#A07800;border:1px solid #A07800;border-radius:5px;padding:3px 9px">ADMIN &middot; Abhishek Puranik</span>
+    <button class="btn btn-ghost" id="adm-btn" style="font-size:11px;padding:4px 10px" onclick="toggleAdmin()">&#128274; Admin</button>
     <span id="sync-status" style="font-size:11px;color:var(--green-b);font-weight:600">&#9679; Ready</span>
     <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px" onclick="syncFromV3()" id="sync-btn">&#8635; Sync</button>
     <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;border-color:var(--green);color:var(--green)" onclick="showAddProjectModal()">&#43; Add Project</button>
@@ -89,12 +91,12 @@ tr:hover td{background:#FAFBFD}
 <div class="tabs">
   <button class="tab on" id="tab-dash" onclick="showTab('dash')">&#9650; Dashboard</button>
   <button class="tab" id="tab-band" onclick="showTab('band')">&#9699; Band Structure</button>
-  <button class="tab" id="tab-kpi" onclick="showTab('kpi')">&#127919; Team KPIs</button>
   <button class="tab" id="tab-res" onclick="showTab('res')">&#128202; Headcount Plan</button>
   <button class="tab" id="tab-cost" onclick="showTab('cost')">&#9878; Cost vs Plan</button>
   <button class="tab" id="tab-team" onclick="showTab('team')">&#128100; Team View</button>
   <button class="tab" id="tab-shared" onclick="showTab('shared')">&#9878; Shared Costs</button>
-  <button class="tab" id="tab-pnl" onclick="showTab('pnl')">&#128200; P&amp;L View</button>
+  <button class="tab" id="tab-pnl" onclick="showTab('pnl')" style="display:none">&#128200; P&amp;L View</button>
+  <button class="tab" id="tab-kpi" onclick="showTab('kpi')">&#127919; Team KPIs</button>
 </div>
 <div id="page-dash" class="page"></div>
 <div id="page-band" class="page hidden"></div>
@@ -407,7 +409,33 @@ var HC_RULES = [];
 var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}};
 var kpiSetSel = 'HR';   // selected KPI set on the Team KPIs tab
 var kpiSlotSel = 0;     // selected person slot within the set
-var kpiMode = 'score';  // 'score' = scorecard | 'edit' = KPI definitions editor
+var kpiMode = 'score';  // 'score' = scorecard | 'edit' = KPI definitions editor (admin only)
+
+// ── Admin mode (same convention as GA_Finance_KPI) ─────────
+// Gates: P&L View tab, Edit KPIs sub-view
+var ADMIN_PW='ga@admin';
+var ADMIN_NAME='Abhishek Puranik';
+var ADMIN=false;
+function toggleAdmin(){
+  if(ADMIN){ ADMIN=false; }
+  else{
+    var pw=window.prompt('Admin login \u2014 '+ADMIN_NAME+'\n\nEnter admin password:');
+    if(pw===null) return;
+    if(pw!==ADMIN_PW){ alert('Wrong password.'); return; }
+    ADMIN=true;
+  }
+  applyAdminUI();
+}
+function applyAdminUI(){
+  var b=document.getElementById('adm-badge'); if(b) b.style.display=ADMIN?'':'none';
+  var btn=document.getElementById('adm-btn'); if(btn) btn.innerHTML=ADMIN?'Exit admin':'&#128274; Admin';
+  var pnl=document.getElementById('tab-pnl'); if(pnl) pnl.style.display=ADMIN?'':'none';
+  if(!ADMIN){
+    if(kpiMode==='edit') kpiMode='score';
+    if(curTab==='pnl'){ showTab('dash'); return; }
+  }
+  renderAll();
+}
 
 // CONDITIONS: per-role suggestion overrides
 // COND[rid] = {withMgr: num|'', withoutMgr: num|'', withFinance: num|'', notes: str}
@@ -796,6 +824,7 @@ function calcEngine(){
 // NAV
 // ═══════════════════════════════════════════════════════
 function showTab(t){
+  if(t==='pnl'&&!ADMIN){ alert('P&L View is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; }
   ['dash','band','kpi','res','cost','team','shared','pnl'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
@@ -955,7 +984,7 @@ document.addEventListener('click',function(e){
   if(a.bandfilt!==undefined)   { bandProjFilt=a.bandfilt; renderTab('band'); return; }
   if(a.kpiset!==undefined)     { kpiSetSel=a.kpiset; kpiSlotSel=0; renderTab('kpi'); return; }
   if(a.kpislot!==undefined)    { kpiSlotSel=+a.kpislot; renderTab('kpi'); return; }
-  if(a.kpimode!==undefined)    { kpiMode=a.kpimode; renderTab('kpi'); return; }
+  if(a.kpimode!==undefined)    { if(a.kpimode==='edit'&&!ADMIN){ alert('Editing KPIs is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; } kpiMode=a.kpimode; renderTab('kpi'); return; }
   if(a.kpiadd!==undefined)     { kpiAddDef(kpiSetSel); return; }
   if(a.kpidel!==undefined)     { kpiDelDef(kpiSetSel, +a.kpidel); return; }
   if(a.kpireset!==undefined)   { kpiResetDefs(kpiSetSel); return; }
@@ -1154,6 +1183,43 @@ function renderDash(){
     html+='<div style="font-size:10px;color:var(--muted);margin-top:3px">'+k.l+'</div></div>';
   });
   html+='</div>';
+
+  // ── HR Health (people + KPI governance) ──────────────────
+  var hrEx=0,hrAp=0,hrSg=0,icN=0,ldN=0;
+  allR().forEach(function(r){
+    var e=D.nEx(r.id),ap2=D.nAp(r.id),sg2=D.nSg(r.id);
+    hrEx+=e; hrAp+=ap2; hrSg+=sg2;
+    var n=ap2>0?ap2:e; // use approved seats, fall back to existing
+    if(r.band==='A1'||r.band==='A2') icN+=n; else ldN+=n;
+  });
+  var hrBasis=hrAp>0?hrAp:hrSg, basisLbl=hrAp>0?'approved':'suggested';
+  var vacRate=hrBasis>0?Math.max(0,Math.round((hrBasis-hrEx)/hrBasis*100)):null;
+  var icRatio=ldN>0?(icN/ldN):null;
+  var dmFeeTot=0; D.active.forEach(function(p){ dmFeeTot+=(p._dmFee||0); });
+  var costPct=dmFeeTot>0?Math.round((hrAp>0?D.totAp:D.totSg)/dmFeeTot*100):null;
+  // KPI governance rollup from the Team KPIs tab
+  var kgPersons=0,kgWithData=0,kgSum=0,kgAtRisk=0;
+  Object.keys(KPI_SETS).forEach(function(sid){
+    for(var s2=0;s2<kpiSlotCount(sid);s2++){
+      kgPersons++;
+      var ms2=[]; KPI_MONTHS.forEach(function(m,mi){ var sc2=kpiMonthScore(sid,s2,mi); if(sc2!==null) ms2.push(sc2); });
+      if(ms2.length){ kgWithData++; var av2=ms2.reduce(function(a,b){return a+b;},0)/ms2.length; kgSum+=av2; if(av2<2.5) kgAtRisk++; }
+    }
+  });
+  var kgAvg=kgWithData>0?Math.round(kgSum/kgWithData*100)/100:null;
+  html+='<div style="background:var(--card);border-radius:10px;padding:14px 16px;border:1.5px solid var(--border);border-left:3px solid var(--teal);margin-bottom:16px">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">';
+  html+='<div style="font-size:12px;font-weight:700;color:var(--teal)">&#129658; HR Health \u2014 People &amp; KPI Governance</div>';
+  html+='<button onclick="showTab(\'kpi\')" style="font-size:10px;font-weight:700;color:var(--blue-b);background:var(--blue-l);border:1px solid var(--blue);border-radius:5px;padding:3px 10px;cursor:pointer">&#127919; Open Team KPIs</button></div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">';
+  var tile=function(lbl,val,col,sub){return '<div style="background:var(--bg);border-radius:8px;padding:9px 12px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">'+lbl+'</div><div style="font-size:17px;font-weight:800;color:'+col+'">'+val+'</div><div style="font-size:9px;color:var(--muted)">'+sub+'</div></div>';};
+  html+=tile('Vacancy rate', vacRate!==null?vacRate+'%':'\u2014', vacRate===null?'var(--muted)':vacRate>25?'#A8301E':vacRate>10?'#A07800':'#1A7244', vacRate!==null?(hrEx+' filled of '+hrBasis+' '+basisLbl):'no plan data');
+  html+=tile('IC : Leader ratio', icRatio!==null?icRatio.toFixed(1)+' : 1':'\u2014', icRatio===null?'var(--muted)':(icRatio>=2&&icRatio<=5)?'#1A7244':'#A07800', 'A1-A2 per A3+ leader (healthy 2-5)');
+  html+=tile('Critical seats open', cN, cN>0?'#A8301E':'#1A7244', cN>0?'hire immediately':'all critical roles covered');
+  html+=tile('People cost vs GA fee', costPct!==null?costPct+'%':'\u2014', costPct===null?'var(--muted)':costPct>40?'#A8301E':costPct>25?'#A07800':'#1A7244', dmFeeTot>0?cr(hrAp>0?D.totAp:D.totSg)+' of '+cr(dmFeeTot)+'/yr':'sync DM fee from V3');
+  html+=tile('KPI scorecards active', kgWithData+' / '+kgPersons, kgWithData===kgPersons?'#1A7244':kgWithData>0?'#A07800':'#A8301E', 'persons with monthly entries');
+  html+=tile('Avg KPI score', kgAvg!==null?kgAvg.toFixed(2):'\u2014', kgAvg!==null?kpiBandCol(kgAvg):'var(--muted)', kgAvg!==null?(kpiBandLabel(kgAvg)+(kgAtRisk?' \u00b7 '+kgAtRisk+' below 2.5':'')):'enter actuals in Team KPIs');
+  html+='</div></div>';
 
   // ── Vertical cost breakdown bar chart ────────────────────
   var vertCosts={};
@@ -1607,6 +1673,7 @@ function exportKpiXlsx(){
 }
 function renderKpi(){
   var el=document.getElementById('page-kpi'); if(!el) return;
+  if(kpiMode==='edit'&&!ADMIN) kpiMode='score';
   var set=KPI_SETS[kpiSetSel];
   if(kpiSlotSel>=kpiSlotCount(kpiSetSel)) kpiSlotSel=0;
   var slot=kpiSlotSel;
@@ -1644,13 +1711,17 @@ function renderKpi(){
   if(nSlots>1) html+='<button data-kpidelslot="1" title="Remove last person slot" style="padding:4px 10px;border-radius:18px;cursor:pointer;font-size:11px;border:1.5px dashed #E5B5B5;background:transparent;color:#A8301E">&minus;</button>';
   html+='<span style="font-size:10px;color:var(--muted);margin-left:6px">Rename:</span>';
   html+='<input type="text" value="'+kpiSlotName(kpiSetSel,slot).replace(/"/g,'&quot;')+'" data-kpiname="'+kpiSetSel+'_'+slot+'" style="width:160px;font-size:11px"/>';
-  // Sub-view toggle: Scorecard | Edit KPIs
-  html+='<span style="margin-left:auto;display:inline-flex;border:1.5px solid var(--border);border-radius:7px;overflow:hidden">';
-  [['score','Scorecard'],['edit','&#9998; Edit KPIs']].forEach(function(m){
-    var on3=kpiMode===m[0];
-    html+='<button data-kpimode="'+m[0]+'" style="padding:4px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:'+(on3?'var(--blue)':'var(--card)')+';color:'+(on3?'#fff':'var(--muted)')+'">'+m[1]+'</button>';
-  });
-  html+='</span>';
+  // Sub-view toggle: Scorecard | Edit KPIs (editing is admin-only)
+  if(ADMIN){
+    html+='<span style="margin-left:auto;display:inline-flex;border:1.5px solid var(--border);border-radius:7px;overflow:hidden">';
+    [['score','Scorecard'],['edit','&#9998; Edit KPIs']].forEach(function(m){
+      var on3=kpiMode===m[0];
+      html+='<button data-kpimode="'+m[0]+'" style="padding:4px 12px;border:none;cursor:pointer;font-size:10px;font-weight:700;background:'+(on3?'var(--blue)':'var(--card)')+';color:'+(on3?'#fff':'var(--muted)')+'">'+m[1]+'</button>';
+    });
+    html+='</span>';
+  } else {
+    html+='<span style="margin-left:auto"></span>';
+  }
   if(linkRole) html+='<button onclick="selNode=\''+set.link+'\';showTab(\'band\')" title="Open this role in Band Structure" style="padding:4px 12px;border-radius:6px;border:1.5px solid var(--border);background:var(--card);font-size:10px;font-weight:700;color:var(--blue-b);cursor:pointer">&#9699; '+linkRole.role+' \u2014 Band '+linkRole.band+'</button>';
   html+='<button onclick="exportKpiXlsx()" style="padding:4px 12px;border-radius:6px;border:none;background:var(--teal);color:#fff;font-size:10px;font-weight:700;cursor:pointer">&#11123; Export scores (Excel)</button>';
   html+='</div>';
