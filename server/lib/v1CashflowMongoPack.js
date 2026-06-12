@@ -327,13 +327,10 @@ export function consolidateParadiseInEnvelope(env) {
   merged.projName = 'Paradise';
   data[canonical] = merged;
 
-  let manualProjs = env.manualProjs;
-  if (Array.isArray(manualProjs)) {
-    const drop = new Set(paradiseIds.filter((id) => id !== canonical));
-    manualProjs = manualProjs.filter((p) => p && !drop.has(p.id));
-  }
+  const drop = new Set(paradiseIds.filter((id) => id !== canonical));
+  const nextManualProjs = manualProjs.filter((p) => p && !drop.has(p.id));
 
-  return { ...env, data, manualProjs };
+  return { ...env, data, manualProjs: nextManualProjs };
 }
 
 /**
