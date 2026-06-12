@@ -14,6 +14,9 @@ import {
   repairV3OrgPlannerForRead,
   V3_ORG_PLANNER_APP_ID
 } from '../lib/v3OrgPlannerMerge.js';
+import { mergePreconstructionState } from '../lib/preconstructionMerge.js';
+
+export const PRECONSTRUCTION_APP_ID = 'preconstruction';
 
 export const appStatesRouter = Router();
 
@@ -135,7 +138,7 @@ appStatesRouter.put(
       const existing = await states.findOne({ _id: appId });
       const currentVersion = existing?.version || 0;
       const hasVersionConflict = expectedVersion !== undefined && Number(expectedVersion) !== currentVersion;
-      if (hasVersionConflict && appId !== V1_CASHFLOW_APP_ID) {
+      if (hasVersionConflict && appId !== V1_CASHFLOW_APP_ID && appId !== PRECONSTRUCTION_APP_ID) {
         return res.status(409).json({
           error: 'Version conflict',
           appId,
@@ -151,7 +154,9 @@ appStatesRouter.put(
       }
       const nextVersion = currentVersion + 1;
       let toSave = data;
-      if (appId === V1_CASHFLOW_APP_ID) {
+      if (appId === PRECONSTRUCTION_APP_ID && existing?.data) {
+        toSave = mergePreconstructionState(existing.data, data);
+      } else if (appId === V1_CASHFLOW_APP_ID) {
         const existingEnv = existing?.data ? await repairV1CashflowForRead(db, existing.data) : null;
         const merged = await mergeV1CashflowForPut(db, existing?.data, data);
         const beforeUnits = countSoldUnitsInEnvelope(existingEnv);
