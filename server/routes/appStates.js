@@ -380,6 +380,33 @@ appStatesRouter.post(
   withDb(restoreAppStateFromSnapshotHandler)
 );
 
+appStatesRouter.post(
+  '/apps/:appId/restore-best-morning',
+  withDb(async (req, res, db) => {
+    const appId = ensureAppId(req, res);
+    if (!appId) return;
+    if (appId !== V1_CASHFLOW_APP_ID) {
+      return res.status(400).json({ error: 'restore-best-morning is only for v1_cashflow' });
+    }
+    try {
+      const { pickBestV1SnapshotBefore, restoreV1CashflowFromSnapshot } = await import(
+        '../lib/v1CashflowAutoRestore.js'
+      );
+      const before = req.body?.before || process.env.V1_AUTO_RESTORE_BEFORE;
+      const picked = await pickBestV1SnapshotBefore(db, { before, minPriority: 1 });
+      if (!picked) return res.status(404).json({ error: 'No suitable snapshot found before cutoff' });
+      const updatedBy =
+        typeof req.body?.updatedBy === 'string' && req.body.updatedBy.trim()
+          ? req.body.updatedBy.trim()
+          : 'restore-best-morning';
+      const result = await restoreV1CashflowFromSnapshot(db, picked.snapshot, updatedBy);
+      res.json({ ok: true, picked: { soldUnitCount: picked.soldUnitCount, priorityUnitCount: picked.priorityUnitCount, snapshotAt: picked.snapshot.createdAt }, ...result });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
 async function restoreAppStateFromSnapshotHandler(req, res, db) {
     const appId = ensureAppId(req, res);
     if (!appId) return;

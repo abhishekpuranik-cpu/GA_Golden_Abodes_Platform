@@ -198,7 +198,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 42;
+var CF_VERSION = 43;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1867,6 +1867,44 @@ function mongoRestoreApiUrl(snapshotId){
 function mongoImportApiUrl(){
   return mongoStateApiUrl().replace(/\/state$/,'/import');
 }
+function mongoRestoreBestMorningApiUrl(){
+  return mongoStateApiUrl().replace(/\/state$/,'/restore-best-morning');
+}
+var _mongoAutoMorningRestoreTried=false;
+function paradiseSoldUnitsInWorkbook(dataMap){
+  var pid='';
+  (PROJS||[]).forEach(function(p){
+    if(String(p.name||'').toLowerCase().indexOf('paradise')>=0) pid=String(p.id||'');
+  });
+  if(!pid) pid='P009';
+  var u=(dataMap&&dataMap[pid]&&dataMap[pid].units)||[];
+  return Array.isArray(u)?u.length:0;
+}
+/** If Paradise / workbook sold units are missing, ask server for best June morning snapshot once. */
+function maybeAutoRestoreBestMorningFromServer(){
+  if(_mongoAutoMorningRestoreTried||!canUseMongoState()) return Promise.resolve(false);
+  var total=countWorkbookSoldUnits(_cfData);
+  var paradiseN=paradiseSoldUnitsInWorkbook(_cfData);
+  if(total>=5&&paradiseN>=1) return Promise.resolve(false);
+  _mongoAutoMorningRestoreTried=true;
+  return safeFetchJson(mongoRestoreBestMorningApiUrl(),{
+    method:'POST',
+    credentials:'include',
+    cache:'no-store',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({updatedBy:'cashflow-auto-morning-restore'})
+  }).then(function(res){
+    if(!res.ok) return false;
+    return loadAllFromMongo().then(function(loaded){
+      if(!loaded||!loaded.ok) return false;
+      var pN=paradiseSoldUnitsInWorkbook(_cfData);
+      mongoStateStatus('Auto-restored morning data · Paradise '+pN+' sold units · v'+_mongoStateVersion,'green');
+      updateMongoStatusLabel();
+      renderAll();
+      return true;
+    });
+  }).catch(function(){ return false; });
+}
 function safeFetchJson(url, opts){
   opts=opts||{};
   return fetch(url, opts).then(function(r){
@@ -2989,7 +3027,13 @@ function migrateLegacyGaMonthlyDefault(){
 function loadAll(){
   if(canUseMongoState()){
     return loadAllFromMongo().then(function(res){
-      if(res&&res.ok) return true;
+      return maybeAutoRestoreBestMorningFromServer().then(function(){
+        if(res&&res.ok) return true;
+        if(countWorkbookSoldUnits(_cfData)>0) return true;
+        return false;
+      });
+    }).then(function(ok){
+      if(ok) return true;
       try{
         var r=localStorage.getItem('ga_cf_v1');
         if(r){var d=JSON.parse(r);_cfData=d.data||{};

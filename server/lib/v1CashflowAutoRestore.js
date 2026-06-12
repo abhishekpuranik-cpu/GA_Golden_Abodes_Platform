@@ -2,29 +2,53 @@ import {
   V1_CASHFLOW_APP_ID,
   repairV1CashflowForRead,
   packV1CashflowRowData,
-  countSoldUnitsInEnvelope
+  countSoldUnitsInEnvelope,
+  soldUnitsByProject,
+  soldUnitsForProjects
 } from './v1CashflowMongoPack.js';
 import {
   V1_AUTO_RESTORE_BEFORE,
   V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW,
   V1_AUTO_RESTORE_FORCE_RUN,
-  V1_AUTO_RESTORE_FORCE_RUN_DEFAULT
+  V1_AUTO_RESTORE_FORCE_RUN_DEFAULT,
+  V1_AUTO_RESTORE_PREFER_AFTER,
+  V1_AUTO_RESTORE_PRIORITIZE_PROJECTS
 } from './config.js';
 
-async function unitsInStoredData(db, stored) {
-  if (!stored) return 0;
+async function snapshotUnitStats(db, stored) {
+  if (!stored) return { total: 0, byProject: {}, priority: 0 };
   const env = await repairV1CashflowForRead(db, stored);
-  return countSoldUnitsInEnvelope(env);
+  const byProject = soldUnitsByProject(env);
+  const priority = soldUnitsForProjects(env, V1_AUTO_RESTORE_PRIORITIZE_PROJECTS);
+  return {
+    total: countSoldUnitsInEnvelope(env),
+    byProject,
+    priority
+  };
+}
+
+function snapshotScore(stats) {
+  return stats.priority * 100_000 + stats.total;
 }
 
 /**
- * Pick the snapshot before `before` with the highest sold-unit count (tie → latest createdAt).
+ * Pick the best snapshot before `before`:
+ * - Prefer snapshots on/after `preferAfter` when any match
+ * - Score = priority project units (e.g. Paradise P009) × 100k + total sold units
+ * - Tie → latest createdAt
  */
-export async function pickBestV1SnapshotBefore(db, { before, minUnits = 1, scanLimit = 400 }) {
+export async function pickBestV1SnapshotBefore(db, opts = {}) {
+  const before = opts.before ?? V1_AUTO_RESTORE_BEFORE;
   const beforeDate = before instanceof Date ? before : new Date(before);
   if (Number.isNaN(beforeDate.getTime())) {
     throw new Error(`Invalid before date: ${before}`);
   }
+
+  const preferAfterRaw = opts.preferAfter ?? V1_AUTO_RESTORE_PREFER_AFTER;
+  const preferAfterDate = preferAfterRaw ? new Date(preferAfterRaw) : null;
+  const scanLimit = Math.max(50, Math.min(800, Number(opts.scanLimit) || 600));
+  const minUnits = Math.max(0, Number(opts.minUnits) || 1);
+  const minPriority = Math.max(0, Number(opts.minPriority) || 0);
 
   const rows = await db
     .collection('app_state_snapshots')
@@ -33,17 +57,40 @@ export async function pickBestV1SnapshotBefore(db, { before, minUnits = 1, scanL
     .limit(scanLimit)
     .toArray();
 
-  let best = null;
-  let bestUnits = 0;
+  const scored = [];
   for (const r of rows) {
-    const u = await unitsInStoredData(db, r.data);
-    if (u < minUnits) continue;
-    if (u > bestUnits || (u === bestUnits && best && r.createdAt > best.createdAt)) {
-      best = r;
-      bestUnits = u;
-    }
+    const stats = await snapshotUnitStats(db, r.data);
+    if (stats.total < minUnits) continue;
+    scored.push({ snapshot: r, stats, score: snapshotScore(stats) });
   }
-  return best ? { snapshot: best, soldUnitCount: bestUnits } : null;
+  if (!scored.length) return null;
+
+  const preferPool =
+    preferAfterDate && !Number.isNaN(preferAfterDate.getTime())
+      ? scored.filter((s) => s.snapshot.createdAt >= preferAfterDate)
+      : [];
+  const priorityPool = scored.filter((s) => s.stats.priority >= Math.max(1, minPriority));
+
+  const pool =
+    priorityPool.length > 0
+      ? priorityPool
+      : preferPool.length > 0
+        ? preferPool
+        : scored;
+
+  pool.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return (b.snapshot.createdAt || 0) - (a.snapshot.createdAt || 0);
+  });
+
+  const best = pool[0];
+  return {
+    snapshot: best.snapshot,
+    soldUnitCount: best.stats.total,
+    priorityUnitCount: best.stats.priority,
+    byProject: best.stats.byProject,
+    score: best.score
+  };
 }
 
 /** Restore v1_cashflow app_states row from a snapshot document (auto-snapshots current first). */
@@ -67,7 +114,7 @@ export async function restoreV1CashflowFromSnapshot(db, target, updatedBy = 'res
     });
   }
 
-  const unitCount = await unitsInStoredData(db, target.data);
+  const stats = await snapshotUnitStats(db, target.data);
   const nextVersion = (existing?.version || 0) + 1;
   const env = await repairV1CashflowForRead(db, target.data);
   const packed = await packV1CashflowRowData(db, env, { version: nextVersion, updatedBy });
@@ -89,7 +136,9 @@ export async function restoreV1CashflowFromSnapshot(db, target, updatedBy = 'res
   return {
     ok: true,
     version: nextVersion,
-    soldUnitCount: unitCount,
+    soldUnitCount: stats.total,
+    priorityUnitCount: stats.priority,
+    byProject: stats.byProject,
     snapshotId: target._id?.toString?.() || null,
     snapshotAt: target.createdAt || null,
     snapshotLabel: target.label || ''
@@ -97,8 +146,7 @@ export async function restoreV1CashflowFromSnapshot(db, target, updatedBy = 'res
 }
 
 /**
- * On Render boot: if V1_AUTO_RESTORE_BEFORE is set and workbook is nearly empty,
- * restore the richest snapshot from before that cutoff (e.g. this morning before layout deploy).
+ * On Render boot: restore best pre-cutoff snapshot (Paradise / P009 weighted).
  */
 export async function runV1AutoRestoreOnBoot(db) {
   const beforeRaw = String(V1_AUTO_RESTORE_BEFORE || '').trim();
@@ -116,34 +164,38 @@ export async function runV1AutoRestoreOnBoot(db) {
   const threshold = V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW;
   const states = db.collection('app_states');
   const existing = await states.findOne({ _id: V1_CASHFLOW_APP_ID });
-  let currentUnits = 0;
+  let currentStats = { total: 0, priority: 0, byProject: {} };
   if (existing?.data) {
-    currentUnits = countSoldUnitsInEnvelope(await repairV1CashflowForRead(db, existing.data));
+    currentStats = await snapshotUnitStats(db, existing.data);
   }
 
-  if (!forceRun && currentUnits >= threshold) {
+  const needsParadise = (currentStats.byProject?.P009 || 0) < 1;
+  const needsData = currentStats.total < threshold || needsParadise;
+
+  if (!forceRun && !needsData) {
     const skipped = {
       _id: flagId,
       done: true,
       skipped: true,
-      reason: 'current_units_above_threshold',
-      currentUnits,
+      reason: 'current_workbook_ok',
+      currentUnits: currentStats.total,
+      paradiseUnits: currentStats.byProject?.P009 || 0,
       threshold,
       at: new Date()
     };
     await flags.replaceOne({ _id: flagId }, skipped, { upsert: true });
-    console.log(`[v1-auto-restore] Skipped — ${currentUnits} sold units (threshold ${threshold})`);
+    console.log(`[v1-auto-restore] Skipped — ${currentStats.total} sold units, P009=${currentStats.byProject?.P009 || 0}`);
     return skipped;
   }
 
-  const picked = await pickBestV1SnapshotBefore(db, { before: beforeRaw, minUnits: 1 });
+  const picked = await pickBestV1SnapshotBefore(db, { before: beforeRaw, minPriority: forceRun || needsParadise ? 1 : 0 });
   if (!picked) {
     const failed = {
       _id: flagId,
       done: true,
       error: 'no_snapshot_before_cutoff',
       before: beforeRaw,
-      currentUnits,
+      currentUnits: currentStats.total,
       at: new Date()
     };
     await flags.replaceOne({ _id: flagId }, failed, { upsert: true });
@@ -152,7 +204,7 @@ export async function runV1AutoRestoreOnBoot(db) {
   }
 
   console.log(
-    `[v1-auto-restore] Restoring ${picked.soldUnitCount} units from snapshot ${picked.snapshot._id} (${picked.snapshot.createdAt})`
+    `[v1-auto-restore] Restoring ${picked.soldUnitCount} units (P009=${picked.priorityUnitCount}) from ${picked.snapshot._id} (${picked.snapshot.createdAt})`
   );
   const result = await restoreV1CashflowFromSnapshot(db, picked.snapshot, 'v1-auto-restore-on-boot');
   const record = {
@@ -160,11 +212,14 @@ export async function runV1AutoRestoreOnBoot(db) {
     done: true,
     before: beforeRaw,
     forceRun: forceRun || null,
-    priorUnits: currentUnits,
+    priorUnits: currentStats.total,
+    priorParadiseUnits: currentStats.byProject?.P009 || 0,
     ...result,
     at: new Date()
   };
   await flags.replaceOne({ _id: flagId }, record, { upsert: true });
-  console.log(`[v1-auto-restore] Done — version ${result.version}, ${result.soldUnitCount} sold units`);
+  console.log(
+    `[v1-auto-restore] Done — v${result.version}, ${result.soldUnitCount} units, P009=${result.byProject?.P009 || 0}`
+  );
   return record;
 }

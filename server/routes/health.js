@@ -12,11 +12,14 @@ import {
   EXECUTION_DASHBOARD_URL,
   PRECONSTRUCTION_APP_URL,
   V2V3_ACCESS_CODE,
-  V1_AUTO_RESTORE_BEFORE,
-  V1_AUTO_RESTORE_FORCE_RUN,
-  V1_AUTO_RESTORE_FORCE_RUN_DEFAULT
+  V1_AUTO_RESTORE_BEFORE
 } from '../lib/config.js';
-import { V1_CASHFLOW_APP_ID, repairV1CashflowForRead, countSoldUnitsInEnvelope } from '../lib/v1CashflowMongoPack.js';
+import {
+  V1_CASHFLOW_APP_ID,
+  repairV1CashflowForRead,
+  countSoldUnitsInEnvelope,
+  soldUnitsByProject
+} from '../lib/v1CashflowMongoPack.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const platformRoot = path.join(__dirname, '..', '..');
@@ -56,15 +59,21 @@ healthRouter.get('/health', async (req, res) => {
         restoreRows.find((r) => r.done && !r.skipped) ||
         restoreRows[0] ||
         null;
+      const byProject = row?.data
+        ? soldUnitsByProject(await repairV1CashflowForRead(db, row.data))
+        : {};
       v1Cashflow = {
         version: row?.version || 0,
         soldUnits,
+        paradiseUnits: byProject.P009 || 0,
+        unitsByProject: byProject,
         autoRestoreBefore: V1_AUTO_RESTORE_BEFORE || null,
         autoRestore: restoreFlag
           ? {
               done: !!restoreFlag.done,
               skipped: !!restoreFlag.skipped,
               soldUnitCount: restoreFlag.soldUnitCount ?? null,
+              paradiseUnits: restoreFlag.byProject?.P009 ?? restoreFlag.priorParadiseUnits ?? null,
               snapshotAt: restoreFlag.snapshotAt ?? null
             }
           : null

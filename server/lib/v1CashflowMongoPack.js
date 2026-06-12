@@ -199,6 +199,24 @@ export function countSoldUnitsInEnvelope(env) {
   return n;
 }
 
+/** Per-project sold-unit counts (non-zero only). */
+export function soldUnitsByProject(env) {
+  const out = {};
+  if (!env?.data || typeof env.data !== 'object' || Array.isArray(env.data)) return out;
+  for (const pid of Object.keys(env.data)) {
+    const units = env.data[pid]?.units;
+    if (Array.isArray(units) && units.length) out[pid] = units.length;
+  }
+  return out;
+}
+
+export function soldUnitsForProjects(env, projectIds = []) {
+  const by = soldUnitsByProject(env);
+  let n = 0;
+  for (const pid of projectIds) n += by[pid] || 0;
+  return n;
+}
+
 /**
  * Unpack + legacy shapes so API clients always receive { v, ts, data, manualProjs, ui }.
  * @param {import('mongodb').Db} db

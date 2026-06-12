@@ -42,13 +42,25 @@ export const V2V3_ACCESS_CODE =
 export const V1_AUTO_RESTORE_BEFORE =
   trimEnv('V1_AUTO_RESTORE_BEFORE') ||
   (process.env.NODE_ENV === 'production' ? '2026-06-11T17:27:00+05:30' : '');
-export const V1_AUTO_RESTORE_FORCE_RUN_DEFAULT = '';
+export const V1_AUTO_RESTORE_FORCE_RUN_DEFAULT =
+  process.env.NODE_ENV === 'production' ? '2026-06-11-paradise-v2' : '';
 export const V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW = Math.max(
   0,
   Number(process.env.V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW) || 5
 );
-/** When set (e.g. run id), always restore richest pre-cutoff snapshot once — even if units already exist. */
+/** When set (e.g. run id), always restore best pre-cutoff snapshot once — even if units already exist. */
 export const V1_AUTO_RESTORE_FORCE_RUN = trimEnv('V1_AUTO_RESTORE_FORCE_RUN');
+/** Prefer snapshots from this date onward (June morning) before layout deploy cutoff. */
+export const V1_AUTO_RESTORE_PREFER_AFTER =
+  trimEnv('V1_AUTO_RESTORE_PREFER_AFTER') ||
+  (process.env.NODE_ENV === 'production' ? '2026-06-10T00:00:00+05:30' : '');
+/** Project ids weighted heavily when picking restore snapshot (Paradise = P009). */
+export const V1_AUTO_RESTORE_PRIORITIZE_PROJECTS = (
+  trimEnv('V1_AUTO_RESTORE_PRIORITIZE_PROJECTS') || 'P009'
+)
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 
 /** Max string entries in one workspace PUT (planner localStorage keys). */
 export const WORKSPACE_MAX_KEYS = 250;
