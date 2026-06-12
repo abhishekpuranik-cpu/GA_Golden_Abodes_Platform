@@ -198,7 +198,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 45;
+var CF_VERSION = 46;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2672,7 +2672,7 @@ function htmlSalesGridUnitCell(u){
     +(nm?'<div style="font-size:8px;color:var(--muted);margin-top:2px;line-height:1.2;font-weight:500">'+escHtml(nm)+'</div>':'');
 }
 function htmlSalesGridSaleValueCell(u, idx){
-  return '<div style="text-align:right;font-weight:600;line-height:1.25">'+unitCr(u.totalValue)+'</div>'
+  return '<div style="text-align:right;font-weight:600;line-height:1.25">'+crL(u.totalValue,'₹0')+'</div>'
     +'<div style="margin-top:4px;text-align:left">'+htmlUnitFundingSourceSelect(u,idx)+'</div>'
     +'<div style="margin-top:3px">'+htmlUnitBankLoanInput(u,idx)+'</div>';
 }
