@@ -217,6 +217,125 @@ export function soldUnitsForProjects(env, projectIds = []) {
   return n;
 }
 
+function normUnitNoKey(unitNo) {
+  return String(unitNo || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+}
+
+function isParadiseProjectKey(pid, cfg, manualProjs = []) {
+  if (pid === 'P009') return true;
+  const name = String(cfg?.projName || '').toLowerCase();
+  if (name.includes('paradise')) return true;
+  const manual = manualProjs.find((p) => p && String(p.id) === String(pid));
+  return String(manual?.name || '')
+    .toLowerCase()
+    .includes('paradise');
+}
+
+/** Sold units in any project row named Paradise (includes manual MP_* ids). */
+export function soldUnitsForParadiseLike(env) {
+  if (!env?.data || typeof env.data !== 'object') return 0;
+  let n = 0;
+  for (const pid of Object.keys(env.data)) {
+    const cfg = env.data[pid];
+    if (!isParadiseProjectKey(pid, cfg)) continue;
+    const units = cfg?.units;
+    if (Array.isArray(units)) n += units.length;
+  }
+  return n;
+}
+
+function mergeParadiseProjectCfg(target, src) {
+  const out = JSON.parse(JSON.stringify(target || {}));
+  out.units = Array.isArray(out.units) ? out.units : [];
+  out.unsoldUnits = Array.isArray(out.unsoldUnits) ? out.unsoldUnits : [];
+  const seen = new Set(out.units.map((u) => normUnitNoKey(u?.unitNo)));
+  for (const u of src.units || []) {
+    const k = normUnitNoKey(u?.unitNo);
+    if (!k || seen.has(k)) continue;
+    out.units.push(u);
+    seen.add(k);
+  }
+  const unsoldSeen = new Set(out.unsoldUnits.map((u) => normUnitNoKey(u?.unitNo)));
+  for (const u of src.unsoldUnits || []) {
+    const k = normUnitNoKey(u?.unitNo);
+    if (!k || unsoldSeen.has(k)) continue;
+    out.unsoldUnits.push(u);
+    unsoldSeen.add(k);
+  }
+  for (const key of [
+    'milestonesUpload',
+    'milestonesAchievedDates',
+    'milestonesTargetDates',
+    'commentLog',
+    'unsoldPace'
+  ]) {
+    const sv = src[key];
+    const tv = out[key];
+    if (!sv) continue;
+    if (!tv || (typeof sv === 'object' && Object.keys(sv).length > Object.keys(tv || {}).length)) {
+      out[key] = sv;
+    }
+  }
+  if (!out.projName) out.projName = src.projName || 'Paradise';
+  return out;
+}
+
+/**
+ * V3 Paradise is P009 but CRM/manual imports often land on MP_* keys — merge into P009 for reads/saves.
+ */
+export function consolidateParadiseInEnvelope(env) {
+  if (!env?.data || typeof env.data !== 'object' || Array.isArray(env.data)) return env;
+  const manualProjs = Array.isArray(env.manualProjs) ? env.manualProjs : [];
+  const paradiseIds = Object.keys(env.data).filter((pid) =>
+    isParadiseProjectKey(pid, env.data[pid], manualProjs)
+  );
+  if ((env.data.P009?.units?.length || 0) === 0) {
+    const mpKeys = Object.keys(env.data).filter((pid) => String(pid).startsWith('MP_'));
+    if (mpKeys.length) {
+      mpKeys.sort((a, b) => (env.data[b]?.units?.length || 0) - (env.data[a]?.units?.length || 0));
+      const rich = mpKeys[0];
+      const richN = env.data[rich]?.units?.length || 0;
+      if (richN >= 10 && !paradiseIds.includes(rich)) paradiseIds.push(rich);
+    }
+  }
+  if (paradiseIds.length < 2 && !(paradiseIds.length === 1 && paradiseIds[0] !== 'P009')) {
+    if (paradiseIds.length === 1 && paradiseIds[0] !== 'P009') {
+      const only = paradiseIds[0];
+      const data = { ...env.data };
+      data.P009 = mergeParadiseProjectCfg({ projName: 'Paradise', units: [], unsoldUnits: [] }, data[only]);
+      data.P009.projName = 'Paradise';
+      delete data[only];
+      return { ...env, data };
+    }
+    return env;
+  }
+
+  const canonical = 'P009';
+  const data = { ...env.data };
+  let merged = data[canonical]
+    ? mergeParadiseProjectCfg({ projName: 'Paradise', units: [], unsoldUnits: [] }, data[canonical])
+    : { projName: 'Paradise', units: [], unsoldUnits: [] };
+
+  for (const pid of paradiseIds) {
+    if (pid === canonical) continue;
+    merged = mergeParadiseProjectCfg(merged, data[pid]);
+    delete data[pid];
+  }
+  merged.projName = 'Paradise';
+  data[canonical] = merged;
+
+  let manualProjs = env.manualProjs;
+  if (Array.isArray(manualProjs)) {
+    const drop = new Set(paradiseIds.filter((id) => id !== canonical));
+    manualProjs = manualProjs.filter((p) => p && !drop.has(p.id));
+  }
+
+  return { ...env, data, manualProjs };
+}
+
 /**
  * Unpack + legacy shapes so API clients always receive { v, ts, data, manualProjs, ui }.
  * @param {import('mongodb').Db} db
@@ -224,21 +343,20 @@ export function soldUnitsForProjects(env, projectIds = []) {
  */
 export async function repairV1CashflowForRead(db, rowData) {
   if (!rowData || typeof rowData !== 'object') return rowData;
+  let env = rowData;
   if (rowData._cfMongoPack === CF_MONGO_PACK_VER) {
-    return unpackV1CashflowRowData(db, rowData);
-  }
-  if (typeof rowData.ga_cf_v1 === 'string') {
+    env = await unpackV1CashflowRowData(db, rowData);
+  } else if (typeof rowData.ga_cf_v1 === 'string') {
     try {
       const parsed = JSON.parse(rowData.ga_cf_v1);
-      if (parsed && typeof parsed === 'object' && parsed.data != null) return parsed;
+      if (parsed && typeof parsed === 'object' && parsed.data != null) env = parsed;
     } catch (_) {
       // fall through
     }
+  } else if (rowData.data !== undefined && typeof rowData.data === 'object' && !Array.isArray(rowData.data)) {
+    env = rowData;
   }
-  if (rowData.data !== undefined && typeof rowData.data === 'object' && !Array.isArray(rowData.data)) {
-    return rowData;
-  }
-  return rowData;
+  return consolidateParadiseInEnvelope(env);
 }
 
 /**

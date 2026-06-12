@@ -4,7 +4,9 @@ import {
   packV1CashflowRowData,
   countSoldUnitsInEnvelope,
   soldUnitsByProject,
-  soldUnitsForProjects
+  soldUnitsForParadiseLike,
+  soldUnitsForProjects,
+  consolidateParadiseInEnvelope
 } from './v1CashflowMongoPack.js';
 import {
   V1_AUTO_RESTORE_BEFORE,
@@ -19,7 +21,7 @@ async function snapshotUnitStats(db, stored) {
   if (!stored) return { total: 0, byProject: {}, priority: 0 };
   const env = await repairV1CashflowForRead(db, stored);
   const byProject = soldUnitsByProject(env);
-  const priority = soldUnitsForProjects(env, V1_AUTO_RESTORE_PRIORITIZE_PROJECTS);
+  const priority = Math.max(soldUnitsForParadiseLike(env), soldUnitsForProjects(env, V1_AUTO_RESTORE_PRIORITIZE_PROJECTS));
   return {
     total: countSoldUnitsInEnvelope(env),
     byProject,
@@ -116,7 +118,8 @@ export async function restoreV1CashflowFromSnapshot(db, target, updatedBy = 'res
 
   const stats = await snapshotUnitStats(db, target.data);
   const nextVersion = (existing?.version || 0) + 1;
-  const env = await repairV1CashflowForRead(db, target.data);
+  let env = await repairV1CashflowForRead(db, target.data);
+  env = consolidateParadiseInEnvelope(env);
   const packed = await packV1CashflowRowData(db, env, { version: nextVersion, updatedBy });
 
   await states.updateOne(

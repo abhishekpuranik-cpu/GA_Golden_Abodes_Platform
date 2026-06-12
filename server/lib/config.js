@@ -43,7 +43,7 @@ export const V1_AUTO_RESTORE_BEFORE =
   trimEnv('V1_AUTO_RESTORE_BEFORE') ||
   (process.env.NODE_ENV === 'production' ? '2026-06-11T17:27:00+05:30' : '');
 export const V1_AUTO_RESTORE_FORCE_RUN_DEFAULT =
-  process.env.NODE_ENV === 'production' ? '2026-06-11-paradise-v2' : '';
+  process.env.NODE_ENV === 'production' ? '2026-06-12-paradise-merge' : '';
 export const V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW = Math.max(
   0,
   Number(process.env.V1_AUTO_RESTORE_IF_CURRENT_UNITS_BELOW) || 5

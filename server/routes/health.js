@@ -18,7 +18,8 @@ import {
   V1_CASHFLOW_APP_ID,
   repairV1CashflowForRead,
   countSoldUnitsInEnvelope,
-  soldUnitsByProject
+  soldUnitsByProject,
+  soldUnitsForParadiseLike
 } from '../lib/v1CashflowMongoPack.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,7 +66,9 @@ healthRouter.get('/health', async (req, res) => {
       v1Cashflow = {
         version: row?.version || 0,
         soldUnits,
-        paradiseUnits: byProject.P009 || 0,
+        paradiseUnits: soldUnitsForParadiseLike(
+          row?.data ? await repairV1CashflowForRead(db, row.data) : { data: {} }
+        ),
         unitsByProject: byProject,
         autoRestoreBefore: V1_AUTO_RESTORE_BEFORE || null,
         autoRestore: restoreFlag
