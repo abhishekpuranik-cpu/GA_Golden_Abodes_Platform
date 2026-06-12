@@ -226,3 +226,50 @@ export async function runV1AutoRestoreOnBoot(db) {
   );
   return record;
 }
+
+/** Write consolidated Paradise (P009) rows into Mongo once so all clients load the correct project id. */
+export async function persistParadiseWorkbookMerge(db) {
+  const flagId = 'v1_persist_paradise_merge:2026-06-12';
+  const flags = db.collection('platform_ops_flags');
+  const prior = await flags.findOne({ _id: flagId });
+  if (prior?.done) return prior;
+
+  const states = db.collection('app_states');
+  const row = await states.findOne({ _id: V1_CASHFLOW_APP_ID });
+  if (!row?.data) {
+    const skipped = { _id: flagId, done: true, skipped: true, reason: 'no_state', at: new Date() };
+    await flags.replaceOne({ _id: flagId }, skipped, { upsert: true });
+    return skipped;
+  }
+
+  const env = consolidateParadiseInEnvelope(await repairV1CashflowForRead(db, row.data));
+  const p009Units = env.data?.P009?.units?.length || 0;
+  if (p009Units < 1) {
+    const skipped = { _id: flagId, done: true, skipped: true, reason: 'no_paradise_units', at: new Date() };
+    await flags.replaceOne({ _id: flagId }, skipped, { upsert: true });
+    return skipped;
+  }
+
+  const nextVersion = (row.version || 0) + 1;
+  const packed = await packV1CashflowRowData(db, env, {
+    version: nextVersion,
+    updatedBy: 'paradise-merge-persist'
+  });
+  const now = new Date();
+  await states.updateOne(
+    { _id: V1_CASHFLOW_APP_ID },
+    {
+      $set: {
+        appId: V1_CASHFLOW_APP_ID,
+        data: packed,
+        version: nextVersion,
+        updatedAt: now,
+        updatedBy: 'paradise-merge-persist'
+      }
+    }
+  );
+  const record = { _id: flagId, done: true, p009Units, version: nextVersion, at: now };
+  await flags.replaceOne({ _id: flagId }, record, { upsert: true });
+  console.log(`[paradise-merge-persist] Saved P009 with ${p009Units} sold units (v${nextVersion})`);
+  return record;
+}

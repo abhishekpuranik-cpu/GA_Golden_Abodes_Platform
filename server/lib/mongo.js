@@ -13,8 +13,14 @@ export async function ensureMongo() {
       console.log(`MongoDB connected (${DB_NAME})`);
       if (V1_AUTO_RESTORE_BEFORE) {
         import('./v1CashflowAutoRestore.js')
-          .then(({ runV1AutoRestoreOnBoot }) => runV1AutoRestoreOnBoot(dbInstance))
+          .then(({ runV1AutoRestoreOnBoot, persistParadiseWorkbookMerge }) =>
+            runV1AutoRestoreOnBoot(dbInstance).then(() => persistParadiseWorkbookMerge(dbInstance))
+          )
           .catch((e) => console.error('[v1-auto-restore]', e?.message || e));
+      } else {
+        import('./v1CashflowAutoRestore.js')
+          .then(({ persistParadiseWorkbookMerge }) => persistParadiseWorkbookMerge(dbInstance))
+          .catch((e) => console.error('[paradise-merge-persist]', e?.message || e));
       }
     }
     return dbInstance;

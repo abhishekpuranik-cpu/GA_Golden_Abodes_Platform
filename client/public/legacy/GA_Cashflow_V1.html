@@ -198,7 +198,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 44;
+var CF_VERSION = 45;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -2717,11 +2717,46 @@ function aggregateSoldUnitPaymentRisk(cfg, units, gridCachesAll){
   return {nAgreement:nA,nPayIssue:nPI,pendAgreement:pA,pendPayIssue:pPI};
 }
 function getCF(pid){
+  pid=resolveParadiseDataPid(pid);
   if(!_cfData[pid]) _cfData[pid]=emptyProjData(pid);
   ensureUnsoldPaceCfg(_cfData[pid]);
   (_cfData[pid].units||[]).forEach(ensureUnitPaymentFields);
   (_cfData[pid].unsoldUnits||[]).forEach(ensureUnitSalesMeta);
   return _cfData[pid];
+}
+/** Paradise rows often sit on MP_* keys while V3 header uses P009 — merge before read/render. */
+function resolveParadiseDataPid(pid){
+  if(!pid||pid==='__rollup__'||String(pid)==='__ga__') return pid;
+  consolidateParadiseWorkbookKeys();
+  var cur=_cfData[pid];
+  if(cur&&Array.isArray(cur.units)&&cur.units.length) return pid;
+  var p=(PROJS||[]).find(function(x){ return x&&String(x.id)===String(pid); });
+  var nm=String((p&&p.name)||(cur&&cur.projName)||'').toLowerCase();
+  if(nm.indexOf('paradise')<0&&String(pid)!=='P009') return pid;
+  var best='', bestN=0;
+  Object.keys(_cfData||{}).forEach(function(k){
+    var c=_cfData[k];
+    if(!c) return;
+    var cn=String(c.projName||'').toLowerCase();
+    if(cn.indexOf('paradise')<0&&k!=='P009'&&String(k).indexOf('MP_')!==0) return;
+    var n=(c.units||[]).length;
+    if(n>bestN){ bestN=n; best=k; }
+  });
+  if(best&&best!==pid&&bestN>0){
+    _cfData[pid]=JSON.parse(JSON.stringify(_cfData[best]));
+    _cfData[pid].projName=(p&&p.name)||_cfData[pid].projName||'Paradise';
+    if(_cfData[best]&&best.indexOf('MP_')===0) try{ delete _cfData[best]; }catch(eD){}
+    return pid;
+  }
+  return pid;
+}
+function saveUiFiltersOnly(){
+  try{
+    localStorage.setItem('ga_v1_project_group_filter','__all__');
+    localStorage.setItem('ga_v1_proj_root_filter',_curProjRoot||'__all__');
+    localStorage.setItem('ga_v1_phase_filter',_curPhase||'__all__');
+    localStorage.setItem('ga_v1_building_filter',_curBuilding||'__all__');
+  }catch(e){}
 }
 /** Monthly GA DM for portfolio KPIs: Expense schedule ⑥ (V2 annual ÷12, else GA DM monthly); falls back to legacy _dmFee. */
 function dmFeeMonthlyFromExpenseSchedule(p){
@@ -3091,27 +3126,16 @@ function loadAll(){
   if(canUseMongoState()){
     return loadAllFromMongo().then(function(res){
       return maybeAutoRestoreBestMorningFromServer().then(function(){
+        mergeProjectsFromCfData();
+        if(consolidateParadiseWorkbookKeys()) scheduleMongoStateSave(800);
         if(res&&res.ok) return true;
         if(countWorkbookSoldUnits(_cfData)>0) return true;
         return false;
       });
     }).then(function(ok){
       if(ok) return true;
-      try{
-        var r=localStorage.getItem('ga_cf_v1');
-        if(r){var d=JSON.parse(r);_cfData=d.data||{};
-          if(d.manualProjs) d.manualProjs.forEach(function(mp){if(!PROJS.find(function(p){return p.id===mp.id;}))PROJS.push(mp);});
-          mergeProjectsFromCfData();
-          if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
-          var needVersionBump=!d.v||d.v<CF_VERSION;
-          if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()) localSnapshotSave();
-          else if(needVersionBump) localSnapshotSave();
-        }
-        _curProjectGroup='__all__';
-        if(_curProjRoot==='__all__') _curProjRoot=localStorage.getItem('ga_v1_proj_root_filter')||'__all__';
-        _curPhase=localStorage.getItem('ga_v1_phase_filter')||'__all__';
-        _curBuilding=localStorage.getItem('ga_v1_building_filter')||'__all__';
-      }catch(e){}
+      mongoStateStatus('Server load failed or empty — try Load from server (do not save empty data)','red');
+      updateMongoStatusLabel('Load needed');
       return false;
     });
   }
@@ -3120,6 +3144,7 @@ function loadAll(){
     if(r){var d=JSON.parse(r);_cfData=d.data||{};
       if(d.manualProjs) d.manualProjs.forEach(function(mp){if(!PROJS.find(function(p){return p.id===mp.id;}))PROJS.push(mp);});
       mergeProjectsFromCfData();
+      consolidateParadiseWorkbookKeys();
       if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
       var needVersionBump=!d.v||d.v<CF_VERSION;
       if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
@@ -3385,7 +3410,8 @@ function selectProjectGroup(){
   buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
-  saveAll();
+  saveUiFiltersOnly();
+  localSnapshotSave();
   renderAll();
 }
 function selectPhase(){
@@ -3395,7 +3421,8 @@ function selectPhase(){
   buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
-  saveAll();
+  saveUiFiltersOnly();
+  localSnapshotSave();
   renderAll();
 }
 function selectBuilding(){
@@ -3403,7 +3430,8 @@ function selectBuilding(){
   buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
-  saveAll();
+  saveUiFiltersOnly();
+  localSnapshotSave();
   renderAll();
 }
 function setPhaseAll(){
@@ -3413,7 +3441,8 @@ function setPhaseAll(){
   buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
-  saveAll();
+  saveUiFiltersOnly();
+  localSnapshotSave();
   renderAll();
 }
 function setBuildingAll(){
@@ -3421,7 +3450,8 @@ function setBuildingAll(){
   buildBuildingSelect();
   buildProjSelect();
   ensureCurrentProjectVisible();
-  saveAll();
+  saveUiFiltersOnly();
+  localSnapshotSave();
   renderAll();
 }
 
@@ -5254,7 +5284,8 @@ function selectProj(pid){
     var rootSel=parseMultiFilter(_curProjRoot);
     var fst=PROJS.find(function(p){ return rootSel.indexOf(inferProjectGroupFromProject(p))>=0; });
     _curPid=fst?fst.id:null;
-    saveAll();
+    saveUiFiltersOnly();
+    localSnapshotSave();
     buildPhaseSelect();
     buildBuildingSelect();
     ensureCurrentProjectVisible();
@@ -5268,7 +5299,9 @@ function selectProj(pid){
     _curPhase=encodeMultiFilter([inferPhaseFromProject(p)]);
     _curBuilding=encodeMultiFilter([inferBuildingFromProject(p)]);
   }
-  _curPid=pid; saveAll();
+  _curPid=pid;
+  saveUiFiltersOnly();
+  localSnapshotSave();
   buildPhaseSelect();
   buildBuildingSelect();
   ensureCurrentProjectVisible();
@@ -9481,6 +9514,9 @@ function importCRMPostSalesWorkbook(input){
         perPidSections[pid]=['units','unsoldUnits','milestonesAchievedDates'];
       });
       saveAll({perPidSections:perPidSections});
+      consolidateParadiseWorkbookKeys();
+      _mongoForceFullSave=true;
+      scheduleMongoStateSave(400);
       buildProjSelect();
       renderAll();
       refreshProjectCashflowViews();
