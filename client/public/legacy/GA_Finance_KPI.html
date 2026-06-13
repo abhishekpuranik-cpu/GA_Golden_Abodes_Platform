@@ -66,7 +66,19 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
 .step-n{width:22px;height:22px;border-radius:50%;background:var(--blue);color:#fff;font-size:12px;font-weight:800;display:flex;align-items:center;justify-content:center}
 .step-t{font-size:13px;font-weight:800;color:var(--blue-b)}
 .adm{background:var(--gold-l);border:1px solid var(--gold);color:var(--gold-b);font-weight:700;font-size:10px;padding:3px 10px;border-radius:12px}
-.kpi-edit input[type=text]{width:auto}
+.pod-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:14px}
+.pod-card{background:var(--card);border-radius:var(--radius);padding:14px;border:1px solid var(--border);box-shadow:var(--shadow);border-left:4px solid var(--blue)}
+.pod-comp{border-left-color:var(--purple-b)}.pod-ops{border-left-color:var(--teal-b)}
+.pod-h{font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:6px}
+.pod-role{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:8px}
+.pod-member{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px}
+.pod-member:last-child{border-bottom:none}
+.lane-chip{display:inline-block;padding:2px 8px;border-radius:10px;font-size:9px;font-weight:700;text-transform:uppercase}
+.lane-comp{background:var(--purple-l);color:var(--purple-b)}.lane-ops{background:var(--teal-l);color:var(--teal-b)}
+.raci-r{background:var(--green-l);color:var(--green-b);font-weight:800}
+.raci-a{background:var(--blue-l);color:var(--blue-b);font-weight:800}
+.raci-c{background:var(--orange-l);color:var(--orange-b);font-weight:700}
+.raci-i{background:var(--slate-l);color:var(--slate-b)}
 </style>
 </head>
 <body>
@@ -92,6 +104,7 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
   <button class="tab" id="tab-review" onclick="showTab('review')">Monthly Review</button>
   <button class="tab" id="tab-appr" onclick="showTab('appr')">Appraisal</button>
   <button class="tab" id="tab-kpi" onclick="showTab('kpi')">KPI Manager</button>
+  <button class="tab" id="tab-work" onclick="showTab('work')">Work Split</button>
   <button class="tab" id="tab-team" onclick="showTab('team')">Team &amp; Data</button>
 </div>
 <div class="page" id="page-dash"></div>
@@ -100,6 +113,7 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
 <div class="page hidden" id="page-review"></div>
 <div class="page hidden" id="page-appr"></div>
 <div class="page hidden" id="page-kpi"></div>
+<div class="page hidden" id="page-work"></div>
 <div class="page hidden" id="page-team"></div>
 
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
@@ -169,6 +183,129 @@ FIN:[
  {id:'FN8',cat:'Planning & Control',name:'Budget re-forecast discipline',freq:'Q',wt:0,target:'Re-forecast within 10 days of quarter close (draft)',hint:'Set weight & thresholds to activate',dir:null,th:null,formula:'Days from quarter-end to approved re-forecast.',src:'Budget files'}
 ]};
 var ROLE_LABEL={SR:'Senior Accountant',JR:'Junior Accountant',FIN:'Finance Head / Treasury'};
+var LANE_LABEL={COMP:'Compliance & Statutory Hub',OPS:'Operations & Reporting Hub','':'Unassigned'};
+var LANE_SHORT={COMP:'Compliance',OPS:'Operations','':''};
+
+/* ------------- Default team (McKinsey 2-pod model) ---------------- */
+function defaultEmployees(){
+  return [
+    {id:'E_VK',name:'Vikas',role:'SR',active:true,title:'Sr. Accountant',lane:'COMP',podJr:'E_SJ',backupId:'E_KT',
+     scope:'GST, TDS, RERA filings & statutory notices. Backup on RA bill releases when Ketan is away.'},
+    {id:'E_KT',name:'Ketan',role:'SR',active:true,title:'Sr. Accountant',lane:'OPS',podJr:'E_SH',backupId:'E_VK',
+     scope:'Book closure, RA bills, MIS to MP, vendor payment sign-off. Cross-reviews Sairaj\u2019s statutory packs.'},
+    {id:'E_SJ',name:'Sairaj',role:'JR',active:true,title:'Jr. Accountant',lane:'COMP',leadId:'E_VK',
+     scope:'GST/TDS data compilation, 26AS/ITC recon, RERA data packs, compliance calendar flags (\u22653 days ahead).'},
+    {id:'E_SH',name:'Shubham',role:'JR',active:true,title:'Jr. Accountant',lane:'OPS',leadId:'E_KT',
+     scope:'Vouchers, invoices, RA prep, vendor recon, bank rec, payment alerts, MIS ledger extracts by the 3rd.'}
+  ];
+}
+function defaultWorkSplit(){
+  return {
+    model:'Two functional pods \u2014 Compliance (Vikas + Sairaj) and Operations (Ketan + Shubham). Split by process domain, not by project. Juniors execute volume work; seniors own sign-off. The other senior cross-reviews (segregation of duties). All projects feed shared registers tagged by cost centre in Tally.',
+    processes:[
+      {id:'W1',process:'Voucher entry',R:'E_SH',A:'E_KT',C:'E_VK',I:''},
+      {id:'W2',process:'GST filing (GSTR-1 / 3B)',R:'E_SJ',A:'E_VK',C:'E_KT',I:''},
+      {id:'W3',process:'TDS return & challans',R:'E_SJ',A:'E_VK',C:'E_KT',I:''},
+      {id:'W4',process:'RERA quarterly disclosure',R:'E_SJ',A:'E_VK',C:'E_KT',I:'MP'},
+      {id:'W5',process:'RA bill \u2192 payment release',R:'E_SH',A:'E_KT',C:'E_VK',I:'MP'},
+      {id:'W6',process:'Bank reconciliation',R:'E_SH',A:'E_KT',C:'',I:''},
+      {id:'W7',process:'Monthly book closure',R:'E_SH',A:'E_KT',C:'E_VK',I:'MP'},
+      {id:'W8',process:'MIS to Managing Partner',R:'E_SH',A:'E_KT',C:'E_VK',I:'MP'},
+      {id:'W9',process:'Vendor ledger reconciliation',R:'E_SH',A:'E_KT',C:'',I:''},
+      {id:'W10',process:'Payment due-date alerts',R:'E_SH',A:'E_KT',C:'',I:''},
+      {id:'W11',process:'Junior error escalation review',R:'',A:'E_VK',C:'E_KT',I:''},
+      {id:'W12',process:'SOP spot audit (rotate quarterly)',R:'',A:'E_VK',C:'E_KT',I:''}
+    ],
+    rhythm:[
+      {id:'R1',when:'Day 1\u20132 (post month-end)',cells:{'E_SJ':'GST/TDS data pull','E_VK':'Review prior month compliance','E_SH':'Vouchers + bank rec','E_KT':'RA queue triage + approvals'}},
+      {id:'R2',when:'Day 3',cells:{'E_SH':'Ledger extracts \u2192 MIS','E_KT':'MIS draft'}},
+      {id:'R3',when:'Day 5',cells:{'E_SJ':'TDS workings submitted','E_VK':'Review TDS pack','E_SH':'Vendor recon complete','E_KT':'RA bill approvals'}},
+      {id:'R4',when:'Day 7',cells:{'E_SJ':'GST pack ready','E_KT':'MIS to Managing Partner'}},
+      {id:'R5',when:'Day 11 / 20',cells:{'E_VK':'File GSTR-1 (11th) & GSTR-3B (20th)','E_KT':'Book closure sign-off'}},
+      {id:'R6',when:'Day 15',cells:{'E_SJ':'26AS / ITC recon complete','E_VK':'Lock compliance month','E_KT':'Cross-pod Jr QC review'}}
+    ],
+    scaling:[
+      {id:'S1',trigger:'1\u20132 active projects',action:'2 pods, all projects in shared registers \u2014 no change'},
+      {id:'S2',trigger:'3rd project or >200 vouchers/month',action:'Add Jr #3 under Operations pod (Ketan)'},
+      {id:'S3',trigger:'2nd legal entity / SPV',action:'Split compliance by entity; do not split juniors by project until 6+ FTE'},
+      {id:'S4',trigger:'6+ accounts FTE',action:'Promote strongest Jr \u2192 Sr; formal Compliance + Accounts Managers'}
+    ],
+    standup:'Mon & Wed \u00b7 30 min stand-up \u00b7 all four accountants. Monthly 1:1 review per person in the Monthly Review tab.'
+  };
+}
+function enrichEmployee(e){
+  if(!e.title)e.title=ROLE_LABEL[e.role]||'';
+  if(e.lane==null)e.lane='';
+  if(e.scope==null)e.scope='';
+  if(e.podJr==null)e.podJr='';
+  if(e.leadId==null)e.leadId='';
+  if(e.backupId==null)e.backupId='';
+  return e;
+}
+function isPlaceholderTeam(){
+  if(!S||!S.employees||!S.employees.length)return false;
+  var names=S.employees.map(function(e){return e.name;}).sort().join('\n');
+  return names==='Jr. Accountant 1\nJr. Accountant 2\nSr. Accountant';
+}
+function remapEmpKeys(map){
+  var nk={},i,k,p;
+  Object.keys(S.kpis||{}).forEach(function(k){nk[map[k]||k]=S.kpis[k];});
+  S.kpis=nk;
+  var nr={};
+  Object.keys(S.reviews||{}).forEach(function(k){
+    p=k.split('|');nr[(map[p[0]]||p[0])+'|'+p[1]]=S.reviews[k];
+  });
+  S.reviews=nr;
+}
+function upgradePlaceholderTeam(){
+  var map={};
+  S.employees.forEach(function(e){
+    if(e.name==='Sr. Accountant')map[e.id]='E_VK';
+    if(e.name==='Jr. Accountant 1')map[e.id]='E_SJ';
+    if(e.name==='Jr. Accountant 2')map[e.id]='E_SH';
+  });
+  S.employees=defaultEmployees();
+  remapEmpKeys(map);
+  S.training=genTraining(FY_START_YEAR);
+  S.audit.unshift({ts:new Date().toISOString(),action:'team.upgrade',detail:'Seeded Vikas, Ketan, Sairaj, Shubham + 2-pod work split'});
+}
+function ensureV3State(){
+  if(!S)return;
+  if(!S.meta)S.meta={};
+  S.employees.forEach(enrichEmployee);
+  if(isPlaceholderTeam())upgradePlaceholderTeam();
+  if(!S.workSplit)S.workSplit=defaultWorkSplit();
+  if(!S.meta.v||S.meta.v<3){
+    S.meta.v=3;
+    if(!isPlaceholderTeam())S.audit.unshift({ts:new Date().toISOString(),action:'migrate',detail:'Upgraded to v3 \u2014 editable work split & lane assignments'});
+  }
+}
+function empNameById(id){
+  if(!id||id==='MP')return id==='MP'?'Managing Partner':'';
+  var e=empById(id);return e?e.name:'';
+}
+function empOpts(val,extra){
+  var h='<option value="">'+(extra===false?'':'\u2014')+'</option>';
+  if(extra!==false)h+='<option value="MP"'+(val==='MP'?' selected':'')+'>Managing Partner</option>';
+  S.employees.filter(function(e){return e.active;}).forEach(function(e){
+    h+='<option value="'+esc(e.id)+'"'+(val===e.id?' selected':'')+'>'+esc(e.name)+' ('+esc(e.title||ROLE_LABEL[e.role])+')</option>';
+  });
+  return h;
+}
+function laneBadge(lane){
+  if(!lane||!LANE_SHORT[lane])return '';
+  var cls=lane==='COMP'?'lane-comp':'lane-ops';
+  return '<span class="lane-chip '+cls+'">'+esc(LANE_SHORT[lane])+'</span>';
+}
+function opsPodNames(){
+  var jr=S.employees.filter(function(e){return e.active&&e.lane==='OPS'&&e.role==='JR';})[0];
+  var sr=S.employees.filter(function(e){return e.active&&e.lane==='OPS'&&e.role==='SR';})[0];
+  return {jr:jr?jr.name:'Jr (Operations)',sr:sr?sr.name:'Sr (Operations)'};
+}
+function complianceOwner(){
+  var sr=S.employees.filter(function(e){return e.active&&e.lane==='COMP'&&e.role==='SR';})[0];
+  return sr?sr.name:'Compliance lead';
+}
 
 /* ------------- Compliance calendar generator (any FY) --------------- */
 function pad2(n){return ('0'+n).slice(-2);}
@@ -202,19 +339,24 @@ function genCalendar(startYear){
 }
 function genTraining(startYear){
   var defs=[
-   ['Jr. Accountant 1','Tally ERP \u2014 advanced cost centre accounting','Tally ERP','Q1'],
-   ['Jr. Accountant 1','GST portal \u2014 GSTR-1 / GSTR-3B filing & ITC reconciliation','GST Compliance','Q1'],
-   ['Jr. Accountant 1','TRACES \u2014 26AS download & TDS reconciliation','TDS / Income Tax','Q2'],
-   ['Jr. Accountant 1','MahaRERA portal \u2014 financial disclosure navigation','RERA Compliance','Q3'],
-   ['Jr. Accountant 1','GA internal SOPs \u2014 voucher & payment procedures','Internal SOPs','Q3'],
-   ['Jr. Accountant 2','Tally ERP \u2014 advanced cost centre accounting','Tally ERP','Q1'],
-   ['Jr. Accountant 2','GST portal \u2014 GSTR-1 filing & data reconciliation','GST Compliance','Q1'],
-   ['Jr. Accountant 2','TRACES \u2014 26AS download & TDS reconciliation','TDS / Income Tax','Q2'],
-   ['Jr. Accountant 2','MahaRERA portal \u2014 financial disclosure navigation','RERA Compliance','Q3'],
-   ['Sr. Accountant','Advanced GST \u2014 annual return GSTR-9 / GSTR-9C','GST Compliance','Q2'],
-   ['Sr. Accountant','MahaRERA \u2014 CA certification & financial format','RERA Compliance','Q2'],
-   ['Sr. Accountant','EVM / project cost accounting for real estate','Project Accounting','Q3'],
-   ['Sr. Accountant','GA internal SOPs \u2014 review & update procedures','Internal SOPs','Q4']
+   ['Sairaj','Tally ERP \u2014 advanced cost centre accounting','Tally ERP','Q1'],
+   ['Sairaj','GST portal \u2014 GSTR-1 / GSTR-3B filing & ITC reconciliation','GST Compliance','Q1'],
+   ['Sairaj','TRACES \u2014 26AS download & TDS reconciliation','TDS / Income Tax','Q2'],
+   ['Sairaj','MahaRERA portal \u2014 financial disclosure navigation','RERA Compliance','Q3'],
+   ['Sairaj','GA internal SOPs \u2014 voucher & payment procedures','Internal SOPs','Q3'],
+   ['Shubham','Tally ERP \u2014 advanced cost centre accounting','Tally ERP','Q1'],
+   ['Shubham','GST portal \u2014 GSTR-1 filing & data reconciliation','GST Compliance','Q1'],
+   ['Shubham','TRACES \u2014 26AS download & TDS reconciliation','TDS / Income Tax','Q2'],
+   ['Shubham','MahaRERA portal \u2014 financial disclosure navigation','RERA Compliance','Q3'],
+   ['Shubham','RA bill measurement & retention accounting','Project Accounting','Q3'],
+   ['Vikas','Advanced GST \u2014 annual return GSTR-9 / GSTR-9C','GST Compliance','Q2'],
+   ['Vikas','MahaRERA \u2014 CA certification & financial format','RERA Compliance','Q2'],
+   ['Vikas','EVM / project cost accounting for real estate','Project Accounting','Q3'],
+   ['Vikas','GA internal SOPs \u2014 review & update procedures','Internal SOPs','Q4'],
+   ['Ketan','RA bill governance & contractor payment controls','Project Accounting','Q1'],
+   ['Ketan','MIS pack design & budget vs actual analysis','MIS & Reporting','Q2'],
+   ['Ketan','Monthly book closure & TB sign-off discipline','Financial Reporting','Q3'],
+   ['Ketan','Cross-pod QC & junior coaching','Team Oversight','Q4']
   ];
   var qd={Q1:[startYear+'-04-01',startYear+'-06-15'],Q2:[startYear+'-07-01',startYear+'-09-30'],Q3:[startYear+'-10-01',startYear+'-12-31'],Q4:[(startYear+1)+'-01-01',(startYear+1)+'-02-28']};
   return defs.map(function(r,i){return {id:'T'+(i+1),emp:r[0],module:r[1],category:r[2],quarter:r[3],assigned:qd[r[3]][0],target:qd[r[3]][1],completed:'',remarks:''};});
@@ -224,9 +366,10 @@ function genTraining(startYear){
 var S=null;
 function defaultState(){
   return {
-    meta:{fy:FY_LABEL,created:new Date().toISOString(),v:2},
-    employees:[{id:'E1',name:'Sr. Accountant',role:'SR',active:true},{id:'E2',name:'Jr. Accountant 1',role:'JR',active:true},{id:'E3',name:'Jr. Accountant 2',role:'JR',active:true}],
+    meta:{fy:FY_LABEL,created:new Date().toISOString(),v:3},
+    employees:defaultEmployees(),
     kpis:{}, /* per-employee KPI sets, seeded lazily from TEMPLATES */
+    workSplit:defaultWorkSplit(),
     compliance:genCalendar(FY_START_YEAR),
     raBills:[], corrections:[], payments:[],
     training:genTraining(FY_START_YEAR),
@@ -261,9 +404,9 @@ function migrateV1(old){
 function loadState(){
   try{
     var raw=localStorage.getItem(LS_KEY);
-    if(raw){S=JSON.parse(raw);return;}
+    if(raw){S=JSON.parse(raw);ensureV3State();return;}
     var rawV1=localStorage.getItem(LS_KEY_V1);
-    if(rawV1){S=migrateV1(JSON.parse(rawV1));return;}
+    if(rawV1){S=migrateV1(JSON.parse(rawV1));ensureV3State();return;}
   }catch(e){}
   S=defaultState();
 }
@@ -441,7 +584,7 @@ function suggest(kpi,empId,ym){
 }
 
 /* --------------------------- Navigation ----------------------------- */
-var TAB_IDS=['dash','comp','reg','review','appr','kpi','team'];
+var TAB_IDS=['dash','comp','reg','review','appr','kpi','work','team'];
 var curTab='dash';
 function showTab(t){
   curTab=t;
@@ -458,6 +601,7 @@ function renderTab(t){
   else if(t==='review')renderReview();
   else if(t==='appr')renderAppr();
   else if(t==='kpi')renderKpiMgr();
+  else if(t==='work')renderWorkSplit();
   else if(t==='team')renderTeam();
 }
 
@@ -494,7 +638,7 @@ function renderDash(){
   h+=stat('Training FY'+FY_LABEL,trainPct+'%',trainDone+'/'+trainRows.length+' modules',trainPct<75?'var(--red-b)':'var(--green-b)');
   h+='</div>';
 
-  h+='<h3 class="sec">Team scoreboard \u2014 latest reviewed month</h3><div class="card" style="margin-bottom:14px;overflow-x:auto"><table><tr><th>Employee</th><th>Role</th><th>Month</th><th>Weighted score</th><th>Band</th><th>KPIs rated</th><th>Status</th></tr>';
+  h+='<h3 class="sec">Team scoreboard \u2014 latest reviewed month</h3><div class="card" style="margin-bottom:14px;overflow-x:auto"><table><tr><th>Employee</th><th>Lane</th><th>Role</th><th>Month</th><th>Weighted score</th><th>Band</th><th>KPIs rated</th><th>Status</th></tr>';
   emps.forEach(function(e){
     var latest=null,latestYm=null;
     Object.keys(S.reviews).forEach(function(k){
@@ -503,13 +647,27 @@ function renderDash(){
     });
     var b=latest?band(latest.score):null;
     var locked=latestYm&&(S.reviews[e.id+'|'+latestYm]||{}).lockBy;
-    h+='<tr><td><b>'+esc(e.name)+'</b></td><td>'+esc(ROLE_LABEL[e.role]||e.role)+'</td><td>'+(latestYm?ymLabel(latestYm):'\u2014')+'</td>'+
+    h+='<tr><td><b>'+esc(e.name)+'</b></td><td>'+laneBadge(e.lane)+'</td><td>'+esc(e.title||ROLE_LABEL[e.role]||e.role)+'</td><td>'+(latestYm?ymLabel(latestYm):'\u2014')+'</td>'+
        '<td>'+(latest?'<b>'+latest.score.toFixed(2)+'</b> / 4.00':'<span class="muted">not reviewed yet</span>')+'</td>'+
        '<td>'+(b?'<span class="badge" style="background:'+b.bg+';color:'+b.c+'">'+b.l+'</span>':'\u2014')+'</td>'+
        '<td>'+(latest?latest.rated+'/'+latest.due:'\u2014')+'</td>'+
        '<td>'+(locked?'<span class="badge" style="background:var(--green-l);color:var(--green-b)">\u{1F512} Locked</span>':(latestYm?'<span class="badge" style="background:var(--orange-l);color:var(--orange-b)">Open</span>':'\u2014'))+'</td></tr>';
   });
   h+='</table></div>';
+
+  h+='<h3 class="sec">Work split \u2014 two pods</h3><div class="pod-grid" style="margin-bottom:14px">';
+  ['COMP','OPS'].forEach(function(ln){
+    var pod=S.employees.filter(function(e){return e.active&&e.lane===ln;});
+    var sr=pod.filter(function(e){return e.role==='SR';})[0];
+    var jr=pod.filter(function(e){return e.role==='JR';})[0];
+    h+='<div class="pod-card '+(ln==='COMP'?'pod-comp':'pod-ops')+'">';
+    h+='<div class="pod-h">'+esc(LANE_LABEL[ln])+'</div>';
+    if(sr)h+='<div class="pod-member"><b>'+esc(sr.name)+'</b> <span class="muted">\u00b7 '+esc(sr.title)+' \u00b7 Accountable</span></div>';
+    if(jr)h+='<div class="pod-member"><b>'+esc(jr.name)+'</b> <span class="muted">\u00b7 '+esc(jr.title)+' \u00b7 Executes</span></div>';
+    if(sr&&sr.backupId)h+='<div class="muted" style="font-size:10px;margin-top:6px">Cross-review backup: <b>'+esc(empNameById(sr.backupId))+'</b></div>';
+    h+='<button class="btn btn-ghost" style="margin-top:8px;padding:4px 10px;font-size:10px" onclick="showTab(\'work\')">Open full work split \u2192</button></div>';
+  });
+  h+='</div>';
 
   h+='<h3 class="sec">Statutory dues \u2014 next 14 days</h3><div class="card" style="margin-bottom:14px;overflow-x:auto">';
   if(next14.length){
@@ -619,7 +777,7 @@ function downloadCalTemplate(){
   if(!window.XLSX){alert('Excel library still loading \u2014 try again in a few seconds.');return;}
   var wb=XLSX.utils.book_new();
   var rows=[['Month','Obligation','Authority','Period','Due Date','Responsible','Actual Date','Remarks']];
-  S.compliance.forEach(function(c){rows.push([ymLabel(ymOf(c.due)),c.obligation,c.authority,c.period,c.due,'Sr. Accountant',c.actual||'',c.remarks||'']);});
+  S.compliance.forEach(function(c){rows.push([ymLabel(ymOf(c.due)),c.obligation,c.authority,c.period,c.due,complianceOwner(),c.actual||'',c.remarks||'']);});
   rows.push([]);
   rows.push(['HOW TO USE: edit/add rows above. Dates must be YYYY-MM-DD (or Excel dates). Keep the header row.','','','','','','','']);
   rows.push(['Then in the app (logged in as an admin, e.g. abhishek.puranik@goldenabodes.com): Compliance Calendar \u2192 Upload calendar. Choose Replace or Merge.','','','','','','','']);
@@ -746,7 +904,8 @@ function empSelect(path,val){
   return h+'</select>';
 }
 function renderPay(){
-  var h='<div class="info">Jr. Accountant flags every payment to the Sr. Accountant <b>\u2265 3 working days before due date</b>. RED alert = flagged late or not flagged.</div>';
+  var op=opsPodNames();
+  var h='<div class="info">Operations pod (<b>'+esc(op.jr)+'</b>) flags every payment to <b>'+esc(op.sr)+'</b> \u2265 3 working days before due date. RED alert = flagged late or not flagged.</div>';
   h+='<div style="margin-bottom:10px"><button class="btn btn-blue" onclick="addPay()">+ Add payment due</button></div>';
   h+='<div class="card" style="overflow-x:auto"><table><tr><th>Category</th><th>Description</th><th>Amount \u20b9</th><th>Due date</th><th>Flagged to Sr.</th><th>Days in advance</th><th>Alert</th><th>Payment date</th><th>Status</th><th></th></tr>';
   S.payments.forEach(function(p,i){
@@ -873,7 +1032,7 @@ function renderReview(){
 
   /* step 3 */
   h+='<div class="step-h"><div class="step-n">3</div><div class="step-t">Complete</div></div>';
-  h+='<div class="card" style="font-size:11px;color:var(--muted)">When the actuals and 1:1 notes are done, click <b>Complete &amp; lock review</b> (top right). The month becomes read-only, counts toward the semi-annual appraisal, and shows as \u2713 on the Dashboard. Unlocking needs the admin password and is recorded in the audit trail.</div>';
+  h+='<div class="card" style="font-size:11px;color:var(--muted)">When the actuals and 1:1 notes are done, click <b>Complete &amp; lock review</b> (top right). The month becomes read-only, counts toward the semi-annual appraisal, and shows as \u2713 on the Dashboard. Unlocking needs admin rights (Admin Security) and is recorded in the audit trail.</div>';
   document.getElementById('page-review').innerHTML=h;
 }
 function rvBox(key,f,label,ph,rv,dis){
@@ -1007,7 +1166,7 @@ function renderKpiMgr(){
   var emps=S.employees.filter(function(e){return e.active;});
   if(!kmEmp||!empById(kmEmp))kmEmp=emps.length?emps[0].id:null;
   var h='<div class="lockbar">'+
-    '<select onchange="kmEmp=this.value;renderKpiMgr()">'+emps.map(function(e){return '<option value="'+e.id+'"'+(e.id===kmEmp?' selected':'')+'>'+esc(e.name)+' \u2014 '+esc(ROLE_LABEL[e.role])+'</option>';}).join('')+'</select>';
+    '<select onchange="kmEmp=this.value;renderKpiMgr()">'+emps.map(function(e){return '<option value="'+e.id+'"'+(e.id===kmEmp?' selected':'')+'>'+esc(e.name)+' \u2014 '+esc(e.title||ROLE_LABEL[e.role])+(e.lane?' \u00b7 '+LANE_SHORT[e.lane]:'')+'</option>';}).join('')+'</select>';
   if(ADMIN&&kmEmp){
     h+='<button class="btn btn-blue" onclick="addKpi(\''+kmEmp+'\')">+ Add KPI</button>';
     h+='<button class="btn btn-ghost" onclick="resetKpis(\''+kmEmp+'\')">Reset to role template</button>';
@@ -1018,8 +1177,8 @@ function renderKpiMgr(){
   var ks=kpisFor(kmEmp);
   var totWt=0,activeN=0;ks.forEach(function(k){if(scoreable(k)){totWt+=+k.wt;activeN++;}});
 
-  if(ADMIN)h+='<div class="info"><b>Admin mode ('+ADMIN_NAME+'):</b> edit any cell directly \u2014 changes apply to <b>'+esc(emp.name)+' only</b>. A KPI scores only when it has a direction, thresholds and a weight above 0. T4/T3/T2 are the rating cut-offs for 4 / 3 / 2 (anything beyond scores 1). Aim for weights totalling 100.</div>';
-  else h+='<div class="info">KPI set for <b>'+esc(emp.name)+'</b> \u2014 read-only. Admin rights (granted in the <b>Admin Security</b> console, app right "'+ADMIN_APP+'") are needed to add, modify or delete KPIs for this individual.</div>';
+  if(ADMIN)h+='<div class="info"><b>Admin mode ('+ADMIN_NAME+'):</b> '+laneBadge(emp.lane)+' <b>'+esc(emp.name)+'</b> \u2014 edit any cell directly. A KPI scores only when it has a direction, thresholds and a weight above 0. Aim for weights totalling 100.</div>';
+  else h+='<div class="info">'+laneBadge(emp.lane)+' KPI set for <b>'+esc(emp.name)+'</b> \u2014 read-only. Admin rights (Admin Security \u2192 app right "'+ADMIN_APP+'") needed to add, modify or delete KPIs.</div>';
   if(totWt!==100&&activeN)h+='<div class="warn">Active weights total <b>'+totWt+'</b> (not 100). Scores still compute correctly (renormalized), but clean weights are easier to explain.</div>';
 
   h+='<div class="card kpi-edit" style="overflow-x:auto"><table><tr><th>#</th><th>Category</th><th>KPI</th><th>Freq</th><th>Wt%</th><th>Dir</th><th>T4</th><th>T3</th><th>T2</th><th>Target / benchmark</th><th>Input hint</th><th>Evidence source</th><th>Status</th>'+(ADMIN?'<th></th>':'')+'</tr>';
@@ -1080,12 +1239,115 @@ function resetKpis(empId){
   saveState(true);renderKpiMgr();
 }
 
+/* --------------------------- Work Split ----------------------------- */
+function renderWorkSplit(){
+  if(!S.workSplit)S.workSplit=defaultWorkSplit();
+  var ws=S.workSplit;
+  var h='<div class="info">McKinsey-style <b>2-pod model</b> for Golden Abodes Finance &amp; Accounts. Split by <b>process domain</b> (compliance vs operations), not by project. Everything below is <b>editable</b> \u2014 adjust as the team or project load changes. Changes auto-save.</div>';
+  h+='<div class="lockbar"><span class="muted" style="font-size:10px">R = does the work \u00b7 A = accountable/sign-off \u00b7 C = consulted/reviews \u00b7 I = informed</span>';
+  h+='<span style="flex:1"></span>';
+  h+='<button class="btn btn-ghost" onclick="resetWorkSplit()">Reset to GA default</button></div>';
+
+  h+='<h3 class="sec" style="margin-top:0">Operating model</h3><div class="card" style="margin-bottom:14px">';
+  h+='<textarea rows="3" onchange="S.workSplit.model=this.value;touch()">'+esc(ws.model)+'</textarea></div>';
+
+  h+='<h3 class="sec">Pods &amp; scope (edit per person)</h3><div class="pod-grid" style="margin-bottom:14px">';
+  ['COMP','OPS'].forEach(function(ln){
+    var pod=S.employees.filter(function(e){return e.active&&e.lane===ln;});
+    h+='<div class="pod-card '+(ln==='COMP'?'pod-comp':'pod-ops')+'">';
+    h+='<div class="pod-h">'+esc(LANE_LABEL[ln])+'</div>';
+    pod.forEach(function(e){
+      var idx=S.employees.indexOf(e);
+      var tag=e.role==='SR'?'Accountable \u00b7 signs off':'Responsible \u00b7 prepares';
+      h+='<div style="margin-bottom:10px;padding-bottom:10px;border-bottom:1px solid var(--border)">';
+      h+='<div class="pod-member" style="border:none;padding:0 0 4px"><b>'+esc(e.name)+'</b> <span class="muted">\u00b7 '+esc(e.title||ROLE_LABEL[e.role])+'</span></div>';
+      h+='<div class="muted" style="font-size:9px;margin-bottom:4px">'+tag;
+      if(e.role==='SR'&&e.podJr)h+=' \u00b7 Jr: <b>'+esc(empNameById(e.podJr))+'</b>';
+      if(e.role==='JR'&&e.leadId)h+=' \u00b7 Lead: <b>'+esc(empNameById(e.leadId))+'</b>';
+      if(e.role==='SR'&&e.backupId)h+=' \u00b7 Backup reviewer: <b>'+esc(empNameById(e.backupId))+'</b>';
+      h+='</div>';
+      h+='<textarea rows="3" style="font-size:11px" placeholder="Scope of work for '+esc(e.name)+'..." onchange="S.employees['+idx+'].scope=this.value;touch()">'+esc(e.scope||'')+'</textarea></div>';
+    });
+    if(!pod.length)h+='<span class="muted">No active employees in this lane \u2014 assign lanes in Team &amp; Data.</span>';
+    h+='</div>';
+  });
+  h+='</div>';
+
+  h+='<h3 class="sec">RACI \u2014 who does what</h3><div class="card" style="margin-bottom:14px;overflow-x:auto"><table><tr><th>Process</th><th class="raci-r">R</th><th class="raci-a">A</th><th class="raci-c">C</th><th class="raci-i">I</th><th></th></tr>';
+  ws.processes.forEach(function(w,i){
+    h+='<tr><td><input type="text" value="'+esc(w.process)+'" onchange="S.workSplit.processes['+i+'].process=this.value;touch()"/></td>';
+    ['R','A','C','I'].forEach(function(col){
+      h+='<td><select style="min-width:120px" onchange="S.workSplit.processes['+i+'].'+col+'=this.value;touch()">'+empOpts(w[col])+'</select></td>';
+    });
+    h+='<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delWorkRow(\'processes\','+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table><button class="btn btn-blue" style="margin-top:10px" onclick="addWorkRow(\'processes\')">+ Add process</button></div>';
+
+  var actEmps=S.employees.filter(function(e){return e.active;});
+  h+='<h3 class="sec">Monthly rhythm (post month-end)</h3><div class="card" style="margin-bottom:14px;overflow-x:auto"><table><tr><th>When</th>';
+  actEmps.forEach(function(e){h+='<th>'+esc(e.name)+'</th>';});
+  h+='<th></th></tr>';
+  ws.rhythm.forEach(function(r,i){
+    if(!r.cells)r.cells={};
+    h+='<tr><td><input type="text" value="'+esc(r.when)+'" onchange="S.workSplit.rhythm['+i+'].when=this.value;touch()"/></td>';
+    actEmps.forEach(function(e){
+      var v=r.cells[e.id]||'';
+      h+='<td><input type="text" value="'+esc(v)+'" placeholder="\u2014" onchange="S.workSplit.rhythm['+i+'].cells[\''+e.id+'\']=this.value;touch()"/></td>';
+    });
+    h+='<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delWorkRow(\'rhythm\','+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table><button class="btn btn-blue" style="margin-top:10px" onclick="addWorkRow(\'rhythm\')">+ Add rhythm row</button></div>';
+
+  h+='<h3 class="sec">Scaling triggers</h3><div class="card" style="margin-bottom:14px;overflow-x:auto"><table><tr><th>Trigger</th><th>Action</th><th></th></tr>';
+  ws.scaling.forEach(function(s,i){
+    h+='<tr><td><input type="text" value="'+esc(s.trigger)+'" onchange="S.workSplit.scaling['+i+'].trigger=this.value;touch()"/></td>'+
+      '<td><input type="text" value="'+esc(s.action)+'" onchange="S.workSplit.scaling['+i+'].action=this.value;touch()"/></td>'+
+      '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delWorkRow(\'scaling\','+i+')">\u00d7</button></td></tr>';
+  });
+  h+='</table><button class="btn btn-blue" style="margin-top:10px" onclick="addWorkRow(\'scaling\')">+ Add trigger</button></div>';
+
+  h+='<h3 class="sec">Stand-up cadence</h3><div class="card"><textarea rows="2" onchange="S.workSplit.standup=this.value;touch()">'+esc(ws.standup||'')+'</textarea></div>';
+  document.getElementById('page-work').innerHTML=h;
+}
+function addWorkRow(kind){
+  if(!S.workSplit)S.workSplit=defaultWorkSplit();
+  if(kind==='processes')S.workSplit.processes.push({id:'W'+Date.now(),process:'New process',R:'',A:'',C:'',I:''});
+  else if(kind==='rhythm')S.workSplit.rhythm.push({id:'R'+Date.now(),when:'Day ?',cells:{}});
+  else if(kind==='scaling')S.workSplit.scaling.push({id:'S'+Date.now(),trigger:'When...',action:'Do...'});
+  touch();renderWorkSplit();
+}
+function delWorkRow(kind,i){
+  if(!window.confirm('Delete this row?'))return;
+  S.workSplit[kind].splice(i,1);touch();renderWorkSplit();
+}
+function resetWorkSplit(){
+  if(!window.confirm('Reset the entire work split (pods scope text, RACI, rhythm, scaling) to the Golden Abodes default?\n\nEmployee names and lane assignments in Team & Data are kept.'))return;
+  var scopes={};
+  S.employees.forEach(function(e){scopes[e.id]=e.scope;});
+  S.workSplit=defaultWorkSplit();
+  S.employees.forEach(function(e){
+    var d=defaultEmployees().find(function(x){return x.id===e.id;});
+    if(d){e.lane=d.lane;e.podJr=d.podJr;e.leadId=d.leadId;e.backupId=d.backupId;if(!e.scope)e.scope=d.scope;}
+  });
+  logAudit('work.reset','Work split reset to GA 2-pod default');
+  saveState(true);renderWorkSplit();
+}
+
 /* --------------------------- Team & Data ---------------------------- */
 function renderTeam(){
-  var h='<h3 class="sec" style="margin-top:0">Team</h3><div class="card" style="margin-bottom:16px;overflow-x:auto"><table><tr><th>Name</th><th>Role / KPI template</th><th>Active</th><th></th></tr>';
+  var h='<h3 class="sec" style="margin-top:0">Team</h3><div class="info">Vikas &amp; Ketan lead the two pods. Sairaj &amp; Shubham execute. Lane and reporting links feed the <b>Work Split</b> tab. KPI templates are set per role on first load / reset.</div>';
+  h+='<div class="card" style="margin-bottom:16px;overflow-x:auto"><table><tr><th>Name</th><th>Title</th><th>Role template</th><th>Lane</th><th>Pod link</th><th>Active</th><th></th></tr>';
   S.employees.forEach(function(e,i){
-    h+='<tr><td><input type="text" style="width:200px" value="'+esc(e.name)+'" onchange="S.employees['+i+'].name=this.value;touch()"/></td>'+
-      '<td><select onchange="S.employees['+i+'].role=this.value;touch()">'+['SR','JR','FIN'].map(function(r){return '<option value="'+r+'"'+(e.role===r?' selected':'')+'>'+ROLE_LABEL[r]+'</option>';}).join('')+'</select> <span class="muted" style="font-size:9px">template used on first load / reset only</span></td>'+
+    enrichEmployee(e);
+    var podCell='';
+    if(e.role==='SR')podCell='<span class="muted" style="font-size:9px">Jr:</span> <select onchange="S.employees['+i+'].podJr=this.value;touch()">'+empOpts(e.podJr,false)+'</select><br><span class="muted" style="font-size:9px">Backup:</span> <select onchange="S.employees['+i+'].backupId=this.value;touch()">'+empOpts(e.backupId,false)+'</select>';
+    else if(e.role==='JR')podCell='<span class="muted" style="font-size:9px">Lead:</span> <select onchange="S.employees['+i+'].leadId=this.value;touch()">'+empOpts(e.leadId,false)+'</select>';
+    else podCell='<span class="muted">\u2014</span>';
+    h+='<tr><td><input type="text" style="width:120px" value="'+esc(e.name)+'" onchange="S.employees['+i+'].name=this.value;touch()"/></td>'+
+      '<td><input type="text" style="width:130px" value="'+esc(e.title||'')+'" placeholder="Title" onchange="S.employees['+i+'].title=this.value;touch()"/></td>'+
+      '<td><select onchange="S.employees['+i+'].role=this.value;touch()">'+['SR','JR','FIN'].map(function(r){return '<option value="'+r+'"'+(e.role===r?' selected':'')+'>'+ROLE_LABEL[r]+'</option>';}).join('')+'</select></td>'+
+      '<td><select onchange="S.employees['+i+'].lane=this.value;touch()"><option value=""'+(e.lane===''?' selected':'')+'>Unassigned</option><option value="COMP"'+(e.lane==='COMP'?' selected':'')+'>Compliance</option><option value="OPS"'+(e.lane==='OPS'?' selected':'')+'>Operations</option></select></td>'+
+      '<td style="min-width:160px">'+podCell+'</td>'+
       '<td><input type="checkbox" '+(e.active?'checked':'')+' onchange="S.employees['+i+'].active=this.checked;touch()"/></td>'+
       '<td><button class="btn btn-red" style="padding:2px 8px;font-size:10px" onclick="delEmp('+i+')">\u00d7</button></td></tr>';
   });
@@ -1108,7 +1370,7 @@ function renderTeam(){
 function addEmp(){
   var n=window.prompt('Employee name:');if(!n)return;
   var id='E'+Date.now();
-  S.employees.push({id:id,name:n,role:'JR',active:true});
+  S.employees.push({id:id,name:n,role:'JR',active:true,title:'Jr. Accountant',lane:'',leadId:'',podJr:'',backupId:'',scope:''});
   logAudit('emp.add',n);renderTeam();
 }
 function delEmp(i){
@@ -1127,7 +1389,7 @@ function restoreJson(file){
       if(!d.employees||!d.compliance)throw new Error('Not a Finance KPI backup.');
       if(!window.confirm('Replace ALL current data with this backup?'))return;
       if(d.scores&&!d.reviews)d=migrateV1(d);
-      S=d;saveState(true);renderTab(curTab);alert('Restored.');
+      S=d;ensureV3State();saveState(true);renderTab(curTab);alert('Restored.');
     }catch(err){alert('Restore failed: '+err.message);}
   };r.readAsText(file);
 }
@@ -1254,6 +1516,24 @@ function exportExcel(){
     revRows.push([emp.name,p[1],ms?ms.score.toFixed(2):'',ms?band(ms.score).l:'',ms?ms.rated+'/'+ms.due:'',rv.date||'',rv.wins||'',rv.issues||'',rv.actions||'',rv.prior||'',rv.lockBy?'Locked by '+rv.lockBy:'Open']);
   });
   add('Monthly Reviews',['Employee','Month','Weighted Score','Band','KPIs Rated','1:1 Date','Went Well','Needs Attention','Actions','Prior Status','Lock'],revRows);
+  if(S.workSplit){
+    add('Work Split Model',['Section','Content'],[['Operating model',S.workSplit.model],['Stand-up',S.workSplit.standup||'']]);
+    add('RACI',['Process','R','A','C','I'],
+      S.workSplit.processes.map(function(w){
+        return [w.process,empNameById(w.R)||w.R,empNameById(w.A)||w.A,empNameById(w.C)||w.C,w.I==='MP'?'Managing Partner':(empNameById(w.I)||w.I)];
+      }));
+    var act=S.employees.filter(function(e){return e.active;});
+    var rh=['When'].concat(act.map(function(e){return e.name;}));
+    var rr=S.workSplit.rhythm.map(function(r){
+      var row=[r.when];act.forEach(function(e){row.push((r.cells&&r.cells[e.id])||'');});return row;
+    });
+    add('Monthly Rhythm',rh,rr);
+    add('Scaling Triggers',['Trigger','Action'],S.workSplit.scaling.map(function(s){return [s.trigger,s.action];}));
+    add('Team Lanes',['Name','Title','Lane','Role','Scope','Lead / Pod Jr','Backup'],
+      S.employees.filter(function(e){return e.active;}).map(function(e){
+        return [e.name,e.title||'',LANE_LABEL[e.lane]||'',ROLE_LABEL[e.role]||e.role,e.scope||'',e.role==='JR'?empNameById(e.leadId):empNameById(e.podJr),e.role==='SR'?empNameById(e.backupId):''];
+      }));
+  }
   XLSX.writeFile(wb,'GA_Finance_KPI_FY'+FY_LABEL.replace('-','_')+'_'+todayISO()+'.xlsx');
 }
 
