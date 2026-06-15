@@ -14,9 +14,17 @@ import {
   repairV3OrgPlannerForRead,
   V3_ORG_PLANNER_APP_ID
 } from '../lib/v3OrgPlannerMerge.js';
-import { mergePreconstructionState } from '../lib/preconstructionMerge.js';
+import { mergePreconstructionState, repairPreconstructionForRead } from '../lib/preconstructionMerge.js';
+import { resolveSession, userHasPermission } from './auth.js';
 
 export const PRECONSTRUCTION_APP_ID = 'preconstruction';
+const PERM_ADMIN = 'manage_security';
+
+function canDeletePreconProjects(user) {
+  if (!user) return false;
+  if (userHasPermission(user, PERM_ADMIN)) return true;
+  return (user.roleIds || []).includes('admin');
+}
 
 export const appStatesRouter = Router();
 
@@ -111,6 +119,8 @@ appStatesRouter.get(
         outData = repairV3OrgPlannerForRead(row.data);
       } else if (appId === V1_CASHFLOW_APP_ID) {
         outData = await repairV1CashflowForRead(db, row.data);
+      } else if (appId === PRECONSTRUCTION_APP_ID) {
+        outData = repairPreconstructionForRead(row.data);
       }
       res.json({
         appId,
@@ -154,8 +164,19 @@ appStatesRouter.put(
       }
       const nextVersion = currentVersion + 1;
       let toSave = data;
-      if (appId === PRECONSTRUCTION_APP_ID && existing?.data) {
-        toSave = mergePreconstructionState(existing.data, data);
+      if (appId === PRECONSTRUCTION_APP_ID) {
+        let authUser = req.authUser;
+        if (!authUser) {
+          const sess = await resolveSession(db, req);
+          authUser = sess?.user;
+        }
+        if (existing?.data) {
+          toSave = mergePreconstructionState(existing.data, data, {
+            allowProjectRemoval: canDeletePreconProjects(authUser)
+          });
+        } else {
+          toSave = repairPreconstructionForRead(data);
+        }
       } else if (appId === V1_CASHFLOW_APP_ID) {
         const existingEnv = existing?.data ? await repairV1CashflowForRead(db, existing.data) : null;
         const merged = await mergeV1CashflowForPut(db, existing?.data, data);

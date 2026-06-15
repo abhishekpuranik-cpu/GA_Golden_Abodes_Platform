@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import multer from 'multer';
 import { withDb } from '../lib/mongo.js';
+import {
+  mergePreconstructionState,
+  repairPreconstructionForRead
+} from '../lib/preconstructionMerge.js';
 import { resolveSession, userHasApp } from './auth.js';
 import {
   MAX_UPLOAD_BYTES,
@@ -33,6 +37,13 @@ import {
 
 export const preconstructionRouter = Router();
 const APP_ID = 'preconstruction';
+const PERM_ADMIN = 'manage_security';
+
+function canDeletePreconProjects(user) {
+  if (!user) return false;
+  if ((user.permissions || []).includes(PERM_ADMIN)) return true;
+  return (user.roleIds || []).includes('admin');
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -82,7 +93,12 @@ preconstructionRouter.get(
     try {
       const doc = await db.collection('app_states').findOne({ _id: APP_ID });
       if (!doc?.data) return res.status(404).json({ error: 'No saved PreConstruction workspace' });
-      res.json({ data: doc.data, updatedAt: doc.updatedAt, version: doc.version || 1, appId: APP_ID });
+      res.json({
+        data: repairPreconstructionForRead(doc.data),
+        updatedAt: doc.updatedAt,
+        version: doc.version || 1,
+        appId: APP_ID
+      });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
     }
@@ -104,24 +120,27 @@ preconstructionRouter.put(
       const states = db.collection('app_states');
       const existing = await states.findOne({ _id: APP_ID });
       const currentVersion = existing?.version || 0;
-      if (expectedVersion !== undefined && Number(expectedVersion) !== currentVersion) {
-        return res.status(409).json({
-          error: 'Version conflict',
-          appId: APP_ID,
-          expectedVersion: Number(expectedVersion),
-          currentVersion,
-          updatedAt: existing?.updatedAt || null,
-          updatedBy: existing?.updatedBy || null
-        });
+      const hasVersionConflict =
+        expectedVersion !== undefined && Number(expectedVersion) !== currentVersion;
+      if (hasVersionConflict) {
+        // Same as app_states: merge on stale version instead of hard 409.
       }
       const now = new Date();
       const nextVersion = currentVersion + 1;
+      let sess = await resolveSession(db, req);
+      const authUser = sess?.user || req.authUser;
+      let toSave = payload;
+      if (existing?.data) {
+        toSave = mergePreconstructionState(existing.data, payload, {
+          allowProjectRemoval: canDeletePreconProjects(authUser)
+        });
+      }
       await states.updateOne(
         { _id: APP_ID },
         {
           $set: {
             appId: APP_ID,
-            data: payload,
+            data: toSave,
             updatedAt: now,
             updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system',
             version: nextVersion
