@@ -85,6 +85,25 @@ export function buildActivityFileEmailHtml(ctx) {
 </body></html>`;
 }
 
+export function buildStatusEmailHtml(ctx) {
+  const { projectName, phaseName, taskName, author, text } = ctx;
+  return `
+<!DOCTYPE html>
+<html><body style="font-family:system-ui,sans-serif;color:#1a1815;line-height:1.5;max-width:640px">
+  <p style="margin:0 0 12px;font-size:13px;color:#6a6560">Golden Abodes · PreConstruction</p>
+  <h2 style="margin:0 0 8px;font-size:18px;color:#1a304a">${escapeHtml(projectName)}</h2>
+  <p style="margin:0 0 16px;font-size:13px;color:#55504a">
+    <strong>Phase:</strong> ${escapeHtml(phaseName)}<br/>
+    <strong>Activity:</strong> ${escapeHtml(taskName)}
+  </p>
+  <div style="background:#f8f6f1;border-left:4px solid #9a6e20;padding:12px 14px;border-radius:6px">
+    <p style="margin:0 0 6px;font-size:12px;color:#96918a"><strong>${escapeHtml(author || 'Team')}</strong> updated status</p>
+    <p style="margin:0;font-size:14px">${escapeHtml(text || '')}</p>
+  </div>
+  <p style="margin:20px 0 0;font-size:11px;color:#96918a">Open PreConstruction for the full schedule and comment thread.</p>
+</body></html>`;
+}
+
 function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')

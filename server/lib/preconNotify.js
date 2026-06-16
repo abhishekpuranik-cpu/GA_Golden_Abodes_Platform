@@ -1,16 +1,55 @@
 import { nameMatches, parseAssignees } from './preconAdmin.js';
 
 function uniqRecipients(list) {
-  const byEmail = new Map();
+  const byKey = new Map();
   for (const r of list || []) {
     const email = String(r.email || '').trim().toLowerCase();
-    if (!email || !email.includes('@')) continue;
-    const name = String(r.name || '').trim() || email;
-    const phone = String(r.phone || '').trim();
-    if (!byEmail.has(email)) byEmail.set(email, { name, email, phone });
-    else if (phone && !byEmail.get(email).phone) byEmail.get(email).phone = phone;
+    const phoneDigits = String(r.phone || '').replace(/\D/g, '');
+    const hasEmail = email && email.includes('@');
+    const hasPhone = phoneDigits.length >= 10;
+    if (!hasEmail && !hasPhone) continue;
+    const key = hasEmail ? `e:${email}` : `p:${phoneDigits}`;
+    const name = String(r.name || '').trim() || email || phoneDigits;
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        name,
+        email: hasEmail ? email : '',
+        phone: hasPhone ? String(r.phone || '').trim() || phoneDigits : ''
+      });
+    } else {
+      const ex = byKey.get(key);
+      if (hasPhone && !ex.phone) ex.phone = String(r.phone || '').trim() || phoneDigits;
+      if (hasEmail && !ex.email) ex.email = email;
+    }
   }
-  return [...byEmail.values()].sort((a, b) => a.name.localeCompare(b.name));
+  return [...byKey.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function hasNotifyContact(r) {
+  const email = String(r?.email || '').trim();
+  const phoneDigits = String(r?.phone || '').replace(/\D/g, '');
+  return (email.includes('@') && !r?.noEmail) || phoneDigits.length >= 10;
+}
+
+/** Attach phones (and emails) from auth_users for notify routing. */
+export function enrichRecipientsWithAuthPhones(recipients, authUsers) {
+  const byEmail = new Map(
+    (authUsers || []).map((u) => [String(u.email || '').trim().toLowerCase(), u])
+  );
+  return (recipients || []).map((r) => {
+    const email = String(r.email || '').trim().toLowerCase();
+    const u = email ? byEmail.get(email) : null;
+    let phone = String(r.phone || '').trim();
+    if (!phone && u?.phone) phone = String(u.phone).trim();
+    if (!phone && r.name) {
+      const hit = (authUsers || []).find(
+        (x) => x.email && (nameMatches(x.name, r.name) || nameMatches(r.name, x.email.split('@')[0]))
+      );
+      if (hit?.phone) phone = String(hit.phone).trim();
+    }
+    const outEmail = r.email || (u?.email ? String(u.email).trim() : '');
+    return { ...r, email: outEmail, phone };
+  });
 }
 
 function normPhaseName(name) {
@@ -146,23 +185,23 @@ export async function buildNotifyRecipientGroups(db, opts = {}) {
  * Default auto-email list: all dept heads, leadership, task assignees, phase dept head.
  */
 export function resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho }) {
-  const withEmail = (list) => (list || []).filter((r) => r.email && !r.noEmail);
+  const withContact = (list) => (list || []).filter(hasNotifyContact);
 
   const taskNames = parseAssignees(taskWho);
-  const taskAssignees = withEmail(groups.assignees).filter((a) =>
+  const taskAssignees = withContact(groups.assignees).filter((a) =>
     taskNames.some((n) => nameMatches(a.name, n))
   );
 
   const phaseDept = getDepartmentForPhase(phaseName, departments);
   const phaseHeadName = String(phaseDept?.head || '').trim();
   const phaseHead = phaseHeadName
-    ? withEmail(groups.departmentHeads).find((h) => nameMatches(h.name, phaseHeadName)) ||
-      withEmail(groups.leadership).find((h) => nameMatches(h.name, phaseHeadName))
+    ? withContact(groups.departmentHeads).find((h) => nameMatches(h.name, phaseHeadName)) ||
+      withContact(groups.leadership).find((h) => nameMatches(h.name, phaseHeadName))
     : null;
 
   return uniqRecipients([
-    ...withEmail(groups.departmentHeads),
-    ...withEmail(groups.leadership),
+    ...withContact(groups.departmentHeads),
+    ...withContact(groups.leadership),
     ...taskAssignees,
     ...(phaseHead ? [phaseHead] : [])
   ]);

@@ -22,6 +22,7 @@ import {
 } from '../lib/preconNotifyJob.js';
 import {
   buildNotifyRecipientGroups,
+  enrichRecipientsWithAuthPhones,
   resolveAutoNotifyRecipients,
   uniqRecipients
 } from '../lib/preconNotify.js';
@@ -173,13 +174,14 @@ preconstructionRouter.get(
       const autoRecipients = resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho });
       const emailConfig = getEmailConfig();
       const waOn = whatsappConfigured();
-      const withPhone = (autoRecipients || []).filter((r) => String(r.phone || '').replace(/\D/g, '').length >= 10);
       const authUsers = await db
         .collection('auth_users')
-        .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1 } })
+        .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
         .toArray();
       const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
-      const resolvedPhones = resolvePhonesForRecipients(autoRecipients, usersByEmail);
+      const enrichedAuto = enrichRecipientsWithAuthPhones(autoRecipients, authUsers);
+      const withPhone = (enrichedAuto || []).filter((r) => String(r.phone || '').replace(/\D/g, '').length >= 10);
+      const resolvedPhones = resolvePhonesForRecipients(enrichedAuto, usersByEmail);
       const fromRaw = String(process.env.TWILIO_WHATSAPP_FROM || '').trim();
       const fromNormalized = normalizeWhatsAppFrom(fromRaw);
       res.json({
@@ -193,7 +195,7 @@ preconstructionRouter.get(
           fromNormalized: fromNormalized || null,
           fromFormatOk: !fromRaw || !!fromNormalized,
           autoRecipientsWithPhone: withPhone.length,
-          autoRecipientsTotal: (autoRecipients || []).length,
+          autoRecipientsTotal: (enrichedAuto || []).length,
           phonesResolvedForNotify: resolvedPhones.length,
           sandboxReminder:
             'Each recipient phone must WhatsApp "join <your-code>" to +1 415 523 8886 (Twilio sandbox) — re-join every 72h.',
@@ -204,7 +206,7 @@ preconstructionRouter.get(
             : 'Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM on Render.'
         },
         groups,
-        autoRecipients
+        autoRecipients: enrichedAuto
       });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
@@ -303,19 +305,26 @@ preconstructionRouter.get(
 async function resolveNotifyRecipients(db, body) {
   const extra = Array.isArray(body.extraRecipients) ? body.extraRecipients : [];
   const manual = Array.isArray(body.recipients) ? body.recipients : [];
+  const authUsers = await db
+    .collection('auth_users')
+    .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
+    .toArray();
+  let list;
   if (body.autoNotify === false) {
-    return uniqRecipients([...manual, ...extra]);
+    list = uniqRecipients([...manual, ...extra]);
+  } else {
+    const { projects, departments } = await loadWorkspace(db);
+    const projectId = String(body.projectId || '').trim();
+    const assigneeNames = projectId ? collectProjectAssigneeNames(projects, projectId) : [];
+    const groups = await buildNotifyRecipientGroups(db, { departments, assigneeNames });
+    const auto = resolveAutoNotifyRecipients(groups, {
+      departments,
+      phaseName: body.phaseName,
+      taskWho: body.taskWho
+    });
+    list = uniqRecipients([...auto, ...extra, ...manual]);
   }
-  const { projects, departments } = await loadWorkspace(db);
-  const projectId = String(body.projectId || '').trim();
-  const assigneeNames = projectId ? collectProjectAssigneeNames(projects, projectId) : [];
-  const groups = await buildNotifyRecipientGroups(db, { departments, assigneeNames });
-  const auto = resolveAutoNotifyRecipients(groups, {
-    departments,
-    phaseName: body.phaseName,
-    taskWho: body.taskWho
-  });
-  return uniqRecipients([...auto, ...extra, ...manual]);
+  return enrichRecipientsWithAuthPhones(list, authUsers);
 }
 
 preconstructionRouter.post(
@@ -366,6 +375,15 @@ preconstructionRouter.post(
       const body = req.body || {};
       const recipients = await resolveNotifyRecipients(db, body);
       const emails = recipients.map((r) => r.email).filter((e) => e.includes('@'));
+      const usersByEmail = new Map(
+        (
+          await db
+            .collection('auth_users')
+            .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1 } })
+            .toArray()
+        ).map((u) => [String(u.email || '').toLowerCase(), u])
+      );
+      const phoneCount = resolvePhonesForRecipients(recipients, usersByEmail).length;
       const jobId = createNotifyJobId();
 
       await initNotifyJob(db, jobId, {
@@ -373,7 +391,7 @@ preconstructionRouter.post(
         projectId: body.projectId,
         taskName: body.taskName,
         author: body.author || sess.user.name,
-        recipientCount: emails.length
+        recipientCount: Math.max(emails.length, phoneCount)
       });
 
       res.status(202).json({
@@ -382,6 +400,7 @@ preconstructionRouter.post(
         jobId,
         recipients,
         recipientCount: emails.length,
+        phoneRecipientCount: phoneCount,
         message: 'Notifications queued'
       });
 

@@ -103,6 +103,9 @@ function buildWhatsAppBody(ctx) {
   if (kind === 'activity') {
     lines.push(`📎 ${author || 'Team'} added file(s):`);
     fileLabels.forEach((l) => lines.push(`• ${l}`));
+  } else if (kind === 'status') {
+    lines.push(`📊 *${author || 'Team'}* updated activity status`);
+    lines.push(text || '—');
   } else {
     lines.push(`💬 *${author || 'Team'}*`);
     lines.push(text || '—');

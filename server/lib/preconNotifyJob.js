@@ -1,17 +1,14 @@
 import crypto from 'crypto';
 
 import {
-
   buildActivityFileEmailHtml,
-
   buildCommentEmailHtml,
-
+  buildStatusEmailHtml,
   logEmailDelivery,
   sendPreconNotification
-
 } from './preconEmail.js';
 
-import { getAttachmentMeta, readAttachmentBuffer } from './preconAttachments.js';
+import { enrichRecipientsWithAuthPhones } from './preconNotify.js';
 
 import {
   resolvePhonesForRecipients,
@@ -134,60 +131,46 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
 
     const author = body.author || sess.user.name;
-
     const isActivity = kind === 'activity';
-
+    const isStatus = kind === 'status';
     const html = isActivity
-
       ? buildActivityFileEmailHtml({
-
           projectName: body.projectName,
-
           phaseName: body.phaseName,
-
           taskName: body.taskName,
-
           author,
-
           fileLabels: labels
-
         })
-
-      : buildCommentEmailHtml({
-
-          projectName: body.projectName,
-
-          phaseName: body.phaseName,
-
-          taskName: body.taskName,
-
-          author,
-
-          text: body.text,
-
-          nextAction: body.nextAction,
-
-          nextActionDate: body.nextActionDate,
-
-          attachmentLabels: labels
-
-        });
-
-
+      : isStatus
+        ? buildStatusEmailHtml({
+            projectName: body.projectName,
+            phaseName: body.phaseName,
+            taskName: body.taskName,
+            author,
+            text: body.text
+          })
+        : buildCommentEmailHtml({
+            projectName: body.projectName,
+            phaseName: body.phaseName,
+            taskName: body.taskName,
+            author,
+            text: body.text,
+            nextAction: body.nextAction,
+            nextActionDate: body.nextActionDate,
+            attachmentLabels: labels
+          });
 
     const subject = isActivity
-
       ? `[PreConstruction] ${body.projectName || 'Project'} — New file(s): ${body.taskName || 'Activity'}`
-
-      : `[PreConstruction] ${body.projectName || 'Project'} — ${body.taskName || 'Activity update'}`;
-
-
+      : isStatus
+        ? `[PreConstruction] ${body.projectName || 'Project'} — Status: ${body.taskName || 'Activity'}`
+        : `[PreConstruction] ${body.projectName || 'Project'} — ${body.taskName || 'Activity update'}`;
 
     const text = isActivity
-
       ? `${author} added file(s) to ${body.taskName || 'activity'}: ${labels.join(', ')}`
-
-      : `${body.text || ''}\n\nNext: ${body.nextAction || '—'} (${body.nextActionDate || '—'})`;
+      : isStatus
+        ? `${author} updated status on ${body.taskName || 'activity'}: ${body.text || ''}`
+        : `${body.text || ''}\n\nNext: ${body.nextAction || '—'} (${body.nextActionDate || '—'})`;
 
 
 
@@ -205,16 +188,13 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
     }
 
     const authUsers = await db
-
       .collection('auth_users')
-
-      .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1 } })
-
+      .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
       .toArray();
 
     const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
-
-    const toPhones = resolvePhonesForRecipients(recipients, usersByEmail);
+    const enrichedRecipients = enrichRecipientsWithAuthPhones(recipients, authUsers);
+    const toPhones = resolvePhonesForRecipients(enrichedRecipients, usersByEmail);
 
 
 
@@ -223,16 +203,16 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
 
     const [emailResult, waResult] = await Promise.all([
-
-      sendPreconNotification({ to: emails, subject, text, html, attachments: emailFiles }),
-
+      emails.length
+        ? sendPreconNotification({ to: emails, subject, text, html, attachments: emailFiles })
+        : Promise.resolve({ ok: false, error: 'No email recipients', sentTo: [] }),
       sendWhatsAppNotifications({
 
         toPhones,
 
         ctx: {
 
-          kind: isActivity ? 'activity' : 'comment',
+          kind: isActivity ? 'activity' : isStatus ? 'status' : 'comment',
 
           projectName: body.projectName,
 
@@ -267,7 +247,7 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
     const result = {
       ...emailResult,
-      recipients,
+      recipients: enrichedRecipients,
       recipientCount: emails.length,
       whatsapp: waResult,
       whatsappCount: waResult.sent?.length || 0,
@@ -328,5 +308,3 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
   }
 
 }
-
-
