@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 
+import { nameMatches } from './preconAdmin.js';
+
 const PUBLIC_ORIGIN = () =>
   String(process.env.PUBLIC_APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || 'https://ga-golden-abodes-platform.onrender.com').replace(
     /\/$/,
@@ -248,20 +250,26 @@ export async function sendWhatsAppNotifications(opts) {
   };
 }
 
-export function resolvePhonesForRecipients(recipients, usersByEmail) {
+export function resolvePhonesForRecipients(recipients, usersByEmail, authUsers = null) {
   const phones = [];
+  const allUsers = authUsers || [...usersByEmail.values()];
   for (const r of recipients || []) {
-    if (r.phone) {
-      const w = normalizeWhatsAppPhone(r.phone);
-      if (w) phones.push(w);
-      continue;
+    let w = '';
+    if (r.phone) w = normalizeWhatsAppPhone(r.phone);
+    if (!w) {
+      const email = String(r.email || '').trim().toLowerCase();
+      const u = usersByEmail.get(email);
+      if (u?.phone) w = normalizeWhatsAppPhone(u.phone);
     }
-    const email = String(r.email || '').trim().toLowerCase();
-    const u = usersByEmail.get(email);
-    if (u?.phone) {
-      const w = normalizeWhatsAppPhone(u.phone);
-      if (w) phones.push(w);
+    if (!w && r.name) {
+      const hit = allUsers.find(
+        (u) =>
+          u?.phone &&
+          (nameMatches(u.name, r.name) || nameMatches(r.name, String(u.email || '').split('@')[0]))
+      );
+      if (hit?.phone) w = normalizeWhatsAppPhone(hit.phone);
     }
+    if (w) phones.push(w);
   }
   return [...new Set(phones)];
 }

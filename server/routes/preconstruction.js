@@ -17,6 +17,7 @@ import { emailNotifyEnabled, getEmailConfig } from '../lib/preconEmail.js';
 import {
   createNotifyJobId,
   deliverPreconNotification,
+  finishNotifyJob,
   getNotifyJob,
   initNotifyJob
 } from '../lib/preconNotifyJob.js';
@@ -181,7 +182,7 @@ preconstructionRouter.get(
       const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
       const enrichedAuto = enrichRecipientsWithAuthPhones(autoRecipients, authUsers);
       const withPhone = (enrichedAuto || []).filter((r) => String(r.phone || '').replace(/\D/g, '').length >= 10);
-      const resolvedPhones = resolvePhonesForRecipients(enrichedAuto, usersByEmail);
+      const resolvedPhones = resolvePhonesForRecipients(enrichedAuto, usersByEmail, authUsers);
       const fromRaw = String(process.env.TWILIO_WHATSAPP_FROM || '').trim();
       const fromNormalized = normalizeWhatsAppFrom(fromRaw);
       res.json({
@@ -375,15 +376,12 @@ preconstructionRouter.post(
       const body = req.body || {};
       const recipients = await resolveNotifyRecipients(db, body);
       const emails = recipients.map((r) => r.email).filter((e) => e.includes('@'));
-      const usersByEmail = new Map(
-        (
-          await db
-            .collection('auth_users')
-            .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1 } })
-            .toArray()
-        ).map((u) => [String(u.email || '').toLowerCase(), u])
-      );
-      const phoneCount = resolvePhonesForRecipients(recipients, usersByEmail).length;
+      const authUsers = await db
+        .collection('auth_users')
+        .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
+        .toArray();
+      const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
+      const phoneCount = resolvePhonesForRecipients(recipients, usersByEmail, authUsers).length;
       const jobId = createNotifyJobId();
 
       await initNotifyJob(db, jobId, {
@@ -405,8 +403,13 @@ preconstructionRouter.post(
       });
 
       setImmediate(() => {
-        deliverPreconNotification(db, { body, sess, recipients, emails, jobId }).catch((e) => {
+        deliverPreconNotification(db, { body, sess, recipients, emails, jobId }).catch(async (e) => {
           console.error('[precon-notify] background job failed:', e?.message || e);
+          try {
+            await finishNotifyJob(db, jobId, { ok: false, error: e?.message || String(e) });
+          } catch {
+            /* ignore */
+          }
         });
       });
     } catch (e) {

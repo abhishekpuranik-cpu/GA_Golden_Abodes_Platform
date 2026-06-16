@@ -110,7 +110,9 @@ export async function buildLeadershipList(db) {
   return uniqRecipients(
     users
       .filter((u) => {
-        if (!u.email) return false;
+        const hasEmail = Boolean(u.email);
+        const hasPhone = String(u.phone || '').replace(/\D/g, '').length >= 10;
+        if (!hasEmail && !hasPhone) return false;
         if ((u.permissions || []).includes('manage_security')) return true;
         return (u.roleIds || []).some((id) => leadershipRoleIds.has(id));
       })

@@ -8,6 +8,8 @@ import {
   sendPreconNotification
 } from './preconEmail.js';
 
+import { getAttachmentMeta, readAttachmentBuffer } from './preconAttachments.js';
+
 import { enrichRecipientsWithAuthPhones } from './preconNotify.js';
 
 import {
@@ -194,7 +196,7 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
     const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
     const enrichedRecipients = enrichRecipientsWithAuthPhones(recipients, authUsers);
-    const toPhones = resolvePhonesForRecipients(enrichedRecipients, usersByEmail);
+    const toPhones = resolvePhonesForRecipients(enrichedRecipients, usersByEmail, authUsers);
 
 
 
