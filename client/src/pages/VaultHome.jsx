@@ -124,7 +124,8 @@ export default function VaultHome() {
       kpi: a.has('marketing_kpi'),
       pre: a.has('preconstruction'),
       exec: a.has('execution'),
-      finkpi: a.has('finance_kpi') || a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security'),
+      // Finance KPI legacy app (GA_Finance_KPI.html) admin UI uses `finance_kpi_admin`; read-only uses `finance_kpi`.
+      finkpi: a.has('finance_kpi') || a.has('finance_kpi_admin') || a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security'),
       admin: a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security')
     };
   }, [auth.user]);
