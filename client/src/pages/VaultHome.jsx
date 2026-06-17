@@ -393,7 +393,9 @@ export default function VaultHome() {
             Platform modules (React — deployed with this vault)
           </h2>
           <div style={grid}>
-            {acl.platformApps.map((app) => (
+            {acl.platformApps
+              .filter((app) => !acl.featuredPlatform || app.appId !== acl.featuredPlatform.appId)
+              .map((app) => (
               <Link key={app.appId} to={app.path} style={{ ...card, border: `1px solid ${app.badgeColor}33` }}>
                 <strong style={{ color: app.badgeColor, fontSize: 13 }}>{app.badge}</strong>
                 <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>{app.title}</div>
