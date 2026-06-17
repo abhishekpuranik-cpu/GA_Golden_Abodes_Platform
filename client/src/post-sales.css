@@ -242,3 +242,16 @@
   padding: 12px 20px; border-radius: 8px; z-index: 200;
   box-shadow: 0 4px 12px rgba(0,0,0,0.15);
 }
+
+.ps-sla-bar {
+  display: flex; flex-wrap: wrap; gap: 12px 20px;
+  font-size: 0.85rem; padding: 10px 12px; margin-bottom: 12px;
+  background: var(--ps-bg-subtle); border-radius: 8px; border: 1px solid var(--ps-border);
+}
+
+.ps-table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+.ps-table th, .ps-table td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--ps-border); vertical-align: top; }
+.ps-table th { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--ps-text-muted); background: var(--ps-bg-subtle); }
+.ps-table tbody tr:hover { background: #f8fafc; }
+
+.ps-badge-amber { background: #fef3c7; color: #92400e; }

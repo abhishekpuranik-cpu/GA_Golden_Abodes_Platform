@@ -13,6 +13,9 @@ async function createPipelineSteps(unit, fundingType) {
     const status = def.number === 1 ? 'in_progress' : 'pending';
     const triggerDate = def.number === 1 ? now : undefined;
     const dueDate = def.number === 1 ? computeDueDate(def, now) : undefined;
+    const activityLog = def.number === 1
+      ? [{ action: 'started', at: now, by: unit.crmExecutive || '', detail: `SLA due ${dueDate ? dueDate.toISOString().slice(0, 10) : '—'}` }]
+      : [];
     return {
       unitId: unit._id,
       stepNumber: def.number,
@@ -20,9 +23,11 @@ async function createPipelineSteps(unit, fundingType) {
       phase: def.phase,
       status,
       assignedRole: def.assignedRole,
+      assignedTo: def.number === 1 ? (unit.crmExecutive || '') : '',
       triggerDate,
       dueDate,
       checklist: buildChecklist(def, fundingType),
+      activityLog,
     };
   });
   await PipelineStep.insertMany(docs);

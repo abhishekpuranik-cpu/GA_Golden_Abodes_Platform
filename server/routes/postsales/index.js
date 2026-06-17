@@ -11,6 +11,7 @@ import milestonesRouter from './milestones.js';
 import possessionRouter from './possession.js';
 import chsRouter from './chs.js';
 import dashboardRouter from './dashboard.js';
+import tasksRouter from './tasks.js';
 
 const router = Router();
 
@@ -28,5 +29,6 @@ router.use('/milestones', milestonesRouter);
 router.use('/possession', possessionRouter);
 router.use('/chs', chsRouter);
 router.use('/dashboard', dashboardRouter);
+router.use('/tasks', tasksRouter);
 
 export default router;

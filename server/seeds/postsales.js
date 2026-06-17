@@ -80,6 +80,7 @@ async function seedPostSalesData() {
         phase: def.phase,
         status: isOverdue ? 'overdue' : status,
         assignedRole: def.assignedRole,
+        assignedTo: seed.crmExecutive,
         triggerDate: def.number <= seed.currentStep ? now : undefined,
         dueDate: isActive || isOverdue ? computeDueDate(def, new Date(now.getTime() - 5 * 86400000)) : isDone ? now : undefined,
         completedDate: isDone ? now : undefined,

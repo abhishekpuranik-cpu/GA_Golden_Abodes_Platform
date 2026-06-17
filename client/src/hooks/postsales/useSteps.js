@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 
-export function useSteps(unitId) {
+export function useSteps(unitId, actor = '') {
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -21,13 +21,13 @@ export function useSteps(unitId) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const updateStep = async (stepNumber, body) => {
-    const step = await postSalesApi.updateStep(unitId, stepNumber, body);
+    const step = await postSalesApi.updateStep(unitId, stepNumber, { ...body, by: actor });
     await refresh();
     return step;
   };
 
   const toggleChecklist = async (stepNumber, index, done) => {
-    const step = await postSalesApi.toggleChecklist(unitId, stepNumber, index, { done });
+    const step = await postSalesApi.toggleChecklist(unitId, stepNumber, index, { done, by: actor });
     await refresh();
     return step;
   };
