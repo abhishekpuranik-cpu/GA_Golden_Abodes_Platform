@@ -1,6 +1,6 @@
-import Unit from '../models/postsales/Unit.js';
+import Unit from '../../models/postsales/Unit.js';
 import { ensurePostSalesMongoose } from './mongoose.js';
-import { seedPostSalesData } from '../seeds/postsales.js';
+import { seedPostSalesData } from '../../seeds/postsales.js';
 
 export async function seedPostSalesIfEmpty() {
   try {
