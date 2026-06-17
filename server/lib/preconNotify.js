@@ -1,4 +1,49 @@
-import { nameMatches, parseAssignees } from './preconAdmin.js';
+import { nameMatches, parseAssignees, userHasPreconProjectAccess } from './preconAdmin.js';
+
+function findAuthUserForRecipient(r, authUsers) {
+  const email = String(r.email || '').trim().toLowerCase();
+  if (email.includes('@')) {
+    const hit = (authUsers || []).find((u) => String(u.email || '').toLowerCase() === email);
+    if (hit) return hit;
+  }
+  const name = String(r.name || '').trim();
+  if (!name) return null;
+  return (authUsers || []).find(
+    (u) =>
+      nameMatches(u.name, name) || nameMatches(name, String(u.email || '').split('@')[0])
+  );
+}
+
+/**
+ * Keep only vault users with PreConstruction app + access to this project.
+ * Empty allowedProjects on user = all projects (typical for leadership).
+ */
+export function filterRecipientsByPreconProjectAccess(recipients, authUsers, roleById, project) {
+  if (!project || (!project.id && !project.name)) return recipients || [];
+  return (recipients || []).filter((r) => {
+    const authUser = findAuthUserForRecipient(r, authUsers);
+    if (!authUser) return false;
+    const roleDocs = (authUser.roleIds || ['viewer'])
+      .map((id) => roleById[id])
+      .filter(Boolean);
+    return userHasPreconProjectAccess(authUser, roleDocs, project);
+  });
+}
+
+export async function loadAuthUsersAndRoles(db) {
+  const [authUsers, roles] = await Promise.all([
+    db
+      .collection('auth_users')
+      .find(
+        { status: { $ne: 'disabled' } },
+        { projection: { name: 1, email: 1, phone: 1, roleIds: 1, allowedApps: 1, allowedProjects: 1 } }
+      )
+      .toArray(),
+    db.collection('auth_roles').find({}).toArray()
+  ]);
+  const roleById = Object.fromEntries(roles.map((r) => [r._id, r]));
+  return { authUsers, roleById };
+}
 
 function uniqRecipients(list) {
   const byKey = new Map();

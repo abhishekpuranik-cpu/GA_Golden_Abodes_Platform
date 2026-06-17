@@ -259,7 +259,22 @@ export function allowedProjectsOverlap(allowedA, allowedB) {
   return a.some((x) => b.includes(x));
 }
 
-function mergeUserAccess(user, roleDocs) {
+/** True when project matches Admin Security allowedProjects (name, id, or partial). */
+export function projectInAllowedList(project, allowed) {
+  if (!Array.isArray(allowed) || !allowed.length) return true;
+  const id = String(project?.id || '').toLowerCase();
+  const name = String(project?.name || '').toLowerCase();
+  return allowed.some((raw) => {
+    const key = String(raw || '').trim().toLowerCase();
+    if (!key) return false;
+    if (key === id || key === name) return true;
+    if (name.includes(key) || key.includes(name)) return true;
+    if (id.includes(key) || key.includes(id)) return true;
+    return nameMatches(name, key) || nameMatches(key, name);
+  });
+}
+
+export function mergeUserAccess(user, roleDocs) {
   const apps = [];
   const projects = [];
   (roleDocs || []).forEach((r) => {
@@ -274,13 +289,19 @@ function mergeUserAccess(user, roleDocs) {
   };
 }
 
-function userHasPreconApp(allowedApps) {
+export function userHasPreconApp(allowedApps) {
   const apps = new Set((allowedApps || []).map((x) => String(x).trim().toLowerCase()));
   return apps.has('preconstruction');
 }
 
+/** PreConstruction app + this project (empty allowedProjects = all projects). */
+export function userHasPreconProjectAccess(user, roleDocs, project) {
+  const access = mergeUserAccess(user, roleDocs);
+  if (!userHasPreconApp(access.allowedApps)) return false;
+  return projectInAllowedList(project, access.allowedProjects);
+}
+
 /**
- * Names of active vault users with PreConstruction access who share Admin project assignment.
  * @param {import('mongodb').Db} db
  * @param {{ allowedProjects?: string[] }} sessionUser
  */

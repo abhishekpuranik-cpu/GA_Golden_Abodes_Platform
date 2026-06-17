@@ -25,6 +25,8 @@ import {
 import {
   buildNotifyRecipientGroups,
   enrichRecipientsWithAuthPhones,
+  filterRecipientsByPreconProjectAccess,
+  loadAuthUsersAndRoles,
   resolveAutoNotifyRecipients,
   uniqRecipients
 } from '../lib/preconNotify.js';
@@ -173,13 +175,14 @@ preconstructionRouter.get(
       const { projects, departments } = await loadWorkspace(db);
       const assigneeNames = projectId ? collectProjectAssigneeNames(projects, projectId) : [];
       const groups = await buildNotifyRecipientGroups(db, { departments, assigneeNames });
-      const autoRecipients = resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho });
+      let autoRecipients = resolveAutoNotifyRecipients(groups, { departments, phaseName, taskWho });
+      const project = projectId ? (projects || []).find((p) => p.id === projectId) : null;
+      const { authUsers, roleById } = await loadAuthUsersAndRoles(db);
+      if (project) {
+        autoRecipients = filterRecipientsByPreconProjectAccess(autoRecipients, authUsers, roleById, project);
+      }
       const emailConfig = getEmailConfig();
       const waOn = whatsappConfigured();
-      const authUsers = await db
-        .collection('auth_users')
-        .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
-        .toArray();
       const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
       const enrichedAuto = enrichRecipientsWithAuthPhones(autoRecipients, authUsers);
       const withEmail = (enrichedAuto || []).filter((r) => String(r.email || '').includes('@'));
@@ -197,6 +200,9 @@ preconstructionRouter.get(
           from: emailConfig.from || null,
           autoRecipientsWithEmail: withEmail.length,
           autoRecipientsTotal: (enrichedAuto || []).length,
+          accessFilter: project
+            ? 'Only users with PreConstruction app + this project in Admin Security'
+            : 'Select a project for scoped recipients',
           hint: emailNotifyEnabled()
             ? withEmail.length
               ? 'Email alerts use the same content as WhatsApp — ensure each user has email in Admin Security.'
@@ -322,16 +328,14 @@ preconstructionRouter.get(
 async function resolveNotifyRecipients(db, body) {
   const extra = Array.isArray(body.extraRecipients) ? body.extraRecipients : [];
   const manual = Array.isArray(body.recipients) ? body.recipients : [];
-  const authUsers = await db
-    .collection('auth_users')
-    .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
-    .toArray();
+  const { authUsers, roleById } = await loadAuthUsersAndRoles(db);
   let list;
   if (body.autoNotify === false) {
     list = uniqRecipients([...manual, ...extra]);
   } else {
     const { projects, departments } = await loadWorkspace(db);
     const projectId = String(body.projectId || '').trim();
+    const project = projectId ? (projects || []).find((p) => p.id === projectId) : null;
     const assigneeNames = projectId ? collectProjectAssigneeNames(projects, projectId) : [];
     const groups = await buildNotifyRecipientGroups(db, { departments, assigneeNames });
     const auto = resolveAutoNotifyRecipients(groups, {
@@ -340,6 +344,9 @@ async function resolveNotifyRecipients(db, body) {
       taskWho: body.taskWho
     });
     list = uniqRecipients([...auto, ...extra, ...manual]);
+    if (project) {
+      list = filterRecipientsByPreconProjectAccess(list, authUsers, roleById, project);
+    }
   }
   return enrichRecipientsWithAuthPhones(list, authUsers);
 }
