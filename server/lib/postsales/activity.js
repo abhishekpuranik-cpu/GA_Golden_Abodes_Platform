@@ -1,5 +1,5 @@
 import { ensureMongo } from '../../lib/mongo.js';
-import { resolveSession } from '../auth.js';
+import { resolveSession } from '../../routes/auth.js';
 
 export async function attachPostSalesUser(req, _res, next) {
   try {
