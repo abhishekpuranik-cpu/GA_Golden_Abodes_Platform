@@ -13,7 +13,8 @@ import {
   openAttachmentStream,
   storePreconFile
 } from '../lib/preconAttachments.js';
-import { emailNotifyEnabled, getEmailConfig } from '../lib/preconEmail.js';
+import { emailNotifyEnabled, getEmailConfig, sendPreconNotification } from '../lib/preconEmail.js';
+import { buildPreconNotifyBody, buildPreconNotifyEmailHtml } from '../lib/preconNotifyContent.js';
 import {
   createNotifyJobId,
   deliverPreconNotification,
@@ -181,6 +182,7 @@ preconstructionRouter.get(
         .toArray();
       const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
       const enrichedAuto = enrichRecipientsWithAuthPhones(autoRecipients, authUsers);
+      const withEmail = (enrichedAuto || []).filter((r) => String(r.email || '').includes('@'));
       const withPhone = (enrichedAuto || []).filter((r) => String(r.phone || '').replace(/\D/g, '').length >= 10);
       const resolvedPhones = resolvePhonesForRecipients(enrichedAuto, usersByEmail, authUsers);
       const fromRaw = String(process.env.TWILIO_WHATSAPP_FROM || '').trim();
@@ -189,6 +191,20 @@ preconstructionRouter.get(
         emailEnabled: emailNotifyEnabled(),
         emailTransport: emailConfig.provider || 'none',
         emailConfig,
+        emailDiagnostics: {
+          configured: emailNotifyEnabled(),
+          provider: emailConfig.provider || null,
+          from: emailConfig.from || null,
+          autoRecipientsWithEmail: withEmail.length,
+          autoRecipientsTotal: (enrichedAuto || []).length,
+          hint: emailNotifyEnabled()
+            ? withEmail.length
+              ? 'Email alerts use the same content as WhatsApp — ensure each user has email in Admin Security.'
+              : 'Add work emails in Admin → Security for assignees / dept heads.'
+            : emailConfig.recommendedProvider === 'gas'
+              ? 'Set EMAIL_PROVIDER=gas, PRECON_GAS_EMAIL_URL, PRECON_GAS_EMAIL_SECRET on Render (no DNS).'
+              : 'Set EMAIL_PROVIDER=resend and RESEND_API_KEY on Render, or use GAS relay (see env.example).'
+        },
         whatsappEnabled: waOn,
         whatsappDiagnostics: {
           configured: waOn,
@@ -327,6 +343,60 @@ async function resolveNotifyRecipients(db, body) {
   }
   return enrichRecipientsWithAuthPhones(list, authUsers);
 }
+
+preconstructionRouter.post(
+  '/preconstruction/test-email',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    const perms = sess.user.permissions || [];
+    if (!perms.includes('manage_security') && !perms.includes('admin')) {
+      return res.status(403).json({ error: 'Admin only' });
+    }
+    if (!emailNotifyEnabled()) {
+      const cfg = getEmailConfig();
+      return res.status(503).json({
+        ok: false,
+        error: 'Email not configured on server',
+        hint: cfg.recommendedProvider === 'gas'
+          ? 'Set EMAIL_PROVIDER=gas, PRECON_GAS_EMAIL_URL, PRECON_GAS_EMAIL_SECRET'
+          : 'Set EMAIL_PROVIDER=resend and RESEND_API_KEY on Render'
+      });
+    }
+    try {
+      const override = String(req.body?.email || '').trim().toLowerCase();
+      const u = await db.collection('auth_users').findOne({ email: sess.user.email });
+      const to = override || String(u?.email || sess.user.email || '').trim().toLowerCase();
+      if (!to.includes('@')) {
+        return res.status(400).json({
+          ok: false,
+          error: 'No email — pass { "email": "you@company.com" } or set your email in Admin Security'
+        });
+      }
+      const ctx = {
+        kind: 'comment',
+        projectName: 'Test project',
+        phaseName: 'Test phase',
+        taskName: 'Test activity',
+        author: sess.user.name || 'Admin',
+        text: 'If you received this, PreConstruction email notifications are working.',
+        nextAction: 'Open PreConstruction and post a real comment',
+        nextActionDate: new Date().toISOString().slice(0, 10),
+        fileLabels: [],
+        attachmentLinks: []
+      };
+      const result = await sendPreconNotification({
+        to: [to],
+        subject: '[PreConstruction] Email test — notifications enabled',
+        text: buildPreconNotifyBody(ctx),
+        html: buildPreconNotifyEmailHtml(ctx)
+      });
+      res.json({ ok: result.ok, to, ...result });
+    } catch (e) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  })
+);
 
 preconstructionRouter.post(
   '/preconstruction/test-whatsapp',

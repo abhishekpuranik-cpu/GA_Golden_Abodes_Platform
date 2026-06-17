@@ -1,14 +1,17 @@
 import crypto from 'crypto';
 
 import {
-  buildActivityFileEmailHtml,
-  buildCommentEmailHtml,
-  buildStatusEmailHtml,
   logEmailDelivery,
   sendPreconNotification
 } from './preconEmail.js';
 
 import { getAttachmentMeta, readAttachmentBuffer } from './preconAttachments.js';
+
+import {
+  buildPreconNotifyBody,
+  buildPreconNotifyEmailHtml,
+  buildPreconNotifySubject
+} from './preconNotifyContent.js';
 
 import { enrichRecipientsWithAuthPhones } from './preconNotify.js';
 
@@ -135,46 +138,6 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
     const author = body.author || sess.user.name;
     const isActivity = kind === 'activity';
     const isStatus = kind === 'status';
-    const html = isActivity
-      ? buildActivityFileEmailHtml({
-          projectName: body.projectName,
-          phaseName: body.phaseName,
-          taskName: body.taskName,
-          author,
-          fileLabels: labels
-        })
-      : isStatus
-        ? buildStatusEmailHtml({
-            projectName: body.projectName,
-            phaseName: body.phaseName,
-            taskName: body.taskName,
-            author,
-            text: body.text
-          })
-        : buildCommentEmailHtml({
-            projectName: body.projectName,
-            phaseName: body.phaseName,
-            taskName: body.taskName,
-            author,
-            text: body.text,
-            nextAction: body.nextAction,
-            nextActionDate: body.nextActionDate,
-            attachmentLabels: labels
-          });
-
-    const subject = isActivity
-      ? `[PreConstruction] ${body.projectName || 'Project'} — New file(s): ${body.taskName || 'Activity'}`
-      : isStatus
-        ? `[PreConstruction] ${body.projectName || 'Project'} — Status: ${body.taskName || 'Activity'}`
-        : `[PreConstruction] ${body.projectName || 'Project'} — ${body.taskName || 'Activity update'}`;
-
-    const text = isActivity
-      ? `${author} added file(s) to ${body.taskName || 'activity'}: ${labels.join(', ')}`
-      : isStatus
-        ? `${author} updated status on ${body.taskName || 'activity'}: ${body.text || ''}`
-        : `${body.text || ''}\n\nNext: ${body.nextAction || '—'} (${body.nextActionDate || '—'})`;
-
-
 
     const attachmentLinks = [];
     const mediaItems = [];
@@ -188,6 +151,23 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
       attachmentLinks.push({ label, url, asMedia });
       if (asMedia) mediaItems.push({ url, label, mimeType: meta.mimeType });
     }
+
+    const notifyCtx = {
+      kind: isActivity ? 'activity' : isStatus ? 'status' : 'comment',
+      projectName: body.projectName,
+      phaseName: body.phaseName,
+      taskName: body.taskName,
+      author,
+      text: body.text,
+      nextAction: body.nextAction,
+      nextActionDate: body.nextActionDate,
+      fileLabels: labels,
+      attachmentLinks
+    };
+
+    const subject = buildPreconNotifySubject(notifyCtx);
+    const text = buildPreconNotifyBody(notifyCtx);
+    const html = buildPreconNotifyEmailHtml(notifyCtx);
 
     const authUsers = await db
       .collection('auth_users')
@@ -204,42 +184,20 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
 
 
+    const waPromise =
+      whatsappConfigured() && toPhones.length
+        ? sendWhatsAppNotifications({ toPhones, ctx: notifyCtx, mediaItems })
+        : Promise.resolve({
+            ok: false,
+            error: whatsappConfigured() ? 'No WhatsApp phone numbers' : 'WhatsApp not configured',
+            sent: []
+          });
+
     const [emailResult, waResult] = await Promise.all([
       emails.length
         ? sendPreconNotification({ to: emails, subject, text, html, attachments: emailFiles })
         : Promise.resolve({ ok: false, error: 'No email recipients', sentTo: [] }),
-      sendWhatsAppNotifications({
-
-        toPhones,
-
-        ctx: {
-
-          kind: isActivity ? 'activity' : isStatus ? 'status' : 'comment',
-
-          projectName: body.projectName,
-
-          phaseName: body.phaseName,
-
-          taskName: body.taskName,
-
-          author,
-
-          text: body.text,
-
-          nextAction: body.nextAction,
-
-          nextActionDate: body.nextActionDate,
-
-          fileLabels: labels,
-
-          attachmentLinks
-
-        },
-
-        mediaItems
-
-      })
-
+      waPromise
     ]);
 
 
@@ -259,7 +217,7 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
     if (!emailResult.ok) {
       console.error('[precon-notify] email failed:', emailResult.error);
     }
-    if (!waOk && whatsappConfigured()) {
+    if (!waOk && whatsappConfigured() && toPhones.length) {
       console.error(
         '[precon-notify] whatsapp failed:',
         waResult.error || waResult.errors?.map((e) => `${e.to}: ${e.error}`).join('; ') || 'no messages sent'

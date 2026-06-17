@@ -1,12 +1,9 @@
 import crypto from 'crypto';
 
 import { nameMatches } from './preconAdmin.js';
+import { buildPreconNotifyBody, PUBLIC_ORIGIN } from './preconNotifyContent.js';
 
-const PUBLIC_ORIGIN = () =>
-  String(process.env.PUBLIC_APP_ORIGIN || process.env.RENDER_EXTERNAL_URL || 'https://ga-golden-abodes-platform.onrender.com').replace(
-    /\/$/,
-    ''
-  );
+const publicOrigin = PUBLIC_ORIGIN;
 
 function mediaSecret() {
   return process.env.PRECON_WA_MEDIA_SECRET || process.env.SMTP_PASS || 'precon-wa-media-dev';
@@ -64,7 +61,7 @@ export function verifyWhatsAppMediaToken(attId, token) {
 /** Public signed URL Twilio fetches when delivering media (default 24h). */
 export function whatsappMediaPublicUrl(attId, ttlMs = 24 * 60 * 60 * 1000) {
   const token = signWhatsAppMediaToken(attId, ttlMs);
-  return `${PUBLIC_ORIGIN()}/api/preconstruction/attachments/${encodeURIComponent(attId)}/wa-media?token=${encodeURIComponent(token)}`;
+  return `${publicOrigin()}/api/preconstruction/attachments/${encodeURIComponent(attId)}/wa-media?token=${encodeURIComponent(token)}`;
 }
 
 /** MIME types Twilio WhatsApp can attach (one file per message). */
@@ -83,55 +80,7 @@ export function whatsappSendableMime(mimeType) {
 }
 
 function buildWhatsAppBody(ctx) {
-  const {
-    kind,
-    projectName,
-    phaseName,
-    taskName,
-    author,
-    text,
-    nextAction,
-    nextActionDate,
-    fileLabels = [],
-    attachmentLinks = []
-  } = ctx;
-  const lines = [
-    '*Golden Abodes · Project Update*',
-    `*${projectName || 'Project'}*`,
-    `Phase: ${phaseName || '—'}`,
-    `Activity: ${taskName || '—'}`,
-    ''
-  ];
-  if (kind === 'activity') {
-    lines.push(`📎 ${author || 'Team'} added file(s):`);
-    fileLabels.forEach((l) => lines.push(`• ${l}`));
-  } else if (kind === 'status') {
-    lines.push(`📊 *${author || 'Team'}* updated activity status`);
-    lines.push(text || '—');
-  } else {
-    lines.push(`💬 *${author || 'Team'}*`);
-    lines.push(text || '—');
-    lines.push('');
-    lines.push(`*Next:* ${nextAction || '—'}`);
-    lines.push(`*Due:* ${nextActionDate || '—'}`);
-    if (fileLabels.length) {
-      lines.push('');
-      lines.push(`📎 Attachments (${fileLabels.length}):`);
-      fileLabels.forEach((l) => lines.push(`• ${l}`));
-    }
-  }
-  const linkOnly = (attachmentLinks || []).filter((l) => l?.url && !l.asMedia);
-  if (linkOnly.length) {
-    lines.push('');
-    lines.push('📎 *Download:*');
-    linkOnly.forEach(({ label, url }) => {
-      lines.push(`• ${label || 'File'}`);
-      lines.push(url);
-    });
-  }
-  lines.push('');
-  lines.push(`Open: ${PUBLIC_ORIGIN()}/preconstruction/`);
-  return lines.join('\n').slice(0, 1600);
+  return buildPreconNotifyBody(ctx).slice(0, 1600);
 }
 
 async function postTwilioMessage({ sid, auth, from, to, body, mediaUrl }) {
