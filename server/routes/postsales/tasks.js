@@ -80,20 +80,20 @@ router.get('/my', async (req, res) => {
     const needles = explicit ? [explicit] : assigneeNeedles(sess?.user);
     if (!needles.length) return res.status(401).json({ error: 'Authentication required' });
 
-    const unitIds = await matchingUnitIds(req.query);
+    const filteredUnitIds = await matchingUnitIds(req.query);
     const stepFilter = {
       status: { $in: ['pending', 'in_progress', 'overdue'] },
       assignedTo: { $exists: true, $nin: ['', null] },
       $or: buildAssigneeOr(needles),
     };
-    if (unitIds) stepFilter.unitId = { $in: unitIds };
+    if (filteredUnitIds) stepFilter.unitId = { $in: filteredUnitIds };
 
     const steps = await PipelineStep.find(stepFilter)
       .sort({ dueDate: 1, stepNumber: 1 })
       .lean();
 
-    const unitIds = [...new Set(steps.map((s) => String(s.unitId)))];
-    const units = await Unit.find({ _id: { $in: unitIds } }).populate('customerId').lean();
+    const stepUnitIds = [...new Set(steps.map((s) => String(s.unitId)))];
+    const units = await Unit.find({ _id: { $in: stepUnitIds } }).populate('customerId').lean();
     const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));
 
     const tasks = steps.map((s) => {
@@ -104,7 +104,7 @@ router.get('/my', async (req, res) => {
         unitId: s.unitId,
         stepNumber: s.stepNumber,
         stepName: s.stepName,
-        phase: s.phase,
+        pipelinePhase: s.phase,
         status: s.status,
         assignedTo: s.assignedTo,
         assignedRole: s.assignedRole,

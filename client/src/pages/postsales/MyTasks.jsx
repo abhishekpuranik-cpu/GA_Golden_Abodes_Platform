@@ -85,7 +85,7 @@ export default function MyTasks() {
                       )}
                     </td>
                     <td>
-                      <div style={{ color: PHASES[t.phase]?.color, fontSize: '0.75rem' }}>{PHASES[t.phase]?.label}</div>
+                      <div style={{ color: PHASES[t.pipelinePhase]?.color, fontSize: '0.75rem' }}>{PHASES[t.pipelinePhase]?.label}</div>
                       <strong>Step {t.stepNumber}</strong>
                       <div style={{ fontSize: '0.8rem' }}>{t.stepName}</div>
                     </td>
