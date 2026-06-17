@@ -30,6 +30,21 @@ function slaTargetLabel(def) {
   return null;
 }
 
+function buildUnitFilter(query) {
+  const filter = {};
+  if (query.project) filter.project = query.project;
+  if (query.phase) filter.phase = query.phase;
+  if (query.building) filter.$or = [{ building: query.building }, { tower: query.building }];
+  return filter;
+}
+
+async function matchingUnitIds(query) {
+  const filter = buildUnitFilter(query);
+  if (!Object.keys(filter).length) return null;
+  const units = await Unit.find(filter, { _id: 1 }).lean();
+  return units.map((u) => u._id);
+}
+
 router.get('/assignees', async (_req, res) => {
   try {
     const db = await ensureMongo();
@@ -65,11 +80,15 @@ router.get('/my', async (req, res) => {
     const needles = explicit ? [explicit] : assigneeNeedles(sess?.user);
     if (!needles.length) return res.status(401).json({ error: 'Authentication required' });
 
-    const steps = await PipelineStep.find({
+    const unitIds = await matchingUnitIds(req.query);
+    const stepFilter = {
       status: { $in: ['pending', 'in_progress', 'overdue'] },
       assignedTo: { $exists: true, $nin: ['', null] },
       $or: buildAssigneeOr(needles),
-    })
+    };
+    if (unitIds) stepFilter.unitId = { $in: unitIds };
+
+    const steps = await PipelineStep.find(stepFilter)
       .sort({ dueDate: 1, stepNumber: 1 })
       .lean();
 
@@ -96,6 +115,8 @@ router.get('/my', async (req, res) => {
         unitNumber: u?.unitNumber,
         project: u?.project,
         entity: u?.entity,
+        phase: u?.phase,
+        building: u?.building || u?.tower,
         customerName: u?.customerId?.name,
         slaTarget: slaTargetLabel(def),
       };

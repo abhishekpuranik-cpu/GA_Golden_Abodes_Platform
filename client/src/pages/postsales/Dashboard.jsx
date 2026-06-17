@@ -1,5 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useDashboard } from '../../hooks/postsales/useDashboard.js';
+import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
+import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import { PHASES } from '../../data/postsales/steps.js';
 
 function fmt(n) {
@@ -8,7 +10,8 @@ function fmt(n) {
 }
 
 export default function Dashboard() {
-  const { data, loading, error } = useDashboard();
+  const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
+  const { data, loading, error } = useDashboard(query);
   const navigate = useNavigate();
 
   if (loading) return <div className="ps-empty">Loading dashboard…</div>;
@@ -21,6 +24,17 @@ export default function Dashboard() {
   return (
     <div>
       <h2 style={{ marginTop: 0 }}>Operations Dashboard</h2>
+
+      <PostSalesFilterBar
+        project={project}
+        phase={phase}
+        building={building}
+        onProjectChange={setProject}
+        onPhaseChange={setPhase}
+        onBuildingChange={setBuilding}
+        options={options}
+        onClear={clear}
+      />
 
       <div className="ps-kpi-grid">
         <div className="ps-kpi">

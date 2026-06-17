@@ -2,10 +2,11 @@ import mongoose from 'mongoose';
 
 const UnitSchema = new mongoose.Schema({
   unitNumber: { type: String, required: true },
-  tower: String, floor: Number, carpetArea: Number, saleableArea: Number,
+  tower: String, building: String, floor: Number, carpetArea: Number, saleableArea: Number,
   project: { type: String, enum: ['Golden HQ','NKG Wakad','Wakad GA','Anantam Signature','Anantam Waves','Paradise'], required: true },
   entity: { type: String, enum: ['PAD','NBD','NP','GV','GAPL','Suryakiran'], required: true },
   phase: String,
+  v1ProjectId: String, v1UnitKey: String,
   customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer', required: true },
   salesExecutive: String, channelPartner: String,
   bookingDate: Date, bookingAmount: Number, totalCost: Number,

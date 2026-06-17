@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 
-export function useMyTasks() {
+export function useMyTasks(filters = {}) {
   const [tasks, setTasks] = useState([]);
   const [assignee, setAssignee] = useState('');
   const [loading, setLoading] = useState(true);
@@ -10,7 +10,7 @@ export function useMyTasks() {
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await postSalesApi.getMyTasks();
+      const data = await postSalesApi.getMyTasks(filters);
       setTasks(data.tasks || []);
       setAssignee(data.assignee || '');
       setError(null);
@@ -19,7 +19,7 @@ export function useMyTasks() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [JSON.stringify(filters)]);
 
   useEffect(() => { refresh(); }, [refresh]);
 

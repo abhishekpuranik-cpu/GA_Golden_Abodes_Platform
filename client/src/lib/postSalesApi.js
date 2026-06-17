@@ -3,7 +3,17 @@ import { apiFetch } from './api.js';
 const BASE = '/api/postsales';
 
 export const postSalesApi = {
-  dashboard: () => apiFetch(`${BASE}/dashboard`).then((r) => { if (!r.ok) throw new Error(r.data?.error || 'Dashboard fetch failed'); return r.data; }),
+  dashboard: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/dashboard${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error || 'Dashboard fetch failed'); return r.data; });
+  },
+
+  getInventoryFilters: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/inventory/filters${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+  getV1InventoryStatus: () => apiFetch(`${BASE}/inventory/v1-status`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  syncFromCashflowV1: (body = {}) => apiFetch(`${BASE}/inventory/sync-v1`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error || r.data?.message); return r.data; }),
 
   listUnits: (params = {}) => {
     const q = new URLSearchParams(params).toString();
@@ -20,7 +30,10 @@ export const postSalesApi = {
   toggleChecklist: (unitId, stepNumber, index, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/checklist/${index}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
   listAssignees: () => apiFetch(`${BASE}/tasks/assignees`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
-  getMyTasks: () => apiFetch(`${BASE}/tasks/my`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  getMyTasks: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/tasks/my${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
 
   listDocuments: (unitId) => apiFetch(`${BASE}/documents?unitId=${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   createDocument: (body) => apiFetch(`${BASE}/documents`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),

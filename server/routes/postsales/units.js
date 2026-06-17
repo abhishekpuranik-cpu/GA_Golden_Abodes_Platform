@@ -38,6 +38,10 @@ router.get('/', async (req, res) => {
     const filter = {};
     if (req.query.project) filter.project = req.query.project;
     if (req.query.entity) filter.entity = req.query.entity;
+    if (req.query.phase) filter.phase = req.query.phase;
+    if (req.query.building) {
+      filter.$or = [{ building: req.query.building }, { tower: req.query.building }];
+    }
     if (req.query.crmExecutive) filter.crmExecutive = req.query.crmExecutive;
     if (req.query.status) filter.overallStatus = req.query.status;
 

@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useMyTasks } from '../../hooks/postsales/useMyTasks.js';
+import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
+import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import { formatDueDate, slaCountdown } from '../../lib/postSalesSla.js';
 import { PHASES } from '../../data/postsales/steps.js';
 
@@ -9,7 +11,8 @@ function statusBadge(status) {
 }
 
 export default function MyTasks() {
-  const { tasks, assignee, loading, error } = useMyTasks();
+  const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
+  const { tasks, assignee, loading, error } = useMyTasks(query);
 
   const overdue = tasks.filter((t) => t.status === 'overdue' || t.slaBreach);
   const dueSoon = tasks.filter((t) => {
@@ -34,6 +37,17 @@ export default function MyTasks() {
           <span className="ps-badge ps-badge-blue">{tasks.length} open</span>
         </div>
       </div>
+
+      <PostSalesFilterBar
+        project={project}
+        phase={phase}
+        building={building}
+        onProjectChange={setProject}
+        onPhaseChange={setPhase}
+        onBuildingChange={setBuilding}
+        options={options}
+        onClear={clear}
+      />
 
       {error && <div className="ps-error">{error}</div>}
       {loading && <div className="ps-empty">Loading your tasks…</div>}
@@ -77,7 +91,11 @@ export default function MyTasks() {
                     </td>
                     <td>
                       <strong>{t.unitNumber}</strong>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)' }}>{t.project} · {t.customerName}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)' }}>
+                        {t.project}
+                        {[t.phase, t.building].filter(Boolean).length ? ` · ${[t.phase, t.building].filter(Boolean).join(' · ')}` : ''}
+                        {' · '}{t.customerName}
+                      </div>
                     </td>
                     <td style={{ fontSize: '0.85rem' }}>{t.slaTarget || '—'}</td>
                     <td><span className={statusBadge(t.status)}>{t.status.replace('_', ' ')}</span></td>

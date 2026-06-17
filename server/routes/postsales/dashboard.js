@@ -9,28 +9,42 @@ import { PHASES } from '../../lib/postsales/steps.js';
 
 const router = Router();
 
-router.get('/', async (_req, res) => {
+function buildUnitFilter(query) {
+  const filter = {};
+  if (query.project) filter.project = query.project;
+  if (query.phase) filter.phase = query.phase;
+  if (query.building) filter.$or = [{ building: query.building }, { tower: query.building }];
+  return filter;
+}
+
+router.get('/', async (req, res) => {
   try {
+    const unitFilter = buildUnitFilter(req.query);
     const [units, steps, demands, tickets, milestones] = await Promise.all([
-      Unit.find().populate('customerId').lean(),
+      Unit.find(unitFilter).populate('customerId').lean(),
       PipelineStep.find({ slaBreach: true }).lean(),
       Demand.find().lean(),
       Ticket.find({ status: { $nin: ['resolved', 'closed'] } }).lean(),
       ConstructionMilestone.find({ demandTriggerStatus: 'pending' }).lean(),
     ]);
 
+    const unitIdSet = new Set(units.map((u) => String(u._id)));
+    const scopedSteps = steps.filter((s) => unitIdSet.has(String(s.unitId)));
+    const scopedDemands = demands.filter((d) => unitIdSet.has(String(d.unitId)));
+    const scopedTickets = tickets.filter((t) => unitIdSet.has(String(t.unitId)));
+
     const totalUnits = units.length;
     const activeUnits = units.filter((u) => u.overallStatus === 'active').length;
-    const slaBreaches = steps.length;
+    const slaBreaches = scopedSteps.length;
 
-    const openTickets = tickets.length;
-    const ackBreachCount = tickets.filter((t) => t.ackSlaBreach).length;
-    const resBreachCount = tickets.filter((t) => t.resolutionSlaBreach).length;
+    const openTickets = scopedTickets.length;
+    const ackBreachCount = scopedTickets.filter((t) => t.ackSlaBreach).length;
+    const resBreachCount = scopedTickets.filter((t) => t.resolutionSlaBreach).length;
 
-    const totalDemanded = demands.reduce((s, d) => s + (d.totalAmount || 0), 0);
-    const totalCollected = demands.reduce((s, d) => s + (d.paidAmount || 0), 0);
+    const totalDemanded = scopedDemands.reduce((s, d) => s + (d.totalAmount || 0), 0);
+    const totalCollected = scopedDemands.reduce((s, d) => s + (d.paidAmount || 0), 0);
     const totalOutstanding = totalDemanded - totalCollected;
-    const pendingDemandCount = demands.filter((d) => ['pending', 'partial', 'overdue'].includes(d.paymentStatus)).length;
+    const pendingDemandCount = scopedDemands.filter((d) => ['pending', 'partial', 'overdue'].includes(d.paymentStatus)).length;
     const pendingMilestoneCount = milestones.length;
 
     const projectCounts = {};
@@ -67,7 +81,7 @@ router.get('/', async (_req, res) => {
     );
 
     const breachByUnit = {};
-    for (const s of steps) {
+    for (const s of scopedSteps) {
       const key = String(s.unitId);
       if (!breachByUnit[key]) breachByUnit[key] = [];
       breachByUnit[key].push({ stepNumber: s.stepNumber, stepName: s.stepName, status: s.status });
@@ -87,7 +101,7 @@ router.get('/', async (_req, res) => {
     }
 
     const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));
-    const openTicketsList = tickets.slice(0, 20).map((t) => {
+    const openTicketsList = scopedTickets.slice(0, 20).map((t) => {
       const u = unitMap[String(t.unitId)];
       return {
         ticketId: t._id,

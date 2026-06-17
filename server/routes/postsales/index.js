@@ -12,6 +12,7 @@ import possessionRouter from './possession.js';
 import chsRouter from './chs.js';
 import dashboardRouter from './dashboard.js';
 import tasksRouter from './tasks.js';
+import inventoryRouter from './inventory.js';
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use('/possession', possessionRouter);
 router.use('/chs', chsRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/tasks', tasksRouter);
+router.use('/inventory', inventoryRouter);
 
 export default router;
