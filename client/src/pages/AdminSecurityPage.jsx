@@ -4,7 +4,9 @@ import { authApi } from '../lib/api.js';
 import { ProjectAssignPicker } from '../components/ProjectAssignPicker.jsx';
 import { BandwidthReport } from '../components/BandwidthReport.jsx';
 
-const ALL_APPS = ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'admin_security'];
+const ALL_APPS = ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'admin_security'];
+
+const ALL_DM_TABS = 'dm_dashboard, dm_spvs, dm_projects, dm_billing, dm_invoices, dm_compliance, dm_reports, dm_scenarios, dm_executive, dm_alerts, dm_consolidated, dm_settings';
 
 function splitCsv(s) {
   return String(s || '')
@@ -215,10 +217,11 @@ export default function AdminSecurityPage() {
             className="admin-inp"
           />
           <input
-            placeholder="Allowed tabs (csv)"
             value={newUser.allowedTabs}
             onChange={(e) => setNewUser((x) => ({ ...x, allowedTabs: e.target.value }))}
             className="admin-inp"
+            placeholder={ALL_DM_TABS}
+            title="DM tabs: dm_dashboard, dm_spvs, dm_projects, dm_billing, dm_invoices, dm_compliance, dm_reports, dm_scenarios, dm_executive, dm_alerts, dm_consolidated, dm_settings"
           />
         </div>
         <div className="admin-picker-block">
@@ -273,7 +276,7 @@ export default function AdminSecurityPage() {
                 onChange={(e) =>
                   setUsers((old) => old.map((x, idx) => (idx === i ? { ...x, allowedTabs: splitCsv(e.target.value) } : x)))
                 }
-                placeholder="Allowed tabs"
+                placeholder={`Allowed tabs — DM: ${ALL_DM_TABS}`}
                 className="admin-inp"
               />
               <input

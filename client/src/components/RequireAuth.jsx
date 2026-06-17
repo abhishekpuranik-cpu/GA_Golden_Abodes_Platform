@@ -6,6 +6,8 @@ function userHasApp(user, appId) {
   const allowed = new Set((user?.allowedApps || []).map((x) => String(x)));
   if (allowed.has(appId)) return true;
   if (appId === 'v3_project_acquisition' && allowed.has('v3_org_planner')) return true;
+  if (appId === 'post_sales' && allowed.has('sales_dashboard')) return true;
+  if (appId === 'post_sales') return true;
   return false;
 }
 

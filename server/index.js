@@ -14,6 +14,10 @@ import { workspaceRouter } from './routes/workspace.js';
 import { preconstructionRouter } from './routes/preconstruction.js';
 import { appStatesRouter } from './routes/appStates.js';
 import { authRouter } from './routes/auth.js';
+import { dmGovernanceRouter } from './routes/dmGovernance.js';
+import postSalesRouter from './routes/postsales/index.js';
+import { startSlaMonitor } from './jobs/slaMonitor.js';
+import { seedPostSalesIfEmpty } from './lib/postsales/seedIfEmpty.js';
 import { createRbacMiddleware } from './lib/rbac.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -116,7 +120,12 @@ app.use('/api', healthRouter);
 app.use('/api', workspaceRouter);
 app.use('/api', preconstructionRouter);
 app.use('/api', appStatesRouter);
+app.use('/api/dm-governance', dmGovernanceRouter);
+app.use('/api/postsales', postSalesRouter);
 app.use('/api/auth', authRouter);
+
+startSlaMonitor();
+seedPostSalesIfEmpty();
 
 const clientDist = path.join(rootDir, 'client', 'dist');
 if (fs.existsSync(clientDist)) {

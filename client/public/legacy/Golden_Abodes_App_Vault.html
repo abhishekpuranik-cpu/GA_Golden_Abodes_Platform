@@ -540,6 +540,15 @@
           <a class="launch" id="link-ms" href="ga_sales_dashboard.html" target="_blank" rel="noopener">Open Marketing &amp; Sales Command Centre →</a>
         </div>
       </article>
+      <article class="app-card v3">
+        <div class="in">
+          <div class="glow" style="background:linear-gradient(120deg,#185FA5,#3b82f6)"></div>
+          <div class="role">CRM · Post-booking</div>
+          <h2>Post Sales Operations</h2>
+          <p>20-step pipeline — booking handoff, agreement, CLP demands, possession, CHS formation, and defects liability across all GA projects.</p>
+          <a class="launch" id="link-postsales" href="/app/post-sales" style="background:linear-gradient(135deg,#60a5fa,#185FA5);color:#fff">Open Post Sales Operations →</a>
+        </div>
+      </article>
     </section>
 
     <section class="doc-zone" id="doc-vault" aria-labelledby="doc-vault-h">
@@ -580,6 +589,7 @@
       var v2 = document.getElementById("link-v2");
       var v1 = document.getElementById("link-v1");
       var ms = document.getElementById("link-ms");
+      var ps = document.getElementById("link-postsales");
       var logo = document.getElementById("ga-logo");
       if (logo) logo.src = base + "/assets/golden-abodes-logo.svg";
       if (v3) { v3.href = base + "/"; v3.textContent = "Open Project Acquisition →"; }
@@ -590,6 +600,7 @@
         resolveLiveCashflowHref(base, v1);
       }
       if (ms) { ms.href = base + "/ms"; ms.textContent = "Open Marketing & Sales Command Centre →"; }
+      if (ps) { ps.href = base + "/app/post-sales"; ps.removeAttribute("target"); ps.textContent = "Open Post Sales Operations →"; }
     }
     function resolveLiveCashflowHref(base, anchorEl) {
       if (!anchorEl) return;

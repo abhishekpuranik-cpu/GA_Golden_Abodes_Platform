@@ -2,7 +2,9 @@ export const APP_IDS = {
   V1_CASHFLOW: 'v1_cashflow',
   V2_RESOURCE_PLANNER: 'v2_resource_planner',
   V3_ORG_PLANNER: 'v3_org_planner',
-  PRECONSTRUCTION: 'preconstruction'
+  PRECONSTRUCTION: 'preconstruction',
+  DM_SPV_GOVERNANCE: 'dm_spv_governance',
+  POST_SALES: 'post_sales'
 };
 
 export const APP_LOCAL_STORAGE_KEYS = {

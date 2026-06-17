@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { APP_IDS, APP_LOCAL_STORAGE_KEYS } from './appRegistry.js';
 import LegacyAppShell from './pages/LegacyAppShell.jsx';
 import RequireAuth from './components/RequireAuth.jsx';
@@ -7,6 +7,35 @@ import RequireAuth from './components/RequireAuth.jsx';
 const VaultHome = lazy(() => import('./pages/VaultHome.jsx'));
 const AccessPage = lazy(() => import('./pages/AccessPage.jsx'));
 const AdminSecurityPage = lazy(() => import('./pages/AdminSecurityPage.jsx'));
+const DmGovernanceLayout = lazy(() => import('./pages/dmGovernance/DmGovernanceLayout.jsx'));
+const DmDashboardPage = lazy(() => import('./pages/dmGovernance/DmDashboardPage.jsx'));
+const DmSpvListPage = lazy(() => import('./pages/dmGovernance/DmSpvListPage.jsx'));
+const DmSpvDetailPage = lazy(() => import('./pages/dmGovernance/DmSpvDetailPage.jsx'));
+const DmProjectListPage = lazy(() => import('./pages/dmGovernance/DmProjectListPage.jsx'));
+const DmProjectDetailPage = lazy(() => import('./pages/dmGovernance/DmProjectDetailPage.jsx'));
+const DmBillingConfigPage = lazy(() => import('./pages/dmGovernance/DmBillingConfigPage.jsx'));
+const DmBillingWorkspacePage = lazy(() => import('./pages/dmGovernance/DmBillingWorkspacePage.jsx'));
+const DmInvoiceRegisterPage = lazy(() => import('./pages/dmGovernance/DmInvoiceRegisterPage.jsx'));
+const DmInvoiceDetailPage = lazy(() => import('./pages/dmGovernance/DmInvoiceDetailPage.jsx'));
+const DmApprovalInboxPage = lazy(() => import('./pages/dmGovernance/DmApprovalInboxPage.jsx'));
+const DmExpensesPage = lazy(() => import('./pages/dmGovernance/DmExpensesPage.jsx'));
+const DmReconciliationPage = lazy(() => import('./pages/dmGovernance/DmReconciliationPage.jsx'));
+const DmCompliancePage = lazy(() => import('./pages/dmGovernance/DmCompliancePage.jsx'));
+const DmRiskPage = lazy(() => import('./pages/dmGovernance/DmRiskPage.jsx'));
+const DmReportsPage = lazy(() => import('./pages/dmGovernance/DmReportsPage.jsx'));
+const DmScenarioPage = lazy(() => import('./pages/dmGovernance/DmScenarioPage.jsx'));
+const DmExecutivePage = lazy(() => import('./pages/dmGovernance/DmExecutivePage.jsx'));
+const DmAlertsPage = lazy(() => import('./pages/dmGovernance/DmAlertsPage.jsx'));
+const DmIntegrationsPage = lazy(() => import('./pages/dmGovernance/DmIntegrationsPage.jsx'));
+const PostSalesLayout = lazy(() => import('./pages/postsales/PostSalesLayout.jsx'));
+const PsDashboard = lazy(() => import('./pages/postsales/Dashboard.jsx'));
+const PsUnits = lazy(() => import('./pages/postsales/Units.jsx'));
+const PsUnitPipeline = lazy(() => import('./pages/postsales/UnitPipeline.jsx'));
+const PsDocuments = lazy(() => import('./pages/postsales/Documents.jsx'));
+const PsDemands = lazy(() => import('./pages/postsales/Demands.jsx'));
+const PsLoans = lazy(() => import('./pages/postsales/Loans.jsx'));
+const PsTickets = lazy(() => import('./pages/postsales/Tickets.jsx'));
+const PsMilestones = lazy(() => import('./pages/postsales/Milestones.jsx'));
 
 function Fall() {
   return (
@@ -23,6 +52,12 @@ function Fall() {
       Loading…
     </div>
   );
+}
+
+function PostSalesRedirect() {
+  const location = useLocation();
+  const tail = location.pathname.replace(/^\/post-sales/, '') || '';
+  return <Navigate to={`/app/post-sales${tail}${location.search}${location.hash}`} replace />;
 }
 
 export default function App() {
@@ -75,6 +110,54 @@ export default function App() {
             </RequireAuth>
           }
         />
+        <Route
+          path="/app/dm-governance"
+          element={
+            <RequireAuth appId={APP_IDS.DM_SPV_GOVERNANCE}>
+              <DmGovernanceLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<DmDashboardPage />} />
+          <Route path="spvs" element={<DmSpvListPage />} />
+          <Route path="spvs/:spvId" element={<DmSpvDetailPage />} />
+          <Route path="projects" element={<DmProjectListPage />} />
+          <Route path="projects/:projectId" element={<DmProjectDetailPage />} />
+          <Route path="billing" element={<DmBillingConfigPage />} />
+          <Route path="billing/:projectId" element={<DmBillingConfigPage />} />
+          <Route path="billing-workspace" element={<DmBillingWorkspacePage />} />
+          <Route path="billing-workspace/:projectId" element={<DmBillingWorkspacePage />} />
+          <Route path="invoices" element={<DmInvoiceRegisterPage />} />
+          <Route path="invoices/:invoiceId" element={<DmInvoiceDetailPage />} />
+          <Route path="approvals" element={<DmApprovalInboxPage />} />
+          <Route path="expenses" element={<DmExpensesPage />} />
+          <Route path="reconciliation" element={<DmReconciliationPage />} />
+          <Route path="compliance" element={<DmCompliancePage />} />
+          <Route path="risks" element={<DmRiskPage />} />
+          <Route path="scenarios" element={<DmScenarioPage />} />
+          <Route path="executive" element={<DmExecutivePage />} />
+          <Route path="alerts" element={<DmAlertsPage />} />
+          <Route path="reports" element={<DmReportsPage />} />
+          <Route path="integrations" element={<DmIntegrationsPage />} />
+        </Route>
+        <Route
+          path="/app/post-sales"
+          element={
+            <RequireAuth appId={APP_IDS.POST_SALES}>
+              <PostSalesLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<PsDashboard />} />
+          <Route path="units" element={<PsUnits />} />
+          <Route path="units/:id" element={<PsUnitPipeline />} />
+          <Route path="documents" element={<PsDocuments />} />
+          <Route path="demands" element={<PsDemands />} />
+          <Route path="loans" element={<PsLoans />} />
+          <Route path="tickets" element={<PsTickets />} />
+          <Route path="milestones" element={<PsMilestones />} />
+        </Route>
+        <Route path="/post-sales/*" element={<PostSalesRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

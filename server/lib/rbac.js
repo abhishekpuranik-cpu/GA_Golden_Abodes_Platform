@@ -21,9 +21,12 @@ const ROUTE_APP_RULES = [
   { prefix: '/admin/security', appId: 'admin_security', permission: 'manage_security' },
   { prefix: '/app/resource-planner', appId: 'v2_resource_planner' },
   { prefix: '/app/org-planner', appId: 'v3_project_acquisition' },
+  { prefix: '/app/dm-governance', appId: 'dm_spv_governance' },
+  { prefix: '/app/post-sales', appId: 'post_sales' },
   { prefix: '/preconstruction', appId: 'preconstruction' },
   { prefix: '/legacy/GA_Cashflow_V1.html', appId: 'v1_cashflow' },
   { prefix: '/legacy/GA_ResourcePlanner_V2.html', appId: 'v2_resource_planner' },
+  { prefix: '/legacy/GA_Portfolio_Enablement.html', appId: 'v2_resource_planner' },
   { prefix: '/legacy/GA_OrgResourcePlanner_V3.html', appId: 'v3_project_acquisition' },
   { prefix: '/legacy/ga_sales_dashboard.html', appId: 'sales_dashboard' },
   { prefix: '/legacy/GA_MarketingSales_KPI_Dashboard.html', appId: 'marketing_kpi' }
@@ -65,6 +68,12 @@ function resolveApiRule(pathname) {
     pathname.startsWith('/api/preconstruction/')
   ) {
     return { appId: 'preconstruction' };
+  }
+  if (pathname === '/api/dm-governance' || pathname.startsWith('/api/dm-governance/')) {
+    return { appId: 'dm_spv_governance' };
+  }
+  if (pathname === '/api/postsales' || pathname.startsWith('/api/postsales/')) {
+    return { appId: 'post_sales' };
   }
   return null;
 }

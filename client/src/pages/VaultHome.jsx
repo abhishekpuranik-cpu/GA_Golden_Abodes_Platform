@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '../lib/api.js';
+import { VAULT_PLATFORM_APPS, canOpenVaultApp } from '../lib/vaultCatalog.js';
+import { APP_IDS } from '../appRegistry.js';
 
 const card = {
   display: 'block',
@@ -116,6 +118,9 @@ export default function VaultHome() {
   const [apiOk, setApiOk] = useState(null);
   const acl = useMemo(() => {
     const a = new Set((auth.user?.allowedApps || []).map((x) => String(x)));
+    const openOpts = { authenticated: auth.authenticated };
+    const platformApps = VAULT_PLATFORM_APPS.filter((app) => canOpenVaultApp(app.appId, a, openOpts));
+    const featuredPlatform = platformApps.find((app) => app.featured) || platformApps[0] || null;
     return {
       v3: a.has('v3_project_acquisition'),
       v2: a.has('v2_resource_planner'),
@@ -124,11 +129,15 @@ export default function VaultHome() {
       kpi: a.has('marketing_kpi'),
       pre: a.has('preconstruction'),
       exec: a.has('execution'),
+      dm: a.has(APP_IDS.DM_SPV_GOVERNANCE),
+      postSales: canOpenVaultApp(APP_IDS.POST_SALES, a, openOpts),
+      platformApps,
+      featuredPlatform,
       // Finance KPI legacy app (GA_Finance_KPI.html) admin UI uses `finance_kpi_admin`; read-only uses `finance_kpi`.
       finkpi: a.has('finance_kpi') || a.has('finance_kpi_admin') || a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security'),
       admin: a.has('admin_security') || (auth.user?.permissions || []).includes('manage_security')
     };
-  }, [auth.user]);
+  }, [auth.user, auth.authenticated]);
 
   function setCustomDashboardUrl(label, lsKey, setValue) {
     const next = window.prompt(`${label} URL\n\nExample: https://your-app.onrender.com`, localUrl(lsKey) || 'https://');
@@ -270,6 +279,14 @@ export default function VaultHome() {
               </Link>
             </>
           ) : null}
+          {acl.featuredPlatform ? (
+            <>
+              {' · '}
+              <Link to={acl.featuredPlatform.path} style={{ color: '#93c5fd', fontWeight: 600 }}>
+                {acl.featuredPlatform.title}
+              </Link>
+            </>
+          ) : null}
         </div>
         {auth.user?.allowedProjects?.length ? (
           <div style={{ marginBottom: 10, color: '#94a3b8', fontSize: 12 }}>
@@ -330,6 +347,63 @@ export default function VaultHome() {
         </div>
       </header>
 
+      {acl.featuredPlatform ? (
+        <section style={{ marginBottom: 32 }}>
+          <div style={{ ...grid, gridTemplateColumns: '1fr', maxWidth: 720, margin: '0 auto 0' }}>
+            <Link
+              to={acl.featuredPlatform.path}
+              style={{
+                ...card,
+                border: '1px solid rgba(96,165,250,0.45)',
+                background: 'linear-gradient(135deg, rgba(24,95,165,0.22) 0%, rgba(13,148,136,0.12) 100%)',
+                boxShadow: '0 12px 40px rgba(24,95,165,0.15)'
+              }}
+            >
+              <strong style={{ color: '#93c5fd', fontSize: 13, letterSpacing: '0.06em' }}>
+                PLATFORM · {acl.featuredPlatform.badge.toUpperCase()}
+              </strong>
+              <div style={{ fontSize: 'clamp(1.35rem, 3vw, 1.65rem)', fontWeight: 700, marginTop: 8 }}>
+                {acl.featuredPlatform.title}
+              </div>
+              <p style={{ color: '#cbd5e1', fontSize: 14, margin: '12px 0 0', lineHeight: 1.55, maxWidth: 560 }}>
+                {acl.featuredPlatform.description}
+              </p>
+              <span
+                style={{
+                  display: 'inline-block',
+                  marginTop: 16,
+                  padding: '10px 18px',
+                  borderRadius: 10,
+                  background: 'linear-gradient(135deg, #60a5fa, #185FA5)',
+                  color: '#fff',
+                  fontWeight: 700,
+                  fontSize: 14
+                }}
+              >
+                Open app →
+              </span>
+            </Link>
+          </div>
+        </section>
+      ) : null}
+
+      {acl.platformApps.length ? (
+        <section style={{ marginBottom: 28 }}>
+          <h2 style={{ fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', margin: '0 0 14px' }}>
+            Platform modules (React — deployed with this vault)
+          </h2>
+          <div style={grid}>
+            {acl.platformApps.map((app) => (
+              <Link key={app.appId} to={app.path} style={{ ...card, border: `1px solid ${app.badgeColor}33` }}>
+                <strong style={{ color: app.badgeColor, fontSize: 13 }}>{app.badge}</strong>
+                <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>{app.title}</div>
+                <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>{app.description}</p>
+              </Link>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
       <section style={{ marginBottom: 28 }}>
         <h2 style={{ fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', margin: '0 0 14px' }}>
           Planner suite (legacy HTML tools)
@@ -379,6 +453,32 @@ export default function VaultHome() {
               Opens <code>/legacy/GA_Finance_KPI.html</code>.
             </p>
           </a> : null}
+        </div>
+      </section>
+
+      <section style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--muted)', margin: '0 0 14px' }}>
+          Sales &amp; post-booking operations
+        </h2>
+        <div style={grid}>
+          {acl.sales ? (
+            <a href={salesHref} target="_blank" rel="noopener noreferrer" style={card}>
+              <strong style={{ color: 'var(--teal)', fontSize: 13 }}>Legacy HTML</strong>
+              <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Sales dashboard</div>
+              <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
+                Marketing &amp; sales command centre — inventory, bookings, and CRM post-sales import.
+              </p>
+            </a>
+          ) : null}
+          {acl.kpi ? (
+            <a href={kpiHref} target="_blank" rel="noopener noreferrer" style={card}>
+              <strong style={{ color: 'var(--teal)', fontSize: 13 }}>Legacy HTML</strong>
+              <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Marketing KPIs</div>
+              <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
+                Marketing and sales KPI dashboard.
+              </p>
+            </a>
+          ) : null}
         </div>
       </section>
 

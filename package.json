@@ -17,14 +17,17 @@
     "build:all": "node scripts/build-ga-accounting-categories-js.mjs && node scripts/sync-v1-cashflow.mjs && node scripts/sync-legacy-html.mjs && vite build --config client/vite.config.js",
     "build:precon": "node scripts/build-preconstruction.mjs",
     "build:render": "node scripts/build-preconstruction.mjs && vite build --config client/vite.config.js",
-    "start": "node server/index.js"
+    "start": "node server/index.js",
+    "seed:postsales": "node server/seeds/postsales.js"
   },
   "dependencies": {
     "bson": "^6.10.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
     "mongodb": "^6.21.0",
+    "mongoose": "^9.7.0",
     "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
     "nodemailer": "^6.9.16",
     "pptxgenjs": "^3.12.0",
     "react": "^19.0.0",

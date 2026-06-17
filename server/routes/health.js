@@ -95,6 +95,7 @@ healthRouter.get('/health', async (req, res) => {
     legacyRoot: API_TOOL_PATH,
     legacyExists: LEGACY_EXISTS,
     preconstructionBundled: !!bundledPre,
+    postSalesBundled: true,
     plannerAccessEnabled: !!V2V3_ACCESS_CODE,
     v1Cashflow,
     vault: {
