@@ -10,6 +10,7 @@ const DemandSchema = new mongoose.Schema({
   sentMode: { type: String, enum: ['email','whatsapp','courier'] },
   paymentStatus: { type: String, enum: ['pending','partial','paid','overdue'], default: 'pending' },
   paidAmount: { type: Number, default: 0 }, paidDate: Date, receiptNumber: String,
+  source: { type: String, enum: ['seed', 'v1_import', 'upload', 'manual', 'payment'], default: 'manual' },
   driveLink: String, architectCertLink: String,
 }, { timestamps: true });
 DemandSchema.index({ unitId: 1 });

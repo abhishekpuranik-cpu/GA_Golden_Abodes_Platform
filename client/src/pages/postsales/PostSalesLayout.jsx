@@ -1,14 +1,30 @@
 import { useEffect, useState } from 'react';
 import { Link, NavLink, Outlet } from 'react-router-dom';
 import { authApi } from '../../lib/api.js';
+import { postSalesApi } from '../../lib/postSalesApi.js';
 import { PS_NAV } from '../../lib/postSalesTabs.js';
 import '../../post-sales.css';
 
 export default function PostSalesLayout() {
   const [user, setUser] = useState(null);
+  const [syncNote, setSyncNote] = useState('');
+  const [syncing, setSyncing] = useState(true);
 
   useEffect(() => {
     authApi.session().then((s) => setUser(s?.user || null));
+  }, []);
+
+  useEffect(() => {
+    setSyncing(true);
+    postSalesApi.bootstrap({ syncUnits: true, syncDemands: true })
+      .then((r) => {
+        const parts = [];
+        if (r.units?.ok) parts.push(`${r.units.updated || 0} units linked from Cashflow V1`);
+        if (r.demands?.ok) parts.push(`${(r.demands.created || 0) + (r.demands.updated || 0)} collection rows refreshed`);
+        setSyncNote(parts.length ? parts.join(' · ') : 'Ready');
+      })
+      .catch((e) => setSyncNote(e.message || 'Sync skipped'))
+      .finally(() => setSyncing(false));
   }, []);
 
   return (
@@ -16,7 +32,9 @@ export default function PostSalesLayout() {
       <header className="ps-topbar">
         <div>
           <h1>GA Post Sales Operations</h1>
-          <div className="ps-topbar-sub">20-step pipeline · {user?.email || '—'}</div>
+          <div className="ps-topbar-sub">
+            Your working app for sold units, collections, pipeline &amp; allocation · {user?.email || '—'}
+          </div>
         </div>
         <nav className="ps-nav">
           {PS_NAV.map((n) => (
@@ -27,6 +45,14 @@ export default function PostSalesLayout() {
         </nav>
         <Link to="/" className="ps-vault-link">← Vault</Link>
       </header>
+      {!syncing && syncNote && (
+        <div className="ps-card" style={{ margin: '0 0 12px', padding: '10px 14px', background: 'var(--ps-accent-soft)', borderColor: '#bfdbfe', fontSize: '0.85rem' }}>
+          {syncNote}. Upload CLP &amp; collections in <Link to="/app/post-sales/demands">Demands</Link> — Cashflow V1 reads from here.
+        </div>
+      )}
+      {syncing && (
+        <div className="ps-empty" style={{ marginBottom: 12 }}>Syncing sold units &amp; collections…</div>
+      )}
       <main className="ps-body">
         <Outlet context={{ user }} />
       </main>

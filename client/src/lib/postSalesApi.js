@@ -8,6 +8,8 @@ export const postSalesApi = {
     return apiFetch(`${BASE}/dashboard${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error || 'Dashboard fetch failed'); return r.data; });
   },
 
+  bootstrap: (body = {}) => apiFetch(`${BASE}/bootstrap`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+
   getInventoryFilters: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`${BASE}/inventory/filters${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
@@ -57,6 +59,18 @@ export const postSalesApi = {
   },
   updateDemand: (id, body) => apiFetch(`${BASE}/demands/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   importDemands: (rows) => apiFetch(`${BASE}/demands/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) }).then((r) => { if (!r.ok) throw new Error(r.data?.error || r.data?.message); return r.data; }),
+  syncDemandsFromV1: (body = {}) => apiFetch(`${BASE}/demands/sync-from-v1`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error || r.data?.message); return r.data; }),
+  uploadDemandsExcel: async (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await apiFetch(`${BASE}/demands/upload`, { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(r.data?.error || 'Upload failed');
+    return r.data;
+  },
+  exportDemandsForCashflow: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/demands/export${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
 
   getLoan: (unitId) => apiFetch(`${BASE}/loans?unitId=${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   upsertLoan: (body) => apiFetch(`${BASE}/loans`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),

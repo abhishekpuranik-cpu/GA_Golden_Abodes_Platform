@@ -166,6 +166,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
     <button type="button" class="btn btn-outline" data-action="mongo-server-setup" style="font-size:10px;padding:4px 8px">Set API + enable</button>
     <button type="button" class="btn btn-primary" data-action="mongo-save-now" style="font-size:10px;padding:4px 8px" title="PUT state now">Save to server</button>
     <button type="button" class="btn btn-outline" data-action="mongo-load-now" style="font-size:10px;padding:4px 8px" title="GET state from server">Load from server</button>
+    <button type="button" class="btn btn-outline" data-action="mongo-sync-postsales" style="font-size:10px;padding:4px 8px" title="Pull Due/Received/Pending from Post Sales Demands">Sync Post Sales collections</button>
     <button type="button" class="btn btn-outline" data-action="mongo-restore-snapshot" style="font-size:10px;padding:4px 8px;color:#166534;border-color:#86efac" title="Restore full workbook from an automatic server backup">↺ Restore snapshot</button>
     <button type="button" class="btn btn-primary" data-action="mongo-import-v3-projects" style="font-size:10px;padding:4px 10px" title="Load ga_rp_projects from v3_org_planner in Mongo, apply here, then save Cashflow to the server">Import V3 list from server</button>
     <span id="mongo-cf-status" style="font-size:10px;color:var(--muted);flex:1;min-width:140px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"></span>
@@ -1870,6 +1871,69 @@ function mongoImportApiUrl(){
 function mongoRestoreBestMorningApiUrl(){
   return mongoStateApiUrl().replace(/\/state$/,'/restore-best-morning');
 }
+function postSalesCollectionsApiUrl(){
+  var base='';
+  try{ base=String(localStorage.getItem(GA_MONGO_API_BASE_KEY)||'').trim().replace(/\/$/,''); }catch(e){}
+  return (base?base:'')+'/api/postsales/demands/export';
+}
+function normCfUnitKey(u){
+  return String(u||'').trim().toLowerCase().replace(/\s+/g,'');
+}
+function mergePostSalesCollectionsExport(payload){
+  if(!payload||!Array.isArray(payload.units)) return 0;
+  var merged=0;
+  payload.units.forEach(function(row){
+    if(!row||!row.installments||!row.installments.length) return;
+    var cfg=null, u=null, pid=row.v1ProjectId;
+    if(pid&&_cfData[pid]&&(_cfData[pid].units||[]).length){
+      cfg=_cfData[pid];
+      u=(cfg.units||[]).find(function(x){
+        return normCfUnitKey(x.unitNo)===normCfUnitKey(row.v1UnitKey||row.unitNumber);
+      });
+    }
+    if(!u){
+      Object.keys(_cfData||{}).some(function(k){
+        var c=_cfData[k];
+        if(!c||!c.units) return false;
+        var hit=c.units.find(function(x){
+          return normCfUnitKey(x.unitNo)===normCfUnitKey(row.unitNumber);
+        });
+        if(hit){ cfg=c; u=hit; pid=k; return true; }
+        return false;
+      });
+    }
+    if(!u) return;
+    u.installments=(row.installments||[]).map(function(ins){
+      return {label:String(ins.label||''), amount:Number(ins.amount)||0, date:ins.date?String(ins.date).slice(0,10):''};
+    });
+    if(row.receivedToDate>0) u.receivedToDate=row.receivedToDate;
+    markMongoDirtyPidSections(pid, ['units']);
+    merged++;
+  });
+  if(merged>0){
+    localSnapshotSave();
+    scheduleMongoStateSave(400);
+  }
+  return merged;
+}
+function syncCollectionsFromPostSales(opts){
+  opts=opts||{};
+  if(!canUseMongoState()&&!opts.force) return Promise.resolve(0);
+  return fetch(postSalesCollectionsApiUrl(),{credentials:'include',cache:'no-store'})
+    .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
+    .then(function(res){
+      if(!res.ok) throw new Error((res.j&&res.j.error)||'Post Sales collections fetch failed');
+      var n=mergePostSalesCollectionsExport(res.j);
+      if(n>0){
+        try{ renderAll(); }catch(e){}
+        mongoStateStatus('Synced '+n+' sold unit(s) from Post Sales · '+((res.j&&res.j.updatedAt)||''),'green');
+        updateMongoStatusLabel();
+      }else if(opts.alertIfEmpty){
+        setSS('Post Sales returned no collection rows to merge (upload in Post Sales Demands first).','gold');
+      }
+      return n;
+    });
+}
 var _mongoAutoMorningRestoreTried=false;
 function paradiseSoldUnitsInWorkbook(dataMap){
   var n=0;
@@ -2958,7 +3022,7 @@ function loadAllFromMongo(){
       var loadedUnits=countWorkbookSoldUnits(_cfData);
       mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion+' · '+loadedUnits+' sold units','green');
       updateMongoStatusLabel();
-      return {ok:true, units:loadedUnits};
+      return syncCollectionsFromPostSales().then(function(){ return {ok:true, units:loadedUnits}; });
     })
     .catch(function(e){
       mongoStateStatus('Mongo load failed: '+String(e&&e.message||e).slice(0,90),'red');
@@ -9968,6 +10032,12 @@ document.addEventListener('click',function(e){
     }catch(e2){}
     setSS('Server / Mongo config saved. Reload the page, then use Load from server.','green');
     updateMongoStatusLabel();
+    return;
+  }
+  if(a==='mongo-sync-postsales'){
+    syncCollectionsFromPostSales({alertIfEmpty:true, force:true}).catch(function(e){
+      setSS('Post Sales sync failed: '+String(e&&e.message||e).slice(0,90),'red');
+    });
     return;
   }
   if(a==='mongo-load-now'){

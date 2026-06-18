@@ -1,8 +1,15 @@
 import { Router } from 'express';
+import multer from 'multer';
+import XLSX from 'xlsx';
 import Demand from '../../models/postsales/Demand.js';
 import Unit from '../../models/postsales/Unit.js';
+import { ensureMongo } from '../../lib/mongo.js';
+import { normalizeImportRow, paymentStatusFromAmounts } from '../../lib/postsales/collectionsLib.js';
+import { exportCollectionsForCashflow, syncDemandsFromV1 } from '../../lib/postsales/demandsV1Sync.js';
+import { syncSoldUnitsFromCashflowV1 } from '../../lib/postsales/cashflowV1Sync.js';
 
 const router = Router();
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
 
 function buildUnitFilter(query = {}) {
   const filter = {};
@@ -35,6 +42,91 @@ async function filteredUnitIds(query) {
   const units = await Unit.find(filter, { _id: 1 }).lean();
   return units.map((u) => u._id);
 }
+
+async function importDemandRows(rows, { source = 'upload' } = {}) {
+  const report = { created: 0, updated: 0, skipped: 0, errors: [] };
+
+  for (const raw of rows) {
+    try {
+      const row = normalizeImportRow(raw);
+      if (!row.project || !row.unitNumber) {
+        report.skipped += 1;
+        report.errors.push({ row: raw, error: 'project and unitNumber required' });
+        continue;
+      }
+
+      const unit = await Unit.findOne({ project: row.project, unitNumber: row.unitNumber });
+      if (!unit) {
+        report.skipped += 1;
+        report.errors.push({ row: raw, error: `Unit not found: ${row.project} · ${row.unitNumber}` });
+        continue;
+      }
+
+      const match = { unitId: unit._id, milestoneName: row.milestoneName };
+      if (row.clpPercent) match.clpPercent = row.clpPercent;
+      const existing = await Demand.findOne(match);
+
+      const payload = {
+        entity: unit.entity,
+        milestoneName: row.milestoneName,
+        clpPercent: row.clpPercent,
+        demandAmount: row.dueAmount,
+        gstAmount: row.gstAmount,
+        totalAmount: row.totalAmount,
+        paidAmount: row.receivedAmount,
+        paymentStatus: paymentStatusFromAmounts(row.totalAmount, row.receivedAmount),
+        issuedDate: existing?.issuedDate || new Date(),
+        dueDate: row.dueDate ? new Date(row.dueDate) : existing?.dueDate,
+        paidDate: row.receivedAmount > 0 ? new Date() : undefined,
+        source,
+      };
+
+      if (existing) {
+        await Demand.findByIdAndUpdate(existing._id, payload);
+        report.updated += 1;
+      } else {
+        await Demand.create({ unitId: unit._id, ...payload });
+        report.created += 1;
+      }
+    } catch (err) {
+      report.errors.push({ row: raw, error: err.message });
+    }
+  }
+
+  return report;
+}
+
+function sheetToRows(buffer) {
+  const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+  const sheet = wb.Sheets[wb.SheetNames[0]];
+  return XLSX.utils.sheet_to_json(sheet, { defval: '' });
+}
+
+router.get('/export', async (req, res) => {
+  try {
+    const data = await exportCollectionsForCashflow({
+      project: req.query.project || undefined,
+      phase: req.query.phase || undefined,
+      building: req.query.building || undefined,
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/sync-from-v1', async (req, res) => {
+  try {
+    const db = await ensureMongo();
+    const result = await syncDemandsFromV1(db, {
+      project: req.body?.project || req.query.project || undefined,
+    });
+    if (!result.ok) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 router.get('/', async (req, res) => {
   try {
@@ -72,11 +164,22 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: 'Excel file required (field name: file)' });
+    const rows = sheetToRows(req.file.buffer);
+    const report = await importDemandRows(rows, { source: 'upload' });
+    res.json({ ok: true, ...report, rowCount: rows.length });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 router.post('/', async (req, res) => {
   try {
     const unit = await Unit.findById(req.body.unitId);
     if (!unit) return res.status(404).json({ error: 'Unit not found' });
-    const payload = { ...req.body, entity: unit.entity };
+    const payload = { ...req.body, entity: unit.entity, source: req.body.source || 'manual' };
     delete payload.entityOverride;
     const demand = await Demand.create(payload);
     res.status(201).json(demand);
@@ -89,73 +192,7 @@ router.post('/import', async (req, res) => {
   try {
     const rows = Array.isArray(req.body?.rows) ? req.body.rows : Array.isArray(req.body) ? req.body : [];
     if (!rows.length) return res.status(400).json({ error: 'rows array required' });
-
-    const report = { created: 0, updated: 0, skipped: 0, errors: [] };
-
-    for (const row of rows) {
-      try {
-        const project = String(row.project || '').trim();
-        const unitNumber = String(row.unitNumber || '').trim();
-        if (!project || !unitNumber) {
-          report.skipped += 1;
-          report.errors.push({ row, error: 'project and unitNumber required' });
-          continue;
-        }
-
-        const unit = await Unit.findOne({ project, unitNumber });
-        if (!unit) {
-          report.skipped += 1;
-          report.errors.push({ row, error: `Unit not found: ${project} · ${unitNumber}` });
-          continue;
-        }
-
-        const dueAmount = Number(row.dueAmount ?? row.totalAmount ?? row.demandAmount ?? 0);
-        const receivedAmount = Number(row.receivedAmount ?? row.paidAmount ?? 0);
-        const gstAmount = Number(row.gstAmount ?? Math.round(dueAmount * 0.05));
-        const totalAmount = Number(row.totalAmount ?? dueAmount + gstAmount);
-        const milestoneName = String(row.milestoneName || row.milestone || 'CLP milestone').trim();
-        const clpPercent = Number(row.clpPercent ?? row.clp ?? 0) || undefined;
-
-        const match = {
-          unitId: unit._id,
-          milestoneName,
-          ...(clpPercent ? { clpPercent } : {}),
-        };
-
-        const existing = await Demand.findOne(match);
-        const paymentStatus = receivedAmount >= totalAmount
-          ? 'paid'
-          : receivedAmount > 0
-            ? 'partial'
-            : row.paymentStatus || 'pending';
-
-        const payload = {
-          entity: unit.entity,
-          milestoneName,
-          clpPercent,
-          demandAmount: dueAmount,
-          gstAmount,
-          totalAmount,
-          paidAmount: receivedAmount,
-          paymentStatus,
-          issuedDate: row.issuedDate ? new Date(row.issuedDate) : existing?.issuedDate || new Date(),
-          dueDate: row.dueDate ? new Date(row.dueDate) : existing?.dueDate,
-          paidDate: row.paidDate ? new Date(row.paidDate) : receivedAmount > 0 ? new Date() : undefined,
-          receiptNumber: row.receiptNumber || existing?.receiptNumber,
-        };
-
-        if (existing) {
-          await Demand.findByIdAndUpdate(existing._id, payload);
-          report.updated += 1;
-        } else {
-          await Demand.create({ unitId: unit._id, ...payload });
-          report.created += 1;
-        }
-      } catch (err) {
-        report.errors.push({ row, error: err.message });
-      }
-    }
-
+    const report = await importDemandRows(rows, { source: 'upload' });
     res.json({ ok: true, ...report });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -165,7 +202,7 @@ router.post('/import', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { paymentStatus, paidAmount, paidDate, receiptNumber, demandAmount, gstAmount, totalAmount } = req.body;
-    const updates = {};
+    const updates = { source: 'payment' };
     if (paymentStatus !== undefined) updates.paymentStatus = paymentStatus;
     if (paidAmount !== undefined) updates.paidAmount = paidAmount;
     if (paidDate !== undefined) updates.paidDate = paidDate;
