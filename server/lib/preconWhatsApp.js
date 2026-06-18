@@ -17,6 +17,11 @@ export function whatsappConfigured() {
   );
 }
 
+/** WhatsApp is opt-in (set PRECON_NOTIFY_WHATSAPP=1 on Render). Email works without this. */
+export function whatsappNotifyEnabled() {
+  return process.env.PRECON_NOTIFY_WHATSAPP === '1' && whatsappConfigured();
+}
+
 /** E.164 for Twilio WhatsApp (default India +91 if 10 digits). */
 export function normalizeWhatsAppPhone(raw) {
   let digits = String(raw || '').replace(/\D/g, '');

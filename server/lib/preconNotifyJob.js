@@ -19,6 +19,7 @@ import {
   resolvePhonesForRecipients,
   sendWhatsAppNotifications,
   whatsappConfigured,
+  whatsappNotifyEnabled,
   whatsappMediaPublicUrl,
   whatsappSendableMime
 } from './preconWhatsApp.js';
@@ -185,11 +186,11 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
 
     const waPromise =
-      whatsappConfigured() && toPhones.length
+      whatsappNotifyEnabled() && toPhones.length
         ? sendWhatsAppNotifications({ toPhones, ctx: notifyCtx, mediaItems })
         : Promise.resolve({
             ok: false,
-            error: whatsappConfigured() ? 'No WhatsApp phone numbers' : 'WhatsApp not configured',
+            error: whatsappNotifyEnabled() ? 'No WhatsApp phone numbers' : 'WhatsApp disabled',
             sent: []
           });
 
@@ -217,7 +218,7 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
     if (!emailResult.ok) {
       console.error('[precon-notify] email failed:', emailResult.error);
     }
-    if (!waOk && whatsappConfigured() && toPhones.length) {
+    if (!waOk && whatsappNotifyEnabled() && toPhones.length) {
       console.error(
         '[precon-notify] whatsapp failed:',
         waResult.error || waResult.errors?.map((e) => `${e.to}: ${e.error}`).join('; ') || 'no messages sent'
@@ -227,7 +228,7 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
     if (!anyOk) {
       const parts = [];
       if (!emailResult.ok && emailResult.error) parts.push(`Email: ${emailResult.error}`);
-      if (!waOk) {
+      if (!waOk && whatsappNotifyEnabled()) {
         const waErr =
           waResult.error ||
           (waResult.errors || []).map((e) => `${e.to}: ${e.error}`).join('; ') ||

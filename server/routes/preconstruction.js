@@ -37,7 +37,8 @@ import {
   resolvePhonesForRecipients,
   sendWhatsAppNotifications,
   verifyWhatsAppMediaToken,
-  whatsappConfigured
+  whatsappConfigured,
+  whatsappNotifyEnabled
 } from '../lib/preconWhatsApp.js';
 
 export const preconstructionRouter = Router();
@@ -182,7 +183,7 @@ preconstructionRouter.get(
         autoRecipients = filterRecipientsByPreconProjectAccess(autoRecipients, authUsers, roleById, project);
       }
       const emailConfig = getEmailConfig();
-      const waOn = whatsappConfigured();
+      const waOn = whatsappNotifyEnabled();
       const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
       const enrichedAuto = enrichRecipientsWithAuthPhones(autoRecipients, authUsers);
       const withEmail = (enrichedAuto || []).filter((r) => String(r.email || '').includes('@'));
