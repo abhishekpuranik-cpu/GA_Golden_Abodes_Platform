@@ -4,6 +4,8 @@ import { postSalesApi } from '../../lib/postSalesApi.js';
 export function useMyTasks(filters = {}) {
   const [tasks, setTasks] = useState([]);
   const [assignee, setAssignee] = useState('');
+  const [cxCount, setCxCount] = useState(null);
+  const [backendCount, setBackendCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -13,6 +15,8 @@ export function useMyTasks(filters = {}) {
       const data = await postSalesApi.getMyTasks(filters);
       setTasks(data.tasks || []);
       setAssignee(data.assignee || '');
+      setCxCount(data.cxCount ?? null);
+      setBackendCount(data.backendCount ?? null);
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -23,11 +27,13 @@ export function useMyTasks(filters = {}) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  return { tasks, assignee, loading, error, refresh };
+  return { tasks, assignee, cxCount, backendCount, loading, error, refresh };
 }
 
 export function useAssignees() {
   const [assignees, setAssignees] = useState([]);
+  const [cxTeam, setCxTeam] = useState([]);
+  const [backendTeam, setBackendTeam] = useState([]);
   const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -35,11 +41,13 @@ export function useAssignees() {
     postSalesApi.listAssignees()
       .then((data) => {
         setAssignees(data.assignees || []);
+        setCxTeam(data.cxTeam || data.assignees || []);
+        setBackendTeam(data.backendTeam || data.assignees || []);
         setRoles(data.roles || []);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  return { assignees, roles, loading };
+  return { assignees, cxTeam, backendTeam, roles, loading };
 }

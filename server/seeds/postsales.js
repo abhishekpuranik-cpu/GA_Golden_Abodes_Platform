@@ -8,6 +8,7 @@ import Ticket from '../models/postsales/Ticket.js';
 import ConstructionMilestone from '../models/postsales/ConstructionMilestone.js';
 import { STEPS } from '../lib/postsales/steps.js';
 import { buildChecklist, computeDueDate } from '../lib/postsales/helpers.js';
+import { getStepTaskKind, defaultAssigneeForKind } from '../lib/postsales/taskKinds.js';
 
 const SEED_UNITS = [
   { unitNumber: 'A-1203', project: 'Golden HQ', entity: 'GAPL', customer: { name: 'Ramesh Mehta', fundingType: 'home_loan', phone: '9876500001', email: 'ramesh@example.com' }, currentStep: 6, overdueSteps: [4], crmExecutive: 'Priya Sharma' },
@@ -68,7 +69,9 @@ async function seedPostSalesData() {
     });
 
     const now = new Date();
+    const unitLike = { crmExecutive: seed.crmExecutive, cxExecutive: seed.crmExecutive, backendExecutive: seed.crmExecutive };
     const stepDocs = STEPS.map((def) => {
+      const taskKind = getStepTaskKind(def.number);
       const status = stepStatus(def.number, seed.currentStep, seed.overdueSteps);
       const isOverdue = status === 'overdue';
       const isActive = status === 'in_progress';
@@ -79,8 +82,9 @@ async function seedPostSalesData() {
         stepName: def.name,
         phase: def.phase,
         status: isOverdue ? 'overdue' : status,
+        taskKind,
         assignedRole: def.assignedRole,
-        assignedTo: seed.crmExecutive,
+        assignedTo: isActive || isOverdue ? defaultAssigneeForKind(unitLike, taskKind) : isDone ? seed.crmExecutive : '',
         triggerDate: def.number <= seed.currentStep ? now : undefined,
         dueDate: isActive || isOverdue ? computeDueDate(def, new Date(now.getTime() - 5 * 86400000)) : isDone ? now : undefined,
         completedDate: isDone ? now : undefined,

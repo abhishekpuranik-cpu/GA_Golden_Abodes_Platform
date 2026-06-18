@@ -16,6 +16,10 @@ import { DOC_GROUPS, TYPE_LABELS, docTypesForStep } from '../../data/postsales/s
 
 import { formatDueDate, formatSlaTarget, slaCountdown } from '../../lib/postSalesSla.js';
 
+import { getStepTaskKind, defaultAssigneeForKind, TASK_KINDS } from '../../data/postsales/taskKinds.js';
+
+import { postSalesApi } from '../../lib/postSalesApi.js';
+
 
 
 function fmt(n) {
@@ -78,7 +82,7 @@ export default function UnitPipeline() {
 
   const { documents, createDocument } = useDocuments(id);
 
-  const { assignees } = useAssignees();
+  const { cxTeam, backendTeam } = useAssignees();
 
   const [selected, setSelected] = useState(1);
 
@@ -87,6 +91,12 @@ export default function UnitPipeline() {
   const [notes, setNotes] = useState('');
 
   const [assignee, setAssignee] = useState('');
+
+  const [cxExecutive, setCxExecutive] = useState('');
+
+  const [backendExecutive, setBackendExecutive] = useState('');
+
+  const [savingExecs, setSavingExecs] = useState(false);
 
   const [actionError, setActionError] = useState(null);
 
@@ -110,17 +120,35 @@ export default function UnitPipeline() {
 
     const rec = steps.find((s) => s.stepNumber === selected);
 
+    const kind = rec?.taskKind || getStepTaskKind(selected);
+
     setNotes(rec?.notes || '');
 
-    setAssignee(rec?.assignedTo || unit?.crmExecutive || '');
+    setAssignee(rec?.assignedTo || defaultAssigneeForKind(unit, kind) || '');
 
-  }, [selected, steps, unit?.crmExecutive]);
+  }, [selected, steps, unit?.crmExecutive, unit?.cxExecutive, unit?.backendExecutive]);
+
+
+
+  useEffect(() => {
+
+    setCxExecutive(unit?.cxExecutive || '');
+
+    setBackendExecutive(unit?.backendExecutive || '');
+
+  }, [unit?.cxExecutive, unit?.backendExecutive]);
 
 
 
   const stepDef = useMemo(() => STEPS.find((s) => s.number === selected), [selected]);
 
   const stepRecord = useMemo(() => steps.find((s) => s.stepNumber === selected), [steps, selected]);
+
+  const stepTaskKind = stepRecord?.taskKind || getStepTaskKind(selected);
+
+  const stepKindMeta = TASK_KINDS[stepTaskKind] || TASK_KINDS.cx;
+
+  const suggestedAssignees = stepTaskKind === 'backend' ? backendTeam : cxTeam;
 
   const fundingType = unit?.customer?.fundingType || unit?.customerId?.fundingType;
 
@@ -201,6 +229,40 @@ export default function UnitPipeline() {
       setActionError(e.message);
 
     }
+
+  };
+
+
+
+  const handleSaveExecutives = async () => {
+
+    setActionError(null);
+
+    setSavingExecs(true);
+
+    try {
+
+      await postSalesApi.updateUnit(id, { cxExecutive, backendExecutive });
+
+      await refreshUnit();
+
+    } catch (e) {
+
+      setActionError(e.message);
+
+    } finally {
+
+      setSavingExecs(false);
+
+    }
+
+  };
+
+
+
+  const handleUseDefaultAssignee = () => {
+
+    setAssignee(defaultAssigneeForKind(unit, stepTaskKind) || '');
 
   };
 
@@ -296,7 +358,17 @@ export default function UnitPipeline() {
 
         <span className="ps-chip">{unit.entity}</span>
 
-        <span className="ps-chip">{unit.crmExecutive}</span>
+        {unit.cxExecutive && (
+          <span className="ps-chip" style={{ borderColor: TASK_KINDS.cx.color }} title="CX executive">CX: {unit.cxExecutive}</span>
+        )}
+
+        {unit.backendExecutive && (
+          <span className="ps-chip" style={{ borderColor: TASK_KINDS.backend.color }} title="Backend executive">Backend: {unit.backendExecutive}</span>
+        )}
+
+        {unit.crmExecutive && !unit.cxExecutive && !unit.backendExecutive && (
+          <span className="ps-chip">{unit.crmExecutive}</span>
+        )}
 
         <span className="ps-badge ps-badge-blue">{fundingType === 'self_funded' ? 'Self-funded' : 'Home loan'}</span>
 
@@ -346,6 +418,15 @@ export default function UnitPipeline() {
 
                   <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.stepName}</span>
 
+                  {(() => {
+                    const k = TASK_KINDS[s.taskKind || getStepTaskKind(s.stepNumber)] || TASK_KINDS.cx;
+                    return (
+                      <span className="ps-badge" style={{ fontSize: '0.65rem', background: `${k.color}18`, color: k.color }}>
+                        {k.shortLabel}
+                      </span>
+                    );
+                  })()}
+
                   {(s.status === 'overdue' || s.slaBreach) && <span className="ps-badge ps-badge-red">OVERDUE</span>}
 
                 </div>
@@ -366,6 +447,14 @@ export default function UnitPipeline() {
 
             <h3 style={{ marginTop: 0 }}>Step {selected}: {stepDef?.name}</h3>
 
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span
+                className="ps-badge"
+                style={{ background: `${stepKindMeta.color}18`, color: stepKindMeta.color, border: `1px solid ${stepKindMeta.color}44` }}
+              >
+                {stepKindMeta.shortLabel} · {stepKindMeta.label}
+              </span>
+
             {stepRecord?.status !== 'completed' && slaInfo && (
 
               <span className={`ps-badge ps-badge-${slaInfo.tone === 'danger' ? 'red' : slaInfo.tone === 'warning' ? 'amber' : 'blue'}`}>
@@ -375,6 +464,7 @@ export default function UnitPipeline() {
               </span>
 
             )}
+            </div>
 
           </div>
 
@@ -576,7 +666,7 @@ export default function UnitPipeline() {
 
               <div className="ps-form-group" style={{ marginTop: 12 }}>
 
-                <label>Assign to</label>
+                <label>Assign to ({stepKindMeta.shortLabel} — {stepKindMeta.roleHint})</label>
 
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
 
@@ -584,19 +674,45 @@ export default function UnitPipeline() {
 
                     <option value="">— Select person —</option>
 
-                    {assignees.map((a) => <option key={a.id} value={a.name || a.email || a.id}>{a.label}</option>)}
+                    {suggestedAssignees.map((a) => <option key={a.id} value={a.name || a.email || a.id}>{a.label}</option>)}
 
-                    {unit.crmExecutive && !assignees.some((a) => a.id === unit.crmExecutive) && (
-
-                      <option value={unit.crmExecutive}>{unit.crmExecutive}</option>
-
+                    {assignee && !suggestedAssignees.some((a) => (a.name || a.email || a.id) === assignee) && (
+                      <option value={assignee}>{assignee}</option>
                     )}
 
                   </select>
 
+                  <button type="button" className="ps-btn" disabled={stepRecord?.status === 'completed'} onClick={handleUseDefaultAssignee}>
+                    Use default
+                  </button>
+
                   <button type="button" className="ps-btn ps-btn-primary" disabled={stepRecord?.status === 'completed'} onClick={handleAssign}>Save assignee</button>
 
                 </div>
+
+              </div>
+
+              <div className="ps-form-group" style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--ps-border)' }}>
+
+                <label>Unit executives (defaults for auto-assign)</label>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: TASK_KINDS.cx.color, marginBottom: 4 }}>CX executive</div>
+                    <input value={cxExecutive} onChange={(e) => setCxExecutive(e.target.value)} placeholder={unit.crmExecutive || 'Name or email'} />
+                  </div>
+
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: TASK_KINDS.backend.color, marginBottom: 4 }}>Backend executive</div>
+                    <input value={backendExecutive} onChange={(e) => setBackendExecutive(e.target.value)} placeholder={unit.crmExecutive || 'Name or email'} />
+                  </div>
+
+                </div>
+
+                <button type="button" className="ps-btn ps-btn-primary" style={{ marginTop: 8 }} disabled={savingExecs} onClick={handleSaveExecutives}>
+                  {savingExecs ? 'Saving…' : 'Save executives'}
+                </button>
 
               </div>
 

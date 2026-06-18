@@ -1,18 +1,40 @@
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMyTasks } from '../../hooks/postsales/useMyTasks.js';
 import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
 import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import { formatDueDate, slaCountdown } from '../../lib/postSalesSla.js';
 import { PHASES } from '../../data/postsales/steps.js';
+import { TASK_KINDS } from '../../data/postsales/taskKinds.js';
+
+const TABS = [
+  { id: '', label: 'All' },
+  { id: 'cx', label: 'CX' },
+  { id: 'backend', label: 'Backend' },
+];
 
 function statusBadge(status) {
   const map = { in_progress: 'blue', overdue: 'red', pending: 'grey', completed: 'green' };
   return `ps-badge ps-badge-${map[status] || 'grey'}`;
 }
 
+function kindBadge(taskKind) {
+  const kind = TASK_KINDS[taskKind] || TASK_KINDS.cx;
+  return (
+    <span
+      className="ps-badge"
+      style={{ background: `${kind.color}22`, color: kind.color, border: `1px solid ${kind.color}55` }}
+    >
+      {kind.shortLabel}
+    </span>
+  );
+}
+
 export default function MyTasks() {
+  const [taskKind, setTaskKind] = useState('');
   const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
-  const { tasks, assignee, loading, error } = useMyTasks(query);
+  const filters = useMemo(() => ({ ...query, ...(taskKind ? { taskKind } : {}) }), [query, taskKind]);
+  const { tasks, assignee, cxCount, backendCount, loading, error } = useMyTasks(filters);
 
   const overdue = tasks.filter((t) => t.status === 'overdue' || t.slaBreach);
   const dueSoon = tasks.filter((t) => {
@@ -27,15 +49,34 @@ export default function MyTasks() {
         <div>
           <h2 style={{ margin: 0 }}>My Tasks</h2>
           <p style={{ margin: '6px 0 0', color: 'var(--ps-text-muted)', fontSize: '0.9rem' }}>
-            Open pipeline steps assigned to you across all projects, sorted by due date.
+            Open pipeline steps assigned to you — customer interaction (CX) vs backend coordination.
             {assignee ? ` · Matching: ${assignee}` : ''}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {overdue.length > 0 && <span className="ps-badge ps-badge-red">{overdue.length} overdue</span>}
           {dueSoon.length > 0 && <span className="ps-badge ps-badge-amber">{dueSoon.length} due soon</span>}
           <span className="ps-badge ps-badge-blue">{tasks.length} open</span>
         </div>
+      </div>
+
+      <div className="ps-tabs" style={{ marginBottom: 16 }}>
+        {TABS.map((tab) => {
+          const active = taskKind === tab.id;
+          return (
+            <button
+              key={tab.id || 'all'}
+              type="button"
+              className={`ps-tab ${active ? 'active' : ''}`}
+              onClick={() => setTaskKind(tab.id)}
+            >
+              {tab.label}
+              {!loading && tab.id === '' && tasks.length > 0 && ` (${tasks.length})`}
+              {!loading && tab.id === 'cx' && cxCount != null && ` (${cxCount})`}
+              {!loading && tab.id === 'backend' && backendCount != null && ` (${backendCount})`}
+            </button>
+          );
+        })}
       </div>
 
       <PostSalesFilterBar
@@ -54,7 +95,8 @@ export default function MyTasks() {
 
       {!loading && !tasks.length && (
         <div className="ps-card ps-empty">
-          No open tasks are assigned to you. Assign yourself on a unit pipeline step, or ask your admin to match your login name/email to the assignee field.
+          No open {taskKind ? TASK_KINDS[taskKind]?.label.toLowerCase() : ''} tasks are assigned to you.
+          Set CX / Backend executives on each unit, or assign yourself on a pipeline step.
         </div>
       )}
 
@@ -64,6 +106,7 @@ export default function MyTasks() {
             <thead>
               <tr>
                 <th>Due date</th>
+                <th>Kind</th>
                 <th>Step</th>
                 <th>Unit / project</th>
                 <th>SLA target</th>
@@ -84,6 +127,7 @@ export default function MyTasks() {
                         </div>
                       )}
                     </td>
+                    <td>{kindBadge(t.taskKind)}</td>
                     <td>
                       <div style={{ color: PHASES[t.pipelinePhase]?.color, fontSize: '0.75rem' }}>{PHASES[t.pipelinePhase]?.label}</div>
                       <strong>Step {t.stepNumber}</strong>

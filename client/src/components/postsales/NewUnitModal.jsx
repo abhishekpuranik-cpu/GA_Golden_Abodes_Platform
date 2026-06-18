@@ -6,7 +6,7 @@ const empty = {
   coApplicantName: '', coApplicantPhone: '',
   project: 'Golden HQ', entity: 'GAPL', tower: '', unitNumber: '', floor: '',
   carpetArea: '', saleableArea: '', bookingDate: '', bookingAmount: '', totalCost: '',
-  paymentPlan: 'CLP', crmExecutive: '', salesExecutive: '',
+  paymentPlan: 'CLP', crmExecutive: '', cxExecutive: '', backendExecutive: '', salesExecutive: '',
 };
 
 export default function NewUnitModal({ onClose, onSubmit }) {
@@ -47,6 +47,8 @@ export default function NewUnitModal({ onClose, onSubmit }) {
         totalCost: Number(form.totalCost) || 0,
         paymentPlan: form.paymentPlan,
         crmExecutive: form.crmExecutive,
+        cxExecutive: form.cxExecutive || form.crmExecutive,
+        backendExecutive: form.backendExecutive || form.crmExecutive,
         salesExecutive: form.salesExecutive,
         gstApplicable: true,
       };
@@ -116,7 +118,9 @@ export default function NewUnitModal({ onClose, onSubmit }) {
               <option value="Down Payment">Down Payment</option>
             </select>
           </div>
-          <div className="ps-form-group"><label>CRM executive</label><input value={form.crmExecutive} onChange={(e) => set('crmExecutive', e.target.value)} /></div>
+          <div className="ps-form-group"><label>CRM executive (fallback)</label><input value={form.crmExecutive} onChange={(e) => set('crmExecutive', e.target.value)} placeholder="Used when CX/Backend not set" /></div>
+          <div className="ps-form-group"><label>CX executive (customer interaction)</label><input value={form.cxExecutive} onChange={(e) => set('cxExecutive', e.target.value)} placeholder="Welcome calls, agreements, possession…" /></div>
+          <div className="ps-form-group"><label>Backend executive (coordination)</label><input value={form.backendExecutive} onChange={(e) => set('backendExecutive', e.target.value)} placeholder="Data entry, demands, CHS, helpdesk…" /></div>
           <div className="ps-form-group"><label>Sales executive</label><input value={form.salesExecutive} onChange={(e) => set('salesExecutive', e.target.value)} /></div>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>

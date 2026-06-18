@@ -34,6 +34,18 @@ export const postSalesApi = {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`${BASE}/tasks/my${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
   },
+  getTaskQueue: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/tasks/queue${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+
+  getAllocation: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/allocation${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+  assignAllocationExecutives: (body) => apiFetch(`${BASE}/allocation/executives`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  assignAllocationSteps: (body) => apiFetch(`${BASE}/allocation/assign-steps`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  autoAssignAllocation: (body) => apiFetch(`${BASE}/allocation/auto-assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
   listDocuments: (unitId) => apiFetch(`${BASE}/documents?unitId=${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   createDocument: (body) => apiFetch(`${BASE}/documents`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
@@ -44,6 +56,7 @@ export const postSalesApi = {
     return apiFetch(`${BASE}/demands${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
   },
   updateDemand: (id, body) => apiFetch(`${BASE}/demands/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  importDemands: (rows) => apiFetch(`${BASE}/demands/import`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rows }) }).then((r) => { if (!r.ok) throw new Error(r.data?.error || r.data?.message); return r.data; }),
 
   getLoan: (unitId) => apiFetch(`${BASE}/loans?unitId=${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   upsertLoan: (body) => apiFetch(`${BASE}/loans`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),

@@ -12,6 +12,7 @@ const PipelineStepSchema = new mongoose.Schema({
   stepNumber: { type: Number, required: true, min: 1, max: 20 },
   stepName: String, phase: String,
   status: { type: String, enum: ['pending','in_progress','completed','overdue','blocked','na'], default: 'pending' },
+  taskKind: { type: String, enum: ['cx', 'backend'], default: 'cx' },
   assignedRole: String, assignedTo: String,
   triggerDate: Date, dueDate: Date, completedDate: Date, completedBy: String,
   slaBreach: { type: Boolean, default: false }, slaBreachDays: Number,

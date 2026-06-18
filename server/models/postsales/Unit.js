@@ -16,6 +16,8 @@ const UnitSchema = new mongoose.Schema({
   overallStatus: { type: String, enum: ['active','possession_given','cancelled','on_hold'], default: 'active' },
   agreementDate: Date, registrationDate: Date, possessionDate: Date,
   crmExecutive: String,
+  cxExecutive: String,
+  backendExecutive: String,
 }, { timestamps: true });
 
 export default mongoose.models.Unit || mongoose.model('Unit', UnitSchema);

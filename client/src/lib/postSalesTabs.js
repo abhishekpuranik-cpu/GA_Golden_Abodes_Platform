@@ -1,5 +1,6 @@
 export const PS_NAV = [
   { id: 'ps_dashboard', path: '/app/post-sales', label: 'Dashboard', end: true },
+  { id: 'ps_allocation', path: '/app/post-sales/allocation', label: 'Allocation' },
   { id: 'ps_my_tasks', path: '/app/post-sales/my-tasks', label: 'My Tasks' },
   { id: 'ps_units', path: '/app/post-sales/units', label: 'Units' },
   { id: 'ps_documents', path: '/app/post-sales/documents', label: 'Documents' },

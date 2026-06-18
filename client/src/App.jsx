@@ -31,6 +31,7 @@ const PostSalesLayout = lazy(() => import('./pages/postsales/PostSalesLayout.jsx
 const PsDashboard = lazy(() => import('./pages/postsales/Dashboard.jsx'));
 const PsUnits = lazy(() => import('./pages/postsales/Units.jsx'));
 const PsMyTasks = lazy(() => import('./pages/postsales/MyTasks.jsx'));
+const PsWorkAllocation = lazy(() => import('./pages/postsales/WorkAllocation.jsx'));
 const PsUnitPipeline = lazy(() => import('./pages/postsales/UnitPipeline.jsx'));
 const PsDocuments = lazy(() => import('./pages/postsales/Documents.jsx'));
 const PsDemands = lazy(() => import('./pages/postsales/Demands.jsx'));
@@ -151,6 +152,7 @@ export default function App() {
         >
           <Route index element={<PsDashboard />} />
           <Route path="my-tasks" element={<PsMyTasks />} />
+          <Route path="allocation" element={<PsWorkAllocation />} />
           <Route path="units" element={<PsUnits />} />
           <Route path="units/:id" element={<PsUnitPipeline />} />
           <Route path="documents" element={<PsDocuments />} />

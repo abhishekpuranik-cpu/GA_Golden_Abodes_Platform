@@ -2,8 +2,7 @@ import Customer from '../../models/postsales/Customer.js';
 import Unit from '../../models/postsales/Unit.js';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
 import { loadCashflowEnvelope } from '../dmGovernance/integrations/appStateReader.js';
-import { STEPS } from './steps.js';
-import { buildChecklist, computeDueDate } from './helpers.js';
+import { buildPipelineStepDocs } from './helpers.js';
 import {
   normUnitKey,
   parseUnitNumber,
@@ -87,27 +86,8 @@ export async function getV1InventoryStatus(db) {
 }
 
 async function createPipelineSteps(unit, fundingType) {
-  const now = new Date();
-  const docs = STEPS.map((def) => {
-    const status = def.number === 1 ? 'in_progress' : 'pending';
-    const triggerDate = def.number === 1 ? now : undefined;
-    const dueDate = def.number === 1 ? computeDueDate(def, now) : undefined;
-    return {
-      unitId: unit._id,
-      stepNumber: def.number,
-      stepName: def.name,
-      phase: def.phase,
-      status,
-      assignedRole: def.assignedRole,
-      assignedTo: def.number === 1 ? (unit.crmExecutive || '') : '',
-      triggerDate,
-      dueDate,
-      checklist: buildChecklist(def, fundingType),
-      activityLog: def.number === 1
-        ? [{ action: 'started', at: now, by: 'Cashflow V1 sync', detail: 'Imported from sold inventory' }]
-        : [],
-    };
-  });
+  const docs = buildPipelineStepDocs(unit, fundingType, { startedBy: 'Cashflow V1 sync' });
+  if (docs[0]?.activityLog?.[0]) docs[0].activityLog[0].detail = 'Imported from sold inventory';
   await PipelineStep.insertMany(docs);
 }
 
