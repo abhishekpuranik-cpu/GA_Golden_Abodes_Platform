@@ -4,20 +4,16 @@ import {
   loadV3PlannerState,
   loadPreconState,
   loadExecutionPayload,
+  loadFinanceKpiState,
+  loadMarketingKpiState,
   matchProjectByName,
   slugName,
   daysBetween
 } from './integrations/appStateReader.js';
+import { loadPostSalesProjectKpis } from './integrations/postSales.js';
+import { APP_HUMAN_LABELS } from './pillars.js';
 
-const APP_LABELS = {
-  v1_cashflow: 'Cashflow V1',
-  v2_resource_planner: 'Resource Planner V2',
-  v3_org_planner: 'V3 Acquisition',
-  preconstruction: 'PreConstruction',
-  ga_execution_dashboard: 'Construction Execution',
-  sales_dashboard: 'Sales Dashboard',
-  marketing_kpi: 'Marketing KPI'
-};
+const APP_LABELS = APP_HUMAN_LABELS;
 
 function num(v) {
   return Number(v) || 0;
@@ -328,7 +324,7 @@ function preconDeviations(project, precon) {
       deviation({
         sourceApp: 'preconstruction',
         deviationType: 'overdue_tasks',
-        category: 'planning',
+        category: 'delivery',
         severity: overdue >= 5 ? 'high' : 'medium',
         projectId: project._id,
         projectName: project.name,
@@ -425,40 +421,168 @@ function executionDeviations(project, payload) {
   return out;
 }
 
+function financeKpiDeviations(finKpi) {
+  const out = [];
+  if (!finKpi?.blob) return out;
+  const S = finKpi.blob;
+  const today = new Date().toISOString().slice(0, 10);
+  const overdue = (S.compliance || []).filter((c) => !c.actual && c.due && c.due < today);
+  if (overdue.length) {
+    out.push(
+      deviation({
+        sourceApp: 'finance_kpi',
+        deviationType: 'compliance_overdue',
+        category: 'governance',
+        severity: overdue.length >= 3 ? 'high' : 'medium',
+        projectId: null,
+        projectName: null,
+        title: 'Finance compliance overdue',
+        message: `${overdue.length} statutory obligation(s) past due in Finance KPI`,
+        impact: 'Portfolio governance and lender confidence risk',
+        recommendedAction: 'Clear compliance calendar in Finance KPI',
+        href: '/legacy/GA_Finance_KPI.html'
+      })
+    );
+  }
+  return out;
+}
+
+function marketingKpiDeviations(project, mkt) {
+  const out = [];
+  if (!mkt?.blob?.leads?.length) return out;
+  const leads = mkt.blob.leads.filter((l) => {
+    const proj = String(l.project || l['Reference Projects Name'] || '').toLowerCase();
+    return proj.includes(String(project.name || '').toLowerCase()) || proj.includes(String(project._id || '').toLowerCase());
+  });
+  if (!leads.length) return out;
+  const stale = leads.filter((l) => {
+    const st = String(l.stage || l.Status || l['Lead Stage'] || '').toLowerCase();
+    return st.includes('follow') || st.includes('no response');
+  });
+  if (stale.length >= 3) {
+    out.push(
+      deviation({
+        sourceApp: 'marketing_kpi',
+        deviationType: 'stale_leads',
+        category: 'commercial',
+        severity: 'medium',
+        projectId: project._id,
+        projectName: project.name,
+        title: 'Marketing leads stalling',
+        message: `${stale.length} follow-up / no-response leads for ${project.name}`,
+        recommendedAction: 'Review lead pipeline in Marketing KPI dashboard',
+        href: '/legacy/GA_MarketingSales_KPI_Dashboard.html'
+      })
+    );
+  }
+  return out;
+}
+
+async function postSalesDeviations(project, ps) {
+  const out = [];
+  if (!ps) return out;
+  if (ps.overdueDemands > 0) {
+    out.push(
+      deviation({
+        sourceApp: 'post_sales',
+        deviationType: 'overdue_demands',
+        category: 'customer',
+        severity: ps.overdueDemands >= 5 ? 'high' : 'medium',
+        projectId: project._id,
+        projectName: project.name,
+        title: 'Post-sales demands overdue',
+        message: `${ps.overdueDemands} overdue demand(s) · ${ps.unitsInPipeline} units in pipeline`,
+        recommendedAction: 'Review demands in Post Sales',
+        href: '/app/post-sales/demands',
+        metric: { overdueDemands: ps.overdueDemands }
+      })
+    );
+  }
+  if (ps.loanBlockers > 0) {
+    out.push(
+      deviation({
+        sourceApp: 'post_sales',
+        deviationType: 'loan_blocker',
+        category: 'customer',
+        severity: 'medium',
+        projectId: project._id,
+        projectName: project.name,
+        title: 'Loan sanction blockers',
+        message: `${ps.loanBlockers} unit(s) with incomplete loan sanction`,
+        recommendedAction: 'Review loans in Post Sales',
+        href: '/app/post-sales/loans'
+      })
+    );
+  }
+  if (ps.overdueSteps >= 5) {
+    out.push(
+      deviation({
+        sourceApp: 'post_sales',
+        deviationType: 'pipeline_slip',
+        category: 'customer',
+        severity: 'medium',
+        projectId: project._id,
+        projectName: project.name,
+        title: 'Post-sales pipeline overdue',
+        message: `${ps.overdueSteps} overdue step(s) · avg age ${ps.avgStageAgeDays}d`,
+        recommendedAction: 'Review unit pipeline in Post Sales',
+        href: '/app/post-sales'
+      })
+    );
+  }
+  return out;
+}
+
 /**
  * Collect cross-app deviations for DM projects.
  * @param {import('mongodb').Db} db
  * @param {object[]} projects
  */
 export async function collectCrossAppDeviations(db, projects) {
-  const [cfEnv, v2, v3, precon, exec] = await Promise.all([
+  const [cfEnv, v2, v3, precon, exec, finKpi, mkt] = await Promise.all([
     loadCashflowEnvelope(db),
     loadV2PlannerState(db),
     loadV3PlannerState(db),
     loadPreconState(db),
-    loadExecutionPayload()
+    loadExecutionPayload(),
+    loadFinanceKpiState(db),
+    loadMarketingKpiState(db)
   ]);
 
-  const all = [];
+  const all = [...financeKpiDeviations(finKpi)];
   const appSignals = {
     v1_cashflow: { available: !!cfEnv, deviationCount: 0, status: cfEnv ? 'green' : 'amber' },
     v2_resource_planner: { available: !!v2?.blob, deviationCount: 0, status: v2?.blob ? 'green' : 'amber' },
     v3_org_planner: { available: !!v3?.blob, deviationCount: 0, status: v3?.blob ? 'green' : 'amber' },
     preconstruction: { available: !!precon?.projects?.length, deviationCount: 0, status: precon?.projects?.length ? 'green' : 'amber' },
     ga_execution_dashboard: { available: !!exec, deviationCount: 0, status: exec ? 'green' : 'amber' },
-    sales_dashboard: { available: false, deviationCount: 0, status: 'amber', note: 'No Mongo sync — using Cashflow units as proxy' },
-    marketing_kpi: { available: false, deviationCount: 0, status: 'amber', note: 'In-memory only — not in Mongo yet' }
+    finance_kpi: { available: !!finKpi?.blob, deviationCount: 0, status: finKpi?.blob ? 'green' : 'amber' },
+    marketing_kpi: { available: !!mkt?.blob?.leads?.length, deviationCount: 0, status: mkt?.blob?.leads?.length ? 'green' : 'amber' },
+    post_sales: { available: false, deviationCount: 0, status: 'amber' },
+    sales_dashboard: { available: false, deviationCount: 0, status: 'amber', note: 'Using Cashflow units as sales proxy' }
   };
 
+  let postSalesLinked = false;
   for (const p of projects) {
     const cfg = cfEnv?.data?.[p._id];
+    const ps = await loadPostSalesProjectKpis(p._id, p.name);
+    if (ps) {
+      postSalesLinked = true;
+      appSignals.post_sales.available = true;
+      appSignals.post_sales.status = 'green';
+    }
     all.push(
       ...cashflowDeviations(p, cfg, cfEnv),
       ...v2Deviations(p, v2),
       ...v3Deviations(p, v3),
       ...preconDeviations(p, precon),
-      ...executionDeviations(p, exec)
+      ...executionDeviations(p, exec),
+      ...marketingKpiDeviations(p, mkt),
+      ...(await postSalesDeviations(p, ps))
     );
+  }
+  if (!postSalesLinked) {
+    appSignals.post_sales.note = 'No Post Sales units linked to DM projects yet';
   }
 
   all.forEach((d) => {
@@ -470,6 +594,10 @@ export async function collectCrossAppDeviations(db, projects) {
         appSignals[d.sourceApp].status = 'amber';
       }
     }
+  });
+
+  Object.keys(appSignals).forEach((key) => {
+    appSignals[key].label = APP_HUMAN_LABELS[key] || key.replace(/_/g, ' ');
   });
 
   return {

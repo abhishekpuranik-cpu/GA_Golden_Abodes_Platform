@@ -49,7 +49,9 @@ const LEGACY_KEYSETS = {
     'ga_v3_last_manual_save',
     'ga_cloud_url',
     'ga_user_name'
-  ]
+  ],
+  finance_kpi: ['ga_finkpi_state_v2', 'ga_cloud_url', 'ga_user_name'],
+  marketing_kpi: ['ga_mkt_kpi_state_v1', 'ga_cloud_url', 'ga_user_name']
 };
 
 function normalizeAppId(raw) {

@@ -4,6 +4,7 @@ import { getEligibleBase, sumProjectBillingTotals } from './calculationEngine.js
 import { computeSpvReadinessScore } from './reconciliationService.js';
 import { scanProjectRisks } from './riskEngine.js';
 import { collectCrossAppDeviations, deviationToIssue } from './crossAppDeviations.js';
+import { rollupPillars } from './pillars.js';
 
 const SEVERITY_WEIGHT = { critical: 40, high: 25, medium: 12, low: 5 };
 const DOMAIN_LABELS = {
@@ -490,7 +491,8 @@ export async function buildControlTower(db, user, opts = {}) {
     health: {
       portfolioScore,
       status: statusFromScore(portfolioScore),
-      domains: domainScores
+      domains: domainScores,
+      pillars: rollupPillars(domainPenalty, deduped)
     },
     issues: deduped.slice(0, 40),
     issueSummary: {

@@ -118,6 +118,23 @@ export default function DmProjectDetailPage() {
       {err ? <div className="dm-err">{err}</div> : null}
       {msg ? <p className="dm-msg-ok">{msg}</p> : null}
 
+      {data?.businessHealth?.pillars ? (
+        <details className="dm-bh-details" style={{ marginBottom: 20 }}>
+          <summary>6-area health breakdown</summary>
+          <div className="dm-bh-pillar-row" style={{ paddingTop: 12 }}>
+            {Object.values(data.businessHealth.pillars).map((p) => (
+              <div key={p.key} className="dm-bh-pillar">
+                <span className={`dm-bh-dot ${p.status}`} />
+                <span className="dm-bh-pillar-name">{p.label}</span>
+                <span className={`dm-bh-pillar-state ${p.status}`}>
+                  {p.status === 'green' ? 'OK' : p.status === 'amber' ? 'Watch' : 'At risk'}
+                </span>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+
       <div className="dm-kpi-grid">
         <div className="dm-kpi">
           <div className="dm-kpi-lbl">DM cap (10%)</div>

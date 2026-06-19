@@ -1,4 +1,5 @@
 export const DM_TABS = {
+  BUSINESS_HEALTH: 'dm_business_health',
   DASHBOARD: 'dm_dashboard',
   SPVS: 'dm_spvs',
   PROJECTS: 'dm_projects',
@@ -14,7 +15,8 @@ export const DM_TABS = {
 };
 
 export const DM_NAV = [
-  { id: DM_TABS.DASHBOARD, path: '/app/dm-governance', label: 'Control Tower', end: true },
+  { id: DM_TABS.BUSINESS_HEALTH, path: '/app/dm-governance', label: 'Business Health', end: true },
+  { id: DM_TABS.EXECUTIVE, path: '/app/dm-governance/executive', label: 'Executive' },
   { id: DM_TABS.SPVS, path: '/app/dm-governance/spvs', label: 'SPV Master' },
   { id: DM_TABS.PROJECTS, path: '/app/dm-governance/projects', label: 'Projects' },
   { id: DM_TABS.BILLING, path: '/app/dm-governance/billing-workspace', label: 'Billing Workspace' },
@@ -26,7 +28,6 @@ export const DM_NAV = [
   { id: 'dm_expenses', path: '/app/dm-governance/expenses', label: 'Expenses' },
   { id: 'dm_risks', path: '/app/dm-governance/risks', label: 'Risks' },
   { id: DM_TABS.SCENARIOS, path: '/app/dm-governance/scenarios', label: 'Scenarios' },
-  { id: DM_TABS.EXECUTIVE, path: '/app/dm-governance/executive', label: 'Executive' },
   { id: DM_TABS.ALERTS, path: '/app/dm-governance/alerts', label: 'Alerts' },
   { id: DM_TABS.REPORTS, path: '/app/dm-governance/reports', label: 'Reports' },
   { id: DM_TABS.SETTINGS, path: '/app/dm-governance/integrations', label: 'Integrations' }
@@ -37,5 +38,6 @@ export function userCanDmTab(user, tabId, metaTabs) {
   const set = new Set(tabs.map((t) => String(t)));
   if (set.has('manage_security') || (user?.permissions || []).includes('manage_security')) return true;
   if (set.size === 0) return tabId !== DM_TABS.CONSOLIDATED && tabId !== DM_TABS.SETTINGS;
+  if (tabId === DM_TABS.BUSINESS_HEALTH) return set.has(DM_TABS.BUSINESS_HEALTH) || set.has(DM_TABS.DASHBOARD);
   return set.has(tabId);
 }

@@ -229,6 +229,119 @@
     intelSearch: ''
   };
 
+  var LS_KEY = 'ga_mkt_kpi_state_v1';
+  var MONGO_APP_ID = 'marketing_kpi';
+  var GA_MONGO_ENABLE_KEY = 'ga_mongo_state_enable';
+  var GA_MONGO_API_BASE_KEY = 'ga_mongo_api_base';
+  var _mongoVersion = null;
+  var _mongoSaveT = null;
+
+  function mongoStateApiUrl() {
+    var path = 'api/apps/' + MONGO_APP_ID + '/state';
+    var base = '';
+    try { base = String(localStorage.getItem(GA_MONGO_API_BASE_KEY) || '').trim().replace(/\/$/, ''); } catch (e) {}
+    return (base ? base + '/' : '/') + path;
+  }
+  function canUseMongoState() {
+    try { return localStorage.getItem(GA_MONGO_ENABLE_KEY) === '1'; } catch (e) { return false; }
+  }
+  function packMongoPayload() {
+    var o = {};
+    o[LS_KEY] = JSON.stringify(state);
+    return o;
+  }
+  function applyMongoPayload(data) {
+    if (!data || typeof data !== 'object') return false;
+    var raw = data[LS_KEY];
+    if (typeof raw === 'string') {
+      try {
+        var parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object') {
+          state = parsed;
+          return !!(state.leads && state.leads.length);
+        }
+      } catch (e) {}
+    }
+    if (raw && typeof raw === 'object') {
+      state = raw;
+      return !!(state.leads && state.leads.length);
+    }
+    return false;
+  }
+  function scheduleMongoStateSave(ms) {
+    if (!canUseMongoState()) return;
+    if (_mongoSaveT) clearTimeout(_mongoSaveT);
+    _mongoSaveT = setTimeout(pushMongoState, ms || 800);
+  }
+  function pushMongoState() {
+    if (!canUseMongoState()) return;
+    var body = { data: packMongoPayload(), updatedBy: 'marketing_kpi' };
+    if (_mongoVersion != null) body.expectedVersion = _mongoVersion;
+    fetch(mongoStateApiUrl(), {
+      method: 'PUT',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        if (res.ok && res.j) _mongoVersion = res.j.version || _mongoVersion;
+      })
+      .catch(function () {});
+  }
+  function pullMongoState() {
+    return fetch(mongoStateApiUrl(), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { if (r.status === 404) return false; return r.json(); })
+      .then(function (j) {
+        if (j && j.data && applyMongoPayload(j.data)) {
+          _mongoVersion = j.version || null;
+          return true;
+        }
+        return false;
+      })
+      .catch(function () { return false; });
+  }
+  function persistState() {
+    try { localStorage.setItem(LS_KEY, JSON.stringify(state)); } catch (e) {}
+    scheduleMongoStateSave(800);
+  }
+  function loadFromLocal() {
+    try {
+      var raw = localStorage.getItem(LS_KEY);
+      if (!raw) return false;
+      var parsed = JSON.parse(raw);
+      if (parsed && parsed.leads && parsed.leads.length) {
+        state = parsed;
+        return true;
+      }
+    } catch (e) {}
+    return false;
+  }
+  function bootState() {
+    fetch('/api/auth/session', { credentials: 'same-origin', cache: 'no-store' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        if (j && j.authenticated) {
+          try { localStorage.setItem(GA_MONGO_ENABLE_KEY, '1'); } catch (e) {}
+        }
+        if (canUseMongoState()) {
+          return pullMongoState().then(function (ok) {
+            if (ok) return true;
+            return loadFromLocal();
+          });
+        }
+        return loadFromLocal();
+      })
+      .then(function (ok) {
+        if (ok) refreshAll();
+        else loadDemo();
+      })
+      .catch(function () {
+        if (loadFromLocal()) refreshAll();
+        else loadDemo();
+      });
+  }
+
   function excelSerialToDate(n) {
     if (typeof n !== 'number' || isNaN(n)) return null;
     var utc = Math.round((n - 25569) * 86400 * 1000);
@@ -903,6 +1016,7 @@
     renderOwner();
     renderOps();
     renderIntel();
+    persistState();
   }
 
   function loadDemo() {
@@ -1020,7 +1134,7 @@
     });
   });
 
-  loadDemo();
+  bootState();
 })();
 </script>
 </body>

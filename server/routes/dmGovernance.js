@@ -17,6 +17,9 @@ import { ensureDmPilotSeed } from '../lib/dmGovernance/seed.js';
 import { ensureComplianceChecklist } from '../lib/dmGovernance/reconciliationService.js';
 import { buildDashboardConsolidated } from '../lib/dmGovernance/dashboard.js';
 import { buildControlTower } from '../lib/dmGovernance/controlTower.js';
+import { buildPortfolioKpis } from '../lib/businessHealth/portfolioRollup.js';
+import { upsertMonthlySnapshot, loadTrendSeries, extractTrendPoints } from '../lib/businessHealth/snapshots.js';
+import { rollupProjectPillars, buildSyncFreshness } from '../lib/dmGovernance/pillars.js';
 import { syncProjectsFromRegistry } from '../lib/dmGovernance/integrations/projectSync.js';
 import { syncProjectFromCashflow, pushDmScheduleToCashflow } from '../lib/dmGovernance/integrations/cashflowV1.js';
 import { BILLING_MODEL_TYPES, DEFAULT_BILLING_SLABS, ELIGIBLE_BASE_TYPES, REVENUE_STATUSES } from '../lib/dmGovernance/constants.js';
@@ -87,14 +90,37 @@ dmGovernanceRouter.get(
   withDb(async (req, res, db) => {
     await bootstrapDm(db);
     const user = userFromReq(req);
-    if (!userCanDmTab(user, DM_TABS.DASHBOARD) && !userCanDmTab(user, DM_TABS.CONSOLIDATED)) {
+    if (!userCanDmTab(user, DM_TABS.DASHBOARD) && !userCanDmTab(user, DM_TABS.BUSINESS_HEALTH) && !userCanDmTab(user, DM_TABS.CONSOLIDATED)) {
       return deny(res, 'Dashboard access denied');
     }
     const [data, controlTower] = await Promise.all([
       buildDashboardConsolidated(db, user),
       buildControlTower(db, user)
     ]);
-    res.json({ ...data, controlTower });
+    const trendPoints = extractTrendPoints(data, controlTower);
+    await upsertMonthlySnapshot(db, {
+      portfolio: trendPoints,
+      pillars: controlTower?.health?.pillars || {},
+      projects: {},
+      trends: trendPoints
+    });
+    const [collectionsTrend, recoveryTrend, healthTrend] = await Promise.all([
+      loadTrendSeries(db, 'collections_rate', 12),
+      loadTrendSeries(db, 'dm_recovery_pct', 12),
+      loadTrendSeries(db, 'portfolio_health_score', 12)
+    ]);
+    res.json({
+      ...data,
+      controlTower,
+      businessHealth: {
+        kpis: buildPortfolioKpis(data, controlTower),
+        trends: {
+          collections_rate: collectionsTrend,
+          dm_recovery_pct: recoveryTrend,
+          portfolio_health_score: healthTrend
+        }
+      }
+    });
   })
 );
 
@@ -109,7 +135,30 @@ dmGovernanceRouter.post(
       buildDashboardConsolidated(db, user),
       buildControlTower(db, user, { runRiskScan: true })
     ]);
-    res.json({ ...data, controlTower });
+    const trendPoints = extractTrendPoints(data, controlTower);
+    await upsertMonthlySnapshot(db, {
+      portfolio: trendPoints,
+      pillars: controlTower?.health?.pillars || {},
+      projects: {},
+      trends: trendPoints
+    });
+    const [collectionsTrend, recoveryTrend, healthTrend] = await Promise.all([
+      loadTrendSeries(db, 'collections_rate', 12),
+      loadTrendSeries(db, 'dm_recovery_pct', 12),
+      loadTrendSeries(db, 'portfolio_health_score', 12)
+    ]);
+    res.json({
+      ...data,
+      controlTower,
+      businessHealth: {
+        kpis: buildPortfolioKpis(data, controlTower),
+        trends: {
+          collections_rate: collectionsTrend,
+          dm_recovery_pct: recoveryTrend,
+          portfolio_health_score: healthTrend
+        }
+      }
+    });
   })
 );
 
@@ -270,6 +319,13 @@ dmGovernanceRouter.get(
           : project.toplineGdv || 0;
     const dmCap = eligibleBase * (Number(project.dmCapPct || 10) / 100);
 
+    const tower = await buildControlTower(db, user);
+    const businessHealth = {
+      pillars: rollupProjectPillars(project._id, tower.issues || []),
+      healthScore: tower.watchlist?.find((w) => w.projectId === project._id)?.healthScore ?? null,
+      syncFreshness: buildSyncFreshness(project)
+    };
+
     res.json({
       project,
       spvs,
@@ -281,7 +337,8 @@ dmGovernanceRouter.get(
         dmFeePaid: project.dmFeePaidTtd || 0,
         balanceEligible: Math.max(0, dmCap - (project.dmFeeBilledTtd || 0)),
         capUtilPct: dmCap > 0 ? ((project.dmFeeBilledTtd || 0) / dmCap) * 100 : 0
-      }
+      },
+      businessHealth
     });
   })
 );

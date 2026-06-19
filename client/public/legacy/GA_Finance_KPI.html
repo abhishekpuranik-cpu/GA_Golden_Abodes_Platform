@@ -126,8 +126,7 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
    users with the 'finance_kpi_admin' app right or 'manage_security'
    (e.g. abhishek.puranik@goldenabodes.com) get admin automatically.
    Granted/revoked in the Admin Security console. Offline password
-   fallback only when the API is unreachable. Mongo sync planned (V3)
-   via GET/PUT /api/apps/finance_kpi/state.
+   fallback only when the API is unreachable. Mongo sync via GET/PUT /api/apps/finance_kpi/state.
 ===================================================================== */
 var LS_KEY='ga_finkpi_state_v2';
 var LS_KEY_V1='ga_finkpi_state_v1';
@@ -418,8 +417,87 @@ function saveState(manual){
     if(manual){el.style.color='var(--green-b)';setTimeout(function(){el.style.color='var(--muted)';},1500);}
   }catch(e){alert('Save failed: '+e.message);}
 }
-function touch(){if(_saveT)clearTimeout(_saveT);_saveT=setTimeout(function(){saveState(false);},400);}
+function touch(){if(_saveT)clearTimeout(_saveT);_saveT=setTimeout(function(){saveState(false);},400);scheduleMongoStateSave(800);}
 function logAudit(action,detail){S.audit.unshift({ts:new Date().toISOString(),action:action,detail:detail});if(S.audit.length>500)S.audit.length=500;touch();}
+
+/* --------------------------- Mongo cloud sync ----------------------- */
+var MONGO_APP_ID='finance_kpi';
+var GA_MONGO_ENABLE_KEY='ga_mongo_state_enable';
+var GA_MONGO_API_BASE_KEY='ga_mongo_api_base';
+var _mongoSaveT=null,_mongoVersion=null,_mongoPullDone=false;
+function mongoStateApiUrl(){
+  var path='api/apps/'+MONGO_APP_ID+'/state';
+  var base='';
+  try{base=String(localStorage.getItem(GA_MONGO_API_BASE_KEY)||'').trim().replace(/\/$/,'');}catch(e){}
+  return (base?base+'/':'/')+path;
+}
+function canUseMongoState(){
+  try{return localStorage.getItem(GA_MONGO_ENABLE_KEY)==='1';}catch(e){return false;}
+}
+function setMongoEnabled(on){
+  try{localStorage.setItem(GA_MONGO_ENABLE_KEY,on?'1':'0');}catch(e){}
+}
+function packMongoPayload(){
+  var o={};
+  o[LS_KEY]=JSON.stringify(S);
+  return o;
+}
+function applyMongoPayload(data){
+  if(!data||typeof data!=='object')return false;
+  var raw=data[LS_KEY];
+  if(typeof raw==='string'){
+    try{S=JSON.parse(raw);ensureV3State();return true;}catch(e){}
+  }
+  if(raw&&typeof raw==='object'){S=raw;ensureV3State();return true;}
+  return false;
+}
+function mongoStatus(msg,color){
+  var el=document.getElementById('save-status');
+  if(!el||!msg)return;
+  el.textContent=msg;
+  if(color==='green')el.style.color='var(--green-b)';
+  else if(color==='red')el.style.color='var(--red-b)';
+  else el.style.color='var(--muted)';
+}
+function scheduleMongoStateSave(ms){
+  if(!canUseMongoState())return;
+  if(_mongoSaveT)clearTimeout(_mongoSaveT);
+  _mongoSaveT=setTimeout(pushMongoState,ms||800);
+}
+function pushMongoState(){
+  if(!canUseMongoState())return;
+  var body={data:packMongoPayload(),updatedBy:ADMIN_NAME||'finance_kpi'};
+  if(_mongoVersion!=null)body.expectedVersion=_mongoVersion;
+  fetch(mongoStateApiUrl(),{method:'PUT',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+    .then(function(r){return r.json().then(function(j){return {ok:r.ok,j:j};});})
+    .then(function(res){
+      if(res.ok&&res.j){_mongoVersion=res.j.version||_mongoVersion;mongoStatus('Cloud saved · v'+(res.j.version||'?'),'green');}
+      else if(res.j&&res.j.error)mongoStatus('Cloud save: '+res.j.error,'red');
+    })
+    .catch(function(){mongoStatus('Cloud save offline','red');});
+}
+function pullMongoState(cb){
+  fetch(mongoStateApiUrl(),{credentials:'same-origin',cache:'no-store'})
+    .then(function(r){if(r.status===404)return null;return r.json();})
+    .then(function(j){
+      if(j&&j.data&&applyMongoPayload(j.data)){
+        _mongoVersion=j.version||null;
+        _mongoPullDone=true;
+        mongoStatus('Loaded from cloud · v'+(j.version||'?'),'green');
+      }
+      if(cb)cb();
+    })
+    .catch(function(){if(cb)cb();});
+}
+function initMongoSync(){
+  fetch('/api/auth/session',{credentials:'same-origin',cache:'no-store'})
+    .then(function(r){return r.json();})
+    .then(function(j){
+      if(j&&j.authenticated)setMongoEnabled(true);
+      if(canUseMongoState())pullMongoState(function(){renderTab(curTab);});
+    })
+    .catch(function(){});
+}
 
 /* --------------------------- Admin mode ----------------------------- */
 /* Admin = platform session with 'finance_kpi_admin' app right or
@@ -1541,7 +1619,7 @@ function exportExcel(){
 loadState();
 saveState(false);
 renderTab('dash');
-checkAdminSession(function(){renderTab(curTab);});
+checkAdminSession(function(){renderTab(curTab);initMongoSync();});
 </script>
 </body>
 </html>

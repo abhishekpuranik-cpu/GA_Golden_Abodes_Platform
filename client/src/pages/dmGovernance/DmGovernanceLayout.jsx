@@ -21,12 +21,15 @@ export default function DmGovernanceLayout() {
     <div className="dm-app">
       <header className="dm-topbar">
         <div>
-          <h1>GA DM–SPV Governance</h1>
-          <div className="dm-topbar-sub">Billing &amp; Control Tower · {user?.email || '—'}</div>
+          <h1>Business Health</h1>
+          <div className="dm-topbar-sub">Golden Abodes · {user?.email || '—'}</div>
         </div>
         <nav className="dm-nav">
           {DM_NAV.filter((n) => {
             if (!meta?.tabs?.length) return true;
+            if (n.id === DM_TABS.BUSINESS_HEALTH) {
+              return allowedTabs.has(DM_TABS.BUSINESS_HEALTH) || allowedTabs.has(DM_TABS.DASHBOARD);
+            }
             if (n.id === 'dm_approvals') return allowedTabs.has(DM_TABS.INVOICES) || allowedTabs.has('dm_approvals');
             if (n.id === 'dm_billing_config') return allowedTabs.has(DM_TABS.BILLING) || allowedTabs.has('dm_billing_config');
             if (n.id === 'dm_reconciliation') return allowedTabs.has(DM_TABS.REPORTS) || allowedTabs.has('dm_reconciliation');

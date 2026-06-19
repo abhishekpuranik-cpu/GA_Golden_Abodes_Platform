@@ -10,6 +10,7 @@ export const DM_PERMISSIONS = {
 };
 
 export const DM_TABS = {
+  BUSINESS_HEALTH: 'dm_business_health',
   DASHBOARD: 'dm_dashboard',
   SPVS: 'dm_spvs',
   PROJECTS: 'dm_projects',
@@ -59,6 +60,9 @@ export function userDmTabs(user) {
 
 export function userCanDmTab(user, tabId) {
   const allowed = new Set(userDmTabs(user));
+  if (tabId === DM_TABS.BUSINESS_HEALTH) {
+    return allowed.has(DM_TABS.BUSINESS_HEALTH) || allowed.has(DM_TABS.DASHBOARD);
+  }
   return allowed.has(tabId);
 }
 

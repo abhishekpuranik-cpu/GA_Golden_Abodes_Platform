@@ -62,6 +62,29 @@ export async function loadPreconState(db) {
   return { projects: doc.data.projects || [], updatedAt: doc.updatedAt };
 }
 
+function parseStateBlob(raw) {
+  if (!raw) return null;
+  try {
+    return typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return null;
+  }
+}
+
+export async function loadFinanceKpiState(db) {
+  const doc = await db.collection('app_states').findOne({ _id: 'finance_kpi' });
+  if (!doc?.data) return null;
+  const blob = parseStateBlob(doc.data.ga_finkpi_state_v2);
+  return { blob, updatedAt: doc.updatedAt };
+}
+
+export async function loadMarketingKpiState(db) {
+  const doc = await db.collection('app_states').findOne({ _id: 'marketing_kpi' });
+  if (!doc?.data) return null;
+  const blob = parseStateBlob(doc.data.ga_mkt_kpi_state_v1);
+  return { blob, updatedAt: doc.updatedAt };
+}
+
 let execCache = null;
 let execCacheAt = 0;
 

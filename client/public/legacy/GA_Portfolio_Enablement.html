@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>GA Portfolio Enablement</title>
+<style>
+:root{--navy:#0A3266;--gold:#A07800;--gold-l:#FDF8EC;--bg:#F5F7FA;--card:#FFF;--border:#DDE2EA;--muted:#64748B;--text:#1A202C}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px;color:var(--text);background:var(--bg);line-height:1.5}
+.wrap{max-width:920px;margin:0 auto;padding:20px 20px 40px}
+.hero{background:var(--navy);color:#fff;padding:24px;border-radius:12px;margin-bottom:20px;border-left:4px solid var(--gold)}
+.hero h1{font-size:22px;font-weight:800;margin-bottom:8px}
+.hero p{font-size:13px;opacity:.9;line-height:1.55}
+.hero-nums{display:flex;flex-wrap:wrap;gap:16px;margin-top:16px;font-size:12px}
+.hero-nums span{background:rgba(255,255,255,.12);padding:6px 12px;border-radius:6px}
+.hero-nums strong{font-size:15px;display:block;margin-top:2px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+.card h2{font-size:15px;font-weight:800;color:var(--navy);margin-bottom:12px}
+.note{font-size:12px;color:var(--muted);background:var(--gold-l);border-left:3px solid var(--gold);padding:10px 12px;border-radius:0 6px 6px 0;margin-bottom:16px}
+.chain{display:grid;gap:8px}
+.chain-row{display:grid;grid-template-columns:44px 1fr;gap:12px;align-items:start;padding:10px 0;border-bottom:1px solid var(--border)}
+.chain-row:last-child{border-bottom:none}
+.chain-id{font-size:11px;font-weight:800;color:var(--navy);background:#EAF1FB;padding:4px 8px;border-radius:4px;text-align:center}
+.chain-body{font-size:13px}
+.chain-body strong{color:var(--navy)}
+.chain-tgt{font-size:12px;color:var(--gold);font-weight:700;margin-top:2px}
+.leaders{display:grid;gap:12px}
+@media(min-width:640px){.leaders{grid-template-columns:1fr 1fr}}
+.leader{border:1px solid var(--border);border-radius:8px;padding:12px 14px;background:var(--card)}
+.leader-name{font-size:14px;font-weight:800;color:var(--navy)}
+.leader-role{font-size:11px;color:var(--muted);margin-bottom:8px}
+.leader ul{margin:0;padding-left:16px;font-size:12px}
+.leader li{margin-bottom:3px}
+table{width:100%;border-collapse:collapse;font-size:12px}
+th{text-align:left;padding:8px 10px;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);background:var(--bg);border-bottom:2px solid var(--border)}
+td{padding:8px 10px;border-bottom:1px solid var(--border)}
+tr:last-child td{border-bottom:none}
+.gates{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px}
+.gate{background:var(--bg);border-radius:6px;padding:10px;font-size:11px}
+.gate b{display:block;color:var(--navy);margin-bottom:4px;font-size:12px}
+.footer{text-align:center;font-size:11px;color:var(--muted);margin-top:24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="hero">
+  <h1>₹100 Cr GA net in 2 years</h1>
+  <p>10% DM fee on ~₹2,640 Cr topline → ~₹264 Cr gross fee → ~₹100 Cr net after field cost and people (≤25% of fee). Every department owns one link in the chain below.</p>
+  <div class="hero-nums">
+    <span>Topline<strong>₹2,640 Cr</strong></span>
+    <span>DM fee<strong>₹264 Cr</strong></span>
+    <span>GA net<strong>₹100 Cr</strong></span>
+  </div>
+</div>
+
+<div class="note"><strong>Financial deliverables</strong> (P&amp;L, collections accounting, GA net bridge) roll up to <strong>Abhishek Puranik (MP)</strong>. Amit handles project finance at launch (sanction, escrow).</div>
+
+<div class="card">
+  <h2>How money flows — 5 steps</h2>
+  <div class="chain" id="chain"></div>
+</div>
+
+<div class="card">
+  <h2>Who owns what</h2>
+  <div class="leaders" id="leaders"></div>
+</div>
+
+<div class="card">
+  <h2>Key targets by function</h2>
+  <table><thead><tr><th>Function</th><th>Target</th></tr></thead><tbody id="kpis"></tbody></table>
+</div>
+
+<div class="card">
+  <h2>Six gates — all must pass</h2>
+  <div class="gates" id="gates"></div>
+</div>
+
+<p class="footer">Track actuals in V3 · Cashflow · Resource Planner → Team KPIs</p>
+</div>
+
+<script>
+var CHAIN=[
+  {id:'L1',step:'Adopt GDV in V3',owner:'Amit · Land & BD',tgt:'₹2,640 Cr portfolio · ≥18% IRR'},
+  {id:'L2',step:'Book agreements',owner:'Abhishek · Sales · Minal · Amit',tgt:'≥85% of GDV booked'},
+  {id:'L3',step:'Build & bill milestones',owner:'Abhishek · Construction',tgt:'~52.5% CLP on plan'},
+  {id:'L4',step:'Collect cash',owner:'Abhishek · CRM · Finance',tgt:'≥95% collection'},
+  {id:'L5',step:'GA net profit',owner:'Abhishek (MP) · Finance',tgt:'₹100 Cr in 2 years'}
+];
+
+var LEADERS=[
+  {name:'Amit Dhumal',role:'Acquisition & launch',items:['Land pipeline ≥₹800 Cr','Loan sanction + RERA escrow before sales','Sales office ready pre-launch']},
+  {name:'Minal Madam',role:'Design & approvals',items:['IOD/CC on plan','RERA pack before ads','No approval delays to sales']},
+  {name:'Abhishek Puranik (MP)',role:'Execution · sales · finance rollup',items:['Book ₹2,640 Cr cumulative','Construction on plan → CLP demands','Collect ≥95% · weekly GA net bridge','All financial deliverables to MP']},
+  {name:'Corporate',role:'MIS · Admin',items:['V3 ↔ Cashflow data clean','People cost ≤25% of DM fee']}
+];
+
+var KPIS=[
+  ['Land & BD','≥3 active projects · ≥18% IRR'],
+  ['Pre-Con (Amit)','Sanction + escrow before launch'],
+  ['Design (Minal)','Approvals green · RERA ready'],
+  ['Sales (Abhishek)','₹900 Cr Y1 · ₹2,640 Cr Y2'],
+  ['Construction (Abhishek)','Progress within 3% of plan'],
+  ['CRM (Abhishek)','Collect ≥95% of demands'],
+  ['Finance → MP (Abhishek)','Book close ≤5 days · GA bridge weekly'],
+  ['Admin','People / DM fee ≤25%']
+];
+
+var GATES=['Adopt','Launch','Book','Bill','Collect','Close'];
+
+document.getElementById('chain').innerHTML=CHAIN.map(function(c){
+  return '<div class="chain-row"><div class="chain-id">'+c.id+'</div><div class="chain-body"><strong>'+c.step+'</strong> — '+c.owner+'<div class="chain-tgt">'+c.tgt+'</div></div></div>';
+}).join('');
+
+document.getElementById('leaders').innerHTML=LEADERS.map(function(l){
+  return '<div class="leader"><div class="leader-name">'+l.name+'</div><div class="leader-role">'+l.role+'</div><ul>'+l.items.map(function(i){return '<li>'+i+'</li>';}).join('')+'</ul></div>';
+}).join('');
+
+document.getElementById('kpis').innerHTML=KPIS.map(function(k){
+  return '<tr><td style="font-weight:600">'+k[0]+'</td><td>'+k[1]+'</td></tr>';
+}).join('');
+
+document.getElementById('gates').innerHTML=GATES.map(function(g,i){
+  return '<div class="gate"><b>'+(i+1)+'. '+g+'</b>Go / no-go before next stage</div>';
+}).join('');
+</script>
+</body>
+</html>
