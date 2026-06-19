@@ -125,10 +125,6 @@ app.use('/api/dm-governance', dmGovernanceRouter);
 app.use('/api/postsales', postSalesRouter);
 app.use('/api/auth', authRouter);
 
-startSlaMonitor();
-maybePurgePostSalesOnStart();
-if (process.env.NODE_ENV !== 'production') seedPostSalesIfEmpty();
-
 const clientDist = path.join(rootDir, 'client', 'dist');
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist));
@@ -154,17 +150,29 @@ app.use((req, res) => {
   res.status(404).send('Not found');
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`GA Golden Abodes Platform v${VERSION} — http://127.0.0.1:${PORT}`);
-});
+startSlaMonitor();
 
-function shutdown(signal) {
-  console.log(`${signal} — closing…`);
-  server.close(() => {
-    closeMongo().finally(() => process.exit(0));
+async function boot() {
+  await maybePurgePostSalesOnStart();
+  if (process.env.NODE_ENV !== 'production') await seedPostSalesIfEmpty();
+
+  const server = app.listen(PORT, () => {
+    console.log(`GA Golden Abodes Platform v${VERSION} — http://127.0.0.1:${PORT}`);
   });
-  setTimeout(() => process.exit(1), 12_000).unref();
+
+  function shutdown(signal) {
+    console.log(`${signal} — closing…`);
+    server.close(() => {
+      closeMongo().finally(() => process.exit(0));
+    });
+    setTimeout(() => process.exit(1), 12_000).unref();
+  }
+
+  process.on('SIGINT', () => shutdown('SIGINT'));
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
 }
 
-process.on('SIGINT', () => shutdown('SIGINT'));
-process.on('SIGTERM', () => shutdown('SIGTERM'));
+boot().catch((err) => {
+  console.error('Boot failed:', err);
+  process.exit(1);
+});

@@ -14,6 +14,9 @@ import {
   V2V3_ACCESS_CODE,
   V1_AUTO_RESTORE_BEFORE
 } from '../lib/config.js';
+import { getSyncPreferences } from '../lib/postsales/purgeUnitData.js';
+import { ensurePostSalesMongoose } from '../lib/postsales/mongoose.js';
+import Unit from '../models/postsales/Unit.js';
 import {
   V1_CASHFLOW_APP_ID,
   repairV1CashflowForRead,
@@ -41,6 +44,20 @@ healthRouter.get('/health', async (req, res) => {
     fs.existsSync(preconBundledPath) && requestOrigin(req)
       ? `${requestOrigin(req)}/preconstruction/`
       : null;
+  let postSales = null;
+  if (db) {
+    try {
+      await ensurePostSalesMongoose();
+      const [units, syncPrefs] = await Promise.all([
+        Unit.countDocuments(),
+        getSyncPreferences(db),
+      ]);
+      postSales = { units, syncPrefs };
+    } catch {
+      postSales = { error: 'read_failed' };
+    }
+  }
+
   let v1Cashflow = null;
   if (db) {
     try {
@@ -96,6 +113,7 @@ healthRouter.get('/health', async (req, res) => {
     legacyExists: LEGACY_EXISTS,
     preconstructionBundled: !!bundledPre,
     postSalesBundled: true,
+    postSales,
     plannerAccessEnabled: !!V2V3_ACCESS_CODE,
     v1Cashflow,
     vault: {
