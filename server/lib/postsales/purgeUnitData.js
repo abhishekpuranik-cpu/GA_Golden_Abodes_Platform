@@ -6,6 +6,7 @@ import Document from '../../models/postsales/Document.js';
 import LoanTracker from '../../models/postsales/LoanTracker.js';
 import Ticket from '../../models/postsales/Ticket.js';
 import PossessionClearance from '../../models/postsales/PossessionClearance.js';
+import { ensureMongo } from '../mongo.js';
 
 const SYNC_PREFS_ID = 'sync_preferences';
 
@@ -76,4 +77,18 @@ export async function purgeAndDisableAutoSync(db) {
     autoSyncDemandsOnLoad: false,
   });
   return { ...result, syncPrefs };
+}
+
+/** One-shot production purge when POSTSALES_PURGE_ON_START=true (remove env after deploy). */
+export async function maybePurgePostSalesOnStart() {
+  if (process.env.POSTSALES_PURGE_ON_START !== 'true') return null;
+  try {
+    const db = await ensureMongo();
+    const result = await purgeAndDisableAutoSync(db);
+    console.log('[Post Sales] Startup purge complete:', JSON.stringify(result.deleted));
+    return result;
+  } catch (err) {
+    console.error('[Post Sales] Startup purge failed:', err.message);
+    return { ok: false, error: err.message };
+  }
 }

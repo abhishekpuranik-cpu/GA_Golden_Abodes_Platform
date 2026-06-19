@@ -18,6 +18,7 @@ import { dmGovernanceRouter } from './routes/dmGovernance.js';
 import postSalesRouter from './routes/postsales/index.js';
 import { startSlaMonitor } from './jobs/slaMonitor.js';
 import { seedPostSalesIfEmpty } from './lib/postsales/seedIfEmpty.js';
+import { maybePurgePostSalesOnStart } from './lib/postsales/purgeUnitData.js';
 import { createRbacMiddleware } from './lib/rbac.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -125,7 +126,8 @@ app.use('/api/postsales', postSalesRouter);
 app.use('/api/auth', authRouter);
 
 startSlaMonitor();
-seedPostSalesIfEmpty();
+maybePurgePostSalesOnStart();
+if (process.env.NODE_ENV !== 'production') seedPostSalesIfEmpty();
 
 const clientDist = path.join(rootDir, 'client', 'dist');
 if (fs.existsSync(clientDist)) {
