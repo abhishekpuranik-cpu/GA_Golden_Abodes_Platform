@@ -17,6 +17,8 @@ export default function CrmUnitUpload({ scope, onComplete }) {
 
   const scopeLabel = [scope.project, scope.phase, scope.building].filter(Boolean).join(' · ') || 'All projects';
 
+  const [applyMsg, setApplyMsg] = useState(null);
+
   const runUpload = async (dryRun) => {
     const file = fileRef.current?.files?.[0];
     if (!file) {
@@ -25,17 +27,21 @@ export default function CrmUnitUpload({ scope, onComplete }) {
     }
     setBusy(true);
     setError(null);
+    if (!dryRun) setApplyMsg('Applying import — this may take up to a minute for large files…');
     try {
       const result = await postSalesApi.uploadCrmUnits(file, { ...scope, dryRun });
       if (dryRun) {
         setPreview(result);
+        setApplyMsg(null);
       } else {
         setPreview(null);
+        setApplyMsg(null);
         if (fileRef.current) fileRef.current.value = '';
         onComplete?.(result);
       }
     } catch (e) {
-      setError(e.message);
+      setApplyMsg(null);
+      setError(e.message || 'Import failed — try again or use a smaller file.');
     } finally {
       setBusy(false);
     }
@@ -79,10 +85,11 @@ export default function CrmUnitUpload({ scope, onComplete }) {
                 runUpload(false);
               }}
             >
-              Apply import
+              {busy && applyMsg ? 'Applying…' : 'Apply import'}
             </button>
           </div>
 
+          {applyMsg && <div style={{ marginTop: 10, fontSize: '0.85rem', color: 'var(--ps-text-muted)' }}>{applyMsg}</div>}
           {error && <div className="ps-error" style={{ marginTop: 10 }}>{error}</div>}
 
           {preview && (

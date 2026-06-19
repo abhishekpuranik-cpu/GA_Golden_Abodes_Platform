@@ -62,10 +62,13 @@ router.post('/crm-upload', upload.single('file'), async (req, res) => {
       phase: req.query.phase || req.body?.phase || undefined,
       building: req.query.building || req.body?.building || undefined,
     };
-    const dryRun = req.query.dryRun !== 'false' && req.body?.dryRun !== false;
+    const dryRun = String(req.query.dryRun ?? 'true').toLowerCase() !== 'false';
     const importedBy = req.authUser?.name || req.authUser?.email || 'crm_upload';
 
+    console.log(`[CRM upload] dryRun=${dryRun} scope=${JSON.stringify(scope)} rows=${rows.length}`);
+    const started = Date.now();
     const report = await processCrmImport(db, rows, scope, { dryRun, importedBy });
+    console.log(`[CRM upload] done in ${Date.now() - started}ms`, report.summary);
     res.json(report);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -87,7 +90,12 @@ router.get('/', async (req, res) => {
 
     const units = await Unit.find(filter).populate('customerId').sort({ updatedAt: -1 }).lean();
     const unitIds = units.map((u) => u._id);
-    const steps = await PipelineStep.find({ unitId: { $in: unitIds } }).lean();
+    const steps = unitIds.length
+      ? await PipelineStep.find(
+          { unitId: { $in: unitIds } },
+          { unitId: 1, stepNumber: 1, status: 1, slaBreach: 1 },
+        ).lean()
+      : [];
     const stepsByUnit = {};
     for (const s of steps) {
       if (!stepsByUnit[s.unitId]) stepsByUnit[s.unitId] = [];

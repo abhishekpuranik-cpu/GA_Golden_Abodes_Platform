@@ -16,8 +16,16 @@ export default function PostSalesLayout() {
 
   useEffect(() => {
     setSyncing(true);
-    postSalesApi.bootstrap({ syncUnits: true, syncDemands: true })
+    postSalesApi.getSyncPreferences()
+      .then((prefs) => {
+        if (prefs.autoSyncUnitsOnLoad === false && prefs.autoSyncDemandsOnLoad === false) {
+          setSyncNote('Auto-sync paused — use Upload CRM data on Units for daily intake.');
+          return null;
+        }
+        return postSalesApi.bootstrap({ syncUnits: prefs.autoSyncUnitsOnLoad !== false, syncDemands: prefs.autoSyncDemandsOnLoad !== false });
+      })
       .then((r) => {
+        if (!r) return;
         if (r.skipped?.length) {
           setSyncNote(`Auto-sync paused (${r.skipped.join(', ')}). Import units manually or use Sync from Cashflow V1 on Units.`);
           return;
