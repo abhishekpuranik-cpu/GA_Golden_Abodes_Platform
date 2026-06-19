@@ -37,17 +37,27 @@ export function buildChecklist(stepDef, fundingType = 'home_loan') {
   return (stepDef.checklist || []).map((item) => ({ item, done: false }));
 }
 
-export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmExecutive || '' } = {}) {
+export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmExecutive || '', startAtStep = 1 } = {}) {
   const now = new Date();
+  const start = Math.max(1, Math.min(20, Number(startAtStep) || 1));
   return STEPS.map((def) => {
     const taskKind = getStepTaskKind(def.number);
-    const status = def.number === 1 ? 'in_progress' : 'pending';
-    const triggerDate = def.number === 1 ? now : undefined;
-    const dueDate = def.number === 1 ? computeDueDate(def, now) : undefined;
-    const assignedTo = def.number === 1 ? defaultAssigneeForKind(unit, taskKind) : '';
-    const activityLog = def.number === 1
-      ? [{ action: 'started', at: now, by: startedBy, detail: `SLA due ${dueDate ? dueDate.toISOString().slice(0, 10) : '—'}` }]
-      : [];
+    let status = 'pending';
+    if (def.number < start) status = 'completed';
+    else if (def.number === start) status = 'in_progress';
+
+    const triggerDate = def.number <= start ? now : undefined;
+    const dueDate = def.number === start ? computeDueDate(def, now) : undefined;
+    const completedDate = def.number < start ? now : undefined;
+    const assignedTo = def.number === start ? defaultAssigneeForKind(unit, taskKind) : '';
+
+    const activityLog = [];
+    if (def.number < start) {
+      activityLog.push({ action: 'completed', at: now, by: startedBy, detail: 'CRM collection import — prior stages complete' });
+    } else if (def.number === start) {
+      activityLog.push({ action: 'started', at: now, by: startedBy, detail: `SLA due ${dueDate ? dueDate.toISOString().slice(0, 10) : '—'}` });
+    }
+
     return {
       unitId: unit._id,
       stepNumber: def.number,
@@ -59,6 +69,8 @@ export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmE
       assignedTo,
       triggerDate,
       dueDate,
+      completedDate,
+      completedBy: def.number < start ? startedBy : undefined,
       checklist: buildChecklist(def, fundingType),
       activityLog,
     };

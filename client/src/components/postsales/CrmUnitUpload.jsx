@@ -91,6 +91,12 @@ export default function CrmUnitUpload({ scope, onComplete }) {
                 <span><strong>{preview.summary.update}</strong> update</span>
                 <span><strong>{preview.summary.unchanged}</strong> unchanged</span>
                 <span><strong>{preview.summary.errors}</strong> errors</span>
+                {(preview.summary.demandsCreated > 0 || preview.summary.demandsUpdated > 0) && (
+                  <span><strong>{preview.summary.demandsCreated || 0}</strong> demands (new)</span>
+                )}
+                {preview.summary.pipelineAdvanced > 0 && (
+                  <span><strong>{preview.summary.pipelineAdvanced}</strong> pipeline advances</span>
+                )}
               </div>
               <div style={{ overflow: 'auto', maxHeight: 320, border: '1px solid var(--ps-border)', borderRadius: 8 }}>
                 <table className="ps-table">
@@ -112,14 +118,15 @@ export default function CrmUnitUpload({ scope, onComplete }) {
                           <div className="ps-demands-meta">{[r.project, r.phase, r.building].filter(Boolean).join(' · ')}</div>
                         </td>
                         <td>{r.customerName || '—'}</td>
-                        <td>{r.currentStep ? `${r.currentStep}/20` : r.action === 'create' ? '1/20' : '—'}</td>
+                        <td>{r.pipelineStep ? `${r.pipelineStep}/20` : r.currentStep ? `${r.currentStep}/20` : r.action === 'create' ? '1/20' : '—'}</td>
                         <td style={{ fontSize: '0.8rem' }}>
                           {r.error && <span style={{ color: 'var(--ps-danger)' }}>{r.error}</span>}
                           {r.changes?.length > 0 && r.changes.map((c) => (
                             <div key={c.field}>{c.field}: {c.from} → {c.to}</div>
                           ))}
-                          {r.action === 'create' && 'Pipeline will start at step 1'}
-                          {r.action === 'unchanged' && 'No master-field changes'}
+                          {r.action === 'create' && `Pipeline at step ${r.pipelineStep || 1}${r.demands ? ` · ${r.demands} CLP demands with due dates` : ''}`}
+                          {r.action === 'update' && r.demands ? `${r.demands} demand rows synced` : null}
+                          {r.action === 'unchanged' && 'No changes'}
                         </td>
                       </tr>
                     ))}

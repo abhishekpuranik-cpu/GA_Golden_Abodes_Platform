@@ -99,7 +99,9 @@ export default function Units() {
   const handleCrmApplied = (result) => {
     setLastBatchId(result.batchId || '');
     setSyncMsg(
-      `CRM import applied: ${result.summary.create} new units (step 1), ${result.summary.update} updated, ${result.summary.unchanged} unchanged${result.summary.errors ? `, ${result.summary.errors} errors` : ''}.`,
+      `CRM import applied: ${result.summary.create} new · ${result.summary.update} updated · ${result.summary.unchanged} unchanged`
+      + `${result.summary.demandsCreated ? ` · ${result.summary.demandsCreated} demands` : ''}`
+      + `${result.summary.errors ? ` · ${result.summary.errors} errors` : ''}.`,
     );
     refresh();
     loadV1Status();

@@ -2,10 +2,17 @@ import XLSX from 'xlsx';
 import Customer from '../../models/postsales/Customer.js';
 import Unit from '../../models/postsales/Unit.js';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
+import Demand from '../../models/postsales/Demand.js';
 import { buildPipelineStepDocs } from './helpers.js';
 import { loadInventoryCatalog, saveInventoryCatalog } from './inventoryCatalog.js';
 import { POST_SALES_PROJECTS, normUnitKey } from './projectMap.js';
-
+import { paymentStatusFromAmounts } from './collectionsLib.js';
+import {
+  extractCollectionMilestones,
+  inferPipelineStep,
+  isCollectionReport,
+  iterCollectionBlocks,
+} from './collectionReportParse.js';
 export const CRM_TEMPLATE_COLUMNS = [
   'Project', 'Phase', 'Building', 'Unit Number', 'Customer Name', 'Booking Date',
   'Total Cost', 'Booking Amount', 'Funding Type', 'Phone', 'Email', 'PAN',
@@ -116,19 +123,23 @@ export function normalizeCrmRow(raw) {
 export function sheetToRows(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  return preprocessCrmSheetRows(XLSX.utils.sheet_to_json(sheet, { defval: '' }));
+  return XLSX.utils.sheet_to_json(sheet, { defval: '' });
 }
 
-/** Cashflow collection_report_stage_wise workbooks have 4 rows per unit (Due / Received / Pending / Due Date). */
+/** Legacy helper — Amount Due rows only (prefer processCrmImport for full collection parse). */
 export function preprocessCrmSheetRows(rawRows) {
-  if (!rawRows?.length) return [];
-  const typeValues = new Set(rawRows.map((r) => slug(r.Type || r.type)).filter(Boolean));
-  const isCollectionReport = typeValues.has('amount due')
-    && (typeValues.has('amount received') || typeValues.has('amount pending'));
-  if (!isCollectionReport) return rawRows;
-  return rawRows.filter((r) => slug(r.Type || r.type) === 'amount due');
+  if (!isCollectionReport(rawRows)) return rawRows;
+  return iterCollectionBlocks(rawRows).map((b) => b.due);
 }
 
+function applyImportScope(row, scope) {
+  const out = { ...row };
+  if (scope.project && !out.project) out.project = norm(scope.project);
+  if (scope.phase && !out.phase) out.phase = norm(scope.phase);
+  if (scope.building && !out.building) out.building = norm(scope.building);
+  out.crmUnitKey = buildCrmUnitKey(out);
+  return out;
+}
 export function buildTemplateWorkbook() {
   const ws = XLSX.utils.aoa_to_sheet([
     CRM_TEMPLATE_COLUMNS,
@@ -148,11 +159,10 @@ function resolveEntity(project, catalog) {
 
 function scopeMatches(row, scope) {
   if (scope.project && slug(row.project) !== slug(scope.project)) return false;
-  if (scope.phase && slug(row.phase) !== slug(scope.phase)) return false;
-  if (scope.building && slug(row.building) !== slug(scope.building)) return false;
+  if (scope.phase && row.phase && slug(row.phase) !== slug(scope.phase)) return false;
+  if (scope.building && row.building && slug(row.building) !== slug(scope.building)) return false;
   return true;
 }
-
 function validateRow(row, catalog, scope) {
   if (!row.project) return 'Project is required';
   if (!row.unitNumber) return 'Unit Number is required';
@@ -254,8 +264,276 @@ async function logImportBatch(db, batch) {
   );
 }
 
-export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true, importedBy = 'crm_upload' } = {}) {
+async function upsertUnitDemands(unit, milestones, { dryRun, source = 'upload' }) {
+  const report = { created: 0, updated: 0 };
+  for (const m of milestones) {
+    if (dryRun) {
+      report.created += 1;
+      continue;
+    }
+    const existing = await Demand.findOne({ unitId: unit._id, milestoneName: m.milestoneName });
+    const gstAmount = Math.round((m.dueAmount || 0) * 0.05);
+    const totalAmount = (m.dueAmount || 0) + gstAmount;
+    const payload = {
+      entity: unit.entity,
+      milestoneName: m.milestoneName,
+      demandAmount: m.dueAmount,
+      gstAmount,
+      totalAmount,
+      paidAmount: m.receivedAmount,
+      paymentStatus: paymentStatusFromAmounts(totalAmount, m.receivedAmount),
+      issuedDate: existing?.issuedDate || new Date(),
+      dueDate: m.dueDate || existing?.dueDate,
+      paidDate: m.receivedAmount > 0 ? (existing?.paidDate || new Date()) : undefined,
+      source,
+    };
+    if (existing) {
+      await Demand.findByIdAndUpdate(existing._id, payload);
+      report.updated += 1;
+    } else {
+      await Demand.create({ unitId: unit._id, ...payload });
+      report.created += 1;
+    }
+  }
+  return report;
+}
+
+async function syncPipelineProgress(unitId, targetStep, { dryRun, importedBy }) {
+  if (dryRun) return { advanced: targetStep };
+  const steps = await PipelineStep.find({ unitId }).sort({ stepNumber: 1 });
+  const now = new Date();
+  for (const s of steps) {
+    if (s.stepNumber < targetStep && s.status !== 'completed') {
+      await PipelineStep.findByIdAndUpdate(s._id, {
+        status: 'completed',
+        completedDate: now,
+        completedBy: importedBy,
+        $push: { activityLog: { action: 'completed', at: now, by: importedBy, detail: 'CRM collection import' } },
+      });
+    } else if (s.stepNumber === targetStep && s.status === 'pending') {
+      const def = s.stepNumber;
+      await PipelineStep.findByIdAndUpdate(s._id, {
+        status: 'in_progress',
+        triggerDate: now,
+        assignedTo: s.assignedTo || undefined,
+        $push: { activityLog: { action: 'started', at: now, by: importedBy, detail: 'CRM collection import' } },
+      });
+    }
+  }
+  await Unit.findByIdAndUpdate(unitId, { currentStepNumber: targetStep });
+  return { advanced: targetStep };
+}
+
+async function processCollectionReportImport(db, rawRows, scope, { dryRun = true, importedBy = 'crm_upload' } = {}) {
   const catalog = await loadInventoryCatalog(db);
+  const batchId = `CRM_${Date.now()}`;
+  const report = {
+    ok: true,
+    dryRun,
+    batchId,
+    format: 'collection_report',
+    summary: {
+      create: 0,
+      update: 0,
+      unchanged: 0,
+      errors: 0,
+      demandsCreated: 0,
+      demandsUpdated: 0,
+      pipelineAdvanced: 0,
+    },
+    rows: [],
+  };
+
+  const blocks = iterCollectionBlocks(rawRows);
+  const normalized = [];
+
+  for (const block of blocks) {
+    try {
+      let row = applyImportScope(normalizeCrmRow(block.due), scope);
+      const err = validateRow(row, catalog, scope);
+      if (err) {
+        report.summary.errors += 1;
+        report.rows.push({ action: 'error', ...row, error: err });
+        continue;
+      }
+      const milestones = extractCollectionMilestones(block);
+      const startAtStep = inferPipelineStep(milestones, {
+        registrationDate: row.registrationDate,
+        bookingAmount: row.bookingAmount,
+      });
+      normalized.push({ row, milestones, startAtStep });
+    } catch (e) {
+      report.summary.errors += 1;
+      report.rows.push({ action: 'error', error: e.message });
+    }
+  }
+
+  for (const { row, milestones, startAtStep } of normalized) {
+    try {
+      const existing = await findExistingUnit(row);
+      const demandCount = milestones.length;
+
+      if (!existing) {
+        report.summary.create += 1;
+        if (dryRun) report.summary.demandsCreated += demandCount;
+        report.rows.push({
+          action: 'create',
+          project: row.project,
+          phase: row.phase,
+          building: row.building,
+          unitNumber: row.unitNumber,
+          customerName: row.customerName,
+          bookingDate: row.bookingDate,
+          totalCost: row.totalCost,
+          pipelineStep: startAtStep,
+          demands: demandCount,
+        });
+        if (!dryRun) {
+          const customer = await Customer.create({
+            name: row.customerName,
+            phone: row.phone || undefined,
+            email: row.email || undefined,
+            pan: row.pan || undefined,
+            fundingType: row.fundingType || 'home_loan',
+            kycStatus: 'pending',
+          });
+          const unit = await Unit.create({
+            unitNumber: row.unitNumber,
+            project: row.project,
+            entity: resolveEntity(row.project, catalog),
+            phase: row.phase || undefined,
+            building: row.building || undefined,
+            tower: row.building || undefined,
+            saleableArea: row.saleableArea,
+            customerId: customer._id,
+            bookingDate: row.bookingDate || new Date(),
+            registrationDate: row.registrationDate,
+            bookingAmount: row.bookingAmount || 0,
+            totalCost: row.totalCost || 0,
+            gstApplicable: true,
+            paymentPlan: row.paymentPlan || 'CLP',
+            salesExecutive: row.salesExecutive || undefined,
+            crmExecutive: row.crmExecutive || undefined,
+            cxExecutive: row.crmExecutive || undefined,
+            backendExecutive: row.crmExecutive || undefined,
+            overallStatus: row.overallStatus,
+            currentStepNumber: startAtStep,
+            crmUnitKey: row.crmUnitKey,
+            v1UnitKey: row.v1UnitKey,
+            firstImportedAt: new Date(),
+            lastImportBatchId: batchId,
+          });
+          const steps = buildPipelineStepDocs(unit, row.fundingType || 'home_loan', {
+            startedBy: importedBy,
+            startAtStep,
+          });
+          await PipelineStep.insertMany(steps);
+          const dr = await upsertUnitDemands(unit, milestones, { dryRun: false, source: 'upload' });
+          report.summary.demandsCreated += dr.created;
+          report.summary.demandsUpdated += dr.updated;
+        }
+        continue;
+      }
+
+      const customer = existing.customerId;
+      const changes = masterChanges(existing, row, customer);
+      const targetStep = Math.max(existing.currentStepNumber || 1, startAtStep);
+      const stepAdvance = targetStep > (existing.currentStepNumber || 1);
+      const needsUpdate = changes.length > 0 || stepAdvance || demandCount > 0;
+
+      if (!needsUpdate) {
+        report.summary.unchanged += 1;
+        report.rows.push({
+          action: 'unchanged',
+          unitId: String(existing._id),
+          project: row.project,
+          phase: row.phase,
+          building: row.building,
+          unitNumber: row.unitNumber,
+          customerName: row.customerName,
+          currentStep: existing.currentStepNumber,
+        });
+        continue;
+      }
+
+      report.summary.update += 1;
+      if (dryRun) {
+        report.summary.demandsCreated += demandCount;
+        if (stepAdvance) report.summary.pipelineAdvanced += 1;
+      }
+
+      report.rows.push({
+        action: 'update',
+        unitId: String(existing._id),
+        project: row.project,
+        phase: row.phase,
+        building: row.building,
+        unitNumber: row.unitNumber,
+        customerName: row.customerName,
+        currentStep: existing.currentStepNumber,
+        pipelineStep: targetStep,
+        demands: demandCount,
+        changes,
+      });
+
+      if (!dryRun) {
+        await Customer.findByIdAndUpdate(customer._id, {
+          name: row.customerName || customer.name,
+          ...(row.phone ? { phone: row.phone } : {}),
+          ...(row.email ? { email: row.email } : {}),
+          ...(row.pan ? { pan: row.pan } : {}),
+          ...(row.fundingType ? { fundingType: row.fundingType } : {}),
+        });
+        const unitPatch = {
+          crmUnitKey: row.crmUnitKey,
+          v1UnitKey: row.v1UnitKey,
+          lastImportBatchId: batchId,
+          overallStatus: row.overallStatus,
+          ...(row.phase ? { phase: row.phase } : {}),
+          ...(row.building ? { building: row.building, tower: row.building } : {}),
+          ...(row.bookingDate ? { bookingDate: row.bookingDate } : {}),
+          ...(row.registrationDate ? { registrationDate: row.registrationDate } : {}),
+          ...(row.totalCost ? { totalCost: row.totalCost } : {}),
+          ...(row.bookingAmount ? { bookingAmount: row.bookingAmount } : {}),
+          ...(row.saleableArea ? { saleableArea: row.saleableArea } : {}),
+          ...(row.paymentPlan ? { paymentPlan: row.paymentPlan } : {}),
+          ...(row.salesExecutive ? { salesExecutive: row.salesExecutive } : {}),
+          ...(row.crmExecutive && !existing.crmExecutive ? { crmExecutive: row.crmExecutive, cxExecutive: row.crmExecutive, backendExecutive: row.crmExecutive } : {}),
+        };
+        await Unit.findByIdAndUpdate(existing._id, unitPatch);
+        const unit = await Unit.findById(existing._id);
+        const dr = await upsertUnitDemands(unit, milestones, { dryRun: false, source: 'upload' });
+        report.summary.demandsUpdated += dr.updated;
+        report.summary.demandsCreated += dr.created;
+        if (stepAdvance) {
+          await syncPipelineProgress(existing._id, targetStep, { dryRun: false, importedBy });
+        }
+      }
+    } catch (e) {
+      report.summary.errors += 1;
+      report.rows.push({ action: 'error', project: row.project, unitNumber: row.unitNumber, error: e.message });
+    }
+  }
+
+  if (!dryRun && (report.summary.create > 0 || report.summary.update > 0)) {
+    await enrichCatalogFromRows(db, normalized.map((n) => n.row));
+    await logImportBatch(db, {
+      batchId,
+      at: new Date(),
+      importedBy,
+      scope,
+      format: 'collection_report',
+      summary: report.summary,
+    });
+  }
+
+  return report;
+}
+
+export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true, importedBy = 'crm_upload' } = {}) {
+  if (isCollectionReport(rawRows)) {
+    return processCollectionReportImport(db, rawRows, scope, { dryRun, importedBy });
+  }  const catalog = await loadInventoryCatalog(db);
   const batchId = `CRM_${Date.now()}`;
   const report = {
     ok: true,
@@ -268,9 +546,8 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
   const normalized = [];
   for (const raw of rawRows) {
     try {
-      const row = normalizeCrmRow(raw);
-      const err = validateRow(row, catalog, scope);
-      if (err) {
+      let row = applyImportScope(normalizeCrmRow(raw), scope);
+      const err = validateRow(row, catalog, scope);      if (err) {
         report.summary.errors += 1;
         report.rows.push({ action: 'error', ...row, error: err });
         continue;
