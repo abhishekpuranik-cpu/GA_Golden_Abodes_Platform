@@ -34,9 +34,22 @@ function parseDate(v) {
 }
 
 function inferFundingType(raw) {
-  const s = String(raw || '').toLowerCase();
-  if (s.includes('self') || s.includes('own')) return 'self_funded';
+  const s = String(raw || '').trim();
+  if (!s) return undefined;
+  const lower = s.toLowerCase();
+  if (lower.includes('self') || lower.includes('own')) return 'self_funded';
   return 'home_loan';
+}
+
+function inferPaymentPlan(raw) {
+  const s = norm(raw);
+  if (!s) return undefined;
+  if (['CLP', 'Flexi', 'Down Payment'].includes(s)) return s;
+  const lower = s.toLowerCase();
+  if (lower.includes('flexi')) return 'Flexi';
+  if (lower.includes('down')) return 'Down Payment';
+  if (lower.includes('clp')) return 'CLP';
+  return undefined;
 }
 
 function inferOverallStatus(raw) {
@@ -61,16 +74,17 @@ export function normalizeCrmRow(raw) {
   const unitNumber = norm(pick(raw, ['unitNumber', 'unit', 'Unit', 'Unit Number', 'Unit No', 'unitNo', 'UnitNo']));
   const customerName = norm(pick(raw, ['customerName', 'customer', 'Customer Name', 'Customer', 'Client Name', 'clientName', 'Client']));
   const bookingDate = parseDate(pick(raw, ['bookingDate', 'Booking Date', 'bookingDt', 'Booking Dt', 'Date of Booking']));
-  const totalCost = Number(pick(raw, ['totalCost', 'Total Cost', 'totalValue', 'Agreement Amount', 'Sale Value']) ?? 0);
-  const bookingAmount = Number(pick(raw, ['bookingAmount', 'Booking Amount', 'bookingToken', 'Token Amount']) ?? 0);
+  const registrationDate = parseDate(pick(raw, ['registrationDate', 'Registration Date', 'Reg Date']));
+  const totalCost = Number(pick(raw, ['totalCost', 'Total Cost', 'totalValue', 'Agreement Amount', 'Sale Value', 'Total Agreement']) ?? 0);
+  const bookingAmount = Number(pick(raw, ['bookingAmount', 'Booking Amount', 'bookingToken', 'Token Amount', 'token']) ?? 0);
+  const saleableArea = Number(pick(raw, ['saleableArea', 'Area (sqft)', 'Area', 'Carpet Area', 'Saleable Area']) ?? 0) || undefined;
   const fundingType = inferFundingType(pick(raw, ['fundingType', 'Funding Type', 'Funding Source', 'fundingSource', 'Pay Type', 'payType']));
   const phone = norm(pick(raw, ['phone', 'Phone', 'Mobile', 'mobile']));
   const email = norm(pick(raw, ['email', 'Email']));
   const pan = norm(pick(raw, ['pan', 'PAN']));
   const salesExecutive = norm(pick(raw, ['salesExecutive', 'Sales Executive', 'Sales Exec']));
   const crmExecutive = norm(pick(raw, ['crmExecutive', 'CRM Executive', 'CRM Exec']));
-  const paymentPlanRaw = norm(pick(raw, ['paymentPlan', 'Payment Plan', 'Pay Plan']));
-  const paymentPlan = ['CLP', 'Flexi', 'Down Payment'].includes(paymentPlanRaw) ? paymentPlanRaw : 'CLP';
+  const paymentPlan = inferPaymentPlan(pick(raw, ['paymentPlan', 'Payment Plan', 'Pay Plan']));
   const overallStatus = inferOverallStatus(pick(raw, ['status', 'Status', 'Unit Status']));
   const crmBookingId = norm(pick(raw, ['crmBookingId', 'Booking ID', 'bookingId', 'CRM ID']));
 
@@ -81,8 +95,10 @@ export function normalizeCrmRow(raw) {
     unitNumber,
     customerName,
     bookingDate,
+    registrationDate,
     totalCost,
     bookingAmount,
+    saleableArea,
     fundingType,
     phone,
     email,
@@ -100,7 +116,17 @@ export function normalizeCrmRow(raw) {
 export function sheetToRows(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
   const sheet = wb.Sheets[wb.SheetNames[0]];
-  return XLSX.utils.sheet_to_json(sheet, { defval: '' });
+  return preprocessCrmSheetRows(XLSX.utils.sheet_to_json(sheet, { defval: '' }));
+}
+
+/** Cashflow collection_report_stage_wise workbooks have 4 rows per unit (Due / Received / Pending / Due Date). */
+export function preprocessCrmSheetRows(rawRows) {
+  if (!rawRows?.length) return [];
+  const typeValues = new Set(rawRows.map((r) => slug(r.Type || r.type)).filter(Boolean));
+  const isCollectionReport = typeValues.has('amount due')
+    && (typeValues.has('amount received') || typeValues.has('amount pending'));
+  if (!isCollectionReport) return rawRows;
+  return rawRows.filter((r) => slug(r.Type || r.type) === 'amount due');
 }
 
 export function buildTemplateWorkbook() {
@@ -164,14 +190,19 @@ function masterChanges(existing, row, customer) {
   };
 
   add('customerName', customer?.name, row.customerName);
-  add('phone', customer?.phone, row.phone);
-  add('email', customer?.email, row.email);
   add('bookingDate', existing.bookingDate?.toISOString?.().slice(0, 10), row.bookingDate?.toISOString?.().slice(0, 10));
+  add('registrationDate', existing.registrationDate?.toISOString?.().slice(0, 10), row.registrationDate?.toISOString?.().slice(0, 10));
   add('totalCost', existing.totalCost, row.totalCost || existing.totalCost);
   add('bookingAmount', existing.bookingAmount, row.bookingAmount || existing.bookingAmount);
+  add('saleableArea', existing.saleableArea, row.saleableArea || existing.saleableArea);
   add('phase', existing.phase, row.phase || existing.phase);
   add('building', existing.building || existing.tower, row.building || existing.building);
   add('overallStatus', existing.overallStatus, row.overallStatus);
+  if (row.phone) add('phone', customer?.phone, row.phone);
+  if (row.email) add('email', customer?.email, row.email);
+  if (row.pan) add('pan', customer?.pan, row.pan);
+  if (row.fundingType) add('fundingType', customer?.fundingType, row.fundingType);
+  if (row.paymentPlan) add('paymentPlan', existing.paymentPlan, row.paymentPlan);
   if (row.salesExecutive) add('salesExecutive', existing.salesExecutive, row.salesExecutive);
   if (row.crmExecutive && !existing.crmExecutive) add('crmExecutive', existing.crmExecutive, row.crmExecutive);
 
@@ -272,7 +303,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
             phone: row.phone || undefined,
             email: row.email || undefined,
             pan: row.pan || undefined,
-            fundingType: row.fundingType,
+            fundingType: row.fundingType || 'home_loan',
             kycStatus: 'pending',
           });
           const unit = await Unit.create({
@@ -282,12 +313,14 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
             phase: row.phase || undefined,
             building: row.building || undefined,
             tower: row.building || undefined,
+            saleableArea: row.saleableArea,
             customerId: customer._id,
             bookingDate: row.bookingDate || new Date(),
+            registrationDate: row.registrationDate,
             bookingAmount: row.bookingAmount || 0,
             totalCost: row.totalCost || 0,
             gstApplicable: true,
-            paymentPlan: row.paymentPlan,
+            paymentPlan: row.paymentPlan || 'CLP',
             salesExecutive: row.salesExecutive || undefined,
             crmExecutive: row.crmExecutive || undefined,
             cxExecutive: row.crmExecutive || undefined,
@@ -299,7 +332,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
             firstImportedAt: new Date(),
             lastImportBatchId: batchId,
           });
-          const steps = buildPipelineStepDocs(unit, row.fundingType, { startedBy: importedBy });
+          const steps = buildPipelineStepDocs(unit, row.fundingType || 'home_loan', { startedBy: importedBy });
           if (steps[0]?.activityLog?.[0]) steps[0].activityLog[0].detail = 'CRM import — pipeline started at step 1';
           await PipelineStep.insertMany(steps);
         }
@@ -342,7 +375,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
           ...(row.phone ? { phone: row.phone } : {}),
           ...(row.email ? { email: row.email } : {}),
           ...(row.pan ? { pan: row.pan } : {}),
-          fundingType: row.fundingType,
+          ...(row.fundingType ? { fundingType: row.fundingType } : {}),
         });
         const unitPatch = {
           crmUnitKey: row.crmUnitKey,
@@ -352,8 +385,11 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
           ...(row.phase ? { phase: row.phase } : {}),
           ...(row.building ? { building: row.building, tower: row.building } : {}),
           ...(row.bookingDate ? { bookingDate: row.bookingDate } : {}),
+          ...(row.registrationDate ? { registrationDate: row.registrationDate } : {}),
           ...(row.totalCost ? { totalCost: row.totalCost } : {}),
           ...(row.bookingAmount ? { bookingAmount: row.bookingAmount } : {}),
+          ...(row.saleableArea ? { saleableArea: row.saleableArea } : {}),
+          ...(row.paymentPlan ? { paymentPlan: row.paymentPlan } : {}),
           ...(row.salesExecutive ? { salesExecutive: row.salesExecutive } : {}),
           ...(row.crmExecutive && !existing.crmExecutive ? { crmExecutive: row.crmExecutive, cxExecutive: row.crmExecutive, backendExecutive: row.crmExecutive } : {}),
         };

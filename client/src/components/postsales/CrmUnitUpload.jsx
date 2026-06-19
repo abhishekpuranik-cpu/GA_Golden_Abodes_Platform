@@ -52,7 +52,8 @@ export default function CrmUnitUpload({ scope, onComplete }) {
           <strong>Upload CRM data</strong>
           <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--ps-text-muted)' }}>
             Daily sold-units file scoped to filter: <strong>{scopeLabel}</strong>.
-            New units start at step 1; existing units keep pipeline progress.
+            Supports the full CRM template or Cashflow <strong>collection_report_stage_wise</strong> dump (uses Amount Due rows only).
+            New units start at step 1; existing units keep pipeline progress. Empty columns do not overwrite saved phone, funding type, etc.
           </p>
         </div>
         <button type="button" className="ps-btn" onClick={() => setOpen((v) => !v)}>
