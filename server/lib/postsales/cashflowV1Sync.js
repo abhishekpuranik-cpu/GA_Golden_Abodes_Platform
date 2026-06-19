@@ -3,6 +3,7 @@ import Unit from '../../models/postsales/Unit.js';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
 import { loadCashflowEnvelope } from '../dmGovernance/integrations/appStateReader.js';
 import { buildPipelineStepDocs } from './helpers.js';
+import { catalogFilterOptions, loadInventoryCatalog } from './inventoryCatalog.js';
 import {
   normUnitKey,
   parseUnitNumber,
@@ -171,6 +172,9 @@ export async function syncSoldUnitsFromCashflowV1(db, { project, dryRun = false 
 }
 
 export async function buildInventoryFilterOptions(db, { project, phase } = {}) {
+  const catalog = await loadInventoryCatalog(db);
+  const fromCatalog = catalogFilterOptions(catalog, { project, phase });
+
   const unitFilter = {};
   if (project) unitFilter.project = project;
   if (phase) unitFilter.phase = phase;
@@ -190,17 +194,20 @@ export async function buildInventoryFilterOptions(db, { project, phase } = {}) {
   }
 
   const projects = [...new Set([
+    ...fromCatalog.projects,
     ...POST_SALES_PROJECTS.map((p) => p.name),
     ...units.map((u) => u.project).filter(Boolean),
     ...v1Rows.map((r) => r.project).filter(Boolean),
   ])].sort();
 
   const phases = [...new Set([
+    ...fromCatalog.phases,
     ...units.map((u) => u.phase).filter(Boolean),
     ...v1Rows.map((r) => r.phase).filter(Boolean),
   ])].sort();
 
   const buildings = [...new Set([
+    ...fromCatalog.buildings,
     ...units.map((u) => u.building || u.tower).filter(Boolean),
     ...v1Rows.map((r) => r.building).filter(Boolean),
   ])].sort();

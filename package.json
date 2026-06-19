@@ -18,7 +18,8 @@
     "build:precon": "node scripts/build-preconstruction.mjs",
     "build:render": "node scripts/build-preconstruction.mjs && vite build --config client/vite.config.js",
     "start": "node server/index.js",
-    "seed:postsales": "node server/seeds/postsales.js"
+    "seed:postsales": "node server/seeds/postsales.js",
+    "purge:postsales": "node server/scripts/purgePostSalesUnits.js"
   },
   "dependencies": {
     "bson": "^6.10.0",

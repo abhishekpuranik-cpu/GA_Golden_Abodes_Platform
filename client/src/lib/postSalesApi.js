@@ -9,11 +9,44 @@ export const postSalesApi = {
   },
 
   bootstrap: (body = {}) => apiFetch(`${BASE}/bootstrap`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  getSyncPreferences: () => apiFetch(`${BASE}/bootstrap/sync-preferences`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  purgeAllUnits: () => apiFetch(`${BASE}/units/purge-all`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: 'DELETE_ALL_UNITS' }) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  uploadCrmUnits: async (file, { project, phase, building, dryRun = true } = {}) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const q = new URLSearchParams();
+    if (project) q.set('project', project);
+    if (phase) q.set('phase', phase);
+    if (building) q.set('building', building);
+    q.set('dryRun', dryRun ? 'true' : 'false');
+    const r = await apiFetch(`${BASE}/units/crm-upload?${q}`, { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(r.data?.error || 'CRM upload failed');
+    return r.data;
+  },
+  listCrmImportBatches: () => apiFetch(`${BASE}/units/import-batches`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
   getInventoryFilters: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`${BASE}/inventory/filters${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
   },
+  getInventoryCatalog: () => apiFetch(`${BASE}/inventory/catalog`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  addCatalogProject: (body) => apiFetch(`${BASE}/inventory/catalog/projects`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  updateCatalogProject: (body) => apiFetch(`${BASE}/inventory/catalog/projects`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  deleteCatalogProject: (name, force = false) => apiFetch(`${BASE}/inventory/catalog/projects/${encodeURIComponent(name)}${force ? '?force=true' : ''}`, { method: 'DELETE' }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  addCatalogPhase: (body) => apiFetch(`${BASE}/inventory/catalog/phases`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  updateCatalogPhase: (body) => apiFetch(`${BASE}/inventory/catalog/phases`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  deleteCatalogPhase: (project, name, force = false) => {
+    const q = new URLSearchParams({ project, name, ...(force ? { force: 'true' } : {}) }).toString();
+    return apiFetch(`${BASE}/inventory/catalog/phases?${q}`, { method: 'DELETE' }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+  addCatalogBuilding: (body) => apiFetch(`${BASE}/inventory/catalog/buildings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  updateCatalogBuilding: (body) => apiFetch(`${BASE}/inventory/catalog/buildings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  deleteCatalogBuilding: (project, phase, name, force = false) => {
+    const q = new URLSearchParams({ project, phase, name, ...(force ? { force: 'true' } : {}) }).toString();
+    return apiFetch(`${BASE}/inventory/catalog/buildings?${q}`, { method: 'DELETE' }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+  importCatalogFromV1: () => apiFetch(`${BASE}/inventory/catalog/import-v1`, { method: 'POST' }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  pushCatalogToV1: () => apiFetch(`${BASE}/inventory/catalog/push-v1`, { method: 'POST' }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   getV1InventoryStatus: () => apiFetch(`${BASE}/inventory/v1-status`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   syncFromCashflowV1: (body = {}) => apiFetch(`${BASE}/inventory/sync-v1`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error || r.data?.message); return r.data; }),
 

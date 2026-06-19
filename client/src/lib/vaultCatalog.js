@@ -17,15 +17,12 @@ export const VAULT_PLATFORM_APPS = [
     path: '/app/dm-governance',
     badge: 'Governance · React',
     badgeColor: '#0d9488',
-    title: 'DM–SPV Governance',
-    description: 'Billing control tower, SPV master, invoices, compliance, risks, and executive analytics for development management.',
+    title: 'Business Health Command Center',
+    description: 'Portfolio health hub — 6 pillars, cross-app exceptions, KPI rollups, and DM billing governance.',
     featured: false
   }
 ];
 
-export function canOpenVaultApp(appId, allowedAppsSet, { authenticated = false } = {}) {
-  if (allowedAppsSet.has(appId)) return true;
-  if (appId === APP_IDS.POST_SALES && authenticated) return true;
-  if (appId === APP_IDS.POST_SALES && allowedAppsSet.has('sales_dashboard')) return true;
-  return false;
+export function canOpenVaultApp(appId, allowedAppsSet) {
+  return allowedAppsSet.has(appId);
 }

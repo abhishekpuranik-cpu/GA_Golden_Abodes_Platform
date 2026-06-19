@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { PROJECTS } from '../../data/postsales/steps.js';
 
 export default function PostSalesFilterBar({
@@ -33,6 +34,9 @@ export default function PostSalesFilterBar({
         <button type="button" className="ps-btn" onClick={onClear}>Clear</button>
       ) : null}
       {extra}
+      <Link to="/app/post-sales/inventory" className="ps-btn" style={{ fontSize: '0.8rem', textDecoration: 'none' }} title="Add or edit projects, phases, buildings">
+        ⚙ Inventory
+      </Link>
     </div>
   );
 }

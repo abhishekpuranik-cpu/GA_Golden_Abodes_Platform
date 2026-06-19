@@ -49,6 +49,15 @@ export function resolvePostSalesProject(v1ProjectId, cfg = {}, manualProj = null
       const ps = slug(p.name);
       if (ps === n || n.includes(ps) || ps.includes(n)) return { ...p, v1ProjectId: String(v1ProjectId || '') };
     }
+
+    const clean = String(raw).trim();
+    if (clean) {
+      return {
+        name: clean,
+        entity: manualProj?.entity || cfg?.entity || 'GAPL',
+        v1ProjectId: String(v1ProjectId || ''),
+      };
+    }
   }
 
   return null;

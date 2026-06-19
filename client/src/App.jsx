@@ -8,7 +8,7 @@ const VaultHome = lazy(() => import('./pages/VaultHome.jsx'));
 const AccessPage = lazy(() => import('./pages/AccessPage.jsx'));
 const AdminSecurityPage = lazy(() => import('./pages/AdminSecurityPage.jsx'));
 const DmGovernanceLayout = lazy(() => import('./pages/dmGovernance/DmGovernanceLayout.jsx'));
-const DmDashboardPage = lazy(() => import('./pages/dmGovernance/DmDashboardPage.jsx'));
+const DmBusinessHealthPage = lazy(() => import('./pages/dmGovernance/DmBusinessHealthPage.jsx'));
 const DmSpvListPage = lazy(() => import('./pages/dmGovernance/DmSpvListPage.jsx'));
 const DmSpvDetailPage = lazy(() => import('./pages/dmGovernance/DmSpvDetailPage.jsx'));
 const DmProjectListPage = lazy(() => import('./pages/dmGovernance/DmProjectListPage.jsx'));
@@ -38,6 +38,7 @@ const PsDemands = lazy(() => import('./pages/postsales/Demands.jsx'));
 const PsLoans = lazy(() => import('./pages/postsales/Loans.jsx'));
 const PsTickets = lazy(() => import('./pages/postsales/Tickets.jsx'));
 const PsMilestones = lazy(() => import('./pages/postsales/Milestones.jsx'));
+const PsInventorySetup = lazy(() => import('./pages/postsales/InventorySetup.jsx'));
 
 function Fall() {
   return (
@@ -120,7 +121,7 @@ export default function App() {
             </RequireAuth>
           }
         >
-          <Route index element={<DmDashboardPage />} />
+          <Route index element={<DmBusinessHealthPage />} />
           <Route path="spvs" element={<DmSpvListPage />} />
           <Route path="spvs/:spvId" element={<DmSpvDetailPage />} />
           <Route path="projects" element={<DmProjectListPage />} />
@@ -154,6 +155,7 @@ export default function App() {
           <Route path="my-tasks" element={<PsMyTasks />} />
           <Route path="allocation" element={<PsWorkAllocation />} />
           <Route path="units" element={<PsUnits />} />
+          <Route path="inventory" element={<PsInventorySetup />} />
           <Route path="units/:id" element={<PsUnitPipeline />} />
           <Route path="documents" element={<PsDocuments />} />
           <Route path="demands" element={<PsDemands />} />

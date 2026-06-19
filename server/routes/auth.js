@@ -22,7 +22,7 @@ const DEFAULT_ROLE = {
   name: 'Viewer',
   description: 'Read-only vault access',
   permissions: [],
-  allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'dm_spv_governance', 'post_sales'],
+  allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'dm_spv_governance'],
   allowedProjects: [],
   allowedTabs: []
 };
@@ -99,24 +99,11 @@ async function ensureDefaults(db) {
   // Keep existing deployments in sync when new vault apps ship.
   await roles.updateMany(
     { _id: { $in: ['admin', 'viewer'] } },
-    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'post_sales'] } } }
+    { $addToSet: { allowedApps: 'dm_spv_governance' } }
   );
   await db.collection('auth_users').updateMany(
     { roleIds: 'admin' },
-    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'post_sales'] } } }
-  );
-  await roles.updateMany(
-    { allowedApps: 'sales_dashboard' },
-    { $addToSet: { allowedApps: 'post_sales' } }
-  );
-  await db.collection('auth_users').updateMany(
-    { allowedApps: 'sales_dashboard' },
-    { $addToSet: { allowedApps: 'post_sales' } }
-  );
-  // Post Sales is a core vault module — grant to every existing user on boot/login sync.
-  await db.collection('auth_users').updateMany(
-    {},
-    { $addToSet: { allowedApps: 'post_sales' } }
+    { $addToSet: { allowedApps: 'dm_spv_governance' } }
   );
 }
 
@@ -126,8 +113,6 @@ export function userHasApp(user, appId) {
   if (allowed.has(target)) return true;
   if (target === 'v3_project_acquisition' && allowed.has('v3_org_planner')) return true;
   if (target === 'v3_org_planner' && allowed.has('v3_project_acquisition')) return true;
-  if (target === 'post_sales' && allowed.has('sales_dashboard')) return true;
-  if (target === 'post_sales' && user) return true;
   return false;
 }
 

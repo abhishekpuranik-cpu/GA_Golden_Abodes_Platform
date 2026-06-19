@@ -118,8 +118,7 @@ export default function VaultHome() {
   const [apiOk, setApiOk] = useState(null);
   const acl = useMemo(() => {
     const a = new Set((auth.user?.allowedApps || []).map((x) => String(x)));
-    const openOpts = { authenticated: auth.authenticated };
-    const platformApps = VAULT_PLATFORM_APPS.filter((app) => canOpenVaultApp(app.appId, a, openOpts));
+    const platformApps = VAULT_PLATFORM_APPS.filter((app) => canOpenVaultApp(app.appId, a));
     const featuredPlatform = platformApps.find((app) => app.featured) || platformApps[0] || null;
     return {
       v3: a.has('v3_project_acquisition'),
@@ -130,7 +129,7 @@ export default function VaultHome() {
       pre: a.has('preconstruction'),
       exec: a.has('execution'),
       dm: a.has(APP_IDS.DM_SPV_GOVERNANCE),
-      postSales: canOpenVaultApp(APP_IDS.POST_SALES, a, openOpts),
+      postSales: canOpenVaultApp(APP_IDS.POST_SALES, a),
       platformApps,
       featuredPlatform,
       // Finance KPI legacy app (GA_Finance_KPI.html) admin UI uses `finance_kpi_admin`; read-only uses `finance_kpi`.

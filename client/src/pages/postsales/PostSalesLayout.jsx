@@ -18,6 +18,10 @@ export default function PostSalesLayout() {
     setSyncing(true);
     postSalesApi.bootstrap({ syncUnits: true, syncDemands: true })
       .then((r) => {
+        if (r.skipped?.length) {
+          setSyncNote(`Auto-sync paused (${r.skipped.join(', ')}). Import units manually or use Sync from Cashflow V1 on Units.`);
+          return;
+        }
         const parts = [];
         if (r.units?.ok) parts.push(`${r.units.updated || 0} units linked from Cashflow V1`);
         if (r.demands?.ok) parts.push(`${(r.demands.created || 0) + (r.demands.updated || 0)} collection rows refreshed`);

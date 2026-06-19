@@ -1,24 +1,74 @@
-import { useState } from 'react';
-import { PROJECTS, ENTITIES } from '../../data/postsales/steps.js';
+import { useEffect, useMemo, useState } from 'react';
+import { ENTITIES } from '../../data/postsales/steps.js';
+import { postSalesApi } from '../../lib/postSalesApi.js';
 
 const empty = {
   name: '', phone: '', email: '', pan: '', fundingType: 'home_loan', hasCoApplicant: false,
   coApplicantName: '', coApplicantPhone: '',
-  project: 'Golden HQ', entity: 'GAPL', tower: '', unitNumber: '', floor: '',
+  project: '', entity: 'GAPL', phase: '', building: '', tower: '', unitNumber: '', floor: '',
   carpetArea: '', saleableArea: '', bookingDate: '', bookingAmount: '', totalCost: '',
   paymentPlan: 'CLP', crmExecutive: '', cxExecutive: '', backendExecutive: '', salesExecutive: '',
 };
 
 export default function NewUnitModal({ onClose, onSubmit }) {
   const [form, setForm] = useState(empty);
+  const [catalog, setCatalog] = useState({ projects: [] });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
+  useEffect(() => {
+    postSalesApi.getInventoryCatalog()
+      .then((data) => {
+        setCatalog(data);
+        const first = data.projects?.[0];
+        if (first) {
+          setForm((f) => ({
+            ...f,
+            project: first.name,
+            entity: first.entity || 'GAPL',
+            phase: first.phases?.[0]?.name || '',
+            building: first.phases?.[0]?.buildings?.[0]?.name || '',
+          }));
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
+  const projectRow = useMemo(
+    () => (catalog.projects || []).find((p) => p.name === form.project),
+    [catalog, form.project],
+  );
+
+  const phaseOptions = projectRow?.phases || [];
+  const buildingOptions = useMemo(() => {
+    const ph = phaseOptions.find((x) => x.name === form.phase);
+    return ph?.buildings || [];
+  }, [phaseOptions, form.phase]);
+
   const handleProject = (project) => {
-    const p = PROJECTS.find((x) => x.name === project);
-    setForm((f) => ({ ...f, project, entity: p?.entity || f.entity }));
+    const p = (catalog.projects || []).find((x) => x.name === project);
+    const phase = p?.phases?.[0]?.name || '';
+    const building = p?.phases?.[0]?.buildings?.[0]?.name || '';
+    setForm((f) => ({
+      ...f,
+      project,
+      entity: p?.entity || f.entity,
+      phase,
+      building,
+      tower: building,
+    }));
+  };
+
+  const handlePhase = (phase) => {
+    const ph = phaseOptions.find((x) => x.name === phase);
+    const building = ph?.buildings?.[0]?.name || '';
+    setForm((f) => ({ ...f, phase, building, tower: building }));
+  };
+
+  const handleBuilding = (building) => {
+    setForm((f) => ({ ...f, building, tower: building }));
   };
 
   const handleSubmit = async (e) => {
@@ -36,7 +86,9 @@ export default function NewUnitModal({ onClose, onSubmit }) {
       };
       const unit = {
         unitNumber: form.unitNumber,
-        tower: form.tower,
+        tower: form.building || form.tower,
+        building: form.building || form.tower,
+        phase: form.phase || undefined,
         floor: Number(form.floor) || undefined,
         carpetArea: Number(form.carpetArea) || undefined,
         saleableArea: Number(form.saleableArea) || undefined,
@@ -59,6 +111,8 @@ export default function NewUnitModal({ onClose, onSubmit }) {
       setSaving(false);
     }
   };
+
+  const projects = catalog.projects?.length ? catalog.projects : [];
 
   return (
     <div className="ps-modal-overlay" onClick={onClose}>
@@ -92,9 +146,26 @@ export default function NewUnitModal({ onClose, onSubmit }) {
           <h4>Unit details</h4>
           <div className="ps-form-group">
             <label>Project</label>
-            <select value={form.project} onChange={(e) => handleProject(e.target.value)}>
-              {PROJECTS.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+            <select required value={form.project} onChange={(e) => handleProject(e.target.value)}>
+              {!projects.length && <option value="">Add projects in Inventory setup</option>}
+              {projects.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
             </select>
+          </div>
+          <div className="ps-grid-2">
+            <div className="ps-form-group">
+              <label>Phase</label>
+              <select value={form.phase} onChange={(e) => handlePhase(e.target.value)}>
+                <option value="">—</option>
+                {phaseOptions.map((ph) => <option key={ph.name} value={ph.name}>{ph.name}</option>)}
+              </select>
+            </div>
+            <div className="ps-form-group">
+              <label>Building / tower</label>
+              <select value={form.building} onChange={(e) => handleBuilding(e.target.value)}>
+                <option value="">—</option>
+                {buildingOptions.map((b) => <option key={b.name} value={b.name}>{b.name}</option>)}
+              </select>
+            </div>
           </div>
           <div className="ps-form-group">
             <label>Entity</label>
@@ -103,7 +174,6 @@ export default function NewUnitModal({ onClose, onSubmit }) {
             </select>
           </div>
           <div className="ps-form-group"><label>Unit number *</label><input required value={form.unitNumber} onChange={(e) => set('unitNumber', e.target.value)} /></div>
-          <div className="ps-form-group"><label>Tower</label><input value={form.tower} onChange={(e) => set('tower', e.target.value)} /></div>
           <div className="ps-form-group"><label>Floor</label><input type="number" value={form.floor} onChange={(e) => set('floor', e.target.value)} /></div>
           <div className="ps-form-group"><label>Carpet area (sq ft)</label><input type="number" value={form.carpetArea} onChange={(e) => set('carpetArea', e.target.value)} /></div>
           <div className="ps-form-group"><label>Saleable area (sq ft)</label><input type="number" value={form.saleableArea} onChange={(e) => set('saleableArea', e.target.value)} /></div>
@@ -124,7 +194,7 @@ export default function NewUnitModal({ onClose, onSubmit }) {
           <div className="ps-form-group"><label>Sales executive</label><input value={form.salesExecutive} onChange={(e) => set('salesExecutive', e.target.value)} /></div>
 
           <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-            <button type="submit" className="ps-btn ps-btn-primary" disabled={saving}>{saving ? 'Creating…' : 'Create unit'}</button>
+            <button type="submit" className="ps-btn ps-btn-primary" disabled={saving || !form.project}>{saving ? 'Creating…' : 'Create unit'}</button>
             <button type="button" className="ps-btn" onClick={onClose}>Cancel</button>
           </div>
         </form>
