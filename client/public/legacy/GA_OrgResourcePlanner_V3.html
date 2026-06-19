@@ -1018,6 +1018,9 @@ const FIN_DEF = {
   manualCSal:0, manualRSal:0, manualMhadaSal:0,
   developerResAreaSqft:0, mhadaAreaSqft:0, mhadaRate:0,
   areaWorkingNote:'',
+  /** Plotting mode: editable area lines (label + area in current input unit) */
+  plotDeductions:[],
+  plotAdditions:[],
   projectLaunchDate:'', spvAbsorbConsultMktg:false,
   /** % of FAR retained after CRZ-II (default 50 → multiplier 0.5) */
   goaCrz2FarPct:50,
@@ -1141,14 +1144,16 @@ if(!ST.alloc) ST.alloc = {};
 if(!ST.relevance) ST.relevance = {};
 if(!ST.collapse) ST.collapse = {};
 
-// ── FSI mode: canonical values only (simple | pmrda | mumbai | goa). Trims; exact 'simple' wins before substring checks.
+// ── FSI mode: canonical values only (simple | pmrda | mumbai | goa | plotting). Trims; exact 'simple' wins before substring checks.
 function normalizeFsiMode(saved){
   var s=String(saved==null?'':saved).trim().toLowerCase();
   if(!s) return 'simple';
   if(s==='simple') return 'simple';
+  if(s==='plotting'||s==='plot') return 'plotting';
   if(s==='pmrda'||s==='pune') return 'pmrda';
   if(s==='mumbai') return 'mumbai';
   if(s==='goa') return 'goa';
+  if(s.indexOf('plotting')>=0) return 'plotting';
   if(s.indexOf('mumbai')>=0) return 'mumbai';
   if(s.indexOf('goa')>=0) return 'goa';
   if(s.indexOf('pmrda')>=0||s.indexOf('pune')>=0) return 'pmrda';
@@ -1163,6 +1168,8 @@ function gf(pid){
   var out=Object.assign({}, FIN_DEF, ST.fin[pid]);
   if(out.spvLandDeposit&&!out.refundableDeposit) out.refundableDeposit=out.spvLandDeposit;
   if(!Array.isArray(out.dmConsultants)) out.dmConsultants = [];
+  if(!Array.isArray(out.plotDeductions)) out.plotDeductions = [];
+  if(!Array.isArray(out.plotAdditions)) out.plotAdditions = [];
   var canon=normalizeFsiMode(out.fsiMode);
   out.fsiMode=canon;
   if(ST.fin[pid].fsiMode!==canon) ST.fin[pid].fsiMode=canon;
@@ -1207,6 +1214,32 @@ function setConsultantRow(pid, idx, key, val){
 function removeConsultantRow(pid, idx){
   if(!ST.fin[pid] || !Array.isArray(ST.fin[pid].dmConsultants)) return;
   ST.fin[pid].dmConsultants.splice(idx, 1);
+  renderFinModelInPlace(pid);
+}
+
+function ensurePlotAreaList(pid, key){
+  if(!ST.fin[pid]) ST.fin[pid] = {};
+  if(!Array.isArray(ST.fin[pid][key])) ST.fin[pid][key] = [];
+  return ST.fin[pid][key];
+}
+function sumPlotAreaRows(rows, uSqmt){
+  var sum = (rows || []).reduce(function(s, r){ return s + Math.max(0, finNum(r.area, 0)); }, 0);
+  return uSqmt ? sum * 10.764 : sum;
+}
+function addPlotAreaRow(pid, key){
+  ensurePlotAreaList(pid, key).push({label:'', area:0});
+  renderFinModelInPlace(pid);
+}
+function setPlotAreaRow(pid, key, idx, field, val){
+  var list = ensurePlotAreaList(pid, key);
+  if(!list[idx]) list[idx] = {label:'', area:0};
+  if(field === 'label') list[idx].label = String(val || '');
+  else list[idx].area = Math.max(0, parseFloat(val) || 0);
+  renderFinModelInPlace(pid);
+}
+function removePlotAreaRow(pid, key, idx){
+  var list = ensurePlotAreaList(pid, key);
+  list.splice(idx, 1);
   renderFinModelInPlace(pid);
 }
 
@@ -1553,6 +1586,22 @@ function finCalc(pid){
     // Store for display
     Object.assign(_pmrdaVars,{gPlot,far,computedFAR,effectiveFAR,fsiArea,crz,crzTier,crzReduction,
       maxGC,gcPct:f.goaGroundCovPct||40});
+  } else if(mode === 'plotting'){
+    // ── Plotting project — net saleable plot area (no FSI) ──
+    const uSqmtPlot = (f.inputUnit||'sqft')==='sqmt';
+    const totalPlot = uSqmtPlot ? (f.plotSqmt||0)*10.764 : (f.plotArea||0);
+    const dedSqft = sumPlotAreaRows(f.plotDeductions, uSqmtPlot);
+    const addSqft = sumPlotAreaRows(f.plotAdditions, uSqmtPlot);
+    const netPlot = Math.max(0, totalPlot - dedSqft + addSqft);
+    fsiArea = netPlot;
+    totRERA = netPlot;
+    cRERA = totRERA * finNum(f.commPct, 0) / 100;
+    rRERA = totRERA - cRERA;
+    cSal = cRERA;
+    rSal = rRERA;
+    Object.assign(_pmrdaVars, {
+      totalPlot, totalDeductions: dedSqft, plotAdditionsTotal: addSqft, netPlot,
+    });
   } else {
     const plotSqft = (f.inputUnit==='sqmt') ? (f.plotSqmt||0)*10.764 : (f.plotArea||0);
     fsiArea=plotSqft*finNum(f.fsiFactor,3)*finNum(f.convFactor,1.6);
@@ -2111,6 +2160,7 @@ function renderFinModel(pid){
           <option value="pmrda"  ${f.fsiMode==='pmrda'?'selected':''}>PMRDA (Pune Metro)</option>
           <option value="mumbai" ${f.fsiMode==='mumbai'?'selected':''}>Mumbai DCPR 2034</option>
           <option value="goa"    ${f.fsiMode==='goa'?'selected':''}>Goa TCP / FAR</option>
+          <option value="plotting" ${f.fsiMode==='plotting'?'selected':''}>Plotting (no FSI)</option>
         </select>
       </div>
       <div style="display:flex;align-items:center;gap:8px">
@@ -2337,6 +2387,70 @@ function renderFinModel(pid){
           <tr style="background:var(--bg)"><td style="color:var(--muted);font-size:10px">6</td><td>Max Ground Coverage</td>${adSq(D.maxGC||0,false,'var(--text)')}</tr>
           <tr><td style="color:var(--muted);font-size:10px">7</td><td>RERA Carpet (${f.reraPct||82}%)</td>${adSq(C.totRERA||0,false,'var(--text)')}</tr>
           <tr style="background:var(--bg);font-weight:700"><td>8</td><td>Saleable Area (incl. loading ${(finNum(f.resSalFactor,115)-100)}%)</td>${adSq(C.totSal||0,true,'var(--purple)')}</tr>
+        </tbody>
+      </table>
+    </div>`:f.fsiMode==='plotting'?`
+    <div style="background:#F3EEFF;border-radius:8px;padding:8px 12px;margin-bottom:10px;border-left:3px solid var(--purple)">
+      <span style="font-size:11px;font-weight:700;color:var(--purple)">Plotting Mode</span>
+      <span style="font-size:10px;color:var(--purple);margin-left:8px">No FSI — net saleable plot = total plot − deductions + additions. Areas in ${uSqmtFin?'sq.mt':'sq.ft'}.</span>
+    </div>
+    <div style="overflow-x:auto;margin-bottom:4px">
+      <table class="fin-table">
+        <thead><tr style="background:#EDE9FE">
+          <th class="col-idx">#</th><th class="col-part">Particular</th>
+          <th class="col-mid">Area</th>
+          <th class="col-unit">Unit</th>
+        </tr></thead>
+        <tbody>
+          <tr><td style="color:var(--muted);padding:6px 8px">1</td>
+            <td style="padding:6px 8px"><strong>Total Plot Area</strong></td>
+            <td style="text-align:right;padding:4px 8px">${uSqmtFin?ti(pid,'plotSqmt',f.plotSqmt,160,'Enter sq.mt',1):ti(pid,'plotArea',f.plotArea,160,'Enter sq.ft',100)}</td>
+            <td style="text-align:center;color:var(--muted);padding:6px 8px">${uSqmtFin?'sq.mt':'sq.ft'}</td></tr>
+          <tr style="background:var(--bg)"><td colspan="4" style="padding:5px 8px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.05em">DEDUCTIONS <button type="button" onclick="addPlotAreaRow('${pid}','plotDeductions')" style="margin-left:8px;padding:2px 8px;border-radius:5px;border:1px solid var(--purple);background:#fff;color:var(--purple);font-size:10px;font-weight:700;cursor:pointer">+ Add</button></td></tr>
+          ${(f.plotDeductions||[]).map(function(row,idx){
+            var lbl=(row.label||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+            return '<tr><td style="color:var(--muted);padding:6px 8px">'+(idx+1)+'</td>'
+              +'<td style="padding:4px 8px"><input type="text" value="'+lbl+'" placeholder="e.g. DP Road, amenity, open space" style="width:100%;max-width:320px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px" onchange="setPlotAreaRow(\''+pid+'\',\'plotDeductions\','+idx+',\'label\',this.value)"/></td>'
+              +'<td style="text-align:right;padding:4px 8px"><input type="number" min="0" step="1" value="'+(row.area===undefined||row.area===null?'':row.area)+'" style="width:120px;text-align:right;font-size:12px;font-weight:600;padding:5px 8px;border:1.5px solid #1558A0;border-radius:6px;background:#F0F6FF" onchange="setPlotAreaRow(\''+pid+'\',\'plotDeductions\','+idx+',\'area\',this.value)"/></td>'
+              +'<td style="text-align:center;padding:4px 8px"><span style="font-size:10px;color:var(--muted)">'+(uSqmtFin?'sq.mt':'sq.ft')+'</span> <button type="button" onclick="removePlotAreaRow(\''+pid+'\',\'plotDeductions\','+idx+')" style="margin-left:4px;padding:2px 6px;border:1px solid var(--red);background:transparent;color:var(--red-b);border-radius:4px;cursor:pointer;font-size:10px">✕</button></td></tr>';
+          }).join('')}
+          ${!(f.plotDeductions||[]).length?'<tr><td colspan="4" style="padding:8px 12px;font-size:11px;color:var(--muted)">No deductions yet — click + Add under Deductions.</td></tr>':''}
+          <tr><td style="color:var(--muted);padding:6px 8px">—</td>
+            <td style="padding:6px 8px;font-weight:700">Total deductions</td>
+            ${adSq(C.totalDeducDisp,true,'var(--red-b)')}
+          </tr>
+          <tr style="background:var(--bg)"><td colspan="4" style="padding:5px 8px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.05em">ADDITIONS <button type="button" onclick="addPlotAreaRow('${pid}','plotAdditions')" style="margin-left:8px;padding:2px 8px;border-radius:5px;border:1px solid var(--purple);background:#fff;color:var(--purple);font-size:10px;font-weight:700;cursor:pointer">+ Add</button></td></tr>
+          ${(f.plotAdditions||[]).map(function(row,idx){
+            var lbl=(row.label||'').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+            return '<tr><td style="color:var(--muted);padding:6px 8px">'+(idx+1)+'</td>'
+              +'<td style="padding:4px 8px"><input type="text" value="'+lbl+'" placeholder="e.g. purchased adjacent plot" style="width:100%;max-width:320px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px" onchange="setPlotAreaRow(\''+pid+'\',\'plotAdditions\','+idx+',\'label\',this.value)"/></td>'
+              +'<td style="text-align:right;padding:4px 8px"><input type="number" min="0" step="1" value="'+(row.area===undefined||row.area===null?'':row.area)+'" style="width:120px;text-align:right;font-size:12px;font-weight:600;padding:5px 8px;border:1.5px solid #1558A0;border-radius:6px;background:#F0F6FF" onchange="setPlotAreaRow(\''+pid+'\',\'plotAdditions\','+idx+',\'area\',this.value)"/></td>'
+              +'<td style="text-align:center;padding:4px 8px"><span style="font-size:10px;color:var(--muted)">'+(uSqmtFin?'sq.mt':'sq.ft')+'</span> <button type="button" onclick="removePlotAreaRow(\''+pid+'\',\'plotAdditions\','+idx+')" style="margin-left:4px;padding:2px 6px;border:1px solid var(--red);background:transparent;color:var(--red-b);border-radius:4px;cursor:pointer;font-size:10px">✕</button></td></tr>';
+          }).join('')}
+          ${!(f.plotAdditions||[]).length?'<tr><td colspan="4" style="padding:8px 12px;font-size:11px;color:var(--muted)">No additions — optional; click + Add if applicable.</td></tr>':''}
+          <tr><td style="color:var(--muted);padding:6px 8px">—</td>
+            <td style="padding:6px 8px;font-weight:700">Total additions</td>
+            ${adSq(C.disp.plotAdditionsTotal||0,true,'var(--green-b)')}
+          </tr>
+          <tr style="background:#EDE9FE"><td style="color:var(--muted);padding:7px 8px;font-weight:700">2</td>
+            <td style="padding:7px 8px;font-weight:700">Net saleable plot area
+              <div style="font-size:10px;color:var(--muted)">Total plot − deductions + additions</div></td>
+            ${adSq(C.netPlotDisp,true,'var(--purple)')}
+          </tr>
+          <tr style="background:var(--bg)"><td colspan="4" style="padding:5px 8px;font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.05em">PLOT LOT SPLIT (for revenue)</td></tr>
+          <tr><td style="color:var(--muted);padding:6px 8px">3</td>
+            <td style="padding:6px 8px">Commercial plot share
+              <div style="display:flex;gap:6px;align-items:center;margin-top:4px">${ti(pid,'commPct',f.commPct,80,'0',0.1)}<span style="font-size:10px;color:var(--muted)">% of net saleable plot</span></div></td>
+            ${adSq(C.cSal,false,'var(--text)')}
+          </tr>
+          <tr style="background:var(--bg)"><td style="color:var(--muted);padding:6px 8px">4</td>
+            <td style="padding:6px 8px">Residential plot share <span style="font-size:10px;color:var(--muted)">(balance)</span></td>
+            ${adSq(C.rSal,false,'var(--text)')}
+          </tr>
+          <tr style="background:var(--purple);color:#fff"><td style="padding:7px 8px;font-weight:700">5</td>
+            <td style="padding:7px 8px;font-weight:700">Total saleable plot area</td>
+            ${adSq(C.totSal,true,'#fff','rgba(255,255,255,.9)')}
+          </tr>
         </tbody>
       </table>
     </div>`:`
@@ -4998,7 +5112,7 @@ function printFinModel(pid, sections, selInvId) {
     tableRows += spacer();
   }
   if(has('area')){
-    tableRows += sectionHead('KEY FACTS & ASSUMPTIONS — '+(f2.fsiMode==='pmrda'?'PMRDA MODE':f2.fsiMode==='mumbai'?'MUMBAI DCPR 2034':f2.fsiMode==='goa'?'GOA TCP/FAR':'SIMPLE MODE'),'◆','#0B7070');
+    tableRows += sectionHead('KEY FACTS & ASSUMPTIONS — '+(f2.fsiMode==='pmrda'?'PMRDA MODE':f2.fsiMode==='mumbai'?'MUMBAI DCPR 2034':f2.fsiMode==='goa'?'GOA TCP/FAR':f2.fsiMode==='plotting'?'PLOTTING (NO FSI)':'SIMPLE MODE'),'◆','#0B7070');
     if(f2.fsiMode==='pmrda'){
       tableRows += row2('Total Plot Area',fm2(C.totalPlotDisp),'sq.ft');
       tableRows += subhead('Deductions');
@@ -5019,6 +5133,22 @@ function printFinModel(pid, sections, selInvId) {
       tableRows += row2('Commercial Saleable (×'+f2.commSalFactor+'%)',fm2(C.cSal),'sq.ft');
       tableRows += row2('Residential Saleable (×'+f2.resSalFactor+'%)',fm2(C.rSal),'sq.ft');
       tableRows += row2('Total Saleable Area',fm2(C.totSal),'sq.ft',true);
+    } else if(f2.fsiMode==='plotting'){
+      tableRows += row2('Total Plot Area',fm2(C.totalPlotDisp),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
+      tableRows += subhead('Deductions');
+      (f2.plotDeductions||[]).forEach(function(r){
+        if((r.label||'').trim()||finNum(r.area,0)>0) tableRows += row2(r.label||'Deduction',fm2(r.area),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
+      });
+      tableRows += row2('Total Deductions',fm2(C.totalDeducDisp),'sq.ft',true);
+      tableRows += subhead('Additions');
+      (f2.plotAdditions||[]).forEach(function(r){
+        if((r.label||'').trim()||finNum(r.area,0)>0) tableRows += row2(r.label||'Addition',fm2(r.area),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
+      });
+      tableRows += row2('Total Additions',fm2(C.disp&&C.disp.plotAdditionsTotal||0),'sq.ft');
+      tableRows += row2('Net Saleable Plot Area',fm2(C.netPlotDisp),'sq.ft',true);
+      tableRows += row2('Commercial Plot Share ('+(f2.commPct||0)+'%)',fm2(C.cSal),'sq.ft');
+      tableRows += row2('Residential Plot Share',fm2(C.rSal),'sq.ft');
+      tableRows += row2('Total Saleable Plot Area',fm2(C.totSal),'sq.ft',true);
     } else {
       tableRows += row2('Total Plot Area',fm2(f2.plotArea||f2.plotSqmt||0),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
       if(f2.fsiMode==='simple'){
