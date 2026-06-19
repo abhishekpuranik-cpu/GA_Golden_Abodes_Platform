@@ -17,9 +17,6 @@ services:
         sync: false
       - key: MONGODB_DB_NAME
         value: golden_abodes
-      # One deploy: wipe Post Sales units on next boot, then remove this env in Render dashboard.
-      - key: POSTSALES_PURGE_ON_START
-        value: "true"
       # One-shot: restore Cashflow V1 sold units from best Mongo snapshot before layout deploy (Jun 11 ~17:27 IST).
       - key: V1_AUTO_RESTORE_BEFORE
         value: "2026-06-11T17:27:00+05:30"

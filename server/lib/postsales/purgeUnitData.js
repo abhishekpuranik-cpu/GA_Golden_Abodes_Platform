@@ -9,6 +9,8 @@ import PossessionClearance from '../../models/postsales/PossessionClearance.js';
 import { ensureMongo } from '../mongo.js';
 
 const SYNC_PREFS_ID = 'sync_preferences';
+/** One-shot deploy purge — set in Mongo after run so restarts are no-ops. */
+const DEPLOY_PURGE_FLAG_ID = 'postsales_purge_deploy_20260619';
 
 /** Remove all sold-unit records and linked post-sales data (not inventory catalog or construction milestones). */
 export async function purgeAllPostSalesUnitData(db) {
@@ -79,12 +81,27 @@ export async function purgeAndDisableAutoSync(db) {
   return { ...result, syncPrefs };
 }
 
-/** One-shot production purge when POSTSALES_PURGE_ON_START=true (remove env after deploy). */
+/** One-shot production purge on deploy (Mongo flag) or when POSTSALES_PURGE_ON_START=true. */
 export async function maybePurgePostSalesOnStart() {
-  if (process.env.POSTSALES_PURGE_ON_START !== 'true') return null;
+  let db;
   try {
-    const db = await ensureMongo();
+    db = await ensureMongo();
+    if (!db) return null;
+    const flag = await db.collection('platform_ops_flags').findOne({ _id: DEPLOY_PURGE_FLAG_ID });
+    if (flag?.done && process.env.POSTSALES_PURGE_ON_START !== 'true') return null;
+  } catch (err) {
+    if (process.env.POSTSALES_PURGE_ON_START !== 'true') return null;
+    console.error('[Post Sales] Startup purge pre-check failed:', err.message);
+    return { ok: false, error: err.message };
+  }
+
+  try {
     const result = await purgeAndDisableAutoSync(db);
+    await db.collection('platform_ops_flags').updateOne(
+      { _id: DEPLOY_PURGE_FLAG_ID },
+      { $set: { done: true, at: new Date(), deleted: result.deleted } },
+      { upsert: true },
+    );
     console.log('[Post Sales] Startup purge complete:', JSON.stringify(result.deleted));
     return result;
   } catch (err) {
