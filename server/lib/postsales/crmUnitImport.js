@@ -13,6 +13,7 @@ import {
   isCollectionReport,
   iterCollectionBlocks,
 } from './collectionReportParse.js';
+import { deriveStepDueDates } from './pipelineDueFromCrm.js';
 export const CRM_TEMPLATE_COLUMNS = [
   'Project', 'Phase', 'Building', 'Unit Number', 'Customer Name', 'Booking Date',
   'Total Cost', 'Booking Amount', 'Funding Type', 'Phone', 'Email', 'PAN',
@@ -298,26 +299,34 @@ async function upsertUnitDemands(unit, milestones, { dryRun, source = 'upload' }
   return report;
 }
 
-async function syncPipelineProgress(unitId, targetStep, { dryRun, importedBy }) {
+async function syncPipelineFromCrm(unitId, targetStep, stepDueDates, { dryRun, importedBy }) {
   if (dryRun) return { advanced: targetStep };
   const steps = await PipelineStep.find({ unitId }).sort({ stepNumber: 1 });
   const now = new Date();
   for (const s of steps) {
+    const crmDue = stepDueDates[s.stepNumber];
+    const patch = {};
+    if (crmDue) patch.dueDate = crmDue;
+
     if (s.stepNumber < targetStep && s.status !== 'completed') {
-      await PipelineStep.findByIdAndUpdate(s._id, {
-        status: 'completed',
-        completedDate: now,
-        completedBy: importedBy,
-        $push: { activityLog: { action: 'completed', at: now, by: importedBy, detail: 'CRM collection import' } },
-      });
+      patch.status = 'completed';
+      patch.completedDate = crmDue || now;
+      patch.completedBy = importedBy;
     } else if (s.stepNumber === targetStep && s.status === 'pending') {
-      const def = s.stepNumber;
+      patch.status = 'in_progress';
+      patch.triggerDate = stepDueDates[s.stepNumber - 1] || crmDue || now;
+      if (!patch.dueDate && crmDue) patch.dueDate = crmDue;
+    }
+
+    if (Object.keys(patch).length) {
       await PipelineStep.findByIdAndUpdate(s._id, {
-        status: 'in_progress',
-        triggerDate: now,
-        assignedTo: s.assignedTo || undefined,
-        $push: { activityLog: { action: 'started', at: now, by: importedBy, detail: 'CRM collection import' } },
+        ...patch,
+        ...(s.stepNumber < targetStep
+          ? { $push: { activityLog: { action: 'completed', at: patch.completedDate || now, by: importedBy, detail: 'CRM due dates applied' } } }
+          : {}),
       });
+    } else if (crmDue) {
+      await PipelineStep.findByIdAndUpdate(s._id, { dueDate: crmDue });
     }
   }
   await Unit.findByIdAndUpdate(unitId, { currentStepNumber: targetStep });
@@ -361,14 +370,18 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         registrationDate: row.registrationDate,
         bookingAmount: row.bookingAmount,
       });
-      normalized.push({ row, milestones, startAtStep });
+      const stepDueDates = deriveStepDueDates(milestones, {
+        bookingDate: row.bookingDate,
+        registrationDate: row.registrationDate,
+      });
+      normalized.push({ row, milestones, startAtStep, stepDueDates });
     } catch (e) {
       report.summary.errors += 1;
       report.rows.push({ action: 'error', error: e.message });
     }
   }
 
-  for (const { row, milestones, startAtStep } of normalized) {
+  for (const { row, milestones, startAtStep, stepDueDates } of normalized) {
     try {
       const existing = await findExistingUnit(row);
       const demandCount = milestones.length;
@@ -426,6 +439,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
           const steps = buildPipelineStepDocs(unit, row.fundingType || 'home_loan', {
             startedBy: importedBy,
             startAtStep,
+            stepDueDates,
           });
           await PipelineStep.insertMany(steps);
           const dr = await upsertUnitDemands(unit, milestones, { dryRun: false, source: 'upload' });
@@ -439,7 +453,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
       const changes = masterChanges(existing, row, customer);
       const targetStep = Math.max(existing.currentStepNumber || 1, startAtStep);
       const stepAdvance = targetStep > (existing.currentStepNumber || 1);
-      const needsUpdate = changes.length > 0 || stepAdvance || demandCount > 0;
+      const needsUpdate = changes.length > 0 || stepAdvance || demandCount > 0 || Object.keys(stepDueDates).length > 0;
 
       if (!needsUpdate) {
         report.summary.unchanged += 1;
@@ -505,9 +519,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         const dr = await upsertUnitDemands(unit, milestones, { dryRun: false, source: 'upload' });
         report.summary.demandsUpdated += dr.updated;
         report.summary.demandsCreated += dr.created;
-        if (stepAdvance) {
-          await syncPipelineProgress(existing._id, targetStep, { dryRun: false, importedBy });
-        }
+        await syncPipelineFromCrm(existing._id, targetStep, stepDueDates, { dryRun: false, importedBy });
       }
     } catch (e) {
       report.summary.errors += 1;
@@ -533,7 +545,9 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
 export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true, importedBy = 'crm_upload' } = {}) {
   if (isCollectionReport(rawRows)) {
     return processCollectionReportImport(db, rawRows, scope, { dryRun, importedBy });
-  }  const catalog = await loadInventoryCatalog(db);
+  }
+
+  const catalog = await loadInventoryCatalog(db);
   const batchId = `CRM_${Date.now()}`;
   const report = {
     ok: true,
@@ -547,7 +561,8 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
   for (const raw of rawRows) {
     try {
       let row = applyImportScope(normalizeCrmRow(raw), scope);
-      const err = validateRow(row, catalog, scope);      if (err) {
+      const err = validateRow(row, catalog, scope);
+      if (err) {
         report.summary.errors += 1;
         report.rows.push({ action: 'error', ...row, error: err });
         continue;

@@ -37,8 +37,9 @@ export function buildChecklist(stepDef, fundingType = 'home_loan') {
   return (stepDef.checklist || []).map((item) => ({ item, done: false }));
 }
 
-export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmExecutive || '', startAtStep = 1 } = {}) {
+export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmExecutive || '', startAtStep = 1, stepDueDates = {} } = {}) {
   const now = new Date();
+  const bookingAnchor = unit.bookingDate ? new Date(unit.bookingDate) : now;
   const start = Math.max(1, Math.min(20, Number(startAtStep) || 1));
   return STEPS.map((def) => {
     const taskKind = getStepTaskKind(def.number);
@@ -46,16 +47,31 @@ export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmE
     if (def.number < start) status = 'completed';
     else if (def.number === start) status = 'in_progress';
 
-    const triggerDate = def.number <= start ? now : undefined;
-    const dueDate = def.number === start ? computeDueDate(def, now) : undefined;
-    const completedDate = def.number < start ? now : undefined;
+    const crmDue = stepDueDates[def.number];
+    const triggerDate = def.number <= start
+      ? (crmDue || (def.number === 1 ? bookingAnchor : stepDueDates[def.number - 1] || now))
+      : undefined;
+    const dueDate = crmDue || (def.number === start ? computeDueDate(def, triggerDate || bookingAnchor) : undefined);
+    const completedDate = def.number < start ? (crmDue || now) : undefined;
     const assignedTo = def.number === start ? defaultAssigneeForKind(unit, taskKind) : '';
 
     const activityLog = [];
     if (def.number < start) {
-      activityLog.push({ action: 'completed', at: now, by: startedBy, detail: 'CRM collection import — prior stages complete' });
+      activityLog.push({
+        action: 'completed',
+        at: completedDate || now,
+        by: startedBy,
+        detail: crmDue
+          ? `CRM due date ${crmDue.toISOString().slice(0, 10)}`
+          : 'CRM collection import — prior stages complete',
+      });
     } else if (def.number === start) {
-      activityLog.push({ action: 'started', at: now, by: startedBy, detail: `SLA due ${dueDate ? dueDate.toISOString().slice(0, 10) : '—'}` });
+      activityLog.push({
+        action: 'started',
+        at: now,
+        by: startedBy,
+        detail: dueDate ? `CRM/SLA due ${dueDate.toISOString().slice(0, 10)}` : 'CRM collection import',
+      });
     }
 
     return {
