@@ -2,11 +2,96 @@ import { Router } from 'express';
 import Unit from '../../models/postsales/Unit.js';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
 import Demand from '../../models/postsales/Demand.js';
+import { ensureMongo } from '../../lib/mongo.js';
 import { backfillStepTaskKinds } from '../../lib/postsales/helpers.js';
 import { getStepTaskKind, defaultAssigneeForKind, TASK_KINDS } from '../../lib/postsales/taskKinds.js';
 import { pushActivity } from '../../lib/postsales/activity.js';
+import {
+  issueAllocationToken,
+  requireAllocationAdmin,
+  verifyAllocationPassword,
+} from '../../lib/postsales/allocationAdmin.js';
+import {
+  ensureActivityShape,
+  loadActivityCatalog,
+  nextActivityNumber,
+  saveActivityCatalog,
+} from '../../lib/postsales/activityCatalog.js';
 
 const router = Router();
+
+router.post('/verify-admin', async (req, res) => {
+  try {
+    if (!verifyAllocationPassword(req.body?.password)) {
+      return res.status(403).json({ error: 'Invalid admin password' });
+    }
+    res.json({ ok: true, token: issueAllocationToken() });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.use(requireAllocationAdmin);
+
+router.get('/catalog', async (_req, res) => {
+  try {
+    const db = await ensureMongo();
+    if (!db) return res.status(503).json({ error: 'Database unavailable' });
+    const catalog = await loadActivityCatalog(db);
+    res.json({ ...catalog, taskKinds: TASK_KINDS });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/catalog', async (req, res) => {
+  try {
+    const db = await ensureMongo();
+    if (!db) return res.status(503).json({ error: 'Database unavailable' });
+    const { activities: existing } = await loadActivityCatalog(db);
+    const body = ensureActivityShape({ ...req.body, number: req.body.number || nextActivityNumber(existing) });
+    if (!body) return res.status(400).json({ error: 'Invalid activity payload' });
+    const next = [...existing.filter((a) => a.number !== body.number), body];
+    const saved = await saveActivityCatalog(db, next);
+    res.status(201).json(saved);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.patch('/catalog/:number', async (req, res) => {
+  try {
+    const db = await ensureMongo();
+    if (!db) return res.status(503).json({ error: 'Database unavailable' });
+    const number = Number(req.params.number);
+    const { activities: existing } = await loadActivityCatalog(db);
+    const idx = existing.findIndex((a) => a.number === number);
+    if (idx < 0) return res.status(404).json({ error: 'Activity not found' });
+    const merged = ensureActivityShape({ ...existing[idx], ...req.body, number });
+    if (!merged) return res.status(400).json({ error: 'Invalid activity payload' });
+    const next = [...existing];
+    next[idx] = merged;
+    const saved = await saveActivityCatalog(db, next);
+    res.json(saved);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.delete('/catalog/:number', async (req, res) => {
+  try {
+    const db = await ensureMongo();
+    if (!db) return res.status(503).json({ error: 'Database unavailable' });
+    const number = Number(req.params.number);
+    const { activities: existing } = await loadActivityCatalog(db);
+    const next = existing.filter((a) => a.number !== number);
+    if (next.length === existing.length) return res.status(404).json({ error: 'Activity not found' });
+    const saved = await saveActivityCatalog(db, next);
+    res.json(saved);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 function buildUnitFilter(query = {}) {
   const filter = {};

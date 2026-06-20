@@ -60,7 +60,7 @@ router.patch('/:stepNumber', async (req, res) => {
 
 
 
-    const { status, checklist, notes, escalatedTo, escalationReason, assignedTo } = req.body;
+    const { status, checklist, notes, nextAction, nextActionDate, escalatedTo, escalationReason, assignedTo } = req.body;
 
     const by = actorLabel(req, req.body);
 
@@ -111,6 +111,20 @@ router.patch('/:stepNumber', async (req, res) => {
     if (checklist) step.checklist = checklist;
 
     if (notes !== undefined) step.notes = notes;
+
+    if (nextAction !== undefined || nextActionDate !== undefined) {
+      const prevAction = step.nextAction || '';
+      const prevDate = step.nextActionDate ? step.nextActionDate.toISOString().slice(0, 10) : '';
+      if (nextAction !== undefined) step.nextAction = nextAction;
+      if (nextActionDate !== undefined) {
+        step.nextActionDate = nextActionDate ? new Date(nextActionDate) : null;
+      }
+      const newAction = step.nextAction || '';
+      const newDate = step.nextActionDate ? step.nextActionDate.toISOString().slice(0, 10) : '';
+      if (newAction !== prevAction || newDate !== prevDate) {
+        pushActivity(step, 'note', by, [newAction, newDate].filter(Boolean).join(' · ') || 'Follow-up cleared');
+      }
+    }
 
 
 
@@ -259,6 +273,46 @@ router.patch('/:stepNumber/checklist/:index', async (req, res) => {
     await step.save();
 
     res.json(step);
+
+  } catch (err) {
+
+    res.status(400).json({ error: err.message });
+
+  }
+
+});
+
+
+
+router.post('/:stepNumber/comments', async (req, res) => {
+
+  try {
+
+    const unitId = req.params.unitId || req.body.unitId;
+
+    const stepNumber = Number(req.params.stepNumber);
+
+    const text = String(req.body.text || '').trim();
+
+    if (!text) return res.status(400).json({ error: 'Comment text is required' });
+
+    const step = await PipelineStep.findOne({ unitId, stepNumber });
+
+    if (!step) return res.status(404).json({ error: 'Step not found' });
+
+    const by = actorLabel(req, req.body);
+
+    const comment = { text, at: new Date(), by };
+
+    if (!step.comments) step.comments = [];
+
+    step.comments.push(comment);
+
+    pushActivity(step, 'note', by, text);
+
+    await step.save();
+
+    res.status(201).json(step);
 
   } catch (err) {
 

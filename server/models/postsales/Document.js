@@ -8,7 +8,13 @@ const DocumentSchema = new mongoose.Schema({
   label: String,
   status: { type: String, enum: ['pending','received','verified','uploaded','rejected'], default: 'pending' },
   receivedDate: Date, verifiedDate: Date, verifiedBy: String,
-  driveLink: String, notes: String,
+  driveLink: String,
+  fileId: String,
+  fileName: String,
+  mimeType: String,
+  fileSize: Number,
+  uploadedBy: String,
+  notes: String,
   applicant: { type: String, enum: ['primary','co_applicant','poa'] },
 }, { timestamps: true });
 

@@ -13,12 +13,15 @@ import { useAssignees } from '../../hooks/postsales/useMyTasks.js';
 import { STEPS, PHASES, ESCALATION_MATRIX } from '../../data/postsales/steps.js';
 
 import { DOC_GROUPS, TYPE_LABELS, docTypesForStep } from '../../data/postsales/stepDocs.js';
-
 import { formatDueDate, formatSlaTarget, slaCountdown } from '../../lib/postSalesSla.js';
-
 import { getStepTaskKind, defaultAssigneeForKind, TASK_KINDS } from '../../data/postsales/taskKinds.js';
-
 import { postSalesApi } from '../../lib/postSalesApi.js';
+
+function documentOpenUrl(doc) {
+  if (doc?.fileId) return postSalesApi.documentFileUrl(doc.fileId);
+  if (doc?.driveLink) return doc.driveLink;
+  return null;
+}
 
 
 
@@ -78,9 +81,9 @@ export default function UnitPipeline() {
 
   const { unit, loading: unitLoading, error: unitError, refresh: refreshUnit } = useUnit(id);
 
-  const { steps, loading: stepsLoading, error: stepsError, updateStep, toggleChecklist } = useSteps(id, actor);
+  const { steps, loading: stepsLoading, error: stepsError, updateStep, toggleChecklist, addStepComment } = useSteps(id, actor);
 
-  const { documents, createDocument } = useDocuments(id);
+  const { documents, uploadDocument } = useDocuments(id);
 
   const { cxTeam, backendTeam } = useAssignees();
 
@@ -100,7 +103,11 @@ export default function UnitPipeline() {
 
   const [actionError, setActionError] = useState(null);
 
-  const [docForm, setDocForm] = useState({ docType: 'booking_form', driveLink: '', label: '' });
+  const [docForm, setDocForm] = useState({ docType: 'booking_form', label: '', file: null });
+  const [commentText, setCommentText] = useState('');
+  const [nextAction, setNextAction] = useState('');
+  const [nextActionDate, setNextActionDate] = useState('');
+  const [savingFollowUp, setSavingFollowUp] = useState(false);
 
 
 
@@ -123,7 +130,8 @@ export default function UnitPipeline() {
     const kind = rec?.taskKind || getStepTaskKind(selected);
 
     setNotes(rec?.notes || '');
-
+    setNextAction(rec?.nextAction || '');
+    setNextActionDate(rec?.nextActionDate ? new Date(rec.nextActionDate).toISOString().slice(0, 10) : '');
     setAssignee(rec?.assignedTo || defaultAssigneeForKind(unit, kind) || '');
 
   }, [selected, steps, unit?.crmExecutive, unit?.cxExecutive, unit?.backendExecutive]);
@@ -300,9 +308,17 @@ export default function UnitPipeline() {
 
     setActionError(null);
 
+    if (!docForm.file) {
+
+      setActionError('Choose a file to upload (PDF, image, Word, etc.)');
+
+      return;
+
+    }
+
     try {
 
-      await createDocument({
+      await uploadDocument(docForm.file, {
 
         unitId: id,
 
@@ -312,19 +328,73 @@ export default function UnitPipeline() {
 
         label: docForm.label || TYPE_LABELS[docForm.docType],
 
-        driveLink: docForm.driveLink,
-
         status: 'uploaded',
 
         uploadedBy: actor,
 
       });
 
-      setDocForm((f) => ({ ...f, driveLink: '', label: '' }));
+      setDocForm((f) => ({ ...f, label: '', file: null }));
 
     } catch (err) {
 
       setActionError(err.message);
+
+    }
+
+  };
+
+
+
+  const handleAddComment = async (e) => {
+
+    e.preventDefault();
+
+    setActionError(null);
+
+    const text = commentText.trim();
+
+    if (!text) return;
+
+    try {
+
+      await addStepComment(selected, text);
+
+      setCommentText('');
+
+    } catch (err) {
+
+      setActionError(err.message);
+
+    }
+
+  };
+
+
+
+  const handleSaveFollowUp = async () => {
+
+    setActionError(null);
+
+    setSavingFollowUp(true);
+
+    try {
+
+      await updateStep(selected, {
+
+        nextAction: nextAction.trim(),
+
+        nextActionDate: nextActionDate || null,
+
+      });
+
+    } catch (err) {
+
+      setActionError(err.message);
+
+    } finally {
+
+      setSavingFollowUp(false);
 
     }
 
@@ -586,9 +656,9 @@ export default function UnitPipeline() {
 
                       </div>
 
-                      {doc?.driveLink ? (
+                      {documentOpenUrl(doc) ? (
 
-                        <a href={doc.driveLink} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
+                        <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
 
                       ) : null}
 
@@ -626,9 +696,21 @@ export default function UnitPipeline() {
 
                   <div className="ps-form-group">
 
-                    <label>Drive / file link</label>
+                    <label>File (PDF, image, Word…)</label>
 
-                    <input required value={docForm.driveLink} onChange={(e) => setDocForm((f) => ({ ...f, driveLink: e.target.value }))} placeholder="https://drive.google.com/..." />
+                    <input
+
+                      type="file"
+
+                      required
+
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt"
+
+                      onChange={(e) => setDocForm((f) => ({ ...f, file: e.target.files?.[0] || null }))}
+
+                    />
+
+                    {docForm.file && <div style={{ fontSize: '0.8rem', marginTop: 4, color: 'var(--ps-text-muted)' }}>{docForm.file.name}</div>}
 
                   </div>
 
@@ -733,6 +815,84 @@ export default function UnitPipeline() {
           {tab === 'activity' && (
 
             <>
+
+              <div className="ps-card" style={{ marginBottom: 16, background: 'var(--ps-accent-soft)' }}>
+
+                <h4 style={{ marginTop: 0 }}>Next action</h4>
+
+                <div className="ps-form-group">
+
+                  <label>Next action</label>
+
+                  <textarea rows={2} value={nextAction} onChange={(e) => setNextAction(e.target.value)} disabled={stepRecord?.status === 'completed'} placeholder="What needs to happen next?" />
+
+                </div>
+
+                <div className="ps-form-group">
+
+                  <label>Next action date</label>
+
+                  <input type="date" value={nextActionDate} onChange={(e) => setNextActionDate(e.target.value)} disabled={stepRecord?.status === 'completed'} />
+
+                </div>
+
+                <button type="button" className="ps-btn ps-btn-primary" disabled={stepRecord?.status === 'completed' || savingFollowUp} onClick={handleSaveFollowUp}>
+
+                  {savingFollowUp ? 'Saving…' : 'Save next action'}
+
+                </button>
+
+              </div>
+
+
+
+              <div className="ps-card" style={{ marginBottom: 16 }}>
+
+                <h4 style={{ marginTop: 0 }}>Comments</h4>
+
+                <form onSubmit={handleAddComment}>
+
+                  <div className="ps-form-group">
+
+                    <label>Add comment</label>
+
+                    <textarea rows={3} value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Log call notes, customer update, internal handoff…" />
+
+                  </div>
+
+                  <button type="submit" className="ps-btn ps-btn-primary" disabled={!commentText.trim()}>Add comment</button>
+
+                </form>
+
+                {(stepRecord?.comments || []).length === 0 && (
+
+                  <div className="ps-empty" style={{ marginTop: 12 }}>No comments yet.</div>
+
+                )}
+
+                {[...(stepRecord?.comments || [])].reverse().map((c, i) => (
+
+                  <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid var(--ps-border)', fontSize: '0.85rem' }}>
+
+                    <div style={{ color: 'var(--ps-text-muted)', marginBottom: 4 }}>
+
+                      {c.at ? new Date(c.at).toLocaleString('en-IN') : ''}
+
+                      {c.by ? ` · ${c.by}` : ''}
+
+                    </div>
+
+                    <div>{c.text}</div>
+
+                  </div>
+
+                ))}
+
+              </div>
+
+
+
+              <h4>Activity log</h4>
 
               {stepRecord?.completedDate && (
 

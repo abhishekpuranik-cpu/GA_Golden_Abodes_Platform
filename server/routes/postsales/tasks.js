@@ -47,6 +47,18 @@ async function matchingUnitIds(query) {
   return units.map((u) => u._id);
 }
 
+function sortTasksByFollowUp(steps) {
+  return [...steps].sort((a, b) => {
+    const na = a.nextActionDate ? new Date(a.nextActionDate).getTime() : Number.MAX_SAFE_INTEGER;
+    const nb = b.nextActionDate ? new Date(b.nextActionDate).getTime() : Number.MAX_SAFE_INTEGER;
+    if (na !== nb) return na - nb;
+    const da = a.dueDate ? new Date(a.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+    const db = b.dueDate ? new Date(b.dueDate).getTime() : Number.MAX_SAFE_INTEGER;
+    if (da !== db) return da - db;
+    return (a.stepNumber || 0) - (b.stepNumber || 0);
+  });
+}
+
 function mapStepToTask(s, unitMap) {
   const u = unitMap[String(s.unitId)];
   const def = STEPS.find((d) => d.number === s.stepNumber);
@@ -64,6 +76,8 @@ function mapStepToTask(s, unitMap) {
     assignedRole: s.assignedRole,
     triggerDate: s.triggerDate,
     dueDate: s.dueDate,
+    nextAction: s.nextAction,
+    nextActionDate: s.nextActionDate,
     slaBreach: s.slaBreach,
     slaBreachDays: s.slaBreachDays,
     unitNumber: u?.unitNumber,
@@ -143,15 +157,15 @@ async function fetchOpenTasks(query, { assigneeNeedles: needles, taskKind } = {}
     ];
   }
 
-  let steps = await PipelineStep.find(stepFilter)
-    .sort({ dueDate: 1, stepNumber: 1 })
-    .lean();
+  let steps = await PipelineStep.find(stepFilter).lean();
 
   await backfillStepTaskKinds(steps, PipelineStep);
 
   if (taskKind === 'cx' || taskKind === 'backend') {
     steps = steps.filter((s) => (s.taskKind || getStepTaskKind(s.stepNumber)) === taskKind);
   }
+
+  steps = sortTasksByFollowUp(steps);
 
   const stepUnitIds = [...new Set(steps.map((s) => String(s.unitId)))];
   const units = await Unit.find({ _id: { $in: stepUnitIds } }).populate('customerId').lean();

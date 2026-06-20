@@ -1,8 +1,37 @@
 import { apiFetch } from './api.js';
 
 const BASE = '/api/postsales';
+const ALLOCATION_TOKEN_KEY = 'ps_allocation_token';
+
+function allocationHeaders(extra = {}) {
+  const token = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem(ALLOCATION_TOKEN_KEY) : '';
+  return token ? { ...extra, 'X-PS-Allocation-Token': token } : extra;
+}
+
+function allocationFetch(path, init = {}) {
+  return apiFetch(path, {
+    ...init,
+    headers: allocationHeaders(init.headers || {}),
+  });
+}
 
 export const postSalesApi = {
+  verifyAllocationAdmin: async (password) => {
+    const r = await apiFetch(`${BASE}/allocation/verify-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (!r.ok) throw new Error(r.data?.error || 'Invalid password');
+    if (r.data?.token && typeof sessionStorage !== 'undefined') {
+      sessionStorage.setItem(ALLOCATION_TOKEN_KEY, r.data.token);
+    }
+    return r.data;
+  },
+  clearAllocationAdmin: () => {
+    if (typeof sessionStorage !== 'undefined') sessionStorage.removeItem(ALLOCATION_TOKEN_KEY);
+  },
+  hasAllocationAdmin: () => typeof sessionStorage !== 'undefined' && !!sessionStorage.getItem(ALLOCATION_TOKEN_KEY),
   dashboard: (params = {}) => {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`${BASE}/dashboard${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error || 'Dashboard fetch failed'); return r.data; });
@@ -62,6 +91,7 @@ export const postSalesApi = {
 
   getSteps: (unitId) => apiFetch(`${BASE}/units/${unitId}/steps`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   updateStep: (unitId, stepNumber, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  addStepComment: (unitId, stepNumber, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   toggleChecklist: (unitId, stepNumber, index, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/checklist/${index}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
   listAssignees: () => apiFetch(`${BASE}/tasks/assignees`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
@@ -76,13 +106,28 @@ export const postSalesApi = {
 
   getAllocation: (params = {}) => {
     const q = new URLSearchParams(params).toString();
-    return apiFetch(`${BASE}/allocation${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+    return allocationFetch(`${BASE}/allocation${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
   },
-  assignAllocationExecutives: (body) => apiFetch(`${BASE}/allocation/executives`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
-  assignAllocationSteps: (body) => apiFetch(`${BASE}/allocation/assign-steps`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
-  autoAssignAllocation: (body) => apiFetch(`${BASE}/allocation/auto-assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  getActivityCatalog: () => allocationFetch(`${BASE}/allocation/catalog`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  addActivityCatalogItem: (body) => allocationFetch(`${BASE}/allocation/catalog`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  updateActivityCatalogItem: (number, body) => allocationFetch(`${BASE}/allocation/catalog/${number}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  deleteActivityCatalogItem: (number) => allocationFetch(`${BASE}/allocation/catalog/${number}`, { method: 'DELETE' }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  assignAllocationExecutives: (body) => allocationFetch(`${BASE}/allocation/executives`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  assignAllocationSteps: (body) => allocationFetch(`${BASE}/allocation/assign-steps`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  autoAssignAllocation: (body) => allocationFetch(`${BASE}/allocation/auto-assign`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
   listDocuments: (unitId) => apiFetch(`${BASE}/documents?unitId=${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  documentFileUrl: (fileId) => `${BASE}/documents/files/${encodeURIComponent(fileId)}`,
+  uploadDocumentFile: async (file, meta = {}) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    Object.entries(meta).forEach(([k, v]) => {
+      if (v != null && v !== '') fd.append(k, String(v));
+    });
+    const r = await apiFetch(`${BASE}/documents/upload`, { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(r.data?.error || 'Upload failed');
+    return r.data;
+  },
   createDocument: (body) => apiFetch(`${BASE}/documents`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   updateDocument: (id, body) => apiFetch(`${BASE}/documents/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 

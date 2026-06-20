@@ -26,11 +26,17 @@ export function useDocuments(unitId) {
     return doc;
   };
 
+  const uploadDocument = async (file, meta) => {
+    const doc = await postSalesApi.uploadDocumentFile(file, meta);
+    await refresh();
+    return doc;
+  };
+
   const updateDocument = async (id, body) => {
     const doc = await postSalesApi.updateDocument(id, body);
     await refresh();
     return doc;
   };
 
-  return { ...data, loading, error, refresh, createDocument, updateDocument };
+  return { ...data, loading, error, refresh, createDocument, uploadDocument, updateDocument };
 }

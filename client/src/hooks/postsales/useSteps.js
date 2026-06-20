@@ -32,5 +32,11 @@ export function useSteps(unitId, actor = '') {
     return step;
   };
 
-  return { steps, loading, error, refresh, updateStep, toggleChecklist };
+  const addStepComment = async (stepNumber, text) => {
+    const step = await postSalesApi.addStepComment(unitId, stepNumber, { text, by: actor });
+    await refresh();
+    return step;
+  };
+
+  return { steps, loading, error, refresh, updateStep, toggleChecklist, addStepComment };
 }

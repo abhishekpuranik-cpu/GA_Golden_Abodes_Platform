@@ -7,6 +7,13 @@ import { useUnits } from '../../hooks/postsales/useUnits.js';
 import { useDocuments } from '../../hooks/postsales/useDocuments.js';
 
 import { DOC_GROUPS, TYPE_LABELS, primaryStepForDocType } from '../../data/postsales/stepDocs.js';
+import { postSalesApi } from '../../lib/postSalesApi.js';
+
+function documentOpenUrl(doc) {
+  if (doc?.fileId) return postSalesApi.documentFileUrl(doc.fileId);
+  if (doc?.driveLink) return doc.driveLink;
+  return null;
+}
 
 
 
@@ -28,13 +35,14 @@ export default function Documents() {
 
   const [showUpload, setShowUpload] = useState(false);
 
-  const [uploadForm, setUploadForm] = useState({ docType: 'booking_form', driveLink: '', status: 'uploaded', label: '' });
+  const [uploadForm, setUploadForm] = useState({ docType: 'booking_form', status: 'uploaded', label: '', file: null });
+  const [uploadError, setUploadError] = useState(null);
 
 
 
   const unitId = selectedUnit || units[0]?._id;
 
-  const { documents, loading, error, createDocument } = useDocuments(unitId);
+  const { documents, loading, error, uploadDocument } = useDocuments(unitId);
 
 
 
@@ -66,17 +74,27 @@ export default function Documents() {
 
     e.preventDefault();
 
-    await createDocument({
+    setUploadError(null);
+
+    if (!uploadForm.file) {
+
+      setUploadError('Choose a file to upload (PDF, image, Word, etc.)');
+
+      return;
+
+    }
+
+    const stepNumber = primaryStepForDocType(uploadForm.docType) || DOC_GROUPS.find((g) => g.types.includes(uploadForm.docType))?.step;
+
+    await uploadDocument(uploadForm.file, {
 
       unitId,
 
-      stepNumber: primaryStepForDocType(uploadForm.docType) || DOC_GROUPS.find((g) => g.types.includes(uploadForm.docType))?.step,
+      stepNumber,
 
       docType: uploadForm.docType,
 
       label: uploadForm.label || TYPE_LABELS[uploadForm.docType],
-
-      driveLink: uploadForm.driveLink,
 
       status: uploadForm.status,
 
@@ -84,7 +102,7 @@ export default function Documents() {
 
     setShowUpload(false);
 
-    setUploadForm({ docType: 'booking_form', driveLink: '', status: 'uploaded', label: '' });
+    setUploadForm({ docType: 'booking_form', status: 'uploaded', label: '', file: null });
 
   };
 
@@ -216,9 +234,9 @@ export default function Documents() {
 
                         <div>
 
-                          {doc?.driveLink ? (
+                          {documentOpenUrl(doc) ? (
 
-                            <a href={doc.driveLink} target="_blank" rel="noreferrer" className="ps-btn">Drive</a>
+                            <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
 
                           ) : (
 
@@ -258,6 +276,8 @@ export default function Documents() {
 
             <form onSubmit={handleUpload}>
 
+              {uploadError && <div className="ps-error" style={{ marginBottom: 12 }}>{uploadError}</div>}
+
               <div className="ps-form-group">
 
                 <label>Document type</label>
@@ -272,7 +292,25 @@ export default function Documents() {
 
               <div className="ps-form-group"><label>Label</label><input value={uploadForm.label} onChange={(e) => setUploadForm((f) => ({ ...f, label: e.target.value }))} placeholder={TYPE_LABELS[uploadForm.docType]} /></div>
 
-              <div className="ps-form-group"><label>Drive link</label><input required value={uploadForm.driveLink} onChange={(e) => setUploadForm((f) => ({ ...f, driveLink: e.target.value }))} /></div>
+              <div className="ps-form-group">
+
+                <label>File (PDF, image, Word, Excel…)</label>
+
+                <input
+
+                  type="file"
+
+                  required
+
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt"
+
+                  onChange={(e) => setUploadForm((f) => ({ ...f, file: e.target.files?.[0] || null }))}
+
+                />
+
+                {uploadForm.file && <div style={{ fontSize: '0.8rem', marginTop: 4, color: 'var(--ps-text-muted)' }}>{uploadForm.file.name}</div>}
+
+              </div>
 
               <div className="ps-form-group">
 

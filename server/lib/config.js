@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const rootDir = path.join(__dirname, '..', '..');
 
-export const VERSION = '0.5.14';
+export const VERSION = '0.5.17';
 
 export const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
 export const DB_NAME = process.env.MONGODB_DB_NAME || 'golden_abodes';
@@ -32,6 +32,10 @@ export const PRECONSTRUCTION_APP_URL =
   trimEnv('PRECONSTRUCTION_APP_URL') ||
   trimEnv('PRECONSTRUCTION_URL') ||
   trimEnv('VITE_PRECONSTRUCTION_URL');
+
+/** Admin password for Post Sales Work Allocation tab (override on Render). */
+export const POSTSALES_ALLOCATION_PASSWORD =
+  trimEnv('POSTSALES_ALLOCATION_PASSWORD') || 'ga@admin';
 
 /** Simple shared passcode gate for V2/V3 planner pages. */
 export const V2V3_ACCESS_CODE =

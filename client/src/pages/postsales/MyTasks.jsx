@@ -49,7 +49,7 @@ export default function MyTasks() {
         <div>
           <h2 style={{ margin: 0 }}>My Tasks</h2>
           <p style={{ margin: '6px 0 0', color: 'var(--ps-text-muted)', fontSize: '0.9rem' }}>
-            Open pipeline steps assigned to you — customer interaction (CX) vs backend coordination.
+            Open pipeline steps assigned to you — sorted by nearest next action date, then step due date.
             {assignee ? ` · Matching: ${assignee}` : ''}
           </p>
         </div>
@@ -105,7 +105,9 @@ export default function MyTasks() {
           <table className="ps-table">
             <thead>
               <tr>
-                <th>Due date</th>
+                <th>Next action date</th>
+                <th>Step due date</th>
+                <th>Next action</th>
                 <th>Kind</th>
                 <th>Step</th>
                 <th>Unit / project</th>
@@ -120,6 +122,9 @@ export default function MyTasks() {
                 return (
                   <tr key={t._id}>
                     <td>
+                      <strong>{formatDueDate(t.nextActionDate)}</strong>
+                    </td>
+                    <td>
                       <strong>{formatDueDate(t.dueDate)}</strong>
                       {countdown && (
                         <div style={{ fontSize: '0.75rem', color: countdown.tone === 'danger' ? 'var(--ps-danger)' : countdown.tone === 'warning' ? 'var(--ps-warning)' : 'var(--ps-text-muted)' }}>
@@ -127,6 +132,7 @@ export default function MyTasks() {
                         </div>
                       )}
                     </td>
+                    <td style={{ fontSize: '0.85rem', maxWidth: 220 }}>{t.nextAction || '—'}</td>
                     <td>{kindBadge(t.taskKind)}</td>
                     <td>
                       <div style={{ color: PHASES[t.pipelinePhase]?.color, fontSize: '0.75rem' }}>{PHASES[t.pipelinePhase]?.label}</div>
