@@ -86,11 +86,11 @@ export default function UnitPipeline() {
 
   const [actionError, setActionError] = useState(null);
 
-  const [docForm, setDocForm] = useState({ docType: 'booking_form', label: '', file: null });
+  const [docUploading, setDocUploading] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [nextAction, setNextAction] = useState('');
   const [nextActionDate, setNextActionDate] = useState('');
-  const [savingFollowUp, setSavingFollowUp] = useState(false);
+  const [savingCommentAndDate, setSavingCommentAndDate] = useState(false);
 
 
 
@@ -249,89 +249,29 @@ export default function UnitPipeline() {
 
 
 
-  const handleDocUpload = async (e) => {
+  const handleLineDocUpload = async (docType, file) => {
 
-    e.preventDefault();
+    if (!file) return;
 
     setActionError(null);
 
-    if (!docForm.file) {
-
-      setActionError('Choose a file to upload (PDF, image, Word, etc.)');
-
-      return;
-
-    }
+    setDocUploading(docType);
 
     try {
 
-      await uploadDocument(docForm.file, {
+      await uploadDocument(file, {
 
         unitId: id,
 
         stepNumber: selected,
 
-        docType: docForm.docType,
+        docType,
 
-        label: docForm.label || TYPE_LABELS[docForm.docType],
+        label: TYPE_LABELS[docType],
 
         status: 'uploaded',
 
         uploadedBy: actor,
-
-      });
-
-      setDocForm((f) => ({ ...f, label: '', file: null }));
-
-    } catch (err) {
-
-      setActionError(err.message);
-
-    }
-
-  };
-
-
-
-  const handleAddComment = async (e) => {
-
-    e.preventDefault();
-
-    setActionError(null);
-
-    const text = commentText.trim();
-
-    if (!text) return;
-
-    try {
-
-      await addStepComment(selected, text);
-
-      setCommentText('');
-
-    } catch (err) {
-
-      setActionError(err.message);
-
-    }
-
-  };
-
-
-
-  const handleSaveFollowUp = async () => {
-
-    setActionError(null);
-
-    setSavingFollowUp(true);
-
-    try {
-
-      await updateStep(selected, {
-
-        nextAction: nextAction.trim(),
-
-        nextActionDate: nextActionDate || null,
 
       });
 
@@ -341,7 +281,53 @@ export default function UnitPipeline() {
 
     } finally {
 
-      setSavingFollowUp(false);
+      setDocUploading(null);
+
+    }
+
+  };
+
+
+
+  const handleSaveCommentAndDate = async (e) => {
+
+    e.preventDefault();
+
+    setActionError(null);
+
+    const text = commentText.trim();
+
+    if (!text || !nextActionDate) {
+
+      setActionError('Comment and next action date are required');
+
+      return;
+
+    }
+
+    setSavingCommentAndDate(true);
+
+    try {
+
+      await addStepComment(selected, text);
+
+      await updateStep(selected, {
+
+        nextAction: nextAction.trim(),
+
+        nextActionDate,
+
+      });
+
+      setCommentText('');
+
+    } catch (err) {
+
+      setActionError(err.message);
+
+    } finally {
+
+      setSavingCommentAndDate(false);
 
     }
 
@@ -573,17 +559,15 @@ export default function UnitPipeline() {
 
               <div style={{ borderLeft: '1px solid var(--ps-border)', paddingLeft: 24 }}>
 
-                <div className="ps-form-group">
+                <form onSubmit={handleSaveCommentAndDate}>
 
-                  <label>Comments</label>
+                  <div className="ps-form-group">
 
-                  <form onSubmit={handleAddComment}>
+                    <label>Comments *</label>
 
-                    <textarea rows={3} value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Log call notes, customer update, internal handoff…" />
+                    <textarea rows={3} required value={commentText} onChange={(e) => setCommentText(e.target.value)} disabled={stepRecord?.status === 'completed'} placeholder="Log call notes, customer update, internal handoff…" />
 
-                    <button type="submit" className="ps-btn ps-btn-primary" style={{ marginTop: 8 }} disabled={!commentText.trim()}>Add comment</button>
-
-                  </form>
+                  </div>
 
                   {(stepRecord?.comments || []).length === 0 ? (
 
@@ -615,8 +599,6 @@ export default function UnitPipeline() {
 
                   )}
 
-                </div>
-
 
 
                 <div className="ps-form-group">
@@ -631,19 +613,21 @@ export default function UnitPipeline() {
 
                 <div className="ps-form-group">
 
-                  <label>Next action date</label>
+                  <label>Next action date *</label>
 
-                  <input type="date" value={nextActionDate} onChange={(e) => setNextActionDate(e.target.value)} disabled={stepRecord?.status === 'completed'} />
+                  <input type="date" required value={nextActionDate} onChange={(e) => setNextActionDate(e.target.value)} disabled={stepRecord?.status === 'completed'} />
 
                 </div>
 
 
 
-                <button type="button" className="ps-btn ps-btn-primary" disabled={stepRecord?.status === 'completed' || savingFollowUp} onClick={handleSaveFollowUp}>
+                <button type="submit" className="ps-btn ps-btn-primary" disabled={stepRecord?.status === 'completed' || savingCommentAndDate || !commentText.trim() || !nextActionDate}>
 
-                  {savingFollowUp ? 'Saving…' : 'Save next action'}
+                  {savingCommentAndDate ? 'Saving…' : 'Save Comment and Date'}
 
                 </button>
+
+                </form>
 
 
 
@@ -715,67 +699,53 @@ export default function UnitPipeline() {
 
                       </div>
 
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+
                       {documentOpenUrl(doc) ? (
 
                         <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
 
                       ) : null}
 
+                      {stepRecord?.status !== 'completed' && (
+
+                        <label className="ps-btn" style={{ margin: 0, cursor: docUploading === type ? 'wait' : 'pointer' }}>
+
+                          {docUploading === type ? 'Uploading…' : 'Upload'}
+
+                          <input
+
+                            type="file"
+
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt"
+
+                            style={{ display: 'none' }}
+
+                            disabled={docUploading === type}
+
+                            onChange={(e) => {
+
+                              const f = e.target.files?.[0];
+
+                              if (f) handleLineDocUpload(type, f);
+
+                              e.target.value = '';
+
+                            }}
+
+                          />
+
+                        </label>
+
+                      )}
+
+                    </div>
+
                     </div>
 
                   );
 
                 })
-
-              )}
-
-              {stepRecord?.status !== 'completed' && stepDocTypes.length > 0 && (
-
-                <form onSubmit={handleDocUpload} style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--ps-border)' }}>
-
-                  <div className="ps-form-group">
-
-                    <label>Document type</label>
-
-                    <select value={docForm.docType} onChange={(e) => setDocForm((f) => ({ ...f, docType: e.target.value }))}>
-
-                      {stepDocTypes.map((t) => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
-
-                    </select>
-
-                  </div>
-
-                  <div className="ps-form-group">
-
-                    <label>Label (optional)</label>
-
-                    <input value={docForm.label} onChange={(e) => setDocForm((f) => ({ ...f, label: e.target.value }))} placeholder={TYPE_LABELS[docForm.docType]} />
-
-                  </div>
-
-                  <div className="ps-form-group">
-
-                    <label>File (PDF, image, Word…)</label>
-
-                    <input
-
-                      type="file"
-
-                      required
-
-                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt"
-
-                      onChange={(e) => setDocForm((f) => ({ ...f, file: e.target.files?.[0] || null }))}
-
-                    />
-
-                    {docForm.file && <div style={{ fontSize: '0.8rem', marginTop: 4, color: 'var(--ps-text-muted)' }}>{docForm.file.name}</div>}
-
-                  </div>
-
-                  <button type="submit" className="ps-btn ps-btn-primary">Save to document vault</button>
-
-                </form>
 
               )}
 
