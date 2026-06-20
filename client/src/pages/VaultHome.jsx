@@ -88,7 +88,14 @@ export default function VaultHome() {
   const [vaultFromApi, setVaultFromApi] = useState(() => ({ execution: '', pre: '' }));
   const [linkAgentTick, setLinkAgentTick] = useState(0);
   const [linkAgentLastSync, setLinkAgentLastSync] = useState('');
-  const v3Url = String(v3CustomUrl || '').trim() || '/app/org-planner';
+  const v3Url = '/app/org-planner';
+  useEffect(() => {
+    try {
+      window.localStorage.removeItem(V3_URL_LS_KEY);
+    } catch {
+      /* ignore */
+    }
+  }, []);
   const v2Url = String(v2CustomUrl || '').trim() || '/app/resource-planner';
   const cashflowBase = String(v1CustomUrl || '').trim() || '/legacy/GA_Cashflow_V1.html';
   const cashflowHref = withVersionParam(cashflowBase, 'v', cashflowVersion);
@@ -415,11 +422,6 @@ export default function VaultHome() {
             <div style={{ fontSize: 18, fontWeight: 700, marginTop: 6 }}>Project Acquisition</div>
             <p style={{ color: 'var(--muted)', fontSize: 13, margin: '10px 0 0', lineHeight: 1.45 }}>
               Org resource planner — opens in a synced frame. Data keys mirror API_Tool localStorage.
-            </p>
-            <p style={{ margin: '8px 0 0' }}>
-              <button type="button" onClick={() => setCustomDashboardUrl('V3 Project Acquisition', V3_URL_LS_KEY, setV3CustomUrl)} style={miniBtn}>
-                Set URL for this browser
-              </button>
             </p>
           </a> : null}
           {acl.v2 ? <a href={v2Url} target={isExternalUrl(v2Url) ? '_blank' : undefined} rel="noopener noreferrer" style={card}>

@@ -10,6 +10,8 @@ export default function LegacyAppShell({
   keysList,
   iframeSrc,
   workspaceBlobKey,
+  /** Bump when legacy HTML ships; busts browser cache for V3 plotting / project form updates. */
+  htmlCacheVersion,
   /** Off by default for V3 — periodic save was overwriting Mongo with stale 2-project tabs; server merge fixes that, but disabling avoids noise. */
   defaultAutoSave = true
 }) {
@@ -25,7 +27,8 @@ export default function LegacyAppShell({
     });
 
   /** e.g. `/v1/index.html` for React GA_Cashflow_V1 built with base `/v1/`; otherwise legacy single-file under `/legacy/`. */
-  const src = iframeSrc?.trim() || `/legacy/${encodeURI(htmlFile || '')}`;
+  const baseSrc = iframeSrc?.trim() || `/legacy/${encodeURI(htmlFile || '')}`;
+  const src = htmlCacheVersion ? `${baseSrc}${baseSrc.includes('?') ? '&' : '?'}v=${encodeURIComponent(htmlCacheVersion)}` : baseSrc;
   const statusColor = status?.level === 'err' ? '#b91c1c' : status?.level === 'ok' ? '#166534' : '#475569';
   const onIframeLoad = useCallback(() => {
     injectLegacyMobileCss(iframeRef.current);

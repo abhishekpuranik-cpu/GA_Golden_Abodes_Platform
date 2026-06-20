@@ -131,7 +131,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
 <div class="header">
   <div>
     <div class="logo">Golden Abodes <span>Planner</span></div>
-    <div class="logo-sub">Org · Resource · Cost — Live Planning Engine</div>
+    <div class="logo-sub" id="ga-v3-build-label">Org · Resource · Cost — Live Planning Engine</div>
   </div>
   <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-left:auto">
     <span class="ctrl-label">Scenario:</span>
@@ -187,6 +187,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
+var GA_V3_BUILD = '20260616.2';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1717,8 +1718,6 @@ function saveCustomRole(){
 // ── Project Planning + Financial Model ───────────────────────
 // ── Project Planning Tab ──────────────────────────────────────
 let expandedFinId = null;
-let editingProjId = null;
-let newProjToggle = true;
 var GA_DRAFT_PID = (function(){
   try{
     var u = new URL(window.location.href);
@@ -1795,28 +1794,6 @@ function renderProjFormFields(p,isNew){
   return html;
 }
 
-function saveProject(mode){
-  const data=collectProjectFromForm();
-  if(!data.name){alert('Project name is required.');return;}
-  if(mode==='new'){
-    const newId='P'+String(Date.now()).slice(-4);
-    PROJS.push(Object.assign({id:newId,on:true,rev:0,sqf:0,unt:0,slb:0,bkn:0,lds:0,trx:0,lab:0,cmp:0,mnt:0,startDate:'',endDate:''},data));
-    touchProjectModified(PROJS[PROJS.length-1]);
-    try { if (!ST.fin[newId]) ST.fin[newId] = {}; syncProjectToFin(PROJS[PROJS.length-1]); } catch (e) {}
-  } else {
-    const p=PROJS.find(x=>x.id===mode); if(!p) return;
-    Object.assign(p,data);
-    touchProjectModified(p);
-    syncProjectToFin(p);
-  }
-  editingProjId=null; initProjBtns();
-  // Auto-sync projects to Resource Planner
-  try{
-    localStorage.setItem("ga_rp_projects", JSON.stringify(PROJS.map(function(p){return Object.assign({},p);})));
-  }catch(e){}
-  renderAll();
-}
-
 var GA_V3_DELETE_CODE_KEY='ga_v3_project_delete_code';
 function getV3ProjectDeleteCode(){
   try{ return String(localStorage.getItem(GA_V3_DELETE_CODE_KEY)||''); }catch(e){ return ''; }
@@ -1854,7 +1831,7 @@ function deleteProject(id){
   delete ST.fin[id]; delete ST.dd[id];
   if(expandedFinId===id) expandedFinId=null;
   if(window.FUND_MILESTONES&&FUND_MILESTONES[id]) delete FUND_MILESTONES[id];
-  editingProjId=null; initProjBtns(); try{localStorage.setItem("ga_rp_projects",JSON.stringify(PROJS.map(function(p){return Object.assign({},p);})));}catch(e){}
+  initProjBtns(); try{localStorage.setItem("ga_rp_projects",JSON.stringify(PROJS.map(function(p){return Object.assign({},p);})));}catch(e){}
   renderAll();
 }
 
@@ -1920,7 +1897,7 @@ function saveProjectModal(){
     syncProjectToFin(px);
   }
   closeProjectModal();
-  editingProjId=null; initProjBtns();
+  initProjBtns();
   try{ localStorage.setItem('ga_rp_projects',JSON.stringify(PROJS.map(function(p){return Object.assign({},p);}))); }catch(e){}
   renderAll();
 }
@@ -1930,7 +1907,6 @@ function renderProjects(){
   const rows = list.map(p=>{
     const C = typeof finCalc==='function' ? finCalc(p.id) : {};
     const isExp = expandedFinId===p.id;
-    const isEd  = editingProjId===p.id;
     const stCol = projStatusColor(p.status);
     const stBg = STAB[p.status]||'#F0F1F3';
     return `
@@ -1958,40 +1934,20 @@ function renderProjects(){
             style="padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid #7A3205;background:transparent;color:#7A3205">
             ↗ Model (new tab)
           </button>
-          ${GA_IS_DRAFT_MODE ? '' : `<button onclick="editingProjId='${p.id}';expandedFinId=null;renderProjects()"
+          ${GA_IS_DRAFT_MODE ? '' : `<button onclick="openProjectModal('${p.id}')"
             style="padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;border:1.5px solid var(--border);background:transparent;color:var(--muted)">✎</button>
           <button onclick="deleteProject('${p.id}')"
             style="padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;border:1.5px solid var(--red);background:transparent;color:var(--red-b)">✕</button>`}
         </div>
       </td>
     </tr>
-    ${isExp?`<tr><td colspan="${PROJ_LIST_COLS}" style="padding:0">${typeof renderFinModel==='function'?renderFinModel(p.id):'<div style="padding:16px;color:var(--muted)">Financial model loading…</div>'}</td></tr>`:''}
-    ${isEd?`<tr><td colspan="${PROJ_LIST_COLS}" style="padding:12px;background:var(--blue-l)">
-      <div style="font-size:13px;font-weight:700;margin-bottom:10px">Edit: ${p.name}</div>
-      ${renderProjFormFields(p,false)}
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button onclick="saveProject('${p.id}')" style="padding:6px 16px;border-radius:7px;cursor:pointer;border:none;background:var(--blue);color:#fff;font-weight:700">Save</button>
-        <button onclick="editingProjId=null;renderProjects()" style="padding:6px 14px;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:transparent">Cancel</button>
-      </div>
-    </td></tr>`:''}`;
+    ${isExp?`<tr><td colspan="${PROJ_LIST_COLS}" style="padding:0">${typeof renderFinModel==='function'?renderFinModel(p.id):'<div style="padding:16px;color:var(--muted)">Financial model loading…</div>'}</td></tr>`:''}`;
   }).join('');
-
-  // Add new project form
-  const isAddNew = (!GA_IS_DRAFT_MODE) && editingProjId==='new';
-  const addForm = isAddNew ? `
-    <div style="background:var(--blue-l);border-radius:10px;padding:14px 16px;margin-top:12px;border:1px solid var(--blue)">
-      <div style="font-size:13px;font-weight:700;margin-bottom:10px">➕ Add new project</div>
-      ${renderProjFormFields({},true)}
-      <div style="display:flex;gap:8px;margin-top:10px">
-        <button onclick="saveProject('new')" style="padding:6px 16px;border-radius:7px;cursor:pointer;border:none;background:var(--blue);color:#fff;font-weight:700">Create project</button>
-        <button onclick="editingProjId=null;renderProjects()" style="padding:6px 14px;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:transparent">Cancel</button>
-      </div>
-    </div>` : '';
 
   document.getElementById('page-projects').innerHTML = `
   <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
     <div style="font-size:16px;font-weight:700">${GA_IS_DRAFT_MODE ? 'Project Planning — Draft Model View' : 'Project Planning'}</div>
-    ${GA_IS_DRAFT_MODE ? '<div style="font-size:11px;color:#92400E;background:#FFF3CD;border:1px solid #FDE68A;padding:4px 10px;border-radius:10px">Only this project is editable in this tab. Use Save & Close to publish.</div>' : `<button onclick="editingProjId='new';expandedFinId=null;renderProjects()"
+    ${GA_IS_DRAFT_MODE ? '<div style="font-size:11px;color:#92400E;background:#FFF3CD;border:1px solid #FDE68A;padding:4px 10px;border-radius:10px">Only this project is editable in this tab. Use Save & Close to publish.</div>' : `<button onclick="openProjectModal('new')"
       style="padding:7px 16px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;border:none;background:var(--blue);color:#fff">
       ➕ Add project
     </button>`}
@@ -2008,8 +1964,7 @@ function renderProjects(){
       </tr></thead>
       <tbody>${rows}</tbody>
     </table>
-  </div>
-  ${addForm}`;
+  </div>`;
 }
 
 function openModelDraftTab(pid){
@@ -5379,6 +5334,8 @@ function syncPlannerTabVisibility(){
 }
 
 try {
+  var _bl=document.getElementById('ga-v3-build-label');
+  if(_bl) _bl.textContent='Org · Resource · Cost — Live Planning Engine · build '+GA_V3_BUILD;
   initProjBtns();
   renderCloudBar();
   var _localTs = gaLoadLocal();
@@ -5392,7 +5349,6 @@ try {
   if (GA_IS_DRAFT_MODE && GA_DRAFT_PID) {
     _curTab = 'projects';
     expandedFinId = GA_DRAFT_PID;
-    editingProjId = null;
     renderProjects();
   }
   syncPlannerTabVisibility();
