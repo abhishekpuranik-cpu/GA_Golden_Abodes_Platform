@@ -12,7 +12,7 @@ import { useAssignees } from '../../hooks/postsales/useMyTasks.js';
 
 import { STEPS, PHASES, ESCALATION_MATRIX } from '../../data/postsales/steps.js';
 
-import { DOC_GROUPS, TYPE_LABELS, docTypesForStep } from '../../data/postsales/stepDocs.js';
+import { TYPE_LABELS, docTypesForStep } from '../../data/postsales/stepDocs.js';
 import { formatDueDate, formatSlaTarget, slaCountdown } from '../../lib/postSalesSla.js';
 import { getStepTaskKind, defaultAssigneeForKind, TASK_KINDS } from '../../data/postsales/taskKinds.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
@@ -49,25 +49,14 @@ function numClass(status) {
 
 
 
-const ACTION_LABELS = {
+const STEP_TABS = ['checklist', 'documents', 'details', 'escalation'];
 
-  assigned: 'Assigned',
-
-  started: 'Started',
-
+const TAB_LABELS = {
   checklist: 'Checklist',
-
-  document_uploaded: 'Document uploaded',
-
-  completed: 'Completed',
-
-  escalated: 'Escalated',
-
-  note: 'Note',
-
+  documents: 'Documents',
+  details: 'SOP details',
+  escalation: 'Escalation',
 };
-
-
 
 export default function UnitPipeline() {
 
@@ -94,12 +83,6 @@ export default function UnitPipeline() {
   const [notes, setNotes] = useState('');
 
   const [assignee, setAssignee] = useState('');
-
-  const [cxExecutive, setCxExecutive] = useState('');
-
-  const [backendExecutive, setBackendExecutive] = useState('');
-
-  const [savingExecs, setSavingExecs] = useState(false);
 
   const [actionError, setActionError] = useState(null);
 
@@ -135,16 +118,6 @@ export default function UnitPipeline() {
     setAssignee(rec?.assignedTo || defaultAssigneeForKind(unit, kind) || '');
 
   }, [selected, steps, unit?.crmExecutive, unit?.cxExecutive, unit?.backendExecutive]);
-
-
-
-  useEffect(() => {
-
-    setCxExecutive(unit?.cxExecutive || '');
-
-    setBackendExecutive(unit?.backendExecutive || '');
-
-  }, [unit?.cxExecutive, unit?.backendExecutive]);
 
 
 
@@ -235,32 +208,6 @@ export default function UnitPipeline() {
     } catch (e) {
 
       setActionError(e.message);
-
-    }
-
-  };
-
-
-
-  const handleSaveExecutives = async () => {
-
-    setActionError(null);
-
-    setSavingExecs(true);
-
-    try {
-
-      await postSalesApi.updateUnit(id, { cxExecutive, backendExecutive });
-
-      await refreshUnit();
-
-    } catch (e) {
-
-      setActionError(e.message);
-
-    } finally {
-
-      setSavingExecs(false);
 
     }
 
@@ -560,11 +507,11 @@ export default function UnitPipeline() {
 
           <div className="ps-tabs">
 
-            {['checklist', 'documents', 'details', 'activity', 'escalation'].map((t) => (
+            {STEP_TABS.map((t) => (
 
               <button key={t} type="button" className={`ps-tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
 
-                {t.charAt(0).toUpperCase() + t.slice(1)}
+                {TAB_LABELS[t] || t}
 
               </button>
 
@@ -580,45 +527,157 @@ export default function UnitPipeline() {
 
           {tab === 'checklist' && (
 
-            <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 360px)', gap: 24, alignItems: 'start' }}>
 
-              {stepDef?.fundingTypeSplit && (
+              <div>
 
-                <div className="ps-card" style={{ background: 'var(--ps-accent-soft)', marginBottom: 12 }}>
+                {stepDef?.fundingTypeSplit && (
 
-                  {fundingType === 'self_funded' ? 'Self-funded flow' : 'Home loan flow'}
+                  <div className="ps-card" style={{ background: 'var(--ps-accent-soft)', marginBottom: 12 }}>
+
+                    {fundingType === 'self_funded' ? 'Self-funded flow' : 'Home loan flow'}
+
+                  </div>
+
+                )}
+
+                <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>{doneCount}/{totalCheck} complete</div>
+
+                <div className="ps-progress"><div className="ps-progress-fill" style={{ width: totalCheck ? `${(doneCount / totalCheck) * 100}%` : '0%' }} /></div>
+
+                {(stepRecord?.checklist || []).map((item, i) => (
+
+                  <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 0', cursor: stepRecord?.status === 'completed' ? 'default' : 'pointer' }}>
+
+                    <input
+
+                      type="checkbox"
+
+                      checked={!!item.done}
+
+                      disabled={stepRecord?.status === 'completed'}
+
+                      onChange={(e) => toggleChecklist(selected, i, e.target.checked)}
+
+                    />
+
+                    <span style={{ textDecoration: item.done ? 'line-through' : 'none', color: item.done ? 'var(--ps-text-muted)' : 'inherit' }}>{item.item}</span>
+
+                  </label>
+
+                ))}
+
+              </div>
+
+
+
+              <div style={{ borderLeft: '1px solid var(--ps-border)', paddingLeft: 24 }}>
+
+                <div className="ps-form-group">
+
+                  <label>Comments</label>
+
+                  <form onSubmit={handleAddComment}>
+
+                    <textarea rows={3} value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Log call notes, customer update, internal handoff…" />
+
+                    <button type="submit" className="ps-btn ps-btn-primary" style={{ marginTop: 8 }} disabled={!commentText.trim()}>Add comment</button>
+
+                  </form>
+
+                  {(stepRecord?.comments || []).length === 0 ? (
+
+                    <div className="ps-empty" style={{ marginTop: 12, fontSize: '0.85rem' }}>No comments yet.</div>
+
+                  ) : (
+
+                    <div style={{ marginTop: 12, maxHeight: 220, overflow: 'auto' }}>
+
+                      {[...(stepRecord?.comments || [])].reverse().map((c, i) => (
+
+                        <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--ps-border)', fontSize: '0.85rem' }}>
+
+                          <div style={{ color: 'var(--ps-text-muted)', marginBottom: 4, fontSize: '0.75rem' }}>
+
+                            {c.at ? new Date(c.at).toLocaleString('en-IN') : ''}
+
+                            {c.by ? ` · ${c.by}` : ''}
+
+                          </div>
+
+                          <div>{c.text}</div>
+
+                        </div>
+
+                      ))}
+
+                    </div>
+
+                  )}
 
                 </div>
 
-              )}
 
-              <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>{doneCount}/{totalCheck} complete</div>
 
-              <div className="ps-progress"><div className="ps-progress-fill" style={{ width: totalCheck ? `${(doneCount / totalCheck) * 100}%` : '0%' }} /></div>
+                <div className="ps-form-group">
 
-              {(stepRecord?.checklist || []).map((item, i) => (
+                  <label>Next action</label>
 
-                <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 0', cursor: stepRecord?.status === 'completed' ? 'default' : 'pointer' }}>
+                  <textarea rows={2} value={nextAction} onChange={(e) => setNextAction(e.target.value)} disabled={stepRecord?.status === 'completed'} placeholder="What needs to happen next?" />
 
-                  <input
+                </div>
 
-                    type="checkbox"
 
-                    checked={!!item.done}
 
-                    disabled={stepRecord?.status === 'completed'}
+                <div className="ps-form-group">
 
-                    onChange={(e) => toggleChecklist(selected, i, e.target.checked)}
+                  <label>Next action date</label>
 
-                  />
+                  <input type="date" value={nextActionDate} onChange={(e) => setNextActionDate(e.target.value)} disabled={stepRecord?.status === 'completed'} />
 
-                  <span style={{ textDecoration: item.done ? 'line-through' : 'none', color: item.done ? 'var(--ps-text-muted)' : 'inherit' }}>{item.item}</span>
+                </div>
 
-                </label>
 
-              ))}
 
-            </>
+                <button type="button" className="ps-btn ps-btn-primary" disabled={stepRecord?.status === 'completed' || savingFollowUp} onClick={handleSaveFollowUp}>
+
+                  {savingFollowUp ? 'Saving…' : 'Save next action'}
+
+                </button>
+
+
+
+                <div className="ps-form-group" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--ps-border)' }}>
+
+                  <label>Assignee ({stepKindMeta.shortLabel})</label>
+
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+
+                    <select value={assignee} onChange={(e) => setAssignee(e.target.value)} disabled={stepRecord?.status === 'completed'} style={{ flex: 1, minWidth: 160 }}>
+
+                      <option value="">— Select person —</option>
+
+                      {suggestedAssignees.map((a) => <option key={a.id} value={a.name || a.email || a.id}>{a.label}</option>)}
+
+                      {assignee && !suggestedAssignees.some((a) => (a.name || a.email || a.id) === assignee) && (
+
+                        <option value={assignee}>{assignee}</option>
+
+                      )}
+
+                    </select>
+
+                    <button type="button" className="ps-btn" disabled={stepRecord?.status === 'completed'} onClick={handleUseDefaultAssignee}>Default</button>
+
+                    <button type="button" className="ps-btn" disabled={stepRecord?.status === 'completed'} onClick={handleAssign}>Save</button>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+            </div>
 
           )}
 
@@ -728,213 +787,95 @@ export default function UnitPipeline() {
 
 
 
-          {tab === 'details' && (
+          {tab === 'details' && stepDef && (
 
-            <div style={{ fontSize: '0.9rem', lineHeight: 1.8 }}>
+            <div style={{ fontSize: '0.9rem' }}>
 
-              <div><strong>Trigger:</strong> {stepDef?.triggerEvent}</div>
+              <p style={{ marginTop: 0, color: 'var(--ps-text-muted)', fontSize: '0.85rem' }}>
 
-              <div><strong>Default role:</strong> {stepDef?.assignedRole}</div>
+                Standard operating procedure for this pipeline step — reference only.
 
-              <div><strong>SLA target (SOP):</strong> {formatSlaTarget(stepDef)}</div>
+              </p>
 
-              <div><strong>Due date:</strong> {formatDueDate(stepRecord?.dueDate)} {slaInfo ? `(${slaInfo.label})` : ''}</div>
+              <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 160px) 1fr', gap: '10px 16px', lineHeight: 1.5 }}>
 
-              {stepDef?.blockedBy?.length > 0 && (
+                <dt style={{ color: 'var(--ps-text-muted)' }}>Phase</dt>
 
-                <div><strong>Blocked by steps:</strong> {stepDef.blockedBy.join(', ')}</div>
+                <dd style={{ margin: 0 }}>{PHASES[stepDef.phase]?.label || stepDef.phase}</dd>
 
-              )}
 
-              <div className="ps-form-group" style={{ marginTop: 12 }}>
 
-                <label>Assign to ({stepKindMeta.shortLabel} — {stepKindMeta.roleHint})</label>
+                <dt style={{ color: 'var(--ps-text-muted)' }}>Work type</dt>
 
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <dd style={{ margin: 0 }}>{stepKindMeta.label}</dd>
 
-                  <select value={assignee} onChange={(e) => setAssignee(e.target.value)} disabled={stepRecord?.status === 'completed'} style={{ flex: 1, minWidth: 200 }}>
 
-                    <option value="">— Select person —</option>
 
-                    {suggestedAssignees.map((a) => <option key={a.id} value={a.name || a.email || a.id}>{a.label}</option>)}
+                <dt style={{ color: 'var(--ps-text-muted)' }}>Trigger</dt>
 
-                    {assignee && !suggestedAssignees.some((a) => (a.name || a.email || a.id) === assignee) && (
-                      <option value={assignee}>{assignee}</option>
-                    )}
+                <dd style={{ margin: 0 }}>{stepDef.triggerEvent || '—'}</dd>
 
-                  </select>
 
-                  <button type="button" className="ps-btn" disabled={stepRecord?.status === 'completed'} onClick={handleUseDefaultAssignee}>
-                    Use default
-                  </button>
 
-                  <button type="button" className="ps-btn ps-btn-primary" disabled={stepRecord?.status === 'completed'} onClick={handleAssign}>Save assignee</button>
+                <dt style={{ color: 'var(--ps-text-muted)' }}>Default role</dt>
 
-                </div>
+                <dd style={{ margin: 0 }}>{stepDef.assignedRole || '—'}</dd>
 
-              </div>
 
-              <div className="ps-form-group" style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--ps-border)' }}>
 
-                <label>Unit executives (defaults for auto-assign)</label>
+                <dt style={{ color: 'var(--ps-text-muted)' }}>SLA target</dt>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <dd style={{ margin: 0 }}>{formatSlaTarget(stepDef)}</dd>
 
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: TASK_KINDS.cx.color, marginBottom: 4 }}>CX executive</div>
-                    <input value={cxExecutive} onChange={(e) => setCxExecutive(e.target.value)} placeholder={unit.crmExecutive || 'Name or email'} />
-                  </div>
 
-                  <div>
-                    <div style={{ fontSize: '0.75rem', color: TASK_KINDS.backend.color, marginBottom: 4 }}>Backend executive</div>
-                    <input value={backendExecutive} onChange={(e) => setBackendExecutive(e.target.value)} placeholder={unit.crmExecutive || 'Name or email'} />
-                  </div>
 
-                </div>
+                {stepDef.blockedBy?.length > 0 && (
 
-                <button type="button" className="ps-btn ps-btn-primary" style={{ marginTop: 8 }} disabled={savingExecs} onClick={handleSaveExecutives}>
-                  {savingExecs ? 'Saving…' : 'Save executives'}
-                </button>
+                  <>
 
-              </div>
+                    <dt style={{ color: 'var(--ps-text-muted)' }}>Prerequisites</dt>
 
-              <div className="ps-form-group" style={{ marginTop: 12 }}>
+                    <dd style={{ margin: 0 }}>Complete step(s) {stepDef.blockedBy.join(', ')} before starting</dd>
 
-                <label>Notes</label>
-
-                <textarea rows={4} value={notes} onChange={(e) => setNotes(e.target.value)} disabled={stepRecord?.status === 'completed'} />
-
-              </div>
-
-            </div>
-
-          )}
-
-
-
-          {tab === 'activity' && (
-
-            <>
-
-              <div className="ps-card" style={{ marginBottom: 16, background: 'var(--ps-accent-soft)' }}>
-
-                <h4 style={{ marginTop: 0 }}>Next action</h4>
-
-                <div className="ps-form-group">
-
-                  <label>Next action</label>
-
-                  <textarea rows={2} value={nextAction} onChange={(e) => setNextAction(e.target.value)} disabled={stepRecord?.status === 'completed'} placeholder="What needs to happen next?" />
-
-                </div>
-
-                <div className="ps-form-group">
-
-                  <label>Next action date</label>
-
-                  <input type="date" value={nextActionDate} onChange={(e) => setNextActionDate(e.target.value)} disabled={stepRecord?.status === 'completed'} />
-
-                </div>
-
-                <button type="button" className="ps-btn ps-btn-primary" disabled={stepRecord?.status === 'completed' || savingFollowUp} onClick={handleSaveFollowUp}>
-
-                  {savingFollowUp ? 'Saving…' : 'Save next action'}
-
-                </button>
-
-              </div>
-
-
-
-              <div className="ps-card" style={{ marginBottom: 16 }}>
-
-                <h4 style={{ marginTop: 0 }}>Comments</h4>
-
-                <form onSubmit={handleAddComment}>
-
-                  <div className="ps-form-group">
-
-                    <label>Add comment</label>
-
-                    <textarea rows={3} value={commentText} onChange={(e) => setCommentText(e.target.value)} placeholder="Log call notes, customer update, internal handoff…" />
-
-                  </div>
-
-                  <button type="submit" className="ps-btn ps-btn-primary" disabled={!commentText.trim()}>Add comment</button>
-
-                </form>
-
-                {(stepRecord?.comments || []).length === 0 && (
-
-                  <div className="ps-empty" style={{ marginTop: 12 }}>No comments yet.</div>
+                  </>
 
                 )}
 
-                {[...(stepRecord?.comments || [])].reverse().map((c, i) => (
 
-                  <div key={i} style={{ padding: '10px 0', borderBottom: '1px solid var(--ps-border)', fontSize: '0.85rem' }}>
 
-                    <div style={{ color: 'var(--ps-text-muted)', marginBottom: 4 }}>
+                {stepDef.escalation && (
 
-                      {c.at ? new Date(c.at).toLocaleString('en-IN') : ''}
+                  <>
 
-                      {c.by ? ` · ${c.by}` : ''}
+                    <dt style={{ color: 'var(--ps-text-muted)' }}>Escalation</dt>
 
-                    </div>
+                    <dd style={{ margin: 0 }}>{ESCALATION_MATRIX[stepDef.escalation]?.label || stepDef.escalation}</dd>
 
-                    <div>{c.text}</div>
+                  </>
 
-                  </div>
+                )}
 
-                ))}
-
-              </div>
+              </dl>
 
 
 
-              <h4>Activity log</h4>
+              {stepDef.checklist?.length > 0 && (
 
-              {stepRecord?.completedDate && (
+                <div style={{ marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--ps-border)' }}>
 
-                <div className="ps-card" style={{ background: 'var(--ps-success-bg)', borderColor: '#a7f3d0' }}>
+                  <strong>SOP checklist ({stepDef.checklist.length} items)</strong>
 
-                  <strong>Step completed</strong>
+                  <ul style={{ margin: '8px 0 0', paddingLeft: 20, color: 'var(--ps-text-muted)', fontSize: '0.85rem' }}>
 
-                  <div style={{ fontSize: '0.85rem' }}>
+                    {stepDef.checklist.map((item, i) => <li key={i}>{item}</li>)}
 
-                    {new Date(stepRecord.completedDate).toLocaleString('en-IN')}
-
-                    {stepRecord.completedBy ? ` · ${stepRecord.completedBy}` : ''}
-
-                  </div>
+                  </ul>
 
                 </div>
 
               )}
 
-              {(stepRecord?.activityLog || []).length === 0 && !stepRecord?.completedDate && (
-
-                <div className="ps-empty">No activity logged yet.</div>
-
-              )}
-
-              {[...(stepRecord?.activityLog || [])].reverse().map((entry, i) => (
-
-                <div key={i} style={{ padding: '8px 0', borderBottom: '1px solid var(--ps-border)', fontSize: '0.85rem' }}>
-
-                  <strong>{ACTION_LABELS[entry.action] || entry.action}</strong>
-
-                  <span style={{ color: 'var(--ps-text-muted)', marginLeft: 8 }}>{entry.at ? new Date(entry.at).toLocaleString('en-IN') : ''}</span>
-
-                  {entry.by && <span style={{ marginLeft: 8 }}>· {entry.by}</span>}
-
-                  {entry.detail && <div style={{ color: 'var(--ps-text-muted)', marginTop: 2 }}>{entry.detail}</div>}
-
-                </div>
-
-              ))}
-
-            </>
+            </div>
 
           )}
 
@@ -974,7 +915,15 @@ export default function UnitPipeline() {
 
           {stepRecord?.status !== 'completed' && (
 
-            <div style={{ display: 'flex', gap: 10, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--ps-border)' }}>
+            <div style={{ display: 'flex', gap: 10, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--ps-border)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+
+              <div className="ps-form-group" style={{ flex: '1 1 240px', marginBottom: 0 }}>
+
+                <label>Completion notes (optional)</label>
+
+                <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Brief note when marking complete" />
+
+              </div>
 
               <button type="button" className="ps-btn ps-btn-primary" onClick={handleComplete}>Mark complete</button>
 
