@@ -136,14 +136,36 @@ router.get('/assignees', async (_req, res) => {
   }
 });
 
-async function fetchOpenTasks(query, { assigneeNeedles: needles, taskKind } = {}) {
+async function fetchOpenTasks(query, { assigneeNeedles: needles, taskKind, includeExecutiveSteps = false } = {}) {
   const filteredUnitIds = await matchingUnitIds(query);
   const stepFilter = {
     status: { $in: ['pending', 'in_progress', 'overdue'] },
-    assignedTo: { $exists: true, $nin: ['', null] },
   };
-  if (needles?.length) stepFilter.$or = buildAssigneeOr(needles);
   if (filteredUnitIds) stepFilter.unitId = { $in: filteredUnitIds };
+
+  let unitMap = {};
+
+  if (includeExecutiveSteps && needles?.length) {
+    const execFilter = {};
+    if (filteredUnitIds) execFilter._id = { $in: filteredUnitIds };
+    execFilter.$or = needles.flatMap((n) => [
+      { cxExecutive: new RegExp(`^${escapeRegex(n)}$`, 'i') },
+      { backendExecutive: new RegExp(`^${escapeRegex(n)}$`, 'i') },
+      { crmExecutive: new RegExp(`^${escapeRegex(n)}$`, 'i') },
+    ]);
+    const execUnits = await Unit.find(execFilter).populate('customerId').lean();
+    for (const u of execUnits) unitMap[String(u._id)] = u;
+    const execUnitIds = execUnits.map((u) => u._id);
+
+    stepFilter.$or = [
+      ...buildAssigneeOr(needles),
+      ...(execUnitIds.length ? [{ unitId: { $in: execUnitIds } }] : []),
+    ];
+  } else {
+    stepFilter.assignedTo = { $exists: true, $nin: ['', null] };
+    if (needles?.length) stepFilter.$or = buildAssigneeOr(needles);
+  }
+
   if (taskKind === 'cx' || taskKind === 'backend') {
     stepFilter.$and = [
       {
@@ -158,19 +180,44 @@ async function fetchOpenTasks(query, { assigneeNeedles: needles, taskKind } = {}
   }
 
   let steps = await PipelineStep.find(stepFilter).lean();
-
   await backfillStepTaskKinds(steps, PipelineStep);
 
-  if (taskKind === 'cx' || taskKind === 'backend') {
+  const missingUnitIds = [...new Set(steps.map((s) => String(s.unitId)))].filter((id) => !unitMap[id]);
+  if (missingUnitIds.length) {
+    const units = await Unit.find({ _id: { $in: missingUnitIds } }).populate('customerId').lean();
+    for (const u of units) unitMap[String(u._id)] = u;
+  }
+
+  if (includeExecutiveSteps && needles?.length) {
+    steps = steps.filter((s) => {
+      const kind = s.taskKind || getStepTaskKind(s.stepNumber);
+      if (taskKind === 'cx' || taskKind === 'backend') {
+        if (kind !== taskKind) return false;
+      }
+      const u = unitMap[String(s.unitId)];
+      if (!u) return false;
+      const assignedMatch = needles.some(
+        (n) => s.assignedTo && new RegExp(`^${escapeRegex(n)}$`, 'i').test(String(s.assignedTo))
+      );
+      if (assignedMatch) return true;
+      const isCxExec = needles.some(
+        (n) => u.cxExecutive && new RegExp(`^${escapeRegex(n)}$`, 'i').test(String(u.cxExecutive))
+      );
+      const isBackendExec = needles.some(
+        (n) => u.backendExecutive && new RegExp(`^${escapeRegex(n)}$`, 'i').test(String(u.backendExecutive))
+      );
+      const isCrmExec = needles.some(
+        (n) => u.crmExecutive && new RegExp(`^${escapeRegex(n)}$`, 'i').test(String(u.crmExecutive))
+      );
+      if (kind === 'cx' && (isCxExec || isCrmExec)) return true;
+      if (kind === 'backend' && (isBackendExec || isCrmExec)) return true;
+      return false;
+    });
+  } else if (taskKind === 'cx' || taskKind === 'backend') {
     steps = steps.filter((s) => (s.taskKind || getStepTaskKind(s.stepNumber)) === taskKind);
   }
 
   steps = sortTasksByFollowUp(steps);
-
-  const stepUnitIds = [...new Set(steps.map((s) => String(s.unitId)))];
-  const units = await Unit.find({ _id: { $in: stepUnitIds } }).populate('customerId').lean();
-  const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));
-
   return { tasks: steps.map((s) => mapStepToTask(s, unitMap)), unitMap };
 }
 
@@ -183,12 +230,19 @@ router.get('/my', async (req, res) => {
     if (!needles.length) return res.status(401).json({ error: 'Authentication required' });
 
     const taskKind = String(req.query.taskKind || '').trim();
-    const { tasks } = await fetchOpenTasks(req.query, { assigneeNeedles: needles, taskKind: taskKind || undefined });
+    const { tasks } = await fetchOpenTasks(req.query, {
+      assigneeNeedles: needles,
+      taskKind: taskKind || undefined,
+      includeExecutiveSteps: true,
+    });
 
     let cxCount;
     let backendCount;
     if (taskKind) {
-      const { tasks: allTasks } = await fetchOpenTasks(req.query, { assigneeNeedles: needles });
+      const { tasks: allTasks } = await fetchOpenTasks(req.query, {
+        assigneeNeedles: needles,
+        includeExecutiveSteps: true,
+      });
       cxCount = allTasks.filter((t) => t.taskKind === 'cx').length;
       backendCount = allTasks.filter((t) => t.taskKind === 'backend').length;
     } else {

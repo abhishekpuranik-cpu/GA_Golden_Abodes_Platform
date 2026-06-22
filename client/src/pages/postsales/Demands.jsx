@@ -21,10 +21,24 @@ function payBadge(status) {
 }
 
 function rowAmounts(d) {
-  const due = d.dueAmount ?? d.totalAmount ?? 0;
-  const received = d.receivedAmount ?? d.paidAmount ?? 0;
-  const pending = d.pendingAmount ?? Math.max(0, due - received);
-  return { due, received, pending };
+  const agreementDue = Number(d.demandAmount) || Math.max(0, (Number(d.totalAmount) || 0) - (Number(d.gstAmount) || 0));
+  const gstDue = Number(d.gstAmount) || Math.round(agreementDue * 0.05);
+  const totalDue = Number(d.totalAmount) || agreementDue + gstDue;
+  const received = Number(d.receivedAmount ?? d.paidAmount ?? 0);
+  const ratio = totalDue > 0 ? Math.min(1, received / totalDue) : 0;
+  const agreementReceived = Math.min(agreementDue, Math.round(agreementDue * ratio));
+  const gstReceived = Math.min(gstDue, received - agreementReceived);
+  return {
+    agreementDue,
+    gstDue,
+    agreementReceived,
+    gstReceived,
+    agreementPending: Math.max(0, agreementDue - agreementReceived),
+    gstPending: Math.max(0, gstDue - gstReceived),
+    due: totalDue,
+    received,
+    pending: Math.max(0, totalDue - received),
+  };
 }
 
 const STATUS_FILTERS = [
@@ -67,7 +81,7 @@ export default function Demands() {
     const map = new Map();
     for (const d of filtered) {
       const key = `${d.project}|${d.unitNumber}`;
-      const { due, received, pending } = rowAmounts(d);
+      const { agreementDue, gstDue, agreementReceived, gstReceived, agreementPending, gstPending } = rowAmounts(d);
       if (!map.has(key)) {
         map.set(key, {
           key,
@@ -77,23 +91,29 @@ export default function Demands() {
           customerName: d.customerName,
           location: [d.phase, d.building].filter(Boolean).join(' · '),
           entity: d.entity,
-          due: 0,
-          received: 0,
-          pending: 0,
+          agreementDue: 0,
+          agreementReceived: 0,
+          agreementPending: 0,
+          gstDue: 0,
+          gstReceived: 0,
+          gstPending: 0,
           milestones: [],
           worstStatus: d.paymentStatus,
         });
       }
       const g = map.get(key);
-      g.due += due;
-      g.received += received;
-      g.pending += pending;
+      g.agreementDue += agreementDue;
+      g.agreementReceived += agreementReceived;
+      g.agreementPending += agreementPending;
+      g.gstDue += gstDue;
+      g.gstReceived += gstReceived;
+      g.gstPending += gstPending;
       g.milestones.push(d);
       if (d.paymentStatus === 'overdue') g.worstStatus = 'overdue';
       else if (d.paymentStatus === 'partial' && g.worstStatus !== 'overdue') g.worstStatus = 'partial';
       else if (d.paymentStatus === 'pending' && !['overdue', 'partial'].includes(g.worstStatus)) g.worstStatus = 'pending';
     }
-    return [...map.values()].sort((a, b) => b.pending - a.pending || a.project.localeCompare(b.project));
+    return [...map.values()].sort((a, b) => b.agreementPending + b.gstPending - (a.agreementPending + a.gstPending) || a.project.localeCompare(b.project));
   }, [filtered]);
 
   const counts = useMemo(() => ({
@@ -274,17 +294,21 @@ export default function Demands() {
                 <th style={{ width: 36 }} />
                 <th>Unit</th>
                 <th>Location</th>
-                <th className="ps-num">Due</th>
-                <th className="ps-num">Received</th>
-                <th className="ps-num">Pending</th>
+                <th className="ps-num">Agreement due</th>
+                <th className="ps-num">Agreement recd</th>
+                <th className="ps-num">Agreement pending</th>
+                <th className="ps-num">GST due</th>
+                <th className="ps-num">GST recd</th>
+                <th className="ps-num">GST pending</th>
                 <th>Status</th>
-                <th>Collection</th>
               </tr>
             </thead>
             <tbody>
               {unitGroups.map((g) => {
                 const open = expanded.has(g.key);
-                const pct = fmtPct(g.due, g.received);
+                const totalDue = g.agreementDue + g.gstDue;
+                const totalReceived = g.agreementReceived + g.gstReceived;
+                const pct = fmtPct(totalDue, totalReceived);
                 return (
                   <Fragment key={g.key}>
                     <tr className="ps-demand-unit-row" onClick={() => toggleExpand(g.key)}>
@@ -294,19 +318,16 @@ export default function Demands() {
                         <div className="ps-demands-meta">{g.project} · {g.customerName || '—'}</div>
                       </td>
                       <td style={{ fontSize: '0.85rem', color: 'var(--ps-text-muted)' }}>{g.location || '—'}</td>
-                      <td className="ps-num"><strong>{fmt(g.due)}</strong></td>
-                      <td className="ps-num" style={{ color: 'var(--ps-success)' }}>{fmt(g.received)}</td>
-                      <td className="ps-num" style={{ color: g.pending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(g.pending)}</td>
+                      <td className="ps-num"><strong>{fmt(g.agreementDue)}</strong></td>
+                      <td className="ps-num" style={{ color: 'var(--ps-success)' }}>{fmt(g.agreementReceived)}</td>
+                      <td className="ps-num" style={{ color: g.agreementPending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(g.agreementPending)}</td>
+                      <td className="ps-num"><strong>{fmt(g.gstDue)}</strong></td>
+                      <td className="ps-num" style={{ color: 'var(--ps-success)' }}>{fmt(g.gstReceived)}</td>
+                      <td className="ps-num" style={{ color: g.gstPending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(g.gstPending)}</td>
                       <td><span className={payBadge(g.worstStatus)}>{g.worstStatus}</span></td>
-                      <td style={{ minWidth: 120 }}>
-                        <div className="ps-progress">
-                          <div className="ps-progress-fill" style={{ width: `${pct}%` }} />
-                        </div>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)' }}>{pct}% · {g.milestones.length} milestone{g.milestones.length !== 1 ? 's' : ''}</span>
-                      </td>
                     </tr>
                     {open && g.milestones.map((d) => {
-                      const { due, received, pending } = rowAmounts(d);
+                      const a = rowAmounts(d);
                       return (
                         <tr key={d._id} className="ps-demand-detail-row">
                           <td />
@@ -317,11 +338,15 @@ export default function Demands() {
                               {d.dueDate ? ` · due ${new Date(d.dueDate).toLocaleDateString('en-IN')}` : ''}
                             </div>
                           </td>
-                          <td className="ps-num">{fmt(due)}</td>
-                          <td className="ps-num">{fmt(received)}</td>
-                          <td className="ps-num">{fmt(pending)}</td>
-                          <td><span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span></td>
+                          <td className="ps-num">{fmt(a.agreementDue)}</td>
+                          <td className="ps-num">{fmt(a.agreementReceived)}</td>
+                          <td className="ps-num">{fmt(a.agreementPending)}</td>
+                          <td className="ps-num">{fmt(a.gstDue)}</td>
+                          <td className="ps-num">{fmt(a.gstReceived)}</td>
+                          <td className="ps-num">{fmt(a.gstPending)}</td>
                           <td>
+                            <span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span>
+                            <div style={{ marginTop: 6 }}>
                             {payForm?.id === d._id ? (
                               <div className="ps-inline-form" onClick={(e) => e.stopPropagation()}>
                                 <input type="number" value={payForm.paidAmount} onChange={(e) => setPayForm((f) => ({ ...f, paidAmount: Number(e.target.value) }))} />
@@ -333,6 +358,7 @@ export default function Demands() {
                                 Update received
                               </button>
                             )}
+                            </div>
                           </td>
                         </tr>
                       );
@@ -352,9 +378,12 @@ export default function Demands() {
               <tr>
                 <th>Unit</th>
                 <th>Milestone</th>
-                <th className="ps-num">Due</th>
-                <th className="ps-num">Received</th>
-                <th className="ps-num">Pending</th>
+                <th className="ps-num">Agmt due</th>
+                <th className="ps-num">Agmt rcvd</th>
+                <th className="ps-num">Agmt pend</th>
+                <th className="ps-num">GST due</th>
+                <th className="ps-num">GST rcvd</th>
+                <th className="ps-num">GST pend</th>
                 <th>Due date</th>
                 <th>Status</th>
                 <th />
@@ -362,7 +391,7 @@ export default function Demands() {
             </thead>
             <tbody>
               {filtered.map((d) => {
-                const { due, received, pending } = rowAmounts(d);
+                const a = rowAmounts(d);
                 return (
                   <tr key={d._id}>
                     <td>
@@ -373,9 +402,12 @@ export default function Demands() {
                       {d.milestoneName}
                       <div className="ps-demands-meta">CLP {d.clpPercent || '—'}%</div>
                     </td>
-                    <td className="ps-num">{fmt(due)}</td>
-                    <td className="ps-num" style={{ color: 'var(--ps-success)' }}>{fmt(received)}</td>
-                    <td className="ps-num" style={{ color: pending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(pending)}</td>
+                    <td className="ps-num">{fmt(a.agreementDue)}</td>
+                    <td className="ps-num" style={{ color: 'var(--ps-success)' }}>{fmt(a.agreementReceived)}</td>
+                    <td className="ps-num" style={{ color: a.agreementPending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(a.agreementPending)}</td>
+                    <td className="ps-num">{fmt(a.gstDue)}</td>
+                    <td className="ps-num" style={{ color: 'var(--ps-success)' }}>{fmt(a.gstReceived)}</td>
+                    <td className="ps-num" style={{ color: a.gstPending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(a.gstPending)}</td>
                     <td style={{ fontSize: '0.85rem' }}>{d.dueDate ? new Date(d.dueDate).toLocaleDateString('en-IN') : '—'}</td>
                     <td><span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span></td>
                     <td>

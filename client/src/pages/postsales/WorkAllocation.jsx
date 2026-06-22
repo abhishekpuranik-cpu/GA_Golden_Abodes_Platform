@@ -135,7 +135,7 @@ export default function WorkAllocation() {
     try {
       const result = await fn(scopeBody());
       setMessage(typeof result?.stepsUpdated === 'number'
-        ? `Updated ${result.stepsUpdated} step(s).`
+        ? `Assigned ${result.assignedTo} to ${result.stepsUpdated} open ${result.taskKind === 'backend' ? 'backend' : 'CX'} step(s). Check My Tasks if you assigned yourself.`
         : `Updated ${result.modified ?? result.matched ?? 0} unit(s).`);
     } catch (e) {
       setMessage(e.message);

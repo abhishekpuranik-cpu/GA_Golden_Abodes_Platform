@@ -15,11 +15,19 @@ export default function PostSalesLayout() {
   }, []);
 
   useEffect(() => {
+    const cached = sessionStorage.getItem('ps_sync_note');
+    if (cached) {
+      setSyncNote(cached);
+      setSyncing(false);
+      return;
+    }
     setSyncing(true);
     postSalesApi.getSyncPreferences()
       .then((prefs) => {
         if (prefs.autoSyncUnitsOnLoad === false && prefs.autoSyncDemandsOnLoad === false) {
-          setSyncNote('Auto-sync paused — use Upload CRM data on Units for daily intake.');
+          const note = 'Auto-sync paused — use Upload CRM data on Units for daily intake.';
+          setSyncNote(note);
+          sessionStorage.setItem('ps_sync_note', note);
           return null;
         }
         return postSalesApi.bootstrap({ syncUnits: prefs.autoSyncUnitsOnLoad !== false, syncDemands: prefs.autoSyncDemandsOnLoad !== false });
@@ -27,15 +35,23 @@ export default function PostSalesLayout() {
       .then((r) => {
         if (!r) return;
         if (r.skipped?.length) {
-          setSyncNote(`Auto-sync paused (${r.skipped.join(', ')}). Import units manually or use Sync from Cashflow V1 on Units.`);
+          const note = `Auto-sync paused (${r.skipped.join(', ')}). Import units manually or use Sync from Cashflow V1 on Units.`;
+          setSyncNote(note);
+          sessionStorage.setItem('ps_sync_note', note);
           return;
         }
         const parts = [];
         if (r.units?.ok) parts.push(`${r.units.updated || 0} units linked from Cashflow V1`);
         if (r.demands?.ok) parts.push(`${(r.demands.created || 0) + (r.demands.updated || 0)} collection rows refreshed`);
-        setSyncNote(parts.length ? parts.join(' · ') : 'Ready');
+        const note = parts.length ? parts.join(' · ') : 'Ready';
+        setSyncNote(note);
+        sessionStorage.setItem('ps_sync_note', note);
       })
-      .catch((e) => setSyncNote(e.message || 'Sync skipped'))
+      .catch((e) => {
+        const note = e.message || 'Sync skipped';
+        setSyncNote(note);
+        sessionStorage.setItem('ps_sync_note', note);
+      })
       .finally(() => setSyncing(false));
   }, []);
 

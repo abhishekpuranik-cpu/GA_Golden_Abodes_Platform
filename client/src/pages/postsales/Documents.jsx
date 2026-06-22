@@ -1,8 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { Link } from 'react-router-dom';
-
-import { useUnits } from '../../hooks/postsales/useUnits.js';
 
 import { useDocuments } from '../../hooks/postsales/useDocuments.js';
 
@@ -29,18 +27,30 @@ function statusBadge(status) {
 
 export default function Documents() {
 
-  const { units, loading: unitsLoading } = useUnits({});
-
+  const [units, setUnits] = useState([]);
+  const [unitsLoading, setUnitsLoading] = useState(true);
   const [selectedUnit, setSelectedUnit] = useState('');
-
+  const [unitSearch, setUnitSearch] = useState('');
+  const [docSearch, setDocSearch] = useState('');
   const [showUpload, setShowUpload] = useState(false);
-
   const [uploadForm, setUploadForm] = useState({ docType: 'booking_form', status: 'uploaded', label: '', file: null });
   const [uploadError, setUploadError] = useState(null);
+  const [lineUploading, setLineUploading] = useState(null);
 
+  useEffect(() => {
+    postSalesApi.listUnitsLite()
+      .then(setUnits)
+      .catch(() => setUnits([]))
+      .finally(() => setUnitsLoading(false));
+  }, []);
 
+  const filteredUnits = useMemo(() => {
+    const q = unitSearch.trim().toLowerCase();
+    if (!q) return units;
+    return units.filter((u) => [u.unitNumber, u.project, u.customerName, u.phase, u.building].filter(Boolean).join(' ').toLowerCase().includes(q));
+  }, [units, unitSearch]);
 
-  const unitId = selectedUnit || units[0]?._id;
+  const unitId = selectedUnit || filteredUnits[0]?._id;
 
   const { documents, loading, error, uploadDocument } = useDocuments(unitId);
 
@@ -67,6 +77,39 @@ export default function Documents() {
     return m;
 
   }, [documents]);
+
+
+
+  const visibleGroups = useMemo(() => {
+    const q = docSearch.trim().toLowerCase();
+    if (!q) return DOC_GROUPS;
+    return DOC_GROUPS.map((group) => ({
+      ...group,
+      types: group.types.filter((type) => {
+        const label = TYPE_LABELS[type] || type;
+        return label.toLowerCase().includes(q) || type.includes(q) || group.label.toLowerCase().includes(q);
+      }),
+    })).filter((g) => g.types.length > 0);
+  }, [docSearch]);
+
+
+
+  const handleLineUpload = async (type, file) => {
+    if (!file || !unitId) return;
+    setLineUploading(type);
+    try {
+      const stepNumber = primaryStepForDocType(type) || DOC_GROUPS.find((g) => g.types.includes(type))?.step;
+      await uploadDocument(file, {
+        unitId,
+        stepNumber,
+        docType: type,
+        label: TYPE_LABELS[type],
+        status: 'uploaded',
+      });
+    } finally {
+      setLineUploading(null);
+    }
+  };
 
 
 
@@ -138,9 +181,18 @@ export default function Documents() {
 
           <strong>Units</strong>
 
+          <input
+            type="search"
+            placeholder="Search unit, project, customer…"
+            value={unitSearch}
+            onChange={(e) => setUnitSearch(e.target.value)}
+            style={{ width: '100%', margin: '8px 0' }}
+            aria-label="Search units"
+          />
+
           {unitsLoading && <div className="ps-empty">Loading…</div>}
 
-          {units.map((u) => (
+          {filteredUnits.map((u) => (
 
             <div
 
@@ -176,6 +228,15 @@ export default function Documents() {
 
             <>
 
+              <input
+                type="search"
+                placeholder="Search document type…"
+                value={docSearch}
+                onChange={(e) => setDocSearch(e.target.value)}
+                style={{ width: '100%', maxWidth: 360, marginBottom: 12 }}
+                aria-label="Search documents"
+              />
+
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
 
                 {Object.entries(statusCounts).map(([s, n]) => (
@@ -190,7 +251,7 @@ export default function Documents() {
 
 
 
-              {DOC_GROUPS.map((group) => (
+              {visibleGroups.map((group) => (
 
                 <div key={group.label} className="ps-card">
 
@@ -208,9 +269,9 @@ export default function Documents() {
 
                     return (
 
-                      <div key={type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
+                      <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
 
-                        <div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
 
                           <div>{TYPE_LABELS[type]}</div>
 
@@ -232,17 +293,21 @@ export default function Documents() {
 
                         </div>
 
-                        <div>
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
 
                           {documentOpenUrl(doc) ? (
 
                             <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
 
-                          ) : (
+                          ) : null}
 
-                            <button type="button" className="ps-btn" onClick={() => { setUploadForm((f) => ({ ...f, docType: type })); setShowUpload(true); }}>Upload</button>
+                          <label className="ps-btn" style={{ margin: 0, cursor: lineUploading === type ? 'wait' : 'pointer' }}>
 
-                          )}
+                            {lineUploading === type ? '…' : documentOpenUrl(doc) ? 'Replace' : 'Upload'}
+
+                            <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt" style={{ display: 'none' }} disabled={!!lineUploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLineUpload(type, f); e.target.value = ''; }} />
+
+                          </label>
 
                         </div>
 

@@ -42,15 +42,15 @@ export function useUnit(id) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ silent = false } = {}) => {
     if (!id) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     try {
       setUnit(await postSalesApi.getUnit(id));
     } catch (e) {
       setError(e.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [id]);
 

@@ -75,6 +75,33 @@ router.post('/crm-upload', upload.single('file'), async (req, res) => {
   }
 });
 
+router.get('/list', async (req, res) => {
+  try {
+    const filter = {};
+    if (req.query.project) filter.project = req.query.project;
+    if (req.query.phase) filter.phase = req.query.phase;
+    if (req.query.building) {
+      filter.$or = [{ building: req.query.building }, { tower: req.query.building }];
+    }
+    const units = await Unit.find(filter)
+      .populate('customerId', 'name')
+      .select('project unitNumber phase building tower entity')
+      .sort({ project: 1, unitNumber: 1 })
+      .lean();
+    res.json(units.map((u) => ({
+      _id: u._id,
+      project: u.project,
+      unitNumber: u.unitNumber,
+      phase: u.phase,
+      building: u.building || u.tower,
+      entity: u.entity,
+      customerName: u.customerId?.name,
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/', async (req, res) => {
   try {
     const filter = {};

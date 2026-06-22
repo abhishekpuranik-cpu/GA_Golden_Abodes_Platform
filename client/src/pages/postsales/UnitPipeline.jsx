@@ -183,7 +183,7 @@ export default function UnitPipeline() {
 
       await updateStep(selected, { status: 'completed', notes });
 
-      await refreshUnit();
+      await refreshUnit({ silent: true });
 
       if (selected < 20) setSelected(selected + 1);
 
@@ -274,6 +274,64 @@ export default function UnitPipeline() {
         uploadedBy: actor,
 
       });
+
+    } catch (err) {
+
+      setActionError(err.message);
+
+    } finally {
+
+      setDocUploading(null);
+
+    }
+
+  };
+
+
+
+  const handleBulkDocUpload = async (e) => {
+
+    const files = [...(e.target.files || [])];
+
+    e.target.value = '';
+
+    if (!files.length) return;
+
+    const missing = stepDocTypes.filter((type) => !stepDocuments.find((d) => d.docType === type && documentOpenUrl(d)));
+
+    if (!missing.length) {
+
+      setActionError('All document types for this step already have files');
+
+      return;
+
+    }
+
+    setActionError(null);
+
+    setDocUploading('__bulk__');
+
+    try {
+
+      for (let i = 0; i < Math.min(files.length, missing.length); i++) {
+
+        await uploadDocument(files[i], {
+
+          unitId: id,
+
+          stepNumber: selected,
+
+          docType: missing[i],
+
+          label: TYPE_LABELS[missing[i]],
+
+          status: 'uploaded',
+
+          uploadedBy: actor,
+
+        });
+
+      }
 
     } catch (err) {
 
@@ -683,15 +741,31 @@ export default function UnitPipeline() {
 
               ) : (
 
-                stepDocTypes.map((type) => {
+                <>
+
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', marginBottom: 12 }}>
+
+                    <label className="ps-btn ps-btn-primary" style={{ margin: 0, cursor: docUploading === '__bulk__' ? 'wait' : 'pointer' }}>
+
+                      {docUploading === '__bulk__' ? 'Uploading…' : 'Upload all missing'}
+
+                      <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt" style={{ display: 'none' }} disabled={docUploading === '__bulk__'} onChange={handleBulkDocUpload} />
+
+                    </label>
+
+                    <span style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)' }}>Pick multiple files — assigned to missing types in list order</span>
+
+                  </div>
+
+                {stepDocTypes.map((type) => {
 
                   const doc = stepDocuments.find((d) => d.docType === type);
 
                   return (
 
-                    <div key={type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
+                    <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
 
-                      <div>
+                      <div style={{ flex: '1 1 auto', minWidth: 0 }}>
 
                         <strong>{TYPE_LABELS[type]}</strong>
 
@@ -699,19 +773,17 @@ export default function UnitPipeline() {
 
                       </div>
 
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
 
-                      {documentOpenUrl(doc) ? (
+                        {documentOpenUrl(doc) ? (
 
-                        <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
+                          <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
 
-                      ) : null}
-
-                      {stepRecord?.status !== 'completed' && (
+                        ) : null}
 
                         <label className="ps-btn" style={{ margin: 0, cursor: docUploading === type ? 'wait' : 'pointer' }}>
 
-                          {docUploading === type ? 'Uploading…' : 'Upload'}
+                          {docUploading === type ? '…' : documentOpenUrl(doc) ? 'Replace' : 'Upload'}
 
                           <input
 
@@ -721,7 +793,7 @@ export default function UnitPipeline() {
 
                             style={{ display: 'none' }}
 
-                            disabled={docUploading === type}
+                            disabled={!!docUploading}
 
                             onChange={(e) => {
 
@@ -737,15 +809,15 @@ export default function UnitPipeline() {
 
                         </label>
 
-                      )}
-
-                    </div>
+                      </div>
 
                     </div>
 
                   );
 
-                })
+                })}
+
+                </>
 
               )}
 

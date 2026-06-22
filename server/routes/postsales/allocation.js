@@ -244,18 +244,33 @@ router.patch('/assign-steps', async (req, res) => {
     await backfillStepTaskKinds(steps, PipelineStep);
 
     const by = req.body.by || 'Work allocation panel';
-    let updated = 0;
+    const bulkOps = [];
 
     for (const step of steps) {
       const kind = step.taskKind || getStepTaskKind(step.stepNumber);
       if (kind !== taskKind) continue;
       if (step.assignedTo === assignedTo) continue;
-      step.assignedTo = assignedTo;
-      if (!step.taskKind) step.taskKind = kind;
-      pushActivity(step, 'assigned', by, `Bulk assigned to ${assignedTo} (${taskKind})`);
-      await step.save();
-      updated += 1;
+      const activityEntry = {
+        action: 'assigned',
+        at: new Date(),
+        by,
+        detail: `Bulk assigned to ${assignedTo} (${taskKind})`,
+      };
+      const setFields = { assignedTo, taskKind: kind };
+      if (step.status === 'pending') setFields.status = 'in_progress';
+      bulkOps.push({
+        updateOne: {
+          filter: { _id: step._id },
+          update: {
+            $set: setFields,
+            $push: { activityLog: activityEntry },
+          },
+        },
+      });
     }
+
+    if (bulkOps.length) await PipelineStep.bulkWrite(bulkOps);
+    const updated = bulkOps.length;
 
     if (req.body.applyDefaultExecutives) {
       const execField = taskKind === 'cx' ? 'cxExecutive' : 'backendExecutive';

@@ -83,6 +83,10 @@ export const postSalesApi = {
     const q = new URLSearchParams(params).toString();
     return apiFetch(`${BASE}/units${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
   },
+  listUnitsLite: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/units/list${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
   getUnit: (id) => apiFetch(`${BASE}/units/${id}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   createUnit: (body) => apiFetch(`${BASE}/units`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   updateUnit: (id, body) => apiFetch(`${BASE}/units/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
