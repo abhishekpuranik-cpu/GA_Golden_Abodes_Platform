@@ -67,11 +67,24 @@ export default function Demands() {
     });
   }, [demands, statusFilter, search]);
 
+  /** All milestones per unit for totals — status chip must not drop GST / post-stage rows. */
+  const scopedDemands = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return demands.filter((d) => {
+      if (!q) return true;
+      const hay = [d.project, d.unitNumber, d.milestoneName, d.milestoneNameRaw, d.customerName, d.entity, d.phase, d.building]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  }, [demands, search]);
+
   const sortedMilestones = useMemo(() => sortDemandsByClpChronology(filtered), [filtered]);
 
   const unitGroups = useMemo(() => {
     const map = new Map();
-    for (const d of filtered) {
+    for (const d of scopedDemands) {
       const key = `${d.project}|${d.unitNumber}`;
       if (!map.has(key)) {
         map.set(key, {
@@ -94,11 +107,16 @@ export default function Demands() {
     }
     for (const g of map.values()) {
       g.milestones = sortDemandsByClpChronology(g.milestones);
-      const cum = computeUnitCumulative(g.milestones, AS_OF_TODAY);
-      Object.assign(g, cum);
+      Object.assign(g, computeUnitCumulative(g.milestones, AS_OF_TODAY));
     }
-    return [...map.values()].sort((a, b) => b.agreementPending + b.gstPending - (a.agreementPending + a.gstPending) || a.project.localeCompare(b.project));
-  }, [filtered]);
+    let groups = [...map.values()];
+    if (statusFilter) {
+      groups = groups.filter(
+        (g) => g.worstStatus === statusFilter || g.milestones.some((m) => m.paymentStatus === statusFilter),
+      );
+    }
+    return groups.sort((a, b) => b.agreementPending + b.gstPending - (a.agreementPending + a.gstPending) || a.project.localeCompare(b.project));
+  }, [scopedDemands, statusFilter]);
 
   const pageTotals = useMemo(() => sumCumulativeSummary(unitGroups), [unitGroups]);
 
@@ -187,7 +205,7 @@ export default function Demands() {
         <div>
           <h2 style={{ margin: 0 }}>Demands &amp; collections</h2>
           <p className="ps-demands-sub">
-            Cumulative <strong>due / received / pending as of today</strong> — agreement value and GST tracked separately (CLP stage or instalment due date).
+            Cumulative <strong>as of today</strong> — agreement due/received only for CLP stages (or instalments) with target date on or before today. GST due/received from the CRM GST column.
           </p>
         </div>
         <div className="ps-demands-actions">
@@ -299,8 +317,8 @@ export default function Demands() {
                 <th style={{ width: 36 }} />
                 <th>Unit</th>
                 <th>Location</th>
-                <th className="ps-num">Agreement due</th>
-                <th className="ps-num">Agreement recd</th>
+                <th className="ps-num">Agreement due <span className="ps-th-note">today</span></th>
+                <th className="ps-num">Agreement recd <span className="ps-th-note">today</span></th>
                 <th className="ps-num">Agreement pending</th>
                 <th className="ps-num">GST due</th>
                 <th className="ps-num">GST recd</th>

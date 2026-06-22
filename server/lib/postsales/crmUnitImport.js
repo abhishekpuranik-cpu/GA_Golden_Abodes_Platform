@@ -209,6 +209,7 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
       gstAmount: isGst ? agreementDue : (hasGstRow ? 0 : Math.round(agreementDue * 0.05)),
       totalAmount: agreementDue,
       paidAmount: m.receivedAmount,
+      pendingAmount: m.pendingAmount,
       paymentStatus: paymentStatusFromAmounts(agreementDue, m.receivedAmount),
       issuedDate: existing?.issuedDate || new Date(),
       targetDate: m.targetDate || m.dueDate || existing?.targetDate,

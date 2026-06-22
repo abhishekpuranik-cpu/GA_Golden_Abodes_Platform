@@ -268,6 +268,7 @@
   background: var(--ps-bg-subtle, #f1f5f9);
   box-shadow: 0 1px 0 var(--ps-border);
 }
+.ps-th-note { display: block; font-size: 0.62rem; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--ps-text-muted); }
 .ps-clp-future-row { opacity: 0.55; }
 .ps-clp-gst-row { background: #f0fdf4; }
 .ps-clp-gst-row td { font-weight: 600; }

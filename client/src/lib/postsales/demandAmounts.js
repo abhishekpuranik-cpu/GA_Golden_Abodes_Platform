@@ -16,7 +16,9 @@ function startOfDay(d = new Date()) {
 }
 
 export function isGstDemand(d) {
-  const s = slug(d?.milestoneNameRaw || d?.milestoneName);
+  const raw = String(d?.milestoneNameRaw || d?.milestoneName || '').trim();
+  if (/^gst$/i.test(raw)) return true;
+  const s = slug(raw);
   if (!s) return false;
   if (s === 'gst' || s.startsWith('gst ')) return true;
   if (/\bgst\b/.test(s) && !/registration|agreement|infracharge/.test(s)) return true;
@@ -24,9 +26,10 @@ export function isGstDemand(d) {
 }
 
 export function isPostStageDemand(d) {
+  if (isGstDemand(d)) return true;
   const s = slug(d?.milestoneNameRaw || d?.milestoneName);
-  const post = ['gst', 'interest', 'stampduty', 'maintenancecharge', 'infracharges', 'stamp duty', 'maintenance charge', 'infra charges'];
-  return post.some((p) => s === p || s.startsWith(`${p} `)) || isGstDemand(d);
+  const post = ['interest', 'stampduty', 'maintenancecharge', 'infracharges', 'stamp duty', 'maintenance charge', 'infra charges'];
+  return post.some((p) => s === p || s.startsWith(`${p} `));
 }
 
 export function findGstDemand(milestones = []) {
@@ -68,10 +71,15 @@ export function readGstDue(gstRow) {
 
 export function readGstReceived(gstRow) {
   if (!gstRow) return 0;
-  return num(gstRow.paidAmount ?? gstRow.receivedAmount);
+  const direct = num(gstRow.paidAmount ?? gstRow.receivedAmount);
+  if (direct > 0) return direct;
+  const due = readGstDue(gstRow);
+  const pending = num(gstRow.pendingAmount);
+  if (due > 0 && Number.isFinite(pending)) return Math.max(0, due - pending);
+  return 0;
 }
 
-export function milestoneRowAmounts(d) {
+export function milestoneRowAmounts(d, asOf = new Date()) {
   if (isGstDemand(d)) {
     const gstDue = readGstDue(d);
     const gstReceived = readGstReceived(d);
@@ -87,9 +95,10 @@ export function milestoneRowAmounts(d) {
       totalPending: Math.max(0, gstDue - gstReceived),
     };
   }
-  const agreementDue = agreementDueOnRow(d);
-  const gstDue = gstDueOnRow(d);
-  const agreementReceived = num(d?.receivedAmount ?? d?.paidAmount);
+  const dueToday = milestoneDueAsOfToday(d, asOf);
+  const agreementDue = dueToday ? agreementDueOnRow(d) : 0;
+  const gstDue = dueToday ? gstDueOnRow(d) : 0;
+  const agreementReceived = dueToday ? num(d?.receivedAmount ?? d?.paidAmount) : 0;
   return {
     agreementDue,
     gstDue,
@@ -103,18 +112,16 @@ export function milestoneRowAmounts(d) {
   };
 }
 
+/** Unit totals: agreement side filtered by CLP/instalment due date ≤ today; GST from CRM GST row. */
 export function computeUnitCumulative(milestones = [], asOf = new Date()) {
   const gstRow = findGstDemand(milestones);
   const clpRows = milestones.filter((d) => !isPostStageDemand(d));
 
   let agreementDue = 0;
+  let agreementReceived = 0;
   for (const d of clpRows) {
     if (!milestoneDueAsOfToday(d, asOf)) continue;
     agreementDue += agreementDueOnRow(d);
-  }
-
-  let agreementReceived = 0;
-  for (const d of clpRows) {
     agreementReceived += num(d?.receivedAmount ?? d?.paidAmount);
   }
 
@@ -142,19 +149,8 @@ export function computeUnitCumulative(milestones = [], asOf = new Date()) {
 }
 
 export function milestoneRowDisplay(d, asOf = new Date()) {
-  if (isGstDemand(d)) return milestoneRowAmounts(d);
-  const row = milestoneRowAmounts(d);
-  if (!milestoneDueAsOfToday(d, asOf)) {
-    return {
-      ...row,
-      agreementDue: 0,
-      gstDue: 0,
-      agreementPending: 0,
-      gstPending: 0,
-      totalDue: 0,
-    };
-  }
-  return row;
+  if (isGstDemand(d)) return milestoneRowAmounts(d, asOf);
+  return milestoneRowAmounts(d, asOf);
 }
 
 export function sumCumulativeSummary(unitGroups) {

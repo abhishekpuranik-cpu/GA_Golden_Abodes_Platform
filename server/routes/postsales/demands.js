@@ -45,10 +45,12 @@ function enrichDemand(d, unitMap) {
     clpLetterTaskAt: d.clpLetterTaskAt,
     dueAmount: agreementDue,
     receivedAmount: received,
-    pendingAmount: isGstDemand(d)
-      ? Math.max(0, readGstDue(d) - readGstReceived(d))
-      : Math.max(0, agreementDue - received),
-    gstAmount: gstDue,
+    pendingAmount: Number.isFinite(Number(d.pendingAmount))
+      ? Number(d.pendingAmount)
+      : (isGstDemand(d)
+        ? Math.max(0, readGstDue(d) - readGstReceived(d))
+        : Math.max(0, agreementDue - received)),
+    gstAmount: isGstDemand(d) ? readGstDue(d) : (Number(d.gstAmount) || Math.round(agreementDue * 0.05)),
   };
 }
 
