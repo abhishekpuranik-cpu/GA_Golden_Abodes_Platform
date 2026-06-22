@@ -4,6 +4,7 @@ import { useDemands } from '../../hooks/postsales/useDemands.js';
 import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
 import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import { postSalesApi } from '../../lib/postSalesApi.js';
+import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 
 function fmt(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -59,6 +60,7 @@ export default function Demands() {
   const [actionMsg, setActionMsg] = useState(null);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
+  const [taskBusy, setTaskBusy] = useState(null);
   const fileRef = useRef(null);
 
   const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
@@ -138,6 +140,22 @@ export default function Demands() {
     setPayForm(null);
     setActionMsg('Payment updated.');
   };
+
+  const handleClpLetterTask = async (demand) => {
+    setTaskBusy(demand._id);
+    setActionMsg(null);
+    try {
+      const result = await postSalesApi.createClpLetterTask(demand._id);
+      setActionMsg(`CLP letter task created for ${result.unitNumber || demand.unitNumber} — assignee can pick it up in My Tasks (step 12).`);
+      await refresh();
+    } catch (err) {
+      setActionMsg(err.message);
+    } finally {
+      setTaskBusy(null);
+    }
+  };
+
+  const milestoneLabel = (d) => d.milestoneName || formatMilestoneLabel(d.milestoneNameRaw);
 
   const handleExcel = async (e) => {
     const file = e.target.files?.[0];
@@ -331,11 +349,12 @@ export default function Demands() {
                       return (
                         <tr key={d._id} className="ps-demand-detail-row">
                           <td />
-                          <td colSpan={2}>
-                            <strong>{d.milestoneName}</strong>
+                          <td className="ps-demand-milestone-cell" colSpan={2}>
+                            <strong>{milestoneLabel(d)}</strong>
                             <div className="ps-demands-meta">
                               CLP {d.clpPercent || '—'}%
                               {d.dueDate ? ` · due ${new Date(d.dueDate).toLocaleDateString('en-IN')}` : ''}
+                              {d.clpLetterTaskAt ? ` · letter task ${new Date(d.clpLetterTaskAt).toLocaleDateString('en-IN')}` : ''}
                             </div>
                           </td>
                           <td className="ps-num">{fmt(a.agreementDue)}</td>
@@ -346,7 +365,12 @@ export default function Demands() {
                           <td className="ps-num">{fmt(a.gstPending)}</td>
                           <td>
                             <span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span>
-                            <div style={{ marginTop: 6 }}>
+                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
+                            {!d.clpLetterTaskAt && (
+                              <button type="button" className="ps-btn" style={{ fontSize: '0.75rem', padding: '3px 8px' }} disabled={taskBusy === d._id} onClick={(e) => { e.stopPropagation(); handleClpLetterTask(d); }}>
+                                {taskBusy === d._id ? '…' : 'Issue CLP letter task'}
+                              </button>
+                            )}
                             {payForm?.id === d._id ? (
                               <div className="ps-inline-form" onClick={(e) => e.stopPropagation()}>
                                 <input type="number" value={payForm.paidAmount} onChange={(e) => setPayForm((f) => ({ ...f, paidAmount: Number(e.target.value) }))} />
@@ -399,7 +423,7 @@ export default function Demands() {
                       <div className="ps-demands-meta">{d.project}{d.customerName ? ` · ${d.customerName}` : ''}</div>
                     </td>
                     <td>
-                      {d.milestoneName}
+                      {milestoneLabel(d)}
                       <div className="ps-demands-meta">CLP {d.clpPercent || '—'}%</div>
                     </td>
                     <td className="ps-num">{fmt(a.agreementDue)}</td>

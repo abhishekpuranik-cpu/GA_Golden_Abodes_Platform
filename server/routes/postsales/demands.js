@@ -5,6 +5,8 @@ import Demand from '../../models/postsales/Demand.js';
 import Unit from '../../models/postsales/Unit.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { normalizeImportRow, paymentStatusFromAmounts } from '../../lib/postsales/collectionsLib.js';
+import { activateClpLetterTaskFromDemand } from '../../lib/postsales/clpDemandTrigger.js';
+import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { exportCollectionsForCashflow, syncDemandsFromV1 } from '../../lib/postsales/demandsV1Sync.js';
 import { syncSoldUnitsFromCashflowV1 } from '../../lib/postsales/cashflowV1Sync.js';
 
@@ -30,6 +32,8 @@ function enrichDemand(d, unitMap) {
     phase: u?.phase,
     building: u?.building || u?.tower,
     customerName: u?.customerId?.name,
+    milestoneName: formatMilestoneLabel(d.milestoneName),
+    milestoneNameRaw: d.milestoneName,
     dueAmount: due,
     receivedAmount: received,
     pendingAmount: due - received,
@@ -194,6 +198,17 @@ router.post('/import', async (req, res) => {
     if (!rows.length) return res.status(400).json({ error: 'rows array required' });
     const report = await importDemandRows(rows, { source: 'upload' });
     res.json({ ok: true, ...report });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/:id/clp-letter-task', async (req, res) => {
+  try {
+    const demand = await Demand.findById(req.params.id).lean();
+    if (!demand) return res.status(404).json({ error: 'Demand not found' });
+    const result = await activateClpLetterTaskFromDemand(demand, { by: req.body.by || 'Demands panel' });
+    res.json({ ok: true, ...result });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

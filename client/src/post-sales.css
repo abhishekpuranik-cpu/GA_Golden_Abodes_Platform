@@ -280,6 +280,23 @@
 .ps-demand-unit-row td:first-child { color: var(--ps-text-muted); font-size: 0.7rem; }
 .ps-demand-detail-row { background: #f8fafc; }
 .ps-demand-detail-row td { font-size: 0.85rem; border-bottom: 1px solid #eef2f7; }
+.ps-demand-milestone-cell {
+  max-width: 240px;
+  min-width: 160px;
+  width: 28%;
+  vertical-align: top;
+  line-height: 1.35;
+}
+.ps-demand-milestone-cell strong {
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 600;
+  word-break: break-word;
+}
+.ps-demands-table th:nth-child(2),
+.ps-demands-table td:nth-child(2) { max-width: 140px; }
+.ps-demands-table th:nth-child(3),
+.ps-demands-table td:nth-child(3) { max-width: 120px; font-size: 0.82rem; }
 .ps-inline-form { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
 .ps-inline-form input { width: 110px; padding: 4px 8px; border: 1px solid var(--ps-border); border-radius: 6px; font-size: 0.85rem; }
 

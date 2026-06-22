@@ -6,6 +6,7 @@ const MilestoneSchema = new mongoose.Schema({
   completedDate: Date, loggedBy: String, loggedAt: Date,
   demandTriggerStatus: { type: String, enum: ['pending','triggered','completed'], default: 'pending' },
   demandsCreated: { type: Number, default: 0 },
+  tasksCreated: { type: Number, default: 0 },
   architectCertIssued: Boolean, architectCertDate: Date,
 }, { timestamps: true });
 MilestoneSchema.index({ project: 1, demandTriggerStatus: 1 });

@@ -1,3 +1,5 @@
+import { formatMilestoneLabel } from './milestoneLabels.js';
+
 function slug(s) {
   return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
@@ -18,20 +20,7 @@ function parseDate(v) {
   return Number.isNaN(d.getTime()) ? undefined : d;
 }
 
-function formatMilestoneLabel(key) {
-  const s = String(key || '').trim();
-  if (!s) return 'Milestone';
-  if (/^installment\d+$/i.test(s.replace(/\s/g, ''))) {
-    return s.replace(/installment/i, 'Installment ');
-  }
-  return s
-    .replace(/([a-z])([A-Z])/g, '$1 $2')
-    .replace(/(\d+)th/i, '$1th ')
-    .replace(/_/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
+export { formatMilestoneLabel };
 
 export function isCollectionReport(rawRows) {
   if (!rawRows?.length) return false;
