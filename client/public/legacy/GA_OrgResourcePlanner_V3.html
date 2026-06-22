@@ -1350,6 +1350,21 @@ function revFromAreaRateSqft(sqft,rate,uSqmt){
   if(uSqmt) return (a/10.764)*r;
   return a*r;
 }
+/** Convert internal sq.ft area to the selected display/calc unit. */
+function finAreaFromSqft(sqft,uSqmt){
+  var v=Math.max(0,Number(sqft)||0);
+  return uSqmt?Math.round(v/10.764):Math.round(v);
+}
+function finPerAreaMetric(amount,totSalSqft,uSqmt){
+  var sal=Math.max(0,Number(totSalSqft)||0);
+  if(!sal) return null;
+  var a=Number(amount)||0;
+  if(uSqmt) return Math.round(a/(sal/10.764));
+  return Math.round(a/sal);
+}
+function finHasAmount(n){
+  return n!==undefined&&n!==null&&!isNaN(n)&&Math.abs(Number(n))>0.0001;
+}
 function syncProjectToFin(p){
   if(!p||!p.id) return;
   if(!ST.fin[p.id]) ST.fin[p.id]={};
@@ -2140,7 +2155,7 @@ function renderFinModel(pid){
     <!-- ─── PMRDA FSI CALCULATION TABLE (matches Working sheet rows 10-36) ─── -->
     <div style="background:#E6F7F7;border-radius:8px;padding:8px 12px;margin-bottom:10px;border-left:3px solid var(--teal)">
       <span style="font-size:11px;font-weight:700;color:var(--teal-b)">PMRDA Mode</span>
-      <span style="font-size:10px;color:var(--teal-b);margin-left:8px">${uSqmtFin?'Plot &amp; deductions in sq.mt (converted to sq.ft internally).':'All areas in sq.ft.'} &nbsp;·&nbsp; TDR &amp; Paid FSI computed on net plot</span>
+      <span style="font-size:10px;color:var(--teal-b);margin-left:8px">${uSqmtFin?'All areas, rates &amp; per-area costs in <strong>sq.mt</strong>.':'All areas, rates &amp; per-area costs in <strong>sq.ft</strong>.'} &nbsp;·&nbsp; TDR &amp; Paid FSI computed on net plot</span>
     </div>
     <div style="overflow-x:auto;margin-bottom:4px">
       <table class="fin-table">
@@ -2644,8 +2659,8 @@ function renderFinModel(pid){
               return `<tr style="${zebra}">
                 <td style="color:var(--muted);padding:6px 8px"></td>
                 <td style="padding:6px 8px;color:var(--muted)">${r.name}</td>
-                <td style="padding:4px 8px;text-align:right">${ti(pid,r.key,r.rate,120,'₹/sq.ft',0.5)}<span style="font-size:10px;color:var(--muted);margin-left:4px">/sq.ft</span></td>
-                <td style="text-align:right;padding:6px 8px;color:var(--red-b);font-weight:600">${fmtC((r.rate||0)*C.totSal)}</td>
+                <td style="padding:4px 8px;text-align:right">${ti(pid,r.key,r.rate,120,rateU,0.5)}<span style="font-size:10px;color:var(--muted);margin-left:4px">${rateU}</span></td>
+                <td style="text-align:right;padding:6px 8px;color:var(--red-b);font-weight:600">${fmtC(revFromAreaRateSqft(C.totSal,r.rate||0,uSqmtFin))}</td>
               </tr>`;
             }
             return `<tr style="${zebra}">
@@ -2653,8 +2668,8 @@ function renderFinModel(pid){
               <td style="padding:6px 8px;color:var(--muted)">
                 <input type="text" value="${r.name||''}" placeholder="Consultant name" style="width:220px;padding:4px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:11px" onchange="setConsultantRow('${pid}',${r.idx},'name',this.value)"/>
               </td>
-              <td style="padding:4px 8px;text-align:right">${ti(pid,'dmOtherConsultRate',r.rate,120,'₹/sq.ft',0.5).replace("onchange=\"ufin('"+pid+"','dmOtherConsultRate',this.value)\"","onchange=\"setConsultantRow('"+pid+"',"+r.idx+",'rate',this.value)\"")}<button type="button" onclick="removeConsultantRow('${pid}',${r.idx})" style="margin-left:6px;padding:3px 7px;border:1px solid var(--red);background:transparent;color:var(--red-b);border-radius:5px;cursor:pointer">✕</button></td>
-              <td style="text-align:right;padding:6px 8px;color:var(--red-b);font-weight:600">${fmtC((r.rate||0)*C.totSal)}</td>
+              <td style="padding:4px 8px;text-align:right">${ti(pid,'dmOtherConsultRate',r.rate,120,rateU,0.5).replace("onchange=\"ufin('"+pid+"','dmOtherConsultRate',this.value)\"","onchange=\"setConsultantRow('"+pid+"',"+r.idx+",'rate',this.value)\"")}<button type="button" onclick="removeConsultantRow('${pid}',${r.idx})" style="margin-left:6px;padding:3px 7px;border:1px solid var(--red);background:transparent;color:var(--red-b);border-radius:5px;cursor:pointer">✕</button></td>
+              <td style="text-align:right;padding:6px 8px;color:var(--red-b);font-weight:600">${fmtC(revFromAreaRateSqft(C.totSal,r.rate||0,uSqmtFin))}</td>
             </tr>`;
           }).join('')}
           <tr>
@@ -2778,9 +2793,9 @@ function renderFinModel(pid){
       <div style="flex:1;min-width:160px;border-radius:10px;background:var(--bg);padding:14px 16px;border:1px solid var(--border)">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px">Quick Ratios</div>
         ${[
-          ['Cost/sq.ft',C.totSal>0?`₹${(C.totExp/C.totSal).toFixed(0)}`:'-'],
-          ['Revenue/sq.ft',C.totSal>0?`₹${(C.totRev/C.totSal).toFixed(0)}`:'-'],
-          ['Profit/sq.ft',C.totSal>0?`₹${(C.grossP/C.totSal).toFixed(0)}`:'-'],
+          ['Cost/'+areaU,C.totSal>0&&finPerAreaMetric(C.totExp,C.totSal,uSqmtFin)!=null?'₹'+finPerAreaMetric(C.totExp,C.totSal,uSqmtFin):'-'],
+          ['Revenue/'+areaU,C.totSal>0&&finPerAreaMetric(C.totRev,C.totSal,uSqmtFin)!=null?'₹'+finPerAreaMetric(C.totRev,C.totSal,uSqmtFin):'-'],
+          ['Profit/'+areaU,C.totSal>0&&finPerAreaMetric(C.grossP,C.totSal,uSqmtFin)!=null?'₹'+finPerAreaMetric(C.grossP,C.totSal,uSqmtFin):'-'],
           ['Construction %',C.totExp>0?((C.conCost/C.totExp)*100).toFixed(1)+'%':'-'],
           ['GA DM % of Rev',C.totRev>0?((C.dmCost/C.totRev)*100).toFixed(1)+'%':'-'],
         ].map(([l,v])=>`<div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px;border-bottom:1px solid var(--border)"><span style="color:var(--muted)">${l}</span><strong>${v}</strong></div>`).join('')}
@@ -2927,7 +2942,7 @@ function renderFinModel(pid){
             </tr>
             <tr style="background:var(--bg)">
               <td style="padding:5px 8px;color:var(--muted)">Consultant Fees (from Projected Expenses #10)${f.spvAbsorbConsultMktg?' <span style="color:var(--orange)">→ SPV</span>':''}</td>
-              <td style="padding:4px 8px;text-align:right;color:var(--muted);font-size:11px">${C.consultRateSum.toFixed(2)} ₹/sq.ft</td>
+              <td style="padding:4px 8px;text-align:right;color:var(--muted);font-size:11px">${C.consultRateSum.toFixed(2)} ${rateU}</td>
               <td style="text-align:right;padding:5px 8px;color:var(--red-b);font-weight:700">${fmtC(C.gaConsult)}</td>
             </tr>
             <tr><td colspan="3" style="padding:6px 8px;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;background:var(--bg);letter-spacing:.06em">Team Salary (Monthly cost × Project duration)</td></tr>
@@ -2983,8 +2998,8 @@ function renderFinModel(pid){
           <strong style="color:${dmProfCol}">${C.dmCost>0?((C.dmNetProfit/C.dmCost)*100).toFixed(1)+'%':'—'}</strong>
         </div>
         <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:11px">
-          <span style="color:var(--muted)">Net/sq.ft</span>
-          <strong style="color:${dmProfCol}">${C.totSal>0?'₹'+(C.dmNetProfit/C.totSal).toFixed(0):'—'}</strong>
+          <span style="color:var(--muted)">Net/${areaU}</span>
+          <strong style="color:${dmProfCol}">${C.totSal>0&&finPerAreaMetric(C.dmNetProfit,C.totSal,uSqmtFin)!=null?'₹'+finPerAreaMetric(C.dmNetProfit,C.totSal,uSqmtFin):'—'}</strong>
         </div>
       </div>
     </div>
@@ -4945,7 +4960,7 @@ function printFinModel(pid, sections, selInvId) {
         +'</select></div>'
       : '';
     dlg.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px 28px;width:380px;box-shadow:0 8px 32px rgba(0,0,0,.25)">'
-      +'<div style="font-size:15px;font-weight:800;color:#0A3266;margin-bottom:4px">&#128438; Investment Report</div>'
+      +'<div style="font-size:15px;font-weight:800;color:#0A3266;margin-bottom:4px">&#128438; Project Investment Memorandum</div>'
       +'<div style="font-size:11px;color:#64748B;margin-bottom:14px">'+(p.name||pid)+'</div>'
       +invOpts
       +'<div style="font-size:11px;font-weight:700;color:#4A5568;margin-bottom:8px">Sections to include:</div>'
@@ -4966,6 +4981,11 @@ function printFinModel(pid, sections, selInvId) {
   var fm2=function(v){return v?Math.round(v).toLocaleString('en-IN'):'—';};
   var pt2=function(a,b){return b>0?((a/b)*100).toFixed(1)+'%':'—';};
   var has=function(s){return sections.indexOf(s)>-1;};
+  var uSqmtPr=finUsesSqmt(f2);
+  var areaUnitPr=finAreaUnitShort(uSqmtPr);
+  var rateUnitPr=finRateUnitShort(uSqmtPr);
+  var prArea=function(sqft){return fm2(finAreaFromSqft(sqft,uSqmtPr));};
+  var prRateNote=function(rate){return '@ ₹'+(Number(rate)||0).toLocaleString('en-IN')+' '+rateUnitPr;};
 
   // ── Selected investor ────────────────────────────────────────
   var selInv = selInvId ? invList.find(function(i){return i.id===selInvId;}) : null;
@@ -4995,36 +5015,42 @@ function printFinModel(pid, sections, selInvId) {
   }
 
   // ── Helper row builders ──────────────────────────────────────
-  var subhead=function(label){return '<tr style="background:#E6F7F7"><td colspan="2" style="padding:4px 8px;font-size:10px;font-weight:700;color:#0B7070;letter-spacing:.06em;text-transform:uppercase">'+label+'</td></tr>';};
-  var row2=function(label,val,note,highlight,bigval){
-    return '<tr style="'+(highlight?'background:#EFF6FF;':'')+'">'
-      +'<td style="padding:8px 14px;color:#4A5568;font-size:12px;border-bottom:1px solid #F1F5F9">'+label+'</td>'
-      +'<td style="padding:8px 14px;font-weight:'+(bigval?'800':'700')+';text-align:right;font-size:'+(bigval?'14':'12')+'px;border-bottom:1px solid #F1F5F9;color:'+(highlight?'#0A3266':'#1A202C')+'">'+val+'</td>'
-      +(note?'<td style="padding:8px 14px;color:#94A3B8;font-size:10px;border-bottom:1px solid #F1F5F9">'+note+'</td>':'<td style="border-bottom:1px solid #F1F5F9"></td>')
+  var subhead=function(label){return '<tr style="background:#EEF4FC"><td colspan="3" style="padding:6px 12px;font-size:10px;font-weight:700;color:#0A3266;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid #DDE7F0">'+label+'</td></tr>';};
+  var row2=function(label,val,note,highlight,bigval,rawNum){
+    if(rawNum!==undefined&&!finHasAmount(rawNum)) return '';
+    if(val==='—'||val===undefined||val===null||String(val).trim()==='') return '';
+    if(typeof val==='string'&&(val==='₹0.00 Cr'||val==='−₹0.00 Cr')) return '';
+    return '<tr style="'+(highlight?'background:#F8FAFC;':'')+'">'
+      +'<td style="padding:10px 16px;color:#334155;font-size:12px;border-bottom:1px solid #EEF2F6;line-height:1.4">'+label+'</td>'
+      +'<td style="padding:10px 16px;font-weight:'+(bigval?'800':'600')+';text-align:right;font-size:'+(bigval?'15':'12')+'px;border-bottom:1px solid #EEF2F6;color:'+(highlight?'#0A3266':'#0F172A')+'">'+val+'</td>'
+      +(note?'<td style="padding:10px 16px;color:#64748B;font-size:10px;border-bottom:1px solid #EEF2F6;line-height:1.35">'+note+'</td>':'<td style="border-bottom:1px solid #EEF2F6"></td>')
       +'</tr>';
   };
   var sectionHead=function(title,icon,col){
-    return '<tr><td colspan="3" style="background:'+(col||'#0A3266')+';color:#fff;padding:10px 14px;font-size:11px;font-weight:700;letter-spacing:.06em">'+icon+' '+title+'</td></tr>';
+    return '<tr><td colspan="3" style="background:'+(col||'#0A3266')+';color:#fff;padding:12px 16px;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;border-top:3px solid rgba(255,255,255,.15)">'+icon+' '+title+'</td></tr>';
   };
-  var spacer=function(){return '<tr><td colspan="3" style="height:4px;background:#F8FAFC"></td></tr>';};
+  var spacer=function(){return '<tr><td colspan="3" style="height:8px;background:#fff;border:none"></td></tr>';};
 
   // ── COVER ────────────────────────────────────────────────────
-  var coverSection = '<div style="background:linear-gradient(135deg,#0A3266 0%,#1558A0 100%);color:#fff;padding:36px 40px 28px;border-radius:12px 12px 0 0;position:relative;overflow:hidden">'
-    +'<div style="position:absolute;top:-30px;right:-30px;width:220px;height:220px;border-radius:50%;background:rgba(255,255,255,.06)"></div>'
-    +'<div style="font-size:10px;letter-spacing:.15em;text-transform:uppercase;opacity:.7;margin-bottom:6px">Golden Abodes · Investment Proposal</div>'
-    +'<div style="font-size:30px;font-weight:800;margin-bottom:4px;line-height:1.2">'+(p.name||pid)+'</div>'
-    +'<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:12px;opacity:.85;margin-bottom:16px">'
-    +(p.location?'<span>&#128205; '+(p.location)+'</span>':'')+' '
-    +'<span style="background:rgba(255,255,255,.15);border-radius:20px;padding:2px 12px">'+(p.status||'')+'</span>'
-    +(f2.dealType?' <span>Deal: '+f2.dealType+'</span>':'')
-    +(f2.usp?' <span>'+f2.usp+'</span>':'')
+  var coverSection = '<div style="background:linear-gradient(145deg,#071E3D 0%,#0A3266 42%,#1558A0 100%);color:#fff;padding:40px 44px 32px;border-radius:0;position:relative;overflow:hidden">'
+    +'<div style="position:absolute;top:-60px;right:-40px;width:280px;height:280px;border-radius:50%;background:rgba(255,255,255,.05)"></div>'
+    +'<div style="position:absolute;bottom:-80px;left:20%;width:360px;height:360px;border-radius:50%;background:rgba(200,154,58,.08)"></div>'
+    +'<div style="position:relative">'
+    +'<div style="font-size:10px;letter-spacing:.2em;text-transform:uppercase;opacity:.75;margin-bottom:10px">Golden Abodes · Project Investment Memorandum</div>'
+    +'<div style="font-family:Georgia,\'Times New Roman\',serif;font-size:34px;font-weight:700;margin-bottom:8px;line-height:1.15;letter-spacing:-.01em">'+(p.name||pid)+'</div>'
+    +'<div style="font-size:13px;opacity:.88;margin-bottom:20px;max-width:620px;line-height:1.5">'+(f2.usp||'Development management &amp; financial summary for lender / investor review.')+'</div>'
+    +'<div style="display:flex;gap:12px;flex-wrap:wrap;font-size:12px;margin-bottom:18px">'
+    +(p.location?'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">&#128205; '+(p.location)+'</span>':'')
+    +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">'+(p.status||'Pre-Construction')+'</span>'
+    +(f2.dealType?'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">'+f2.dealType+'</span>':'')
+    +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">Area unit: '+areaUnitPr+'</span>'
     +'</div>'
-    +'<div style="display:flex;gap:16px;flex-wrap:wrap;font-size:10px;opacity:.7">'
+    +'<div style="display:flex;gap:20px;flex-wrap:wrap;font-size:11px;opacity:.72;border-top:1px solid rgba(255,255,255,.15);padding-top:14px">'
     +(p.startDate?'<span>Start: '+p.startDate+'</span>':'')
-    +(p.endDate?'<span>End: '+p.endDate+'</span>':'')
-    +(selInv?'<span>Prepared for: <strong>'+invName+'</strong></span>':'')
-    +'<span>Date: '+new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'})+'</span>'
-    +'</div></div>';
+    +(p.endDate?'<span>Target completion: '+p.endDate+'</span>':'')
+    +(selInv?'<span>Prepared for: <strong style="opacity:1">'+invName+'</strong></span>':'')
+    +'<span>Report date: '+new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})+'</span>'
+    +'</div></div></div>';
 
   // ── KPI GRID (Investor-focused) ──────────────────────────────
   var mc=function(label,val,sub,col,big){
@@ -5034,14 +5060,14 @@ function printFinModel(pid, sections, selInvId) {
       +(sub?'<div style="font-size:10px;color:#94A3B8;margin-top:2px">'+sub+'</div>':'')
       +'</div>';
   };
-  var kpiGrid = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:18px;background:#F8FAFC">'
-    +mc('Total Investment Required',kpiInvVal,kpiInvSub,'#084E4E',true)
-    +mc('Total Return to Investor',cr2(totalReturn),invName+' · debt term '+invDuration+' yr','#0A3266',true)
-    +mc('XIRR',xr!==null?(xr*100).toFixed(1)+'%':'—','Multi-date cashflows (start, P+I, profit)','#542B8A',true)
-    +mc('Equity Multiple',eqMult.toFixed(2)+'x','Total return / capital in','#0B7070')
-    +mc('Project GDV',cr2(C.totRev),'Incl. investor inventory line','#1A7244')
-    +mc('Gross Profit',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),'#A07800')
-    +mc('Interest + Profit Share',cr2(intAmt+gpShare),invRate+'% p.a. + '+invProfitPct+'% profit share','#B54D0A')
+  var kpiGrid = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:22px 24px;background:#F8FAFC;border-bottom:1px solid #E2E8F0">'
+    +(finHasAmount(invPrincipal||f2.totalInvestment)?mc('Total Investment Required',kpiInvVal,kpiInvSub,'#084E4E',true):'')
+    +(finHasAmount(totalReturn)?mc('Total Return to Investor',cr2(totalReturn),invName+' · debt term '+invDuration+' yr','#0A3266',true):'')
+    +(xr!==null?mc('XIRR',(xr*100).toFixed(1)+'%','Annualised return on dated cashflows','#542B8A',true):'')
+    +(eqMult>0?mc('Equity Multiple',eqMult.toFixed(2)+'x','Total return ÷ capital in','#0B7070'):'')
+    +(finHasAmount(C.totRev)?mc('Project GDV',cr2(C.totRev),'Gross development value','#1A7244'):'')
+    +(finHasAmount(C.grossP)?mc('Gross Profit',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),'#A07800'):'')
+    +(finHasAmount(intAmt+gpShare)?mc('Interest + Profit Share',cr2(intAmt+gpShare),invRate+'% p.a. + '+invProfitPct+'% profit share','#B54D0A'):'')
     +'</div>';
 
   // ── TABLE ROWS ───────────────────────────────────────────────
@@ -5069,102 +5095,112 @@ function printFinModel(pid, sections, selInvId) {
   if(has('area')){
     tableRows += sectionHead('KEY FACTS & ASSUMPTIONS — '+(f2.fsiMode==='pmrda'?'PMRDA MODE':f2.fsiMode==='mumbai'?'MUMBAI DCPR 2034':f2.fsiMode==='goa'?'GOA TCP/FAR':f2.fsiMode==='plotting'?'PLOTTING (NO FSI)':'SIMPLE MODE'),'◆','#0B7070');
     if(f2.fsiMode==='pmrda'){
-      tableRows += row2('Total Plot Area',fm2(C.totalPlotDisp),'sq.ft');
-      tableRows += subhead('Deductions');
-      tableRows += row2('Plot under DP Road',fm2(C.dpRoadDisp),'sq.ft');
-      tableRows += row2('Plot for Truck Terminus Parking',fm2(C.truckTermDisp),'sq.ft');
-      tableRows += row2('Total Deductions',fm2(C.totalDeducDisp),'sq.ft',true);
-      tableRows += row2('Net Plot Area',fm2(C.netPlotDisp),'sq.ft',true);
-      tableRows += subhead('Basic FSI');
-      tableRows += row2('Basic FSI ('+f2.baseFsiFactor+'× net)',fm2(C.basicFSIDisp),'sq.ft');
-      tableRows += subhead('Additional FSI');
-      tableRows += row2('Paid FSI ('+f2.paidFsiFactor+'× net)',fm2(C.paidFSIDisp),'sq.ft');
-      tableRows += row2('TDR ('+f2.tdrFactor+'× net)',fm2(C.tdrDisp),'sq.ft');
-      tableRows += row2('Total Additional FSI',fm2(C.additionalDisp),'sq.ft',true);
-      tableRows += row2('Permissible FSI',fm2(C.permFSIDisp),'sq.ft',true);
-      tableRows += row2('Ancillary FSI ('+f2.ancFsiPct+'%)',fm2(C.ancFSIDisp),'sq.ft');
-      tableRows += row2('Total Permissible FSI',fm2(C.totPermDisp),'sq.ft',true);
+      tableRows += row2('Total Plot Area',prArea(C.totalPlotDisp),areaUnitPr,false,false,C.totalPlotDisp);
+      var dedRows='';
+      if(finHasAmount(C.dpRoadDisp)) dedRows+=row2('Plot under DP Road',prArea(C.dpRoadDisp),areaUnitPr,false,false,C.dpRoadDisp);
+      if(finHasAmount(C.truckTermDisp)) dedRows+=row2('Plot for Truck Terminus Parking',prArea(C.truckTermDisp),areaUnitPr,false,false,C.truckTermDisp);
+      if(dedRows){ tableRows+=subhead('Deductions'); tableRows+=dedRows; }
+      if(finHasAmount(C.totalDeducDisp)) tableRows += row2('Total Deductions',prArea(C.totalDeducDisp),areaUnitPr,true,false,C.totalDeducDisp);
+      if(finHasAmount(C.netPlotDisp)) tableRows += row2('Net Plot Area',prArea(C.netPlotDisp),areaUnitPr,true,false,C.netPlotDisp);
+      if(finHasAmount(C.basicFSIDisp)) tableRows += row2('Basic FSI ('+f2.baseFsiFactor+'× net)',prArea(C.basicFSIDisp),areaUnitPr,false,false,C.basicFSIDisp);
+      var addFsi='';
+      if(finHasAmount(C.paidFSIDisp)&&(f2.paidFsiFactor||0)>0) addFsi+=row2('Paid FSI ('+f2.paidFsiFactor+'× net)',prArea(C.paidFSIDisp),areaUnitPr,false,false,C.paidFSIDisp);
+      if(finHasAmount(C.tdrDisp)&&(f2.tdrFactor||0)>0) addFsi+=row2('TDR ('+f2.tdrFactor+'× net)',prArea(C.tdrDisp),areaUnitPr,false,false,C.tdrDisp);
+      if(addFsi){ tableRows+=subhead('Additional FSI'); tableRows+=addFsi; }
+      if(finHasAmount(C.additionalDisp)) tableRows += row2('Total Additional FSI',prArea(C.additionalDisp),areaUnitPr,true,false,C.additionalDisp);
+      if(finHasAmount(C.permFSIDisp)) tableRows += row2('Permissible FSI',prArea(C.permFSIDisp),areaUnitPr,true,false,C.permFSIDisp);
+      if(finHasAmount(C.ancFSIDisp)&&(f2.ancFsiPct||0)>0) tableRows += row2('Ancillary FSI ('+f2.ancFsiPct+'%)',prArea(C.ancFSIDisp),areaUnitPr,false,false,C.ancFSIDisp);
+      if(finHasAmount(C.totPermDisp)) tableRows += row2('Total Permissible FSI',prArea(C.totPermDisp),areaUnitPr,true,false,C.totPermDisp);
       tableRows += subhead('Saleable Areas');
-      tableRows += row2('Commercial Saleable (×'+f2.commSalFactor+'%)',fm2(C.cSal),'sq.ft');
-      tableRows += row2('Residential Saleable (×'+f2.resSalFactor+'%)',fm2(C.rSal),'sq.ft');
-      tableRows += row2('Total Saleable Area',fm2(C.totSal),'sq.ft',true);
+      if(finHasAmount(C.cSal)) tableRows += row2('Commercial Saleable (×'+f2.commSalFactor+'%)',prArea(C.cSal),areaUnitPr,false,false,C.cSal);
+      if(finHasAmount(C.rSal)) tableRows += row2('Residential Saleable (×'+f2.resSalFactor+'%)',prArea(C.rSal),areaUnitPr,false,false,C.rSal);
+      if(finHasAmount(C.totSal)) tableRows += row2('Total Saleable Area',prArea(C.totSal),areaUnitPr,true,true,C.totSal);
     } else if(f2.fsiMode==='plotting'){
-      tableRows += row2('Total Plot Area',fm2(C.totalPlotDisp),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
-      tableRows += subhead('Deductions');
+      tableRows += row2('Total Plot Area',prArea(C.totalPlotDisp),areaUnitPr,false,false,C.totalPlotDisp);
+      var dedPlot='';
       (f2.plotDeductions||[]).forEach(function(r){
-        if((r.label||'').trim()||finNum(r.area,0)>0) tableRows += row2(r.label||'Deduction',fm2(r.area),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
+        if(finNum(r.area,0)>0) dedPlot+=row2(r.label||'Deduction',fm2(r.area),areaUnitPr,false,false,r.area);
       });
-      tableRows += row2('Total Deductions',fm2(C.totalDeducDisp),'sq.ft',true);
-      tableRows += subhead('Additions');
+      if(dedPlot){ tableRows+=subhead('Deductions'); tableRows+=dedPlot; }
+      if(finHasAmount(C.totalDeducDisp)) tableRows += row2('Total Deductions',prArea(C.totalDeducDisp),areaUnitPr,true,false,C.totalDeducDisp);
+      var addPlot='';
       (f2.plotAdditions||[]).forEach(function(r){
-        if((r.label||'').trim()||finNum(r.area,0)>0) tableRows += row2(r.label||'Addition',fm2(r.area),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
+        if(finNum(r.area,0)>0) addPlot+=row2(r.label||'Addition',fm2(r.area),areaUnitPr,false,false,r.area);
       });
-      tableRows += row2('Total Additions',fm2(C.disp&&C.disp.plotAdditionsTotal||0),'sq.ft');
-      tableRows += row2('Net Saleable Plot Area',fm2(C.netPlotDisp),'sq.ft',true);
-      tableRows += row2('Commercial Plot Share ('+(f2.commPct||0)+'%)',fm2(C.cSal),'sq.ft');
-      tableRows += row2('Residential Plot Share',fm2(C.rSal),'sq.ft');
-      tableRows += row2('Total Saleable Plot Area',fm2(C.totSal),'sq.ft',true);
+      if(addPlot){ tableRows+=subhead('Additions'); tableRows+=addPlot; }
+      if(finHasAmount(C.disp&&C.disp.plotAdditionsTotal)) tableRows += row2('Total Additions',prArea(C.disp.plotAdditionsTotal),areaUnitPr,false,false,C.disp.plotAdditionsTotal);
+      if(finHasAmount(C.netPlotDisp)) tableRows += row2('Net Saleable Plot Area',prArea(C.netPlotDisp),areaUnitPr,true,false,C.netPlotDisp);
+      if(finHasAmount(C.cSal)&&(f2.commPct||0)>0) tableRows += row2('Commercial Plot Share ('+(f2.commPct||0)+'%)',prArea(C.cSal),areaUnitPr,false,false,C.cSal);
+      if(finHasAmount(C.rSal)) tableRows += row2('Residential Plot Share',prArea(C.rSal),areaUnitPr,false,false,C.rSal);
+      if(finHasAmount(C.totSal)) tableRows += row2('Total Saleable Plot Area',prArea(C.totSal),areaUnitPr,true,true,C.totSal);
     } else {
-      tableRows += row2('Total Plot Area',fm2(f2.plotArea||f2.plotSqmt||0),(f2.inputUnit||'sqft')==='sqmt'?'sq.mt':'sq.ft');
-      if(f2.fsiMode==='simple'){
+      var plotDisp=uSqmtPr?(f2.plotSqmt||0):(f2.plotArea||0);
+      if(finHasAmount(plotDisp)) tableRows += row2('Total Plot Area',fm2(plotDisp),areaUnitPr,false,false,plotDisp);
+      if(f2.fsiMode==='simple'&&((f2.fsiFactor||0)>0||(f2.convFactor||0)>0)){
         tableRows += row2('FSI × Conversion',(f2.fsiFactor||3)+' × '+(f2.convFactor||1.6));
       }
-      tableRows += row2('Buildable / FSI Area',fm2(C.fsi),'sq.ft');
-      tableRows += row2('Commercial Saleable',fm2(C.cSal),'sq.ft');
-      tableRows += row2('Residential Saleable',fm2(C.rSal),'sq.ft');
-      tableRows += row2('Total Saleable Area',fm2(C.totSal),'sq.ft',true);
+      if(finHasAmount(C.fsi)) tableRows += row2('Buildable / FSI Area',prArea(C.fsi),areaUnitPr,false,false,C.fsi);
+      if(finHasAmount(C.cSal)) tableRows += row2('Commercial Saleable',prArea(C.cSal),areaUnitPr,false,false,C.cSal);
+      if(finHasAmount(C.rSal)) tableRows += row2('Residential Saleable',prArea(C.rSal),areaUnitPr,false,false,C.rSal);
+      if(finHasAmount(C.totSal)) tableRows += row2('Total Saleable Area',prArea(C.totSal),areaUnitPr,true,true,C.totSal);
     }
     tableRows += spacer();
   }
   if(has('revenue')){
     tableRows += sectionHead('REVENUE FOR DEVELOPER','₹','#1A7244');
-    tableRows += row2('Commercial Dev Area',fm2(C.cDevA),'sq.ft @ Rs '+(f2.commRate||0).toLocaleString('en-IN'));
-    tableRows += row2('Commercial Revenue',cr2(C.cRev),(f2.commDevPct||50)+'% saleable');
-    tableRows += row2('Residential Dev Area',fm2(C.rDevA),'sq.ft @ Rs '+(f2.resRate||0).toLocaleString('en-IN'));
-    tableRows += row2('Residential Revenue',cr2(C.rRev),(f2.resDevPct||65)+'% saleable');
-    if((C.invSaleResRev||0)>0){
-      tableRows += row2('Investor sale — Residential (area × rate)',cr2(C.invSaleResRev||0),fm2(f2.investorSaleAreaSqft||0)+' sq.ft @ ₹'+(f2.investorSaleRate||0).toLocaleString('en-IN'));
+    if(finHasAmount(C.cDevA)) tableRows += row2('Commercial Dev Area',prArea(C.cDevA),prRateNote(f2.commRate),false,false,C.cDevA);
+    if(finHasAmount(C.cRev)) tableRows += row2('Commercial Revenue',cr2(C.cRev),(f2.commDevPct||50)+'% saleable');
+    if(finHasAmount(C.rDevA)) tableRows += row2('Residential Dev Area',prArea(C.rDevA),prRateNote(f2.resRate),false,false,C.rDevA);
+    if(finHasAmount(C.rRev)) tableRows += row2('Residential Revenue',cr2(C.rRev),(f2.resDevPct||65)+'% saleable');
+    if(finHasAmount(C.invSaleResRev)){
+      tableRows += row2('Investor sale — Residential',cr2(C.invSaleResRev),prArea(f2.investorSaleAreaSqft||0)+' '+areaUnitPr+' '+prRateNote(f2.investorSaleRate||0),false,false,C.invSaleResRev);
     }
-    if((C.invSaleCommRev||0)>0){
-      tableRows += row2('Investor sale — Commercial (area × rate)',cr2(C.invSaleCommRev||0),fm2(f2.investorSaleCommAreaSqft||0)+' sq.ft @ ₹'+(f2.investorSaleCommRate||0).toLocaleString('en-IN'));
+    if(finHasAmount(C.invSaleCommRev)){
+      tableRows += row2('Investor sale — Commercial',cr2(C.invSaleCommRev),prArea(f2.investorSaleCommAreaSqft||0)+' '+areaUnitPr+' '+prRateNote(f2.investorSaleCommRate||0),false,false,C.invSaleCommRev);
     }
-    tableRows += row2('Total GDV',cr2(C.totRev),'',true,true);
+    if(finHasAmount(C.mhadaRev)){
+      tableRows += row2('MHADA Revenue',cr2(C.mhadaRev),prArea(f2.mhadaAreaSqft||0)+' '+areaUnitPr+' '+prRateNote(f2.mhadaRate||0),false,false,C.mhadaRev);
+    }
+    tableRows += row2('Total GDV',cr2(C.totRev),'',true,true,C.totRev);
     tableRows += spacer();
     tableRows += sectionHead('PROJECTED EXPENSES','▼','#B54D0A');
-    tableRows += row2('Construction Cost',cr2(C.consCost),'@ Rs '+(f2.constructionRate||0).toLocaleString('en-IN')+'/sqft');
-    if(f2.approvalsRate) tableRows += row2('Approvals & Infrastructure',cr2(C.appCost),'@ Rs '+f2.approvalsRate+'/sqft');
-    tableRows += row2('Interest to Investor',cr2(C.intCost),invRate+'% × '+invDuration+' yr(s)');
-    if(f2.miscCost) tableRows += row2('Miscellaneous',cr2(f2.miscCost));
-    tableRows += row2('GA DM Fee',cr2(C.dmFee),(f2.dmFeePct||10)+'% of GDV');
-    var _sn=C.stampDutyNote||'';
-    tableRows += row2('Stamp duty (model)',cr2(C.totStamp),_sn.length>160?_sn.slice(0,157)+'…':_sn);
-    tableRows += row2('Total Projected Expenses',cr2(C.totExp),'',true,true);
+    if(finHasAmount(C.consCost)) tableRows += row2('Construction Cost',cr2(C.consCost),prRateNote(f2.constructionRate||0),false,false,C.consCost);
+    if(finHasAmount(C.appCost)&&finHasAmount(f2.approvalsRate)) tableRows += row2('Approvals & Infrastructure',cr2(C.appCost),prRateNote(f2.approvalsRate),false,false,C.appCost);
+    if(finHasAmount(C.intCost)) tableRows += row2('Interest to Investor',cr2(C.intCost),invRate+'% × '+invDuration+' yr(s)',false,false,C.intCost);
+    if(finHasAmount(f2.miscCost)) tableRows += row2('Miscellaneous',cr2(f2.miscCost),'',false,false,f2.miscCost);
+    if(finHasAmount(C.dmFee)) tableRows += row2('Operational Cost',cr2(C.dmFee),(f2.dmFeePct||10)+'% of GDV',false,false,C.dmFee);
+    if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',cr2(C.consultFee),C.consultRateSum?C.consultRateSum.toFixed(2)+' '+rateUnitPr:'',false,false,C.consultFee);
+    if(finHasAmount(C.totStamp)){
+      var _sn=C.stampDutyNote||'';
+      tableRows += row2('Stamp duty (model)',cr2(C.totStamp),_sn.length>160?_sn.slice(0,157)+'…':_sn,false,false,C.totStamp);
+    }
+    tableRows += row2('Total Projected Expenses',cr2(C.totExp),'',true,true,C.totExp);
     tableRows += spacer();
   }
   if(has('spv')){
     tableRows += sectionHead('PROJECT P&L SUMMARY','■','#333');
-    tableRows += row2('Total Revenue (GDV)',cr2(C.totRev),'');
-    tableRows += row2('Total Expenses',cr2(-C.totExp),'incl. DM fee','');
-    tableRows += row2('GROSS PROFIT',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),true,true);
-    tableRows += row2('Investor Profit Share',cr2(-gpShare),invProfitPct+'% of gross profit');
-    tableRows += row2('Net after Investor Share',cr2(netToDev),'',true);
+    tableRows += row2('Total Revenue (GDV)',cr2(C.totRev),'',false,false,C.totRev);
+    tableRows += row2('Total Expenses',cr2(-C.totExp),'incl. operational cost',false,false,C.totExp);
+    tableRows += row2('GROSS PROFIT',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),true,true,C.grossP);
+    if(finHasAmount(gpShare)) tableRows += row2('Investor Profit Share',cr2(-gpShare),invProfitPct+'% of gross profit',false,false,gpShare);
+    tableRows += row2('Net after Investor Share',cr2(netToDev),'',true,false,netToDev);
     tableRows += spacer();
     tableRows += sectionHead('★ INVESTOR RETURNS — '+invName.toUpperCase(),'★','#7B1D1D');
     tableRows += subhead('Year '+invDuration+': Principal + Interest returned   |   At project close: Profit sharing');
-    tableRows += row2('Principal Amount',cr2(invPrincipal),'Investment in');
-    tableRows += row2('Interest ('+invRate+'% × '+invDuration+' yr)',cr2(intAmt),'');
-    tableRows += row2('Profit Share ('+invProfitPct+'% of gross)',cr2(gpShare),'');
-    tableRows += row2('TOTAL RETURN',cr2(totalReturn),'',true,true);
+    if(finHasAmount(invPrincipal)) tableRows += row2('Principal Amount',cr2(invPrincipal),'Investment in',false,false,invPrincipal);
+    if(finHasAmount(intAmt)) tableRows += row2('Interest ('+invRate+'% × '+invDuration+' yr)',cr2(intAmt),'',false,false,intAmt);
+    if(finHasAmount(gpShare)) tableRows += row2('Profit Share ('+invProfitPct+'% of gross)',cr2(gpShare),'',false,false,gpShare);
+    tableRows += row2('TOTAL RETURN',cr2(totalReturn),'',true,true,totalReturn);
     tableRows += subhead('INVESTOR CASH OUTFLOWS FROM SPV (Reference)');
-    tableRows += row2('Principal (returned Yr '+invDuration+')',cr2(invPrincipal),'return of capital');
-    tableRows += row2('Interest (paid Yr '+invDuration+')',cr2(intAmt),'included in expenses');
-    tableRows += row2('Profit Sharing (at project close)',C.grossP>0?cr2(gpShare):'TBD at project close','post-project payment');
+    if(finHasAmount(invPrincipal)) tableRows += row2('Principal (returned Yr '+invDuration+')',cr2(invPrincipal),'return of capital',false,false,invPrincipal);
+    if(finHasAmount(intAmt)) tableRows += row2('Interest (paid Yr '+invDuration+')',cr2(intAmt),'included in expenses',false,false,intAmt);
+    if(C.grossP>0&&finHasAmount(gpShare)) tableRows += row2('Profit Sharing (at project close)',cr2(gpShare),'post-project payment',false,false,gpShare);
     tableRows += spacer();
-    tableRows += row2('Return on Capital (ROCE)',roce.toFixed(1)+'%','net gain / capital deployed',true);
-    tableRows += row2('Equity Multiple',eqMult.toFixed(2)+'x','total return / capital in');
-    tableRows += row2('XIRR (annualised)',xr!==null?(xr*100).toFixed(1)+'%':'—','start → P+I → profit dates',true);
-    tableRows += row2('Project calendar duration',IM.projMonths!=null?IM.projMonths+' mo ('+(p.startDate||'—')+' → '+(p.endDate||'—')+')':'Set project start & end dates','For reporting horizon');
-    tableRows += row2('Profit-share timing (indicative)',(p.endDate||IM.profitDate||'—')+' · after sustained positive net cashflow','See term sheet / waterfall');
+    if(finHasAmount(roce)) tableRows += row2('Return on Capital (ROCE)',roce.toFixed(1)+'%','net gain / capital deployed',true,false,roce);
+    if(eqMult>0) tableRows += row2('Equity Multiple',eqMult.toFixed(2)+'x','total return / capital in');
+    if(xr!==null) tableRows += row2('XIRR (annualised)',(xr*100).toFixed(1)+'%','start → P+I → profit dates',true);
+    if(IM.projMonths!=null) tableRows += row2('Project calendar duration',IM.projMonths+' mo ('+(p.startDate||'—')+' → '+(p.endDate||'—')+')','For reporting horizon');
+    if(p.endDate||IM.profitDate) tableRows += row2('Profit-share timing (indicative)',(p.endDate||IM.profitDate)+' · after sustained positive net cashflow','See term sheet / waterfall');
     tableRows += spacer();
   }
   if(has('milestones')){
@@ -5177,11 +5213,12 @@ function printFinModel(pid, sections, selInvId) {
         var am=parseFloat(m.amount)||0;
         msTotP+=am;
         if(m.include!==false) msChkP+=am;
-        tableRows += row2(mk,cr2(am));
+        if(finHasAmount(am)) tableRows += row2(mk,cr2(am),'',false,false,am);
       });
-      tableRows += row2('Subtotal — included (☑)',cr2(msChkP),'SPV / partner leg',true);
-      tableRows += row2('Subtotal — excluded (☐)',cr2(Math.max(0,msTotP-msChkP)),'Inventory / pre-launch gap',true);
-      tableRows += row2('TOTAL (all milestones)',cr2(msTotP),'',true,true);
+      if(finHasAmount(msChkP)) tableRows += row2('Subtotal — included (☑)',cr2(msChkP),'SPV / partner leg',true,false,msChkP);
+      var msGap=Math.max(0,msTotP-msChkP);
+      if(finHasAmount(msGap)) tableRows += row2('Subtotal — excluded (☐)',cr2(msGap),'Inventory / pre-launch gap',true,false,msGap);
+      if(finHasAmount(msTotP)) tableRows += row2('TOTAL (all milestones)',cr2(msTotP),'',true,true,msTotP);
     }
   }
 
@@ -5191,7 +5228,7 @@ function printFinModel(pid, sections, selInvId) {
     {l:'Construction',v:-C.consCost,c:'#B54D0A',type:'bar'},
     {l:'Interest',v:-C.intCost,c:'#A8301E',type:'bar'},
     {l:'Approvals',v:-(C.appCost||0),c:'#7A3205',type:'bar'},
-    {l:'DM Fee',v:-C.dmFee,c:'#0B7070',type:'bar'},
+    {l:'Operational Cost',v:-C.dmFee,c:'#0B7070',type:'bar'},
     {l:'Misc',v:-(f2.miscCost!==undefined&&f2.miscCost!==null?f2.miscCost:0),c:'#64748B',type:'bar'},
   ];
   if(C.spvConsultShift&&C.spvConsultShift>0) wfItems.push({l:'Consult+Mk SPV',v:-C.spvConsultShift,c:'#8A1D5E',type:'bar'});
@@ -5238,25 +5275,31 @@ function printFinModel(pid, sections, selInvId) {
   // ── Assemble page ────────────────────────────────────────────
   var win=window.open('','_blank');
   if(!win){alert('Enable popups to print');return;}
-  win.document.write('<!DOCTYPE html><html><head><title>'+(p.name||pid)+' — Investment Report</title>'
-    +'<style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#F8FAFC;color:#1A202C}'
-    +'table{width:100%;border-collapse:collapse}.actions{padding:14px 20px;background:#fff;border-bottom:1px solid #E2E8F0;display:flex;gap:8px;align-items:center}'
-    +'@media print{.actions{display:none}body{background:#fff}.page-wrap{box-shadow:none!important}}'
+  win.document.write('<!DOCTYPE html><html><head><title>'+(p.name||pid)+' — Investment Memorandum</title>'
+    +'<style>@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap");'
+    +'*{box-sizing:border-box;margin:0;padding:0}'
+    +'body{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Arial,sans-serif;background:#EEF2F7;color:#0F172A;-webkit-print-color-adjust:exact;print-color-adjust:exact}'
+    +'table{width:100%;border-collapse:collapse}'
+    +'thead th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#64748B;text-align:left;padding:8px 16px;background:#F8FAFC;border-bottom:2px solid #E2E8F0}'
+    +'.actions{padding:14px 20px;background:#fff;border-bottom:1px solid #E2E8F0;display:flex;gap:8px;align-items:center;position:sticky;top:0;z-index:10}'
+    +'.page-wrap{max-width:900px;margin:20px auto;background:#fff;box-shadow:0 8px 40px rgba(15,23,42,.10);overflow:hidden;border:1px solid #E2E8F0}'
+    +'@page{margin:14mm 12mm}'
+    +'@media print{.actions{display:none}body{background:#fff}.page-wrap{margin:0;box-shadow:none;border:none;max-width:none}}'
     +'</style></head><body>'
     +'<div class="actions">'
     +'<button onclick="window.print()" style="padding:8px 22px;background:#0A3266;color:#fff;border:none;border-radius:7px;cursor:pointer;font-weight:700;font-size:13px">&#128424; Print / Save PDF</button>'
     +'<button type="button" id="ga-dv-btn" data-pid="'+gaEscAttr(pid)+'" data-pname="'+gaEscAttr(p.name||'')+'" style="padding:8px 14px;background:#F0FDF4;color:#166534;border:1.5px solid #22C55E;border-radius:7px;cursor:pointer;font-weight:700;font-size:12px">Record in Doc Vault</button>'
     +'<button onclick="window.close()" style="padding:8px 14px;border:1px solid #DDE2EA;border-radius:7px;cursor:pointer;font-size:13px">Close</button>'
-    +'<span style="font-size:11px;color:#94A3B8;margin-left:8px">Tip: A4, landscape, enable background graphics · Doc Vault logs this print; save PDF into your project folder</span>'
+    +'<span style="font-size:11px;color:#94A3B8;margin-left:8px">Tip: A4 portrait, enable background graphics · Confidential — for qualified institutions only</span>'
     +'</div>'
-    +'<div class="page-wrap" style="max-width:860px;margin:16px auto;background:#fff;border-radius:12px;box-shadow:0 4px 24px rgba(0,0,0,.08);overflow:hidden">'
+    +'<div class="page-wrap">'
     +coverSection
     +kpiGrid
-    +(tableRows?'<div style="padding:0 0 4px"><table>'+tableRows+'</table></div>':'')
+    +(tableRows?'<div style="padding:8px 0 0"><table><thead><tr><th style="width:42%">Parameter</th><th style="width:22%;text-align:right">Value</th><th>Notes</th></tr></thead><tbody>'+tableRows+'</tbody></table></div>':'')
     +wfSection
     +revChartSection
-    +'<div style="padding:14px 24px;background:#0A3266;color:rgba(255,255,255,.6);font-size:10px;display:flex;justify-content:space-between">'
-    +'<span>Golden Abodes Development Management — Confidential</span>'
+    +'<div style="padding:16px 24px;background:#0A3266;color:rgba(255,255,255,.72);font-size:10px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;line-height:1.5">'
+    +'<span><strong style="color:#fff">Golden Abodes</strong> — Confidential investment memorandum. Figures are model outputs; verify with counsel, valuers &amp; statutory authorities before commitment.</span>'
     +'<span>'+new Date().toLocaleString('en-IN')+'</span>'
     +'</div>'
     +'</div></body></html>');
