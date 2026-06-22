@@ -59,28 +59,32 @@ export function iterCollectionBlocks(rawRows) {
 export function extractCollectionMilestones(block) {
   const { due, recv, pend, dates } = block;
   const milestones = [];
+  const postStage = [];
   let order = 0;
   for (const key of Object.keys(due)) {
     const sk = slug(key);
-    if (META_KEYS.has(sk) || POST_STAGE_KEYS.has(sk)) continue;
-    if (sk.startsWith('total')) continue;
+    if (META_KEYS.has(sk) || sk.startsWith('total')) continue;
     const dueAmount = Number(due[key]) || 0;
     const receivedAmount = Number(recv[key]) || 0;
     const pendingAmount = Number(pend[key]) || 0;
     if (dueAmount === 0 && receivedAmount === 0 && pendingAmount === 0) continue;
     const targetDate = dates ? parseDate(dates[key]) : undefined;
-    milestones.push({
+    const entry = {
       milestoneName: formatMilestoneLabel(key),
-      milestoneOrder: order,
       dueAmount,
       receivedAmount,
       pendingAmount,
       targetDate,
       dueDate: targetDate,
-    });
+    };
+    if (POST_STAGE_KEYS.has(sk)) {
+      postStage.push({ ...entry, stageKey: sk, milestoneOrder: 900 + postStage.length });
+      continue;
+    }
+    milestones.push({ ...entry, milestoneOrder: order });
     order += 1;
   }
-  return milestones;
+  return { milestones, postStage };
 }
 
 export function inferPipelineStep(milestones, { registrationDate, bookingAmount } = {}) {

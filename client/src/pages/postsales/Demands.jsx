@@ -6,6 +6,12 @@ import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.js
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { sortDemandsByClpChronology, toIsoDateInput } from '../../lib/postsales/clpMilestoneOrder.js';
+import {
+  computeUnitCumulative,
+  isGstDemand,
+  milestoneRowDisplay,
+  sumCumulativeSummary,
+} from '../../lib/postsales/demandAmounts.js';
 
 function fmt(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -22,26 +28,7 @@ function payBadge(status) {
   return `ps-badge ps-badge-${map[status] || 'grey'}`;
 }
 
-function rowAmounts(d) {
-  const agreementDue = Number(d.demandAmount) || Math.max(0, (Number(d.totalAmount) || 0) - (Number(d.gstAmount) || 0));
-  const gstDue = Number(d.gstAmount) || Math.round(agreementDue * 0.05);
-  const totalDue = Number(d.totalAmount) || agreementDue + gstDue;
-  const received = Number(d.receivedAmount ?? d.paidAmount ?? 0);
-  const ratio = totalDue > 0 ? Math.min(1, received / totalDue) : 0;
-  const agreementReceived = Math.min(agreementDue, Math.round(agreementDue * ratio));
-  const gstReceived = Math.min(gstDue, received - agreementReceived);
-  return {
-    agreementDue,
-    gstDue,
-    agreementReceived,
-    gstReceived,
-    agreementPending: Math.max(0, agreementDue - agreementReceived),
-    gstPending: Math.max(0, gstDue - gstReceived),
-    due: totalDue,
-    received,
-    pending: Math.max(0, totalDue - received),
-  };
-}
+const AS_OF_TODAY = new Date();
 
 const STATUS_FILTERS = [
   { id: '', label: 'All' },
@@ -86,7 +73,6 @@ export default function Demands() {
     const map = new Map();
     for (const d of filtered) {
       const key = `${d.project}|${d.unitNumber}`;
-      const { agreementDue, gstDue, agreementReceived, gstReceived, agreementPending, gstPending } = rowAmounts(d);
       if (!map.has(key)) {
         map.set(key, {
           key,
@@ -96,33 +82,25 @@ export default function Demands() {
           customerName: d.customerName,
           location: [d.phase, d.building].filter(Boolean).join(' · '),
           entity: d.entity,
-          agreementDue: 0,
-          agreementReceived: 0,
-          agreementPending: 0,
-          gstDue: 0,
-          gstReceived: 0,
-          gstPending: 0,
           milestones: [],
           worstStatus: d.paymentStatus,
         });
       }
+      map.get(key).milestones.push(d);
       const g = map.get(key);
-      g.agreementDue += agreementDue;
-      g.agreementReceived += agreementReceived;
-      g.agreementPending += agreementPending;
-      g.gstDue += gstDue;
-      g.gstReceived += gstReceived;
-      g.gstPending += gstPending;
-      g.milestones.push(d);
       if (d.paymentStatus === 'overdue') g.worstStatus = 'overdue';
       else if (d.paymentStatus === 'partial' && g.worstStatus !== 'overdue') g.worstStatus = 'partial';
       else if (d.paymentStatus === 'pending' && !['overdue', 'partial'].includes(g.worstStatus)) g.worstStatus = 'pending';
     }
     for (const g of map.values()) {
       g.milestones = sortDemandsByClpChronology(g.milestones);
+      const cum = computeUnitCumulative(g.milestones, AS_OF_TODAY);
+      Object.assign(g, cum);
     }
     return [...map.values()].sort((a, b) => b.agreementPending + b.gstPending - (a.agreementPending + a.gstPending) || a.project.localeCompare(b.project));
   }, [filtered]);
+
+  const pageTotals = useMemo(() => sumCumulativeSummary(unitGroups), [unitGroups]);
 
   const counts = useMemo(() => ({
     all: demands.length,
@@ -198,9 +176,9 @@ export default function Demands() {
     }
   };
 
-  const totalDue = summary.totalDue ?? summary.totalDemanded ?? 0;
-  const totalReceived = summary.totalReceived ?? summary.totalCollected ?? 0;
-  const totalPending = summary.totalPending ?? summary.totalOutstanding ?? 0;
+  const totalDue = pageTotals.agreementDue + pageTotals.gstDue;
+  const totalReceived = pageTotals.agreementReceived + pageTotals.gstReceived;
+  const totalPending = pageTotals.agreementPending + pageTotals.gstPending;
   const collectPct = fmtPct(totalDue, totalReceived);
 
   return (
@@ -209,7 +187,7 @@ export default function Demands() {
         <div>
           <h2 style={{ margin: 0 }}>Demands &amp; collections</h2>
           <p className="ps-demands-sub">
-            CLP milestone payments per unit — <strong>Due</strong>, <strong>Received</strong>, and <strong>Pending</strong> in one place.
+            Cumulative <strong>due / received / pending as of today</strong> — agreement value and GST tracked separately (CLP stage or instalment due date).
           </p>
         </div>
         <div className="ps-demands-actions">
@@ -314,7 +292,7 @@ export default function Demands() {
       )}
 
       {!loading && filtered.length > 0 && view === 'units' && (
-        <div className="ps-card" style={{ padding: 0, overflow: 'auto' }}>
+        <div className="ps-card ps-demands-scroll" style={{ padding: 0 }}>
           <table className="ps-table ps-demands-table">
             <thead>
               <tr>
@@ -374,10 +352,11 @@ export default function Demands() {
                               </tr>
                             </thead>
                             <tbody>
-                              {g.milestones.map((d) => {
-                                const a = rowAmounts(d);
+                              {g.milestones.filter((d) => !isGstDemand(d)).map((d) => {
+                                const a = milestoneRowDisplay(d, AS_OF_TODAY);
+                                const future = !a.agreementDue && !a.gstDue && (d.targetDate || d.dueDate);
                                 return (
-                                  <tr key={d._id}>
+                                  <tr key={d._id} className={future ? 'ps-clp-future-row' : ''}>
                                     <td className="ps-clp-ms-name">{milestoneLabel(d)}</td>
                                     <td className="ps-num">{d.clpPercent || '—'}</td>
                                     <td>
@@ -424,6 +403,29 @@ export default function Demands() {
                                   </tr>
                                 );
                               })}
+                              {(() => {
+                                const gst = g.milestones.find(isGstDemand);
+                                if (!gst) return null;
+                                const a = milestoneRowDisplay(gst, AS_OF_TODAY);
+                                return (
+                                  <tr key={gst._id} className="ps-clp-gst-row">
+                                    <td className="ps-clp-ms-name">GST</td>
+                                    <td className="ps-num">—</td>
+                                    <td>
+                                      <input type="date" className="ps-clp-date" value={toIsoDateInput(gst.targetDate || gst.dueDate)} disabled={dateBusy === `${gst._id}:targetDate`} onClick={(e) => e.stopPropagation()} onChange={(e) => handleMilestoneDate(gst, 'targetDate', e.target.value)} />
+                                    </td>
+                                    <td>—</td>
+                                    <td className="ps-num">—</td>
+                                    <td className="ps-num">—</td>
+                                    <td className="ps-num">—</td>
+                                    <td className="ps-num">{fmt(a.gstDue)}</td>
+                                    <td className="ps-num">{fmt(a.gstReceived)}</td>
+                                    <td className="ps-num">{fmt(a.gstPending)}</td>
+                                    <td><span className={payBadge(gst.paymentStatus)}>{gst.paymentStatus}</span></td>
+                                    <td />
+                                  </tr>
+                                );
+                              })()}
                             </tbody>
                           </table>
                         </td>
@@ -457,8 +459,8 @@ export default function Demands() {
               </tr>
             </thead>
             <tbody>
-              {sortedMilestones.map((d) => {
-                const a = rowAmounts(d);
+              {sortedMilestones.filter((d) => !isGstDemand(d)).map((d) => {
+                const a = milestoneRowDisplay(d, AS_OF_TODAY);
                 return (
                   <tr key={d._id}>
                     <td>

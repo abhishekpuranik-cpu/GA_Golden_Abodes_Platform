@@ -257,6 +257,20 @@
 .ps-badge-amber { background: #fef3c7; color: #92400e; }
 
 .ps-demands-page { max-width: 1200px; }
+.ps-demands-scroll {
+  max-height: min(72vh, 720px);
+  overflow: auto;
+}
+.ps-demands-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--ps-bg-subtle, #f1f5f9);
+  box-shadow: 0 1px 0 var(--ps-border);
+}
+.ps-clp-future-row { opacity: 0.55; }
+.ps-clp-gst-row { background: #f0fdf4; }
+.ps-clp-gst-row td { font-weight: 600; }
 .ps-demands-head { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; align-items: flex-start; }
 .ps-demands-sub { margin: 6px 0 0; font-size: 0.9rem; color: var(--ps-text-muted); max-width: 520px; }
 .ps-demands-actions { display: flex; gap: 8px; flex-wrap: wrap; }

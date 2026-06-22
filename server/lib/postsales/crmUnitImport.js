@@ -198,6 +198,14 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
       paidDate: m.receivedAmount > 0 ? (existing?.paidDate || new Date()) : undefined,
       source,
     };
+    if (m.stageKey === 'gst') {
+      payload.milestoneName = 'GST';
+      payload.demandAmount = 0;
+      payload.gstAmount = m.dueAmount;
+      payload.totalAmount = m.dueAmount;
+      payload.paidAmount = m.receivedAmount;
+      payload.paymentStatus = paymentStatusFromAmounts(m.dueAmount, m.receivedAmount);
+    }
     if (existing) {
       ops.push({ updateOne: { filter: { _id: existing._id }, update: { $set: payload } } });
       report.updated += 1;
@@ -402,7 +410,8 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         report.rows.push({ action: 'error', ...row, error: err });
         continue;
       }
-      const milestones = extractCollectionMilestones(block);
+      const { milestones, postStage } = extractCollectionMilestones(block);
+      const allMilestones = [...milestones, ...postStage];
       const startAtStep = inferPipelineStep(milestones, {
         registrationDate: row.registrationDate,
         bookingAmount: row.bookingAmount,
@@ -411,7 +420,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         bookingDate: row.bookingDate,
         registrationDate: row.registrationDate,
       });
-      normalized.push({ row, milestones, startAtStep, stepDueDates });
+      normalized.push({ row, milestones: allMilestones, startAtStep, stepDueDates });
     } catch (e) {
       report.summary.errors += 1;
       report.rows.push({ action: 'error', error: e.message });
