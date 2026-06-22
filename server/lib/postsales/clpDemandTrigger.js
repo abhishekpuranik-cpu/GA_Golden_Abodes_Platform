@@ -111,9 +111,12 @@ async function upsertDemandForUnit({ unit, milestone, now }) {
         demand.gstAmount = gstAmount;
         demand.totalAmount = totalAmount;
       }
-      demand.clpLetterTaskAt = now;
-      await demand.save();
     }
+    if (milestone.completedDate && !demand.actualDate) {
+      demand.actualDate = milestone.completedDate;
+    }
+    demand.clpLetterTaskAt = now;
+    await demand.save();
     return { demand, created: false };
   }
 
@@ -128,6 +131,8 @@ async function upsertDemandForUnit({ unit, milestone, now }) {
     totalAmount,
     issuedDate: now,
     dueDate,
+    targetDate: dueDate,
+    actualDate: milestone.completedDate || undefined,
     paymentStatus: 'pending',
     paidAmount: 0,
     source: 'manual',

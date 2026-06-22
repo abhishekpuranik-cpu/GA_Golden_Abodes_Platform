@@ -22,9 +22,13 @@ export function useDemands(params = {}) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const updateDemand = async (id, body) => {
+  const updateDemand = async (id, body, { silent = false } = {}) => {
     const d = await postSalesApi.updateDemand(id, body);
-    await refresh();
+    if (silent) {
+      setDemands((prev) => prev.map((row) => (row._id === id ? { ...row, ...d } : row)));
+    } else {
+      await refresh();
+    }
     return d;
   };
 

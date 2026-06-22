@@ -280,6 +280,34 @@
 .ps-demand-unit-row td:first-child { color: var(--ps-text-muted); font-size: 0.7rem; }
 .ps-demand-detail-row { background: #f8fafc; }
 .ps-demand-detail-row td { font-size: 0.85rem; border-bottom: 1px solid #eef2f7; }
+.ps-demand-expand-row td { background: #f8fafc; border-bottom: 1px solid #eef2f7; }
+.ps-clp-subtable { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
+.ps-clp-subtable th {
+  text-align: left;
+  padding: 4px 6px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ps-text-muted);
+  border-bottom: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+.ps-clp-subtable td {
+  padding: 3px 6px;
+  border-bottom: 1px solid #eef2f7;
+  vertical-align: middle;
+}
+.ps-clp-subtable .ps-num { font-size: 0.76rem; }
+.ps-clp-ms-name { max-width: 200px; line-height: 1.25; font-weight: 600; word-break: break-word; }
+.ps-clp-date {
+  width: 100%;
+  max-width: 130px;
+  padding: 3px 5px;
+  border: 1px solid var(--ps-border);
+  border-radius: 5px;
+  font-size: 0.76rem;
+  background: #fff;
+}
+.ps-clp-mini-btn { font-size: 0.72rem !important; padding: 2px 6px !important; }
 .ps-demand-milestone-cell {
   max-width: 240px;
   min-width: 160px;

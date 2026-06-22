@@ -5,6 +5,7 @@ import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.j
 import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
+import { sortDemandsByClpChronology, toIsoDateInput } from '../../lib/postsales/clpMilestoneOrder.js';
 
 function fmt(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -60,7 +61,7 @@ export default function Demands() {
   const [actionMsg, setActionMsg] = useState(null);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
-  const [taskBusy, setTaskBusy] = useState(null);
+  const [dateBusy, setDateBusy] = useState(null);
   const fileRef = useRef(null);
 
   const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
@@ -78,6 +79,8 @@ export default function Demands() {
       return hay.includes(q);
     });
   }, [demands, statusFilter, search]);
+
+  const sortedMilestones = useMemo(() => sortDemandsByClpChronology(filtered), [filtered]);
 
   const unitGroups = useMemo(() => {
     const map = new Map();
@@ -115,6 +118,9 @@ export default function Demands() {
       else if (d.paymentStatus === 'partial' && g.worstStatus !== 'overdue') g.worstStatus = 'partial';
       else if (d.paymentStatus === 'pending' && !['overdue', 'partial'].includes(g.worstStatus)) g.worstStatus = 'pending';
     }
+    for (const g of map.values()) {
+      g.milestones = sortDemandsByClpChronology(g.milestones);
+    }
     return [...map.values()].sort((a, b) => b.agreementPending + b.gstPending - (a.agreementPending + a.gstPending) || a.project.localeCompare(b.project));
   }, [filtered]);
 
@@ -136,22 +142,25 @@ export default function Demands() {
   };
 
   const handlePay = async (id) => {
-    await updateDemand(id, payForm);
+    await updateDemand(id, payForm, { silent: true });
     setPayForm(null);
     setActionMsg('Payment updated.');
   };
 
-  const handleClpLetterTask = async (demand) => {
-    setTaskBusy(demand._id);
+  const handleMilestoneDate = async (demand, field, value) => {
+    const key = `${demand._id}:${field}`;
+    setDateBusy(key);
     setActionMsg(null);
     try {
-      const result = await postSalesApi.createClpLetterTask(demand._id);
-      setActionMsg(`CLP letter task created for ${result.unitNumber || demand.unitNumber} — assignee can pick it up in My Tasks (step 12).`);
-      await refresh();
+      const body = { [field]: value || null, source: 'milestone' };
+      const updated = await updateDemand(demand._id, body, { silent: true });
+      if (field === 'actualDate' && value && !demand.actualDate) {
+        setActionMsg(`Milestone achieved — CLP letter task created for ${updated.unitNumber || demand.unitNumber} (My Tasks · step 12).`);
+      }
     } catch (err) {
       setActionMsg(err.message);
     } finally {
-      setTaskBusy(null);
+      setDateBusy(null);
     }
   };
 
@@ -344,49 +353,82 @@ export default function Demands() {
                       <td className="ps-num" style={{ color: g.gstPending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(g.gstPending)}</td>
                       <td><span className={payBadge(g.worstStatus)}>{g.worstStatus}</span></td>
                     </tr>
-                    {open && g.milestones.map((d) => {
-                      const a = rowAmounts(d);
-                      return (
-                        <tr key={d._id} className="ps-demand-detail-row">
-                          <td />
-                          <td className="ps-demand-milestone-cell" colSpan={2}>
-                            <strong>{milestoneLabel(d)}</strong>
-                            <div className="ps-demands-meta">
-                              CLP {d.clpPercent || '—'}%
-                              {d.dueDate ? ` · due ${new Date(d.dueDate).toLocaleDateString('en-IN')}` : ''}
-                              {d.clpLetterTaskAt ? ` · letter task ${new Date(d.clpLetterTaskAt).toLocaleDateString('en-IN')}` : ''}
-                            </div>
-                          </td>
-                          <td className="ps-num">{fmt(a.agreementDue)}</td>
-                          <td className="ps-num">{fmt(a.agreementReceived)}</td>
-                          <td className="ps-num">{fmt(a.agreementPending)}</td>
-                          <td className="ps-num">{fmt(a.gstDue)}</td>
-                          <td className="ps-num">{fmt(a.gstReceived)}</td>
-                          <td className="ps-num">{fmt(a.gstPending)}</td>
-                          <td>
-                            <span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span>
-                            <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-start' }}>
-                            {!d.clpLetterTaskAt && (
-                              <button type="button" className="ps-btn" style={{ fontSize: '0.75rem', padding: '3px 8px' }} disabled={taskBusy === d._id} onClick={(e) => { e.stopPropagation(); handleClpLetterTask(d); }}>
-                                {taskBusy === d._id ? '…' : 'Issue CLP letter task'}
-                              </button>
-                            )}
-                            {payForm?.id === d._id ? (
-                              <div className="ps-inline-form" onClick={(e) => e.stopPropagation()}>
-                                <input type="number" value={payForm.paidAmount} onChange={(e) => setPayForm((f) => ({ ...f, paidAmount: Number(e.target.value) }))} />
-                                <button type="button" className="ps-btn ps-btn-primary" onClick={() => handlePay(d._id)}>Save</button>
-                                <button type="button" className="ps-btn" onClick={() => setPayForm(null)}>Cancel</button>
-                              </div>
-                            ) : (
-                              <button type="button" className="ps-btn" style={{ fontSize: '0.8rem', padding: '4px 8px' }} onClick={(e) => { e.stopPropagation(); setPayForm({ id: d._id, paidAmount: d.paidAmount || 0, paidDate: new Date().toISOString().slice(0, 10) }); }}>
-                                Update received
-                              </button>
-                            )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {open && (
+                      <tr className="ps-demand-expand-row">
+                        <td colSpan={10} style={{ padding: '4px 8px 8px 28px' }}>
+                          <table className="ps-clp-subtable">
+                            <thead>
+                              <tr>
+                                <th>Milestone</th>
+                                <th className="ps-num">CLP %</th>
+                                <th>Target date</th>
+                                <th>Actual date</th>
+                                <th className="ps-num">Agmt due</th>
+                                <th className="ps-num">Agmt rcvd</th>
+                                <th className="ps-num">Agmt pend</th>
+                                <th className="ps-num">GST due</th>
+                                <th className="ps-num">GST rcvd</th>
+                                <th className="ps-num">GST pend</th>
+                                <th>Status</th>
+                                <th />
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {g.milestones.map((d) => {
+                                const a = rowAmounts(d);
+                                return (
+                                  <tr key={d._id}>
+                                    <td className="ps-clp-ms-name">{milestoneLabel(d)}</td>
+                                    <td className="ps-num">{d.clpPercent || '—'}</td>
+                                    <td>
+                                      <input
+                                        type="date"
+                                        className="ps-clp-date"
+                                        value={toIsoDateInput(d.targetDate || d.dueDate)}
+                                        disabled={dateBusy === `${d._id}:targetDate`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => handleMilestoneDate(d, 'targetDate', e.target.value)}
+                                      />
+                                    </td>
+                                    <td>
+                                      <input
+                                        type="date"
+                                        className="ps-clp-date"
+                                        value={toIsoDateInput(d.actualDate)}
+                                        disabled={dateBusy === `${d._id}:actualDate`}
+                                        onClick={(e) => e.stopPropagation()}
+                                        onChange={(e) => handleMilestoneDate(d, 'actualDate', e.target.value)}
+                                        title={d.clpLetterTaskAt ? `Letter task ${new Date(d.clpLetterTaskAt).toLocaleDateString('en-IN')}` : 'Set when construction milestone is achieved — triggers CLP letter task'}
+                                      />
+                                    </td>
+                                    <td className="ps-num">{fmt(a.agreementDue)}</td>
+                                    <td className="ps-num">{fmt(a.agreementReceived)}</td>
+                                    <td className="ps-num">{fmt(a.agreementPending)}</td>
+                                    <td className="ps-num">{fmt(a.gstDue)}</td>
+                                    <td className="ps-num">{fmt(a.gstReceived)}</td>
+                                    <td className="ps-num">{fmt(a.gstPending)}</td>
+                                    <td><span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span></td>
+                                    <td>
+                                      {payForm?.id === d._id ? (
+                                        <div className="ps-inline-form" onClick={(e) => e.stopPropagation()}>
+                                          <input type="number" value={payForm.paidAmount} onChange={(e) => setPayForm((f) => ({ ...f, paidAmount: Number(e.target.value) }))} />
+                                          <button type="button" className="ps-btn ps-btn-primary" onClick={() => handlePay(d._id)}>Save</button>
+                                          <button type="button" className="ps-btn" onClick={() => setPayForm(null)}>Cancel</button>
+                                        </div>
+                                      ) : (
+                                        <button type="button" className="ps-btn ps-clp-mini-btn" onClick={(e) => { e.stopPropagation(); setPayForm({ id: d._id, paidAmount: d.paidAmount || 0, paidDate: new Date().toISOString().slice(0, 10) }); }}>
+                                          Rcvd
+                                        </button>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </td>
+                      </tr>
+                    )}
                   </Fragment>
                 );
               })}
@@ -395,7 +437,7 @@ export default function Demands() {
         </div>
       )}
 
-      {!loading && filtered.length > 0 && view === 'milestones' && (
+      {!loading && sortedMilestones.length > 0 && view === 'milestones' && (
         <div className="ps-card" style={{ padding: 0, overflow: 'auto' }}>
           <table className="ps-table ps-demands-table">
             <thead>
@@ -408,13 +450,14 @@ export default function Demands() {
                 <th className="ps-num">GST due</th>
                 <th className="ps-num">GST rcvd</th>
                 <th className="ps-num">GST pend</th>
-                <th>Due date</th>
+                <th>Target</th>
+                <th>Actual</th>
                 <th>Status</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {filtered.map((d) => {
+              {sortedMilestones.map((d) => {
                 const a = rowAmounts(d);
                 return (
                   <tr key={d._id}>
@@ -432,7 +475,12 @@ export default function Demands() {
                     <td className="ps-num">{fmt(a.gstDue)}</td>
                     <td className="ps-num" style={{ color: 'var(--ps-success)' }}>{fmt(a.gstReceived)}</td>
                     <td className="ps-num" style={{ color: a.gstPending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(a.gstPending)}</td>
-                    <td style={{ fontSize: '0.85rem' }}>{d.dueDate ? new Date(d.dueDate).toLocaleDateString('en-IN') : '—'}</td>
+                    <td>
+                      <input type="date" className="ps-clp-date" value={toIsoDateInput(d.targetDate || d.dueDate)} onChange={(e) => handleMilestoneDate(d, 'targetDate', e.target.value)} />
+                    </td>
+                    <td>
+                      <input type="date" className="ps-clp-date" value={toIsoDateInput(d.actualDate)} onChange={(e) => handleMilestoneDate(d, 'actualDate', e.target.value)} />
+                    </td>
                     <td><span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span></td>
                     <td>
                       {payForm?.id === d._id ? (
@@ -455,7 +503,7 @@ export default function Demands() {
       )}
 
       <p style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)', marginTop: 16 }}>
-        Tip: use <strong>By unit</strong> for a customer overview; expand a row to see each CLP milestone.
+        Tip: use <strong>By unit</strong> for a customer overview; milestones run Token → Possession. Set <strong>Actual date</strong> when construction completes — a CLP letter task (step 12) is created automatically.
         {' '}<Link to="/app/post-sales/units">Sold units</Link> · <Link to="/app/post-sales/allocation">Allocation</Link>
       </p>
     </div>

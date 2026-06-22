@@ -7,6 +7,7 @@ import { ensureMongo } from '../../lib/mongo.js';
 import { normalizeImportRow, paymentStatusFromAmounts } from '../../lib/postsales/collectionsLib.js';
 import { activateClpLetterTaskFromDemand } from '../../lib/postsales/clpDemandTrigger.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
+import { sortDemandsByClpChronology } from '../../lib/postsales/clpMilestoneOrder.js';
 import { exportCollectionsForCashflow, syncDemandsFromV1 } from '../../lib/postsales/demandsV1Sync.js';
 import { syncSoldUnitsFromCashflowV1 } from '../../lib/postsales/cashflowV1Sync.js';
 
@@ -34,6 +35,10 @@ function enrichDemand(d, unitMap) {
     customerName: u?.customerId?.name,
     milestoneName: formatMilestoneLabel(d.milestoneName),
     milestoneNameRaw: d.milestoneName,
+    milestoneOrder: d.milestoneOrder,
+    targetDate: d.targetDate || d.dueDate,
+    actualDate: d.actualDate,
+    clpLetterTaskAt: d.clpLetterTaskAt,
     dueAmount: due,
     receivedAmount: received,
     pendingAmount: due - received,
@@ -80,6 +85,7 @@ async function importDemandRows(rows, { source = 'upload' } = {}) {
         paidAmount: row.receivedAmount,
         paymentStatus: paymentStatusFromAmounts(row.totalAmount, row.receivedAmount),
         issuedDate: existing?.issuedDate || new Date(),
+        targetDate: row.dueDate ? new Date(row.dueDate) : existing?.targetDate,
         dueDate: row.dueDate ? new Date(row.dueDate) : existing?.dueDate,
         paidDate: row.receivedAmount > 0 ? new Date() : undefined,
         source,
@@ -147,7 +153,7 @@ router.get('/', async (req, res) => {
     const units = await Unit.find({ _id: { $in: unitIds } }).populate('customerId').lean();
     const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));
 
-    const enriched = demands.map((d) => enrichDemand(d, unitMap));
+    const enriched = sortDemandsByClpChronology(demands.map((d) => enrichDemand(d, unitMap)));
 
     const totalDue = enriched.reduce((s, d) => s + (d.dueAmount || 0), 0);
     const totalReceived = enriched.reduce((s, d) => s + (d.receivedAmount || 0), 0);
@@ -216,8 +222,14 @@ router.post('/:id/clp-letter-task', async (req, res) => {
 
 router.patch('/:id', async (req, res) => {
   try {
-    const { paymentStatus, paidAmount, paidDate, receiptNumber, demandAmount, gstAmount, totalAmount } = req.body;
-    const updates = { source: 'payment' };
+    const prev = await Demand.findById(req.params.id);
+    if (!prev) return res.status(404).json({ error: 'Demand not found' });
+
+    const {
+      paymentStatus, paidAmount, paidDate, receiptNumber,
+      demandAmount, gstAmount, totalAmount, targetDate, actualDate, by,
+    } = req.body;
+    const updates = { source: req.body.source || 'payment' };
     if (paymentStatus !== undefined) updates.paymentStatus = paymentStatus;
     if (paidAmount !== undefined) updates.paidAmount = paidAmount;
     if (paidDate !== undefined) updates.paidDate = paidDate;
@@ -225,9 +237,15 @@ router.patch('/:id', async (req, res) => {
     if (demandAmount !== undefined) updates.demandAmount = demandAmount;
     if (gstAmount !== undefined) updates.gstAmount = gstAmount;
     if (totalAmount !== undefined) updates.totalAmount = totalAmount;
+    if (targetDate !== undefined) {
+      updates.targetDate = targetDate ? new Date(targetDate) : null;
+      updates.dueDate = targetDate ? new Date(targetDate) : null;
+    }
+    if (actualDate !== undefined) {
+      updates.actualDate = actualDate ? new Date(actualDate) : null;
+    }
 
     const demand = await Demand.findByIdAndUpdate(req.params.id, updates, { new: true });
-    if (!demand) return res.status(404).json({ error: 'Demand not found' });
 
     if (demand.paidAmount >= demand.totalAmount) {
       demand.paymentStatus = 'paid';
@@ -237,7 +255,14 @@ router.patch('/:id', async (req, res) => {
       await demand.save();
     }
 
-    res.json(demand);
+    if (actualDate && !prev.actualDate) {
+      await activateClpLetterTaskFromDemand(demand.toObject(), { by: by || 'Demands panel' });
+      demand.clpLetterTaskAt = new Date();
+      await demand.save();
+    }
+
+    const unit = await Unit.findById(demand.unitId).populate('customerId').lean();
+    res.json(enrichDemand(demand.toObject(), { [String(demand.unitId)]: unit }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

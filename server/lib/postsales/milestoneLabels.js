@@ -68,6 +68,14 @@ export function formatMilestoneLabel(key) {
     .replace(/\s+/g, ' ')
     .trim();
 
+  if (!/\s/.test(s) && s.length > 8) {
+    let spaced = s.toLowerCase();
+    for (const w of CONSTRUCTION_WORDS) {
+      spaced = spaced.replace(new RegExp(w, 'g'), ` ${w} `);
+    }
+    s = spaced.replace(/\s+/g, ' ').trim();
+  }
+
   if (!/\s/.test(s) && s.length > 12) {
     s = tokenizeConcatenated(s);
   }

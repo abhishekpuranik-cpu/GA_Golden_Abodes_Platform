@@ -59,6 +59,7 @@ export function iterCollectionBlocks(rawRows) {
 export function extractCollectionMilestones(block) {
   const { due, recv, pend, dates } = block;
   const milestones = [];
+  let order = 0;
   for (const key of Object.keys(due)) {
     const sk = slug(key);
     if (META_KEYS.has(sk) || POST_STAGE_KEYS.has(sk)) continue;
@@ -67,13 +68,17 @@ export function extractCollectionMilestones(block) {
     const receivedAmount = Number(recv[key]) || 0;
     const pendingAmount = Number(pend[key]) || 0;
     if (dueAmount === 0 && receivedAmount === 0 && pendingAmount === 0) continue;
+    const targetDate = dates ? parseDate(dates[key]) : undefined;
     milestones.push({
       milestoneName: formatMilestoneLabel(key),
+      milestoneOrder: order,
       dueAmount,
       receivedAmount,
       pendingAmount,
-      dueDate: dates ? parseDate(dates[key]) : undefined,
+      targetDate,
+      dueDate: targetDate,
     });
+    order += 1;
   }
   return milestones;
 }

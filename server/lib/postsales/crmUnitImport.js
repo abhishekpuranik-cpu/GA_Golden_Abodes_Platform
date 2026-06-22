@@ -186,13 +186,15 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
     const payload = {
       entity: unit.entity,
       milestoneName: m.milestoneName,
+      milestoneOrder: m.milestoneOrder ?? 0,
       demandAmount: m.dueAmount,
       gstAmount,
       totalAmount,
       paidAmount: m.receivedAmount,
       paymentStatus: paymentStatusFromAmounts(totalAmount, m.receivedAmount),
       issuedDate: existing?.issuedDate || new Date(),
-      dueDate: m.dueDate || existing?.dueDate,
+      targetDate: m.targetDate || m.dueDate || existing?.targetDate,
+      dueDate: m.targetDate || m.dueDate || existing?.dueDate,
       paidDate: m.receivedAmount > 0 ? (existing?.paidDate || new Date()) : undefined,
       source,
     };
