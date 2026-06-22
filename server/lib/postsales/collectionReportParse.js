@@ -13,6 +13,20 @@ const META_KEYS = new Set([
 
 const POST_STAGE_KEYS = new Set(['gst', 'interest', 'stampduty', 'maintenancecharge', 'infracharges']);
 
+export function resolvePostStageKey(rawKey) {
+  const sk = slug(rawKey);
+  if (POST_STAGE_KEYS.has(sk)) return sk;
+  if (sk === 'gst' || sk.startsWith('gst') || /\bgst\b/.test(sk)) {
+    if (/registration|agreement|infracharge/.test(sk)) return null;
+    return 'gst';
+  }
+  if (sk.includes('stamp') && sk.includes('duty')) return 'stampduty';
+  if (sk.includes('interest')) return 'interest';
+  if (sk.includes('maintenance')) return 'maintenancecharge';
+  if (sk.includes('infra') && sk.includes('charge')) return 'infracharges';
+  return null;
+}
+
 function parseDate(v) {
   if (!v || v === '-') return undefined;
   if (v instanceof Date && !Number.isNaN(v.getTime())) return v;
@@ -77,8 +91,9 @@ export function extractCollectionMilestones(block) {
       targetDate,
       dueDate: targetDate,
     };
-    if (POST_STAGE_KEYS.has(sk)) {
-      postStage.push({ ...entry, stageKey: sk, milestoneOrder: 900 + postStage.length });
+    const stageKey = resolvePostStageKey(key);
+    if (stageKey) {
+      postStage.push({ ...entry, stageKey, milestoneOrder: 900 + postStage.length });
       continue;
     }
     milestones.push({ ...entry, milestoneOrder: order });

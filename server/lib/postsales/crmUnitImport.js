@@ -14,6 +14,12 @@ import {
   iterCollectionBlocks,
 } from './collectionReportParse.js';
 import { deriveStepDueDates } from './pipelineDueFromCrm.js';
+import { isGstDemand } from './demandAmounts.js';
+
+function num(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 export const CRM_TEMPLATE_COLUMNS = [
   'Project', 'Phase', 'Building', 'Unit Number', 'Customer Name', 'Booking Date',
   'Total Cost', 'Booking Amount', 'Funding Type', 'Phone', 'Email', 'PAN',
@@ -178,35 +184,46 @@ function validateRow(row, catalog, scope) {
 async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'upload' } = {}) {
   const report = { created: 0, updated: 0 };
   const ops = [];
+  const hasGstRow = milestones.some((m) => m.stageKey === 'gst');
+
   for (const m of milestones) {
-    const key = `${unit._id}|${m.milestoneName}`;
-    const existing = demandByKey.get(key);
-    const gstAmount = Math.round((m.dueAmount || 0) * 0.05);
-    const totalAmount = (m.dueAmount || 0) + gstAmount;
+    const isGst = m.stageKey === 'gst';
+    const milestoneName = isGst ? 'GST' : m.milestoneName;
+    const key = `${unit._id}|${milestoneName}`;
+    let existing = demandByKey.get(key);
+    if (isGst && !existing) {
+      for (const [k, v] of demandByKey.entries()) {
+        if (String(k).startsWith(`${unit._id}|`) && isGstDemand({ milestoneName: v.milestoneName || k.split('|')[1] })) {
+          existing = v;
+          break;
+        }
+      }
+    }
+
+    const agreementDue = num(m.dueAmount);
     const payload = {
       entity: unit.entity,
-      milestoneName: m.milestoneName,
-      milestoneOrder: m.milestoneOrder ?? 0,
-      demandAmount: m.dueAmount,
-      gstAmount,
-      totalAmount,
+      milestoneName,
+      milestoneOrder: m.milestoneOrder ?? (isGst ? 900 : 0),
+      demandAmount: agreementDue,
+      gstAmount: isGst ? agreementDue : (hasGstRow ? 0 : Math.round(agreementDue * 0.05)),
+      totalAmount: agreementDue,
       paidAmount: m.receivedAmount,
-      paymentStatus: paymentStatusFromAmounts(totalAmount, m.receivedAmount),
+      paymentStatus: paymentStatusFromAmounts(agreementDue, m.receivedAmount),
       issuedDate: existing?.issuedDate || new Date(),
       targetDate: m.targetDate || m.dueDate || existing?.targetDate,
       dueDate: m.targetDate || m.dueDate || existing?.dueDate,
       paidDate: m.receivedAmount > 0 ? (existing?.paidDate || new Date()) : undefined,
       source,
     };
-    if (m.stageKey === 'gst') {
-      payload.milestoneName = 'GST';
+
+    if (isGst) {
       payload.demandAmount = 0;
-      payload.gstAmount = m.dueAmount;
-      payload.totalAmount = m.dueAmount;
-      payload.paidAmount = m.receivedAmount;
-      payload.paymentStatus = paymentStatusFromAmounts(m.dueAmount, m.receivedAmount);
+      payload.gstAmount = agreementDue;
+      payload.totalAmount = agreementDue;
     }
-    if (existing) {
+
+    if (existing?._id) {
       ops.push({ updateOne: { filter: { _id: existing._id }, update: { $set: payload } } });
       report.updated += 1;
     } else {
@@ -217,8 +234,9 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
   if (ops.length) {
     await Demand.bulkWrite(ops, { ordered: false });
     for (const m of milestones) {
-      if (!demandByKey.has(`${unit._id}|${m.milestoneName}`)) {
-        demandByKey.set(`${unit._id}|${m.milestoneName}`, { unitId: unit._id, milestoneName: m.milestoneName });
+      const name = m.stageKey === 'gst' ? 'GST' : m.milestoneName;
+      if (!demandByKey.has(`${unit._id}|${name}`)) {
+        demandByKey.set(`${unit._id}|${name}`, { unitId: unit._id, milestoneName: name });
       }
     }
   }

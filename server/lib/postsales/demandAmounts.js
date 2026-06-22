@@ -1,4 +1,4 @@
-/** Cumulative due / received / pending — agreement vs GST (Cashflow-aligned). */
+/** Cumulative due / received / pending — agreement vs GST (CRM collection report aligned). */
 
 function num(v) {
   const n = Number(v);
@@ -15,16 +15,22 @@ function startOfDay(d = new Date()) {
   return x;
 }
 
-const POST_STAGE_SLUGS = new Set(['gst', 'interest', 'stampduty', 'maintenancecharge', 'infracharges', 'stamp duty', 'maintenance charge', 'infra charges']);
-
 export function isGstDemand(d) {
   const s = slug(d?.milestoneNameRaw || d?.milestoneName);
-  return s === 'gst' || s.startsWith('gst ');
+  if (!s) return false;
+  if (s === 'gst' || s.startsWith('gst ')) return true;
+  if (/\bgst\b/.test(s) && !/registration|agreement|infracharge/.test(s)) return true;
+  return false;
 }
 
 export function isPostStageDemand(d) {
   const s = slug(d?.milestoneNameRaw || d?.milestoneName);
-  return POST_STAGE_SLUGS.has(s) || isGstDemand(d);
+  const post = ['gst', 'interest', 'stampduty', 'maintenancecharge', 'infracharges', 'stamp duty', 'maintenance charge', 'infra charges'];
+  return post.some((p) => s === p || s.startsWith(`${p} `)) || isGstDemand(d);
+}
+
+export function findGstDemand(milestones = []) {
+  return milestones.find(isGstDemand) || null;
 }
 
 export function milestoneDueAsOfToday(d, asOf = new Date()) {
@@ -39,42 +45,75 @@ export function milestoneDueAsOfToday(d, asOf = new Date()) {
   return !Number.isNaN(dt.getTime()) && dt.getTime() <= today.getTime();
 }
 
-export function splitAgreementGstDue(d) {
-  const agreementDue = num(d?.demandAmount) || Math.max(0, num(d?.totalAmount) - num(d?.gstAmount));
-  const gstDue = num(d?.gstAmount) || Math.round(agreementDue * 0.05);
-  return { agreementDue, gstDue, totalDue: agreementDue + gstDue };
+/** Agreement due on a CLP milestone row (CRM Amount Due = agreement value). */
+export function agreementDueOnRow(d) {
+  if (isGstDemand(d)) return 0;
+  if (num(d?.demandAmount) > 0) return num(d.demandAmount);
+  return Math.max(0, num(d?.totalAmount) - num(d?.gstAmount));
+}
+
+/** Per-stage GST component (informational when CRM has separate GST row). */
+export function gstDueOnRow(d) {
+  if (isGstDemand(d)) return 0;
+  if (num(d?.gstAmount) > 0) return num(d.gstAmount);
+  return Math.round(agreementDueOnRow(d) * 0.05);
+}
+
+/** CRM GST column — due / received are GST amounts (may be stored in gstAmount or legacy demandAmount). */
+export function readGstDue(gstRow) {
+  if (!gstRow) return 0;
+  if (num(gstRow.demandAmount) === 0 && num(gstRow.gstAmount) > 0) return num(gstRow.gstAmount);
+  if (isGstDemand(gstRow)) {
+    return Math.max(num(gstRow.demandAmount), num(gstRow.totalAmount), num(gstRow.gstAmount));
+  }
+  return num(gstRow.gstAmount);
+}
+
+export function readGstReceived(gstRow) {
+  if (!gstRow) return 0;
+  return num(gstRow.paidAmount ?? gstRow.receivedAmount);
 }
 
 export function milestoneRowAmounts(d) {
-  const { agreementDue, gstDue, totalDue } = splitAgreementGstDue(d);
-  const agreementReceived = Math.min(agreementDue, num(d?.receivedAmount ?? d?.paidAmount));
-  const gstReceived = isGstDemand(d)
-    ? Math.min(gstDue, num(d?.receivedAmount ?? d?.paidAmount))
-    : 0;
+  if (isGstDemand(d)) {
+    const gstDue = readGstDue(d);
+    const gstReceived = readGstReceived(d);
+    return {
+      agreementDue: 0,
+      gstDue,
+      agreementReceived: 0,
+      gstReceived,
+      agreementPending: 0,
+      gstPending: Math.max(0, gstDue - gstReceived),
+      totalDue: gstDue,
+      totalReceived: gstReceived,
+      totalPending: Math.max(0, gstDue - gstReceived),
+    };
+  }
+  const agreementDue = agreementDueOnRow(d);
+  const gstDue = gstDueOnRow(d);
+  const agreementReceived = num(d?.receivedAmount ?? d?.paidAmount);
   return {
     agreementDue,
     gstDue,
     agreementReceived,
-    gstReceived,
+    gstReceived: 0,
     agreementPending: Math.max(0, agreementDue - agreementReceived),
-    gstPending: Math.max(0, gstDue - gstReceived),
-    totalDue,
-    totalReceived: agreementReceived + gstReceived,
-    totalPending: Math.max(0, totalDue - agreementReceived - gstReceived),
+    gstPending: Math.max(0, gstDue - Math.min(gstDue, Math.round(agreementReceived * 0.05))),
+    totalDue: agreementDue + gstDue,
+    totalReceived: agreementReceived,
+    totalPending: Math.max(0, agreementDue + gstDue - agreementReceived),
   };
 }
 
 export function computeUnitCumulative(milestones = [], asOf = new Date()) {
-  const gstRow = milestones.find(isGstDemand);
+  const gstRow = findGstDemand(milestones);
   const clpRows = milestones.filter((d) => !isPostStageDemand(d));
 
   let agreementDue = 0;
-  let gstDueFromStages = 0;
   for (const d of clpRows) {
     if (!milestoneDueAsOfToday(d, asOf)) continue;
-    const { agreementDue: ad, gstDue: gd } = splitAgreementGstDue(d);
-    agreementDue += ad;
-    gstDueFromStages += gd;
+    agreementDue += agreementDueOnRow(d);
   }
 
   let agreementReceived = 0;
@@ -82,14 +121,14 @@ export function computeUnitCumulative(milestones = [], asOf = new Date()) {
     agreementReceived += num(d?.receivedAmount ?? d?.paidAmount);
   }
 
-  let gstDue = gstDueFromStages;
-  let gstReceived = 0;
+  let gstDue;
+  let gstReceived;
   if (gstRow) {
-    const g = splitAgreementGstDue(gstRow);
-    if (milestoneDueAsOfToday(gstRow, asOf) || num(gstRow.receivedAmount ?? gstRow.paidAmount) > 0) {
-      gstDue = g.agreementDue || g.totalDue || gstDueFromStages;
-    }
-    gstReceived = num(gstRow.receivedAmount ?? gstRow.paidAmount);
+    gstDue = readGstDue(gstRow);
+    gstReceived = readGstReceived(gstRow);
+  } else {
+    gstDue = Math.round(agreementDue * 0.05);
+    gstReceived = 0;
   }
 
   return {
@@ -106,9 +145,9 @@ export function computeUnitCumulative(milestones = [], asOf = new Date()) {
 }
 
 export function milestoneRowDisplay(d, asOf = new Date()) {
+  if (isGstDemand(d)) return milestoneRowAmounts(d);
   const row = milestoneRowAmounts(d);
-  const dueNow = milestoneDueAsOfToday(d, asOf);
-  if (!dueNow && !isGstDemand(d)) {
+  if (!milestoneDueAsOfToday(d, asOf)) {
     return {
       ...row,
       agreementDue: 0,
@@ -116,7 +155,6 @@ export function milestoneRowDisplay(d, asOf = new Date()) {
       agreementPending: 0,
       gstPending: 0,
       totalDue: 0,
-      totalPending: Math.max(0, row.totalPending),
     };
   }
   return row;

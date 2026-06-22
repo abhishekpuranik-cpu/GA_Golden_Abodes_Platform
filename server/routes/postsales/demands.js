@@ -6,6 +6,7 @@ import Unit from '../../models/postsales/Unit.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { normalizeImportRow, paymentStatusFromAmounts } from '../../lib/postsales/collectionsLib.js';
 import { activateClpLetterTaskFromDemand } from '../../lib/postsales/clpDemandTrigger.js';
+import { isGstDemand, readGstDue, readGstReceived } from '../../lib/postsales/demandAmounts.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { sortDemandsByClpChronology } from '../../lib/postsales/clpMilestoneOrder.js';
 import { exportCollectionsForCashflow, syncDemandsFromV1 } from '../../lib/postsales/demandsV1Sync.js';
@@ -24,8 +25,11 @@ function buildUnitFilter(query = {}) {
 
 function enrichDemand(d, unitMap) {
   const u = unitMap[String(d.unitId)];
-  const due = d.totalAmount || 0;
-  const received = d.paidAmount || 0;
+  const received = Number(d.paidAmount) || 0;
+  const agreementDue = isGstDemand(d)
+    ? 0
+    : (Number(d.demandAmount) || Math.max(0, (Number(d.totalAmount) || 0) - (Number(d.gstAmount) || 0)));
+  const gstDue = isGstDemand(d) ? readGstDue(d) : (Number(d.gstAmount) || Math.round(agreementDue * 0.05));
   return {
     ...d,
     unitNumber: u?.unitNumber,
@@ -39,9 +43,12 @@ function enrichDemand(d, unitMap) {
     targetDate: d.targetDate || d.dueDate,
     actualDate: d.actualDate,
     clpLetterTaskAt: d.clpLetterTaskAt,
-    dueAmount: due,
+    dueAmount: agreementDue,
     receivedAmount: received,
-    pendingAmount: due - received,
+    pendingAmount: isGstDemand(d)
+      ? Math.max(0, readGstDue(d) - readGstReceived(d))
+      : Math.max(0, agreementDue - received),
+    gstAmount: gstDue,
   };
 }
 
