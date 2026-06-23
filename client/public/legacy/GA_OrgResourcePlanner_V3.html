@@ -1385,6 +1385,11 @@ function applyFinInputUnitSwitch(pid,newUnit){
     if(v<=0) return v;
     return wasSqmt?Math.round(v*10.764):Math.round(v/10.764);
   }
+  function convRateVal(v){
+    v=finNum(v,0);
+    if(v<=0) return v;
+    return wasSqmt?Math.round(v/10.764):Math.round(v*10.764);
+  }
   ['plotDeductions','plotAdditions'].forEach(function(listKey){
     (fin[listKey]||[]).forEach(function(r){
       if(finNum(r.area,0)>0) r.area=convAreaVal(r.area);
@@ -1401,10 +1406,10 @@ function applyFinInputUnitSwitch(pid,newUnit){
   }
   var rateKeys=['constructionRate','approvalsRate','commRate','resRate','mhadaRate','dmArchRate','dmRccRate','dmMepRate','dmLandscapeRate','dmOtherConsultRate','investorSaleRate','investorSaleCommRate'];
   rateKeys.forEach(function(k){
-    if(finNum(fin[k],0)>0) fin[k]=wasSqmt?fin[k]/10.764:fin[k]*10.764;
+    if(finNum(fin[k],0)>0) fin[k]=convRateVal(fin[k]);
   });
   (fin.dmConsultants||[]).forEach(function(c){
-    if(finNum(c.rate,0)>0) c.rate=wasSqmt?c.rate/10.764:c.rate*10.764;
+    if(finNum(c.rate,0)>0) c.rate=convRateVal(c.rate);
   });
   fin.inputUnit=newUnit;
   syncFinPlotToProject(pid);
@@ -5380,59 +5385,100 @@ function printFinModel(pid, sections, selInvId) {
     }
   }
 
-  // ── SPV P&L WATERFALL CHART — Total Revenue vs stacked costs ─
+  // ── SPV P&L CHART — Revenue vs stacked project costs ─────────
   var wfLandCost=(C.spvLandCost||0)+(C.nonRefundableDeposit||0);
   var costSegs=isPlottingPrint?[
-    {l:'Land',v:wfLandCost,c:'#A07800'},
-    {l:'Construction',v:C.consCost||0,c:'#B54D0A'},
-    {l:'Approvals',v:C.appCost||0,c:'#7A3205'},
-    {l:'Operational',v:C.dmFee||0,c:'#0B7070'},
-    {l:'Consultants',v:C.consultFee||0,c:'#8A1D5E'},
-    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#9333EA'},
-    {l:'Misc',v:f2.miscCost||0,c:'#64748B'}
+    {l:'Land Cost',v:wfLandCost,c:'#B45309',g:'#FEF3C7'},
+    {l:'Construction',v:C.consCost||0,c:'#DC2626',g:'#FEE2E2'},
+    {l:'Approvals',v:C.appCost||0,c:'#C2410C',g:'#FFEDD5'},
+    {l:'Operational',v:C.dmFee||0,c:'#0D9488',g:'#CCFBF1'},
+    {l:'Consultants',v:C.consultFee||0,c:'#7C3AED',g:'#EDE9FE'},
+    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#2563EB',g:'#DBEAFE'},
+    {l:'Misc',v:f2.miscCost||0,c:'#64748B',g:'#F1F5F9'}
   ]:[
-    {l:'Land',v:wfLandCost,c:'#A07800'},
-    {l:'Construction',v:C.consCost||0,c:'#B54D0A'},
-    {l:'Approvals',v:C.appCost||0,c:'#7A3205'},
-    {l:'Interest',v:C.intCost||0,c:'#A8301E'},
-    {l:'Operational',v:C.dmFee||0,c:'#0B7070'},
-    {l:'Consultants',v:C.consultFee||0,c:'#8A1D5E'},
-    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#9333EA'},
-    {l:'Misc',v:f2.miscCost||0,c:'#64748B'}
+    {l:'Land Cost',v:wfLandCost,c:'#B45309',g:'#FEF3C7'},
+    {l:'Construction',v:C.consCost||0,c:'#DC2626',g:'#FEE2E2'},
+    {l:'Approvals',v:C.appCost||0,c:'#C2410C',g:'#FFEDD5'},
+    {l:'Interest',v:C.intCost||0,c:'#BE123C',g:'#FFE4E6'},
+    {l:'Operational',v:C.dmFee||0,c:'#0D9488',g:'#CCFBF1'},
+    {l:'Consultants',v:C.consultFee||0,c:'#7C3AED',g:'#EDE9FE'},
+    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#2563EB',g:'#DBEAFE'},
+    {l:'Misc',v:f2.miscCost||0,c:'#64748B',g:'#F1F5F9'}
   ];
   costSegs=costSegs.filter(function(x){return finHasAmount(x.v);});
-  var revBarVal=C.totRev||0;
+  var revBarVal=Math.max(0,C.totRev||0);
   var costBarVal=costSegs.reduce(function(s,x){return s+(x.v||0);},0);
-  var maxBar=Math.max(revBarVal,costBarVal,1);
-  var chartH=140, barW=96, barGap=56, leftPad=72;
-  var baseY=chartH+4;
-  var totalW=leftPad+2*barW+barGap+48;
-  var revH=Math.round((revBarVal/maxBar)*chartH);
-  var revX=leftPad;
-  var revY=baseY-revH;
-  var svgBars='<rect x="'+revX+'" y="'+revY+'" width="'+barW+'" height="'+revH+'" fill="#1A7244" rx="4"/>'
-    +'<text x="'+(revX+barW/2)+'" y="'+(revY>12?revY-6:12)+'" text-anchor="middle" font-size="10" fill="#1A7244" font-weight="600">'+(revBarVal/10000000).toFixed(2)+' Cr</text>'
-    +'<text x="'+(revX+barW/2)+'" y="'+(baseY+18)+'" text-anchor="middle" font-size="10" fill="#334155" font-weight="600">Total Revenue</text>';
-  var costX=revX+barW+barGap;
-  var stackY=baseY, stackRects='';
+  var grossBarVal=Math.max(0,C.grossP||0);
+  var chartMax=Math.max(revBarVal,costBarVal,grossBarVal,1);
+  var crShort=function(v){return (Math.abs(v||0)/10000000).toFixed(2);};
+  var pctOf=function(v,base){return base>0?((v/base)*100).toFixed(1)+'%':'—';};
+  var svgW=760,svgH=340,padL=68,padR=28,padT=56,padB=78;
+  var plotW=svgW-padL-padR,plotH=svgH-padT-padB,baseY=padT+plotH;
+  var yScale=function(v){return plotH-(v/chartMax)*plotH;};
+  var yTicks=[0,0.25,0.5,0.75,1].map(function(t){return {v:chartMax*t,y:padT+yScale(chartMax*t)};});
+  var gridSvg=yTicks.map(function(t){
+  return '<line x1="'+padL+'" y1="'+t.y+'" x2="'+(padL+plotW)+'" y2="'+t.y+'" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="'+(t.v===0?'':'4 4')+'"/>'
+    +'<text x="'+(padL-10)+'" y="'+(t.y+4)+'" text-anchor="end" font-size="10" fill="#94A3B8" font-family="Inter,Arial,sans-serif">'+crShort(t.v)+'</text>';
+  }).join('');
+  var barW=108,barGap=72,groupW=barW*2+barGap,startX=padL+Math.max(0,(plotW-groupW)/2);
+  var revX=startX,costX=startX+barW+barGap;
+  var revH=Math.max(revBarVal>0?4:0,yScale(0)-yScale(revBarVal));
+  var costH=Math.max(costBarVal>0?4:0,yScale(0)-yScale(costBarVal));
+  var revY=baseY-revH,costY=baseY-costH;
+  var clipDef=costBarVal>0?'<clipPath id="gaCostClip"><rect x="'+costX+'" y="'+costY+'" width="'+barW+'" height="'+costH+'" rx="8"/></clipPath>':'';
+  var defs='<defs>'
+    +'<linearGradient id="gaRevGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#22C55E"/><stop offset="100%" stop-color="#15803D"/></linearGradient>'
+    +'<filter id="gaBarShadow" x="-8%" y="-8%" width="116%" height="120%"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0F172A" flood-opacity=".12"/></filter>'
+    +clipDef
+    +'</defs>';
+  var revBarSvg='<rect x="'+revX+'" y="'+revY+'" width="'+barW+'" height="'+revH+'" rx="8" fill="url(#gaRevGrad)" filter="url(#gaBarShadow)"/>'
+    +'<text x="'+(revX+barW/2)+'" y="'+(revY-10)+'" text-anchor="middle" font-size="13" font-weight="700" fill="#15803D" font-family="Inter,Arial,sans-serif">₹'+crShort(revBarVal)+' Cr</text>'
+    +'<text x="'+(revX+barW/2)+'" y="'+(baseY+22)+'" text-anchor="middle" font-size="11" font-weight="700" fill="#0F172A" font-family="Inter,Arial,sans-serif">Total Revenue</text>';
+  var stackInner='',segY=baseY;
   costSegs.forEach(function(seg){
-    var segH=Math.max(1,Math.round((seg.v/maxBar)*chartH));
-    stackY-=segH;
-    stackRects+='<rect x="'+costX+'" y="'+stackY+'" width="'+barW+'" height="'+segH+'" fill="'+seg.c+'" stroke="#fff" stroke-width="1"/>';
+    var segH=costBarVal>0?Math.max(2,Math.round((seg.v/costBarVal)*costH)):0;
+    segY-=segH;
+    stackInner+='<rect x="'+costX+'" y="'+segY+'" width="'+barW+'" height="'+segH+'" fill="'+seg.c+'"/>';
+    if(segH>=18){
+      stackInner+='<text x="'+(costX+barW/2)+'" y="'+(segY+segH/2+4)+'" text-anchor="middle" font-size="9" font-weight="600" fill="#fff" font-family="Inter,Arial,sans-serif">'+crShort(seg.v)+'</text>';
+    }
   });
-  svgBars+=stackRects
-    +'<text x="'+(costX+barW/2)+'" y="'+(stackY>12?stackY-6:12)+'" text-anchor="middle" font-size="10" fill="#B54D0A" font-weight="600">'+(costBarVal/10000000).toFixed(2)+' Cr</text>'
-    +'<text x="'+(costX+barW/2)+'" y="'+(baseY+18)+'" text-anchor="middle" font-size="10" fill="#334155" font-weight="600">Project Costs</text>';
-  var costLegend=costSegs.map(function(seg){return '<span style="margin-right:12px"><span style="color:'+seg.c+'">■</span> '+seg.l+': '+crExp(seg.v)+'</span>';}).join('');
-  var wfSection='<div style="padding:20px 24px;background:#F8FAFC">'
-    +'<div style="font-size:11px;font-weight:700;color:#0A3266;margin-bottom:12px;letter-spacing:.06em">SPV P&amp;L WATERFALL</div>'
-    +'<div style="overflow-x:auto">'
-    +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+totalW+' '+(chartH+36)+'" style="width:100%;max-width:'+totalW+'px;display:block">'
-    +'<line x1="'+(leftPad-8)+'" y1="0" x2="'+(leftPad-8)+'" y2="'+baseY+'" stroke="#E2E8F0" stroke-width="1"/>'
-    +'<line x1="'+(leftPad-8)+'" y1="'+baseY+'" x2="'+(totalW-12)+'" y2="'+baseY+'" stroke="#E2E8F0" stroke-width="1"/>'
-    +svgBars
+  var costBarSvg='';
+  if(costBarVal>0){
+    costBarSvg='<rect x="'+costX+'" y="'+costY+'" width="'+barW+'" height="'+costH+'" rx="8" fill="#F8FAFC" filter="url(#gaBarShadow)"/>'
+      +'<g clip-path="url(#gaCostClip)">'+stackInner+'</g>';
+  }
+  costBarSvg+=(costBarVal>0?'<text x="'+(costX+barW/2)+'" y="'+(costY-10)+'" text-anchor="middle" font-size="13" font-weight="700" fill="#B45309" font-family="Inter,Arial,sans-serif">₹'+crShort(costBarVal)+' Cr</text>':'')
+    +'<text x="'+(costX+barW/2)+'" y="'+(baseY+22)+'" text-anchor="middle" font-size="11" font-weight="700" fill="#0F172A" font-family="Inter,Arial,sans-serif">Projected Expenses</text>';
+  var marginPct=revBarVal>0?((grossBarVal/revBarVal)*100).toFixed(1):'0.0';
+  var kpiCards='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px">'
+    +'<div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:12px 14px"><div style="font-size:9px;font-weight:700;color:#166534;text-transform:uppercase;letter-spacing:.06em">Total Revenue</div><div style="font-size:18px;font-weight:800;color:#15803D;margin-top:4px">'+cr2(revBarVal)+'</div></div>'
+    +'<div style="background:#FFF7ED;border:1px solid #FED7AA;border-radius:10px;padding:12px 14px"><div style="font-size:9px;font-weight:700;color:#9A3412;text-transform:uppercase;letter-spacing:.06em">Projected Expenses</div><div style="font-size:18px;font-weight:800;color:#C2410C;margin-top:4px">'+crExp(costBarVal)+'</div><div style="font-size:10px;color:#9A3412;margin-top:2px">'+pctOf(costBarVal,revBarVal)+' of revenue</div></div>'
+    +'<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 14px"><div style="font-size:9px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:.06em">Gross Profit (PBT)</div><div style="font-size:18px;font-weight:800;color:#1D4ED8;margin-top:4px">'+cr2(grossBarVal)+'</div></div>'
+    +'<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px"><div style="font-size:9px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em">Net Margin</div><div style="font-size:18px;font-weight:800;color:#0F172A;margin-top:4px">'+marginPct+'%</div></div>'
+    +'</div>';
+  var legendRows=costSegs.map(function(seg){
+    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F1F5F9">'
+      +'<span style="width:12px;height:12px;border-radius:3px;background:'+seg.c+';flex-shrink:0"></span>'
+      +'<span style="flex:1;font-size:11px;color:#334155;font-weight:600">'+seg.l+'</span>'
+      +'<span style="font-size:11px;color:#64748B;width:72px;text-align:right">'+pctOf(seg.v,costBarVal)+'</span>'
+      +'<span style="font-size:11px;font-weight:700;color:#0F172A;width:88px;text-align:right">'+crExp(seg.v)+'</span>'
+      +'</div>';
+  }).join('');
+  var wfSection='<div style="padding:22px 24px 20px;background:linear-gradient(180deg,#F8FAFC 0%,#fff 100%);border-top:1px solid #E2E8F0">'
+    +'<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:14px;flex-wrap:wrap">'
+    +'<div><div style="font-size:11px;font-weight:700;color:#0A3266;letter-spacing:.08em;text-transform:uppercase">SPV P&amp;L Overview</div>'
+    +'<div style="font-size:10px;color:#64748B;margin-top:3px">Total Revenue vs projected expense build-up (₹ Cr)</div></div>'
+  +'<div style="font-size:10px;color:#94A3B8">Scale max: ₹'+crShort(chartMax)+' Cr</div></div>'
+    +kpiCards
+    +'<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:12px 8px 4px;box-shadow:0 1px 3px rgba(15,23,42,.06)">'
+    +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+svgW+' '+svgH+'" style="width:100%;height:auto;display:block;max-height:340px">'
+    +defs+gridSvg
+    +'<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+baseY+'" stroke="#CBD5E1" stroke-width="1.5"/>'
+    +'<line x1="'+padL+'" y1="'+baseY+'" x2="'+(padL+plotW)+'" y2="'+baseY+'" stroke="#CBD5E1" stroke-width="1.5"/>'
+    +revBarSvg+costBarSvg
     +'</svg></div>'
-    +(costLegend?'<div style="font-size:10px;color:#475569;margin-top:10px;line-height:1.6">'+costLegend+'</div>':'')
+    +(costSegs.length?'<div style="margin-top:14px;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:10px 14px"><div style="font-size:9px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Expense breakdown</div>'+legendRows+'</div>':'')
     +'</div>';
 
   var revParts=isPlottingPrint?[{l:'Plot sales',v:C.totRev,c:'#1A7244'}].filter(function(x){return x.v>0;}):[{l:'Commercial',v:C.cRev,c:'#1558A0'},{l:'Residential',v:C.rRev,c:'#1A7244'},{l:'Inv. sale (Res)',v:C.invSaleResRev||0,c:'#7C3AED'},{l:'Inv. sale (Comm)',v:C.invSaleCommRev||0,c:'#9333EA'}].filter(function(x){return x.v>0;});
