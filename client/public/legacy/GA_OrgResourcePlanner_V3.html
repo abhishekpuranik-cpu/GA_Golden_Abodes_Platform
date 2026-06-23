@@ -5412,15 +5412,16 @@ function printFinModel(pid, sections, selInvId) {
   var chartMax=Math.max(revBarVal,costBarVal,grossBarVal,1);
   var crShort=function(v){return (Math.abs(v||0)/10000000).toFixed(2);};
   var pctOf=function(v,base){return base>0?((v/base)*100).toFixed(1)+'%':'—';};
-  var svgW=760,svgH=340,padL=68,padR=28,padT=56,padB=78;
+  var pctOfInt=function(v,base){return base>0?Math.round((v/base)*100)+'%':'—';};
+  var svgW=920,svgH=360,padL=68,padR=200,padT=56,padB=78;
   var plotW=svgW-padL-padR,plotH=svgH-padT-padB,baseY=padT+plotH;
   var yScale=function(v){return plotH-(v/chartMax)*plotH;};
   var yTicks=[0,0.25,0.5,0.75,1].map(function(t){return {v:chartMax*t,y:padT+yScale(chartMax*t)};});
   var gridSvg=yTicks.map(function(t){
-  return '<line x1="'+padL+'" y1="'+t.y+'" x2="'+(padL+plotW)+'" y2="'+t.y+'" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="'+(t.v===0?'':'4 4')+'"/>'
+  return '<line x1="'+padL+'" y1="'+t.y+'" x2="'+(svgW-padR)+'" y2="'+t.y+'" stroke="#E2E8F0" stroke-width="1" stroke-dasharray="'+(t.v===0?'':'4 4')+'"/>'
     +'<text x="'+(padL-10)+'" y="'+(t.y+4)+'" text-anchor="end" font-size="10" fill="#94A3B8" font-family="Inter,Arial,sans-serif">'+crShort(t.v)+'</text>';
   }).join('');
-  var barW=108,barGap=72,groupW=barW*2+barGap,startX=padL+Math.max(0,(plotW-groupW)/2);
+  var barW=100,barGap=64,startX=padL+24;
   var revX=startX,costX=startX+barW+barGap;
   var revH=Math.max(revBarVal>0?4:0,yScale(0)-yScale(revBarVal));
   var costH=Math.max(costBarVal>0?4:0,yScale(0)-yScale(costBarVal));
@@ -5434,15 +5435,40 @@ function printFinModel(pid, sections, selInvId) {
   var revBarSvg='<rect x="'+revX+'" y="'+revY+'" width="'+barW+'" height="'+revH+'" rx="8" fill="url(#gaRevGrad)" filter="url(#gaBarShadow)"/>'
     +'<text x="'+(revX+barW/2)+'" y="'+(revY-10)+'" text-anchor="middle" font-size="13" font-weight="700" fill="#15803D" font-family="Inter,Arial,sans-serif">₹'+crShort(revBarVal)+' Cr</text>'
     +'<text x="'+(revX+barW/2)+'" y="'+(baseY+22)+'" text-anchor="middle" font-size="11" font-weight="700" fill="#0F172A" font-family="Inter,Arial,sans-serif">Total Revenue</text>';
-  var stackInner='',segY=baseY;
+  var stackInner='',segMeta=[],segY=baseY;
   costSegs.forEach(function(seg){
     var segH=costBarVal>0?Math.max(2,Math.round((seg.v/costBarVal)*costH)):0;
     segY-=segH;
+    segMeta.push({l:seg.l,v:seg.v,c:seg.c,y0:segY,y1:segY+segH,mid:segY+segH/2,h:segH});
     stackInner+='<rect x="'+costX+'" y="'+segY+'" width="'+barW+'" height="'+segH+'" fill="'+seg.c+'"/>';
-    if(segH>=18){
-      stackInner+='<text x="'+(costX+barW/2)+'" y="'+(segY+segH/2+4)+'" text-anchor="middle" font-size="9" font-weight="600" fill="#fff" font-family="Inter,Arial,sans-serif">'+crShort(seg.v)+'</text>';
-    }
   });
+  var calloutSvg='';
+  if(segMeta.length){
+    var labelGap=28,minLy=padT+10,maxLy=baseY-10;
+    var lblLayout=segMeta.map(function(s,i){return {i:i,y:s.mid,adj:s.mid};});
+    lblLayout.sort(function(a,b){return a.adj-b.adj;});
+    for(var lj=1;lj<lblLayout.length;lj++){
+      if(lblLayout[lj].adj-lblLayout[lj-1].adj<labelGap) lblLayout[lj].adj=lblLayout[lj-1].adj+labelGap;
+    }
+    if(lblLayout.length&&lblLayout[lblLayout.length-1].adj>maxLy){
+      var ov=lblLayout[lblLayout.length-1].adj-maxLy;
+      for(lj=0;lj<lblLayout.length;lj++) lblLayout[lj].adj-=ov;
+    }
+    if(lblLayout.length&&lblLayout[0].adj<minLy){
+      var un=minLy-lblLayout[0].adj;
+      for(lj=0;lj<lblLayout.length;lj++) lblLayout[lj].adj+=un;
+    }
+    var elbowX=costX+barW+28,textX=costX+barW+36,barEdge=costX+barW;
+    calloutSvg=lblLayout.map(function(L){
+      var seg=segMeta[L.i];
+      var pct=pctOfInt(seg.v,costBarVal);
+      return '<circle cx="'+barEdge+'" cy="'+seg.mid+'" r="3.5" fill="'+seg.c+'" stroke="#fff" stroke-width="1.5"/>'
+        +'<path d="M'+barEdge+','+seg.mid+' L'+elbowX+','+seg.mid+' L'+elbowX+','+L.adj+'" fill="none" stroke="'+seg.c+'" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity=".85"/>'
+        +'<circle cx="'+elbowX+'" cy="'+L.adj+'" r="2" fill="'+seg.c+'"/>'
+        +'<text x="'+textX+'" y="'+(L.adj+4)+'" font-size="10" font-weight="600" fill="#334155" font-family="Inter,Arial,sans-serif">'+seg.l+' ('+pct+')</text>'
+        +'<text x="'+textX+'" y="'+(L.adj+16)+'" font-size="9" fill="#64748B" font-family="Inter,Arial,sans-serif">'+crExp(seg.v)+'</text>';
+    }).join('');
+  }
   var costBarSvg='';
   if(costBarVal>0){
     costBarSvg='<rect x="'+costX+'" y="'+costY+'" width="'+barW+'" height="'+costH+'" rx="8" fill="#F8FAFC" filter="url(#gaBarShadow)"/>'
@@ -5457,14 +5483,6 @@ function printFinModel(pid, sections, selInvId) {
     +'<div style="background:#EFF6FF;border:1px solid #BFDBFE;border-radius:10px;padding:12px 14px"><div style="font-size:9px;font-weight:700;color:#1D4ED8;text-transform:uppercase;letter-spacing:.06em">Gross Profit (PBT)</div><div style="font-size:18px;font-weight:800;color:#1D4ED8;margin-top:4px">'+cr2(grossBarVal)+'</div></div>'
     +'<div style="background:#F8FAFC;border:1px solid #E2E8F0;border-radius:10px;padding:12px 14px"><div style="font-size:9px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.06em">Net Margin</div><div style="font-size:18px;font-weight:800;color:#0F172A;margin-top:4px">'+marginPct+'%</div></div>'
     +'</div>';
-  var legendRows=costSegs.map(function(seg){
-    return '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #F1F5F9">'
-      +'<span style="width:12px;height:12px;border-radius:3px;background:'+seg.c+';flex-shrink:0"></span>'
-      +'<span style="flex:1;font-size:11px;color:#334155;font-weight:600">'+seg.l+'</span>'
-      +'<span style="font-size:11px;color:#64748B;width:72px;text-align:right">'+pctOf(seg.v,costBarVal)+'</span>'
-      +'<span style="font-size:11px;font-weight:700;color:#0F172A;width:88px;text-align:right">'+crExp(seg.v)+'</span>'
-      +'</div>';
-  }).join('');
   var wfSection='<div style="padding:22px 24px 20px;background:linear-gradient(180deg,#F8FAFC 0%,#fff 100%);border-top:1px solid #E2E8F0">'
     +'<div style="display:flex;justify-content:space-between;align-items:flex-end;gap:12px;margin-bottom:14px;flex-wrap:wrap">'
     +'<div><div style="font-size:11px;font-weight:700;color:#0A3266;letter-spacing:.08em;text-transform:uppercase">SPV P&amp;L Overview</div>'
@@ -5472,13 +5490,12 @@ function printFinModel(pid, sections, selInvId) {
   +'<div style="font-size:10px;color:#94A3B8">Scale max: ₹'+crShort(chartMax)+' Cr</div></div>'
     +kpiCards
     +'<div style="background:#fff;border:1px solid #E2E8F0;border-radius:12px;padding:12px 8px 4px;box-shadow:0 1px 3px rgba(15,23,42,.06)">'
-    +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+svgW+' '+svgH+'" style="width:100%;height:auto;display:block;max-height:340px">'
+    +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+svgW+' '+svgH+'" style="width:100%;height:auto;display:block;max-height:380px">'
     +defs+gridSvg
     +'<line x1="'+padL+'" y1="'+padT+'" x2="'+padL+'" y2="'+baseY+'" stroke="#CBD5E1" stroke-width="1.5"/>'
-    +'<line x1="'+padL+'" y1="'+baseY+'" x2="'+(padL+plotW)+'" y2="'+baseY+'" stroke="#CBD5E1" stroke-width="1.5"/>'
-    +revBarSvg+costBarSvg
+    +'<line x1="'+padL+'" y1="'+baseY+'" x2="'+(svgW-padR)+'" y2="'+baseY+'" stroke="#CBD5E1" stroke-width="1.5"/>'
+    +revBarSvg+costBarSvg+calloutSvg
     +'</svg></div>'
-    +(costSegs.length?'<div style="margin-top:14px;background:#fff;border:1px solid #E2E8F0;border-radius:10px;padding:10px 14px"><div style="font-size:9px;font-weight:700;color:#64748B;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">Expense breakdown</div>'+legendRows+'</div>':'')
     +'</div>';
 
   var revParts=isPlottingPrint?[{l:'Plot sales',v:C.totRev,c:'#1A7244'}].filter(function(x){return x.v>0;}):[{l:'Commercial',v:C.cRev,c:'#1558A0'},{l:'Residential',v:C.rRev,c:'#1A7244'},{l:'Inv. sale (Res)',v:C.invSaleResRev||0,c:'#7C3AED'},{l:'Inv. sale (Comm)',v:C.invSaleCommRev||0,c:'#9333EA'}].filter(function(x){return x.v>0;});
