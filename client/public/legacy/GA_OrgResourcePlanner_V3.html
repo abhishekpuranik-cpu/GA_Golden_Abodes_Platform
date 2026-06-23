@@ -1003,6 +1003,8 @@ const FIN_DEF = {
   constructionRate:0, dmFeePct:10,
   approvalsRate:0, miscCost:0,
   investorProfitSharePct:15,
+  investorReturnMode:'investor',
+  revenueSharePct:0,
   stampDutyRate:5, landValue:0, constructionValue:0,
   dmArchRate:25, dmRccRate:6, dmMepRate:6, dmLandscapeRate:20, dmOtherConsultRate:0,
   dmSalesMonthly:600000, dmSalesDuration:48,
@@ -1252,7 +1254,7 @@ function ufin(pid, key, val){
     renderFinModelInPlace(pid);
     return;
   }
-  const strKeys = ['fsiMode','inputUnit','dealType','projStatusDetail','usp','projectLaunchDate','projectType','jvSharingType','googlePin'];
+  const strKeys = ['fsiMode','inputUnit','dealType','projStatusDetail','usp','projectLaunchDate','projectType','jvSharingType','googlePin','investorReturnMode'];
   if(strKeys.includes(key)){
     ST.fin[pid][key] = key==='fsiMode' ? normalizeFsiMode(val) : val;
     if(key==='inputUnit'){
@@ -1497,6 +1499,98 @@ function getInvestorCashflowMetrics(pid,inv,C,p){
     if(mo>0) projMonths=Math.round(mo);
   }
   return {intAmt:intAmt,gpShare:gpShare,totalRet:principal+intAmt+gpShare,xr:xr,sDate:sDate,principalIntDate:principalIntDate,profitDate:profitDate,projMonths:projMonths,cfs:cfs};
+}
+/** Revenue-share return: investor share = % of GDV (not gross profit). */
+function getRevenueShareMetrics(pid,inv,C,p,revSharePct){
+  p=p||PROJS.find(function(x){return x.id===pid;})||{};
+  var principal=inv.principal||0;
+  var ratePct=inv.ratePct!==undefined&&inv.ratePct!==null?inv.ratePct:18;
+  var durYrs=inv.durationYrs!==undefined&&inv.durationYrs!==null?inv.durationYrs:2;
+  var pct=finNum(revSharePct,0);
+  var revShareAmt=C.totRev*pct/100;
+  var intAmt=principal*ratePct/100*durYrs;
+  var sDate=p.startDate||new Date().toISOString().slice(0,10);
+  var principalIntDate=addYearsISO(sDate,durYrs);
+  var profitDate=(p.endDate&&(!p.startDate||p.endDate>=p.startDate))?p.endDate:principalIntDate;
+  var cfs=[{amount:-principal,date:sDate},{amount:principal+intAmt,date:principalIntDate}];
+  if(revShareAmt>0){
+    if(profitDate===principalIntDate) cfs[1].amount+=revShareAmt;
+    else cfs.push({amount:revShareAmt,date:profitDate});
+  }
+  var xr=xirrCalc(cfs);
+  var projMonths=null;
+  if(p.startDate&&p.endDate){
+    var mo=(new Date(p.endDate)-new Date(p.startDate))/(30.44*86400000);
+    if(mo>0) projMonths=Math.round(mo);
+  }
+  return {intAmt:intAmt,revShareAmt:revShareAmt,totalRet:principal+intAmt+revShareAmt,xr:xr,sDate:sDate,principalIntDate:principalIntDate,profitDate:profitDate,projMonths:projMonths,cfs:cfs,pct:pct};
+}
+function setInvestorReturnMode(pid,mode){
+  if(!ST.fin[pid]) ST.fin[pid]={};
+  ST.fin[pid].investorReturnMode=(mode==='revenue_share')?'revenue_share':'investor';
+  renderFinModelInPlace(pid);
+}
+window.setInvestorReturnMode=setInvestorReturnMode;
+function renderInvestorReturnSchedule(pid,f,C,p,fmtC,ti){
+  var mode=(f.investorReturnMode||'investor')==='revenue_share'?'revenue_share':'investor';
+  var dur=f.interestYears||2;
+  var genInv={principal:f.totalInvestment||0,ratePct:f.interestRate||18,durationYrs:dur,profitSharePct:f.investorProfitSharePct||15};
+  var IM=mode==='revenue_share'?getRevenueShareMetrics(pid,genInv,C,p,f.revenueSharePct):getInvestorCashflowMetrics(pid,genInv,C,p);
+  var shareAmt=mode==='revenue_share'?IM.revShareAmt:IM.gpShare;
+  var tabBtn=function(id,label,sub){
+    var on=mode===id;
+    return '<button type="button" onclick="setInvestorReturnMode(\''+pid+'\',\''+id+'\')" style="flex:1;min-width:0;padding:10px 12px;border-radius:8px;border:'+(on?'2px solid var(--purple)':'1.5px solid transparent')+';background:'+(on?'#fff':'transparent')+';cursor:pointer;text-align:left;box-shadow:'+(on?'0 2px 8px rgba(84,43,138,.12)':'none')+'">'
+      +'<div style="font-size:11px;font-weight:800;color:'+(on?'var(--purple-b)':'var(--muted)')+'">'+label+'</div>'
+      +'<div style="font-size:9px;color:var(--muted);margin-top:2px;line-height:1.3">'+sub+'</div></button>';
+  };
+  var investorPanel='<div style="font-size:10px;background:#F3EEFF;border-radius:6px;padding:6px 9px;margin-bottom:10px;color:#542B8A;line-height:1.45">'
+    +'<strong>Year '+dur+':</strong> Principal + Interest returned &nbsp;|&nbsp; <strong>At project close:</strong> Profit sharing paid (subjective timing)'
+    +'</div>'
+    +'<table style="width:100%"><tbody>'
+    +'<tr><td style="padding:4px 0;font-size:12px">Principal amount</td><td style="text-align:right;font-weight:600">'+fmtC(f.totalInvestment)+'</td></tr>'
+    +'<tr><td style="padding:4px 0;font-size:12px">Interest ('+(f.interestRate||18)+'% × '+dur+' yr) — at Year '+dur+'</td><td style="text-align:right;font-weight:600">'+fmtC(C.intCost)+'</td></tr>'
+    +'<tr style="border-top:1px solid #D6C0F0"><td style="padding:4px 0;font-size:11px;color:var(--muted)">Principal + Interest (returned Year '+dur+')</td>'
+    +'<td style="text-align:right;font-weight:700;color:var(--purple-b)">'+fmtC((f.totalInvestment||0)+C.intCost)+'</td></tr>'
+    +'<tr><td style="padding:4px 0;font-size:12px">Profit share — '+ti(pid,'investorProfitSharePct',f.investorProfitSharePct,65,'15',1)
+    +' <span style="font-size:10px;color:var(--muted)">% of gross profit (at project close)</span></td>'
+    +'<td style="text-align:right;font-weight:600;color:#92400E">'+(C.grossP>0?fmtC(C.invPS):'TBD')+'</td></tr>'
+    +'<tr style="border-top:1.5px solid var(--purple)"><td style="padding:8px 0;font-size:13px;font-weight:700">Total Investor Return</td>'
+    +'<td style="text-align:right;font-size:16px;font-weight:700;color:var(--purple-b)">'+fmtC(C.invTotal)+'</td></tr>'
+    +'<tr><td style="font-size:11px;color:var(--muted)">XIRR proxy</td>'
+    +'<td style="text-align:right;font-size:12px;font-weight:600;color:var(--purple-b)">'+(f.totalInvestment>0&&f.interestYears>0?(((C.invTotal/f.totalInvestment)-1)/f.interestYears*100).toFixed(1)+'% p.a.':'—')+'</td></tr>'
+    +'</tbody></table>';
+  var revPct=finNum(f.revenueSharePct,0);
+  var revenuePanel='<div style="font-size:10px;background:linear-gradient(90deg,#FFFBEB,#FEF3C7);border:1px solid #FDE68A;border-radius:6px;padding:8px 10px;margin-bottom:10px;color:#92400E;line-height:1.45">'
+    +'<strong>Revenue-share model:</strong> Investor upside is tied to <strong>GDV</strong> (total developer revenue), not gross profit. Enter the agreed % revenue share below.'
+    +'</div>'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;background:#fff;border:1px solid #E9D5FF;border-radius:8px;padding:10px 12px;margin-bottom:10px">'
+    +'<div><div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)">Project GDV</div>'
+    +'<div style="font-size:18px;font-weight:800;color:var(--green-b)">'+fmtC(C.totRev)+'</div></div>'
+    +'<div style="text-align:right"><div style="font-size:10px;color:var(--muted);margin-bottom:4px">Revenue share %</div>'
+    +'<div style="display:flex;align-items:center;gap:6px;justify-content:flex-end">'
+    +ti(pid,'revenueSharePct',f.revenueSharePct,72,'e.g. 8',0.5)
+    +'<span style="font-size:11px;font-weight:700;color:var(--purple-b)">% of GDV</span></div></div></div>'
+    +'<table style="width:100%"><tbody>'
+    +'<tr><td style="padding:4px 0;font-size:12px">Principal amount</td><td style="text-align:right;font-weight:600">'+fmtC(f.totalInvestment)+'</td></tr>'
+    +'<tr><td style="padding:4px 0;font-size:12px">Interest ('+(f.interestRate||18)+'% × '+dur+' yr) — at Year '+dur+'</td><td style="text-align:right;font-weight:600">'+fmtC(IM.intAmt)+'</td></tr>'
+    +'<tr style="border-top:1px solid #FDE68A"><td style="padding:4px 0;font-size:11px;color:var(--muted)">Principal + Interest (returned Year '+dur+')</td>'
+    +'<td style="text-align:right;font-weight:700;color:#B45309">'+fmtC((f.totalInvestment||0)+IM.intAmt)+'</td></tr>'
+    +'<tr style="background:#FFFBEB"><td style="padding:6px 0;font-size:12px">Revenue share — <strong>'+revPct+'%</strong> × GDV '+fmtC(C.totRev)+'</td>'
+    +'<td style="text-align:right;font-weight:700;color:#B45309">'+fmtC(shareAmt)+'</td></tr>'
+    +'<tr><td colspan="2" style="font-size:10px;color:var(--muted);padding:2px 0 6px">Paid at project close (indicative) · '+fmtC(C.totRev)+' × '+revPct+'%</td></tr>'
+    +'<tr style="border-top:1.5px solid #D97706"><td style="padding:8px 0;font-size:13px;font-weight:700">Total Investor Return</td>'
+    +'<td style="text-align:right;font-size:16px;font-weight:700;color:#B45309">'+fmtC(IM.totalRet)+'</td></tr>'
+    +'<tr><td style="font-size:11px;color:var(--muted)">XIRR (dated cashflows)</td>'
+    +'<td style="text-align:right;font-size:12px;font-weight:600;color:#B45309">'+(IM.xr!==null?(IM.xr*100).toFixed(1)+'%':'—')+'</td></tr>'
+    +'</tbody></table>';
+  return '<div style="flex:2;min-width:240px;border-radius:10px;background:var(--purple-l);padding:14px 16px;border:2px solid var(--purple)">'
+    +'<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--purple-b);margin-bottom:10px">Investor Return Schedule</div>'
+    +'<div style="display:flex;gap:6px;margin-bottom:12px;background:rgba(255,255,255,.55);padding:4px;border-radius:10px;border:1px solid #E9D5FF">'
+    +tabBtn('investor','1 · Investor Returns','Debt + % of gross profit')
+    +tabBtn('revenue_share','2 · Revenue Share','% of GDV (top-line)')
+    +'</div>'
+    +(mode==='revenue_share'?revenuePanel:investorPanel)
+    +'</div>';
 }
 function syncInvestmentFromMilestones(pid){
   const ms = getFundMilestones(pid).filter(m=>m.include);
@@ -2758,38 +2852,7 @@ function renderFinModel(pid){
           </tr>
         </tbody></table>
       </div>
-      <div style="flex:2;min-width:240px;border-radius:10px;background:var(--purple-l);padding:14px 16px;border:2px solid var(--purple)">
-        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--purple-b);margin-bottom:6px">
-          Investor Return Schedule
-        </div>
-        <div style="font-size:10px;background:#F3EEFF;border-radius:5px;padding:5px 8px;margin-bottom:8px;color:#542B8A">
-          <strong>Year ${f.interestYears||2}:</strong> Principal + Interest returned &nbsp;|&nbsp;
-          <strong>At project close:</strong> Profit sharing paid (subjective timing)
-        </div>
-        <table style="width:100%"><tbody>
-          <tr><td style="padding:3px 0;font-size:12px">Principal amount</td>
-            <td style="text-align:right;font-weight:600">${fmtC(f.totalInvestment)}</td></tr>
-          <tr><td style="padding:3px 0;font-size:12px">Interest (${f.interestRate||18}% × ${f.interestYears||2} yr) — at Year ${f.interestYears||2}</td>
-            <td style="text-align:right;font-weight:600">${fmtC(C.intCost)}</td></tr>
-          <tr style="border-top:1px solid #D6C0F0">
-            <td style="padding:3px 0;font-size:11px;color:var(--muted)">Principal + Interest (returned Year ${f.interestYears||2})</td>
-            <td style="text-align:right;font-weight:700;color:var(--purple-b)">${fmtC((f.totalInvestment||0)+C.intCost)}</td>
-          </tr>
-          <tr><td style="padding:3px 0;font-size:12px">
-            Profit share —
-            ${ti(pid,'investorProfitSharePct',f.investorProfitSharePct,65,'15',1)}
-            <span style="font-size:10px;color:var(--muted)">% of gross profit (at project close)</span>
-          </td>
-            <td style="text-align:right;font-weight:600;color:#92400E">${C.grossP>0?fmtC(C.invPS):'TBD'}</td></tr>
-          <tr style="border-top:1.5px solid var(--purple)">
-            <td style="padding:6px 0;font-size:13px;font-weight:700">Total Investor Return</td>
-            <td style="text-align:right;font-size:16px;font-weight:700;color:var(--purple-b)">${fmtC(C.invTotal)}</td>
-          </tr>
-          <tr><td style="font-size:11px;color:var(--muted)">XIRR proxy</td>
-            <td style="text-align:right;font-size:12px;font-weight:600;color:var(--purple-b)">${f.totalInvestment>0&&f.interestYears>0?(((C.invTotal/f.totalInvestment)-1)/f.interestYears*100).toFixed(1)+'% p.a.':'—'}</td>
-          </tr>
-        </tbody></table>
-      </div>
+      ${renderInvestorReturnSchedule(pid,f,C,p,fmtC,ti)}
       <div style="flex:1;min-width:160px;border-radius:10px;background:var(--bg);padding:14px 16px;border:1px solid var(--border)">
         <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:10px">Quick Ratios</div>
         ${[
@@ -4995,9 +5058,31 @@ function printFinModel(pid, sections, selInvId) {
   var invDuration   = selInv ? ((selInv.durationYrs!==undefined&&selInv.durationYrs!==null)?selInv.durationYrs:2) : ((f2.interestYears!==undefined&&f2.interestYears!==null)?f2.interestYears:2);
   var invName       = selInv ? selInv.name : 'Investor';
   var genInv = {principal:invPrincipal,ratePct:invRate,profitSharePct:invProfitPct,durationYrs:invDuration};
-  var IM = getInvestorCashflowMetrics(pid,genInv,C,p);
-  var intAmt = IM.intAmt, gpShare = IM.gpShare, totalReturn = IM.totalRet, xr = IM.xr;
-  var netToDev      = C.grossP - gpShare;
+  var invReturnMode = (f2.investorReturnMode||'investor')==='revenue_share'?'revenue_share':'investor';
+  var revSharePct = finNum(f2.revenueSharePct,0);
+  var IM, RS, intAmt, gpShare, totalReturn, xr, shareAmt, sharePctNote, shareLabel, netToDev;
+  if(invReturnMode==='revenue_share'){
+    RS = getRevenueShareMetrics(pid,genInv,C,p,revSharePct);
+    intAmt = RS.intAmt;
+    gpShare = RS.revShareAmt;
+    shareAmt = RS.revShareAmt;
+    totalReturn = RS.totalRet;
+    xr = RS.xr;
+    shareLabel = 'Revenue Share';
+    sharePctNote = revSharePct+'% of GDV ('+cr2(C.totRev)+')';
+    netToDev = C.grossP - shareAmt;
+  } else {
+    IM = getInvestorCashflowMetrics(pid,genInv,C,p);
+    intAmt = IM.intAmt;
+    gpShare = IM.gpShare;
+    shareAmt = IM.gpShare;
+    totalReturn = IM.totalRet;
+    xr = IM.xr;
+    shareLabel = 'Profit Share';
+    sharePctNote = invProfitPct+'% of gross profit';
+    netToDev = C.grossP - gpShare;
+  }
+  var retMetrics = invReturnMode==='revenue_share'?RS:IM;
   var roce = invPrincipal>0 ? (totalReturn-invPrincipal)/invPrincipal*100 : 0;
   var eqMult= invPrincipal>0 ? totalReturn/invPrincipal : 0;
   var msArr = getFundMilestones(pid);
@@ -5044,6 +5129,7 @@ function printFinModel(pid, sections, selInvId) {
     +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">'+(p.status||'Pre-Construction')+'</span>'
     +(f2.dealType?'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">'+f2.dealType+'</span>':'')
     +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">Area unit: '+areaUnitPr+'</span>'
+    +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">Return basis: '+(invReturnMode==='revenue_share'?'Revenue share ('+revSharePct+'% GDV)':'Investor returns (profit share)')+'</span>'
     +'</div>'
     +'<div style="display:flex;gap:20px;flex-wrap:wrap;font-size:11px;opacity:.72;border-top:1px solid rgba(255,255,255,.15);padding-top:14px">'
     +(p.startDate?'<span>Start: '+p.startDate+'</span>':'')
@@ -5067,7 +5153,7 @@ function printFinModel(pid, sections, selInvId) {
     +(eqMult>0?mc('Equity Multiple',eqMult.toFixed(2)+'x','Total return ÷ capital in','#0B7070'):'')
     +(finHasAmount(C.totRev)?mc('Project GDV',cr2(C.totRev),'Gross development value','#1A7244'):'')
     +(finHasAmount(C.grossP)?mc('Gross Profit',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),'#A07800'):'')
-    +(finHasAmount(intAmt+gpShare)?mc('Interest + Profit Share',cr2(intAmt+gpShare),invRate+'% p.a. + '+invProfitPct+'% profit share','#B54D0A'):'')
+    +(finHasAmount(intAmt+shareAmt)?mc(invReturnMode==='revenue_share'?'Interest + Revenue Share':'Interest + Profit Share',cr2(intAmt+shareAmt),invReturnMode==='revenue_share'?(invRate+'% p.a. + '+revSharePct+'% of GDV'):(invRate+'% p.a. + '+invProfitPct+'% profit share'),'#B54D0A'):'')
     +'</div>';
 
   // ── TABLE ROWS ───────────────────────────────────────────────
@@ -5186,25 +5272,28 @@ function printFinModel(pid, sections, selInvId) {
     tableRows += row2('Total Revenue (GDV)',cr2(C.totRev),'',false,false,C.totRev);
     tableRows += row2('Total Expenses',cr2(-C.totExp),'incl. operational cost',false,false,C.totExp);
     tableRows += row2('GROSS PROFIT',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),true,true,C.grossP);
-    if(finHasAmount(gpShare)) tableRows += row2('Investor Profit Share',cr2(-gpShare),invProfitPct+'% of gross profit',false,false,gpShare);
+    if(finHasAmount(shareAmt)) tableRows += row2('Investor '+shareLabel,cr2(-shareAmt),sharePctNote,false,false,shareAmt);
     tableRows += row2('Net after Investor Share',cr2(netToDev),'',true,false,netToDev);
     tableRows += spacer();
-    tableRows += sectionHead('★ INVESTOR RETURNS — '+invName.toUpperCase(),'★','#7B1D1D');
-    tableRows += subhead('Year '+invDuration+': Principal + Interest returned   |   At project close: Profit sharing');
+    tableRows += sectionHead('★ INVESTOR RETURNS — '+invName.toUpperCase()+(invReturnMode==='revenue_share'?' (REVENUE SHARE)':''),'★','#7B1D1D');
+    tableRows += subhead(invReturnMode==='revenue_share'
+      ?('Year '+invDuration+': Principal + Interest returned   |   At project close: '+revSharePct+'% revenue share on GDV')
+      :('Year '+invDuration+': Principal + Interest returned   |   At project close: Profit sharing'));
     if(finHasAmount(invPrincipal)) tableRows += row2('Principal Amount',cr2(invPrincipal),'Investment in',false,false,invPrincipal);
     if(finHasAmount(intAmt)) tableRows += row2('Interest ('+invRate+'% × '+invDuration+' yr)',cr2(intAmt),'',false,false,intAmt);
-    if(finHasAmount(gpShare)) tableRows += row2('Profit Share ('+invProfitPct+'% of gross)',cr2(gpShare),'',false,false,gpShare);
+    if(invReturnMode==='revenue_share'&&finHasAmount(C.totRev)) tableRows += row2('Project GDV (basis)',cr2(C.totRev),'',false,false,C.totRev);
+    if(finHasAmount(shareAmt)) tableRows += row2(shareLabel+' ('+sharePctNote+')',cr2(shareAmt),invReturnMode==='revenue_share'?'at project close':'',false,false,shareAmt);
     tableRows += row2('TOTAL RETURN',cr2(totalReturn),'',true,true,totalReturn);
     tableRows += subhead('INVESTOR CASH OUTFLOWS FROM SPV (Reference)');
     if(finHasAmount(invPrincipal)) tableRows += row2('Principal (returned Yr '+invDuration+')',cr2(invPrincipal),'return of capital',false,false,invPrincipal);
     if(finHasAmount(intAmt)) tableRows += row2('Interest (paid Yr '+invDuration+')',cr2(intAmt),'included in expenses',false,false,intAmt);
-    if(C.grossP>0&&finHasAmount(gpShare)) tableRows += row2('Profit Sharing (at project close)',cr2(gpShare),'post-project payment',false,false,gpShare);
+    if(finHasAmount(shareAmt)) tableRows += row2(shareLabel+' (at project close)',cr2(shareAmt),'post-project payment',false,false,shareAmt);
     tableRows += spacer();
     if(finHasAmount(roce)) tableRows += row2('Return on Capital (ROCE)',roce.toFixed(1)+'%','net gain / capital deployed',true,false,roce);
     if(eqMult>0) tableRows += row2('Equity Multiple',eqMult.toFixed(2)+'x','total return / capital in');
     if(xr!==null) tableRows += row2('XIRR (annualised)',(xr*100).toFixed(1)+'%','start → P+I → profit dates',true);
-    if(IM.projMonths!=null) tableRows += row2('Project calendar duration',IM.projMonths+' mo ('+(p.startDate||'—')+' → '+(p.endDate||'—')+')','For reporting horizon');
-    if(p.endDate||IM.profitDate) tableRows += row2('Profit-share timing (indicative)',(p.endDate||IM.profitDate)+' · after sustained positive net cashflow','See term sheet / waterfall');
+    if(retMetrics&&retMetrics.projMonths!=null) tableRows += row2('Project calendar duration',retMetrics.projMonths+' mo ('+(p.startDate||'—')+' → '+(p.endDate||'—')+')','For reporting horizon');
+    if(p.endDate||(retMetrics&&retMetrics.profitDate)) tableRows += row2((invReturnMode==='revenue_share'?'Revenue-share':'Profit-share')+' timing (indicative)',(p.endDate||(retMetrics&&retMetrics.profitDate)||'—')+' · see term sheet / waterfall','');
     tableRows += spacer();
   }
   if(has('milestones')){
@@ -5240,7 +5329,7 @@ function printFinModel(pid, sections, selInvId) {
     if(finHasAmount(C.consultFee)) wfItems.push({l:'Consultants',v:-C.consultFee,c:'#8A1D5E',type:'bar'});
     if(finHasAmount(C.mktgCP||C.dmMktgCost)) wfItems.push({l:'Marketing+CP',v:-(C.mktgCP||C.dmMktgCost),c:'#7A3205',type:'bar'});
   }
-  wfItems.push({l:'Gross Profit',v:C.grossP,c:'#0A3266',type:'total'},{l:'Inv. Share',v:-gpShare,c:'#542B8A',type:'bar'},{l:'Net to Dev.',v:netToDev,c:'#1A7244',type:'total'});
+  wfItems.push({l:'Gross Profit',v:C.grossP,c:'#0A3266',type:'total'},{l:invReturnMode==='revenue_share'?'Rev. Share':'Inv. Share',v:-shareAmt,c:'#542B8A',type:'bar'},{l:'Net to Dev.',v:netToDev,c:'#1A7244',type:'total'});
   wfItems=wfItems.filter(function(x){return Math.abs(x.v)>0;});
   var maxV=Math.max.apply(null,wfItems.map(function(x){return Math.abs(x.v);}));
   var chartH=120, barW=52, gap=8, leftPad=60;
