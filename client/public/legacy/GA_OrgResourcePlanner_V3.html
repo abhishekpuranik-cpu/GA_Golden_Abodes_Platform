@@ -5170,6 +5170,10 @@ function printFinModel(pid, sections, selInvId) {
     if(finHasAmount(f2.miscCost)) tableRows += row2('Miscellaneous',cr2(f2.miscCost),'',false,false,f2.miscCost);
     if(finHasAmount(C.dmFee)) tableRows += row2('Operational Cost',cr2(C.dmFee),(f2.dmFeePct||10)+'% of GDV',false,false,C.dmFee);
     if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',cr2(C.consultFee),C.consultRateSum?C.consultRateSum.toFixed(2)+' '+rateUnitPr:'',false,false,C.consultFee);
+    if(finHasAmount(C.mktgCP||C.dmMktgCost)){
+      var mktgNote=(f2.dmMktgCpPct||0)+'% of GDV'+(f2.spvAbsorbConsultMktg?' · absorbed to SPV':'');
+      tableRows += row2('Marketing + Channel Partner commission',cr2(C.mktgCP||C.dmMktgCost),mktgNote,false,false,C.mktgCP||C.dmMktgCost);
+    }
     if(finHasAmount(C.totStamp)){
       var _sn=C.stampDutyNote||'';
       tableRows += row2('Stamp duty (model)',cr2(C.totStamp),_sn.length>160?_sn.slice(0,157)+'…':_sn,false,false,C.totStamp);
@@ -5232,6 +5236,10 @@ function printFinModel(pid, sections, selInvId) {
     {l:'Misc',v:-(f2.miscCost!==undefined&&f2.miscCost!==null?f2.miscCost:0),c:'#64748B',type:'bar'},
   ];
   if(C.spvConsultShift&&C.spvConsultShift>0) wfItems.push({l:'Consult+Mk SPV',v:-C.spvConsultShift,c:'#8A1D5E',type:'bar'});
+  else {
+    if(finHasAmount(C.consultFee)) wfItems.push({l:'Consultants',v:-C.consultFee,c:'#8A1D5E',type:'bar'});
+    if(finHasAmount(C.mktgCP||C.dmMktgCost)) wfItems.push({l:'Marketing+CP',v:-(C.mktgCP||C.dmMktgCost),c:'#7A3205',type:'bar'});
+  }
   wfItems.push({l:'Gross Profit',v:C.grossP,c:'#0A3266',type:'total'},{l:'Inv. Share',v:-gpShare,c:'#542B8A',type:'bar'},{l:'Net to Dev.',v:netToDev,c:'#1A7244',type:'total'});
   wfItems=wfItems.filter(function(x){return Math.abs(x.v)>0;});
   var maxV=Math.max.apply(null,wfItems.map(function(x){return Math.abs(x.v);}));
