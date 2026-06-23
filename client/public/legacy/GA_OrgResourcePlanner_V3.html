@@ -1256,21 +1256,14 @@ function ufin(pid, key, val){
   }
   const strKeys = ['fsiMode','inputUnit','dealType','projStatusDetail','usp','projectLaunchDate','projectType','jvSharingType','googlePin','investorReturnMode'];
   if(strKeys.includes(key)){
-    ST.fin[pid][key] = key==='fsiMode' ? normalizeFsiMode(val) : val;
     if(key==='inputUnit'){
       var px=PROJS.find(function(x){return x.id===pid;});
       if(px) px.landAreaUnit=val;
-      var fin=ST.fin[pid], sqmt=val==='sqmt';
-      if(sqmt){
-        if((fin.plotArea||0)>0 && !(fin.plotSqmt>0)) fin.plotSqmt=Math.round(fin.plotArea/10.764);
-        if((fin.dpRoadSqft||0)>0 && !(fin.dpRoadSqmt>0)) fin.dpRoadSqmt=Math.round(fin.dpRoadSqft/10.764);
-        if((fin.truckTerminusSqft||0)>0 && !(fin.truckTerminusSqmt>0)) fin.truckTerminusSqmt=Math.round(fin.truckTerminusSqft/10.764);
-        if(!(fin.goaPlotSqmt>0) && (fin.plotSqmt||0)>0) fin.goaPlotSqmt=fin.plotSqmt;
-      }else{
-        if((fin.plotSqmt||0)>0 && !(fin.plotArea>0)) fin.plotArea=Math.round(fin.plotSqmt*10.764);
-        if((fin.dpRoadSqmt||0)>0 && !(fin.dpRoadSqft>0)) fin.dpRoadSqft=Math.round(fin.dpRoadSqmt*10.764);
-        if((fin.truckTerminusSqmt||0)>0 && !(fin.truckTerminusSqft>0)) fin.truckTerminusSqft=Math.round(fin.truckTerminusSqmt*10.764);
-      }
+      applyFinInputUnitSwitch(pid,val);
+      var finU=ST.fin[pid];
+      if(val==='sqmt'&&finU&&!(finU.goaPlotSqmt>0)&&(finU.plotSqmt||0)>0) finU.goaPlotSqmt=finU.plotSqmt;
+    }else{
+      ST.fin[pid][key] = key==='fsiMode' ? normalizeFsiMode(val) : val;
     }
     if(key==='googlePin'||key==='projectType'||key==='jvSharingType'){
       var px2=PROJS.find(function(x){return x.id===pid;});
@@ -1286,6 +1279,7 @@ function ufin(pid, key, val){
       var px=PROJS.find(function(x){return x.id===pid;});
       if(px) px[key]=ST.fin[pid][key];
     }
+    if(key==='plotArea'||key==='plotSqmt') syncFinPlotToProject(pid);
   }
   renderFinModelInPlace(pid);
 }
@@ -1367,14 +1361,65 @@ function finPerAreaMetric(amount,totSalSqft,uSqmt){
 function finHasAmount(n){
   return n!==undefined&&n!==null&&!isNaN(n)&&Math.abs(Number(n))>0.0001;
 }
+function syncFinPlotToProject(pid){
+  var p=PROJS.find(function(x){return x.id===pid;});
+  var fin=ST.fin[pid];
+  if(!p||!fin) return;
+  var uSqmt=(fin.inputUnit||'sqft')==='sqmt';
+  if(uSqmt&&finNum(fin.plotSqmt,0)>0){
+    p.landArea=fin.plotSqmt; p.landAreaUnit='sqmt';
+    fin.plotArea=Math.round(fin.plotSqmt*10.764); p.sqf=fin.plotArea;
+  }else if(finNum(fin.plotArea,0)>0){
+    p.landArea=fin.plotArea; p.landAreaUnit='sqft';
+    fin.plotSqmt=Math.round(fin.plotArea/10.764); p.sqf=fin.plotArea;
+  }
+}
+function applyFinInputUnitSwitch(pid,newUnit){
+  var fin=ST.fin[pid];
+  if(!fin) return;
+  var toSqmt=newUnit==='sqmt';
+  var wasSqmt=(fin.inputUnit||'sqft')==='sqmt';
+  if(wasSqmt===toSqmt){ fin.inputUnit=newUnit; return; }
+  function convAreaVal(v){
+    v=finNum(v,0);
+    if(v<=0) return v;
+    return wasSqmt?Math.round(v*10.764):Math.round(v/10.764);
+  }
+  ['plotDeductions','plotAdditions'].forEach(function(listKey){
+    (fin[listKey]||[]).forEach(function(r){
+      if(finNum(r.area,0)>0) r.area=convAreaVal(r.area);
+    });
+  });
+  if(wasSqmt){
+    if(finNum(fin.plotSqmt,0)>0) fin.plotArea=Math.round(fin.plotSqmt*10.764);
+    if(finNum(fin.dpRoadSqmt,0)>0) fin.dpRoadSqft=Math.round(fin.dpRoadSqmt*10.764);
+    if(finNum(fin.truckTerminusSqmt,0)>0) fin.truckTerminusSqft=Math.round(fin.truckTerminusSqmt*10.764);
+  }else{
+    if(finNum(fin.plotArea,0)>0) fin.plotSqmt=Math.round(fin.plotArea/10.764);
+    if(finNum(fin.dpRoadSqft,0)>0) fin.dpRoadSqmt=Math.round(fin.dpRoadSqft/10.764);
+    if(finNum(fin.truckTerminusSqft,0)>0) fin.truckTerminusSqmt=Math.round(fin.truckTerminusSqft/10.764);
+  }
+  var rateKeys=['constructionRate','approvalsRate','commRate','resRate','mhadaRate','dmArchRate','dmRccRate','dmMepRate','dmLandscapeRate','dmOtherConsultRate','investorSaleRate','investorSaleCommRate'];
+  rateKeys.forEach(function(k){
+    if(finNum(fin[k],0)>0) fin[k]=wasSqmt?fin[k]/10.764:fin[k]*10.764;
+  });
+  (fin.dmConsultants||[]).forEach(function(c){
+    if(finNum(c.rate,0)>0) c.rate=wasSqmt?c.rate/10.764:c.rate*10.764;
+  });
+  fin.inputUnit=newUnit;
+  syncFinPlotToProject(pid);
+}
 function syncProjectToFin(p){
   if(!p||!p.id) return;
   if(!ST.fin[p.id]) ST.fin[p.id]={};
   var fin=ST.fin[p.id];
   if(p.landAreaUnit) fin.inputUnit=p.landAreaUnit;
   if(p.landArea>0){
-    if(p.landAreaUnit==='sqmt'){ fin.plotSqmt=p.landArea; fin.plotArea=Math.round(p.landArea*10.764); p.sqf=fin.plotArea; }
-    else { fin.plotArea=p.landArea; fin.plotSqmt=Math.round(p.landArea/10.764); p.sqf=p.landArea; }
+    var hasFinPlot=finNum(fin.plotArea,0)>0||finNum(fin.plotSqmt,0)>0;
+    if(!hasFinPlot){
+      if(p.landAreaUnit==='sqmt'){ fin.plotSqmt=p.landArea; fin.plotArea=Math.round(p.landArea*10.764); p.sqf=fin.plotArea; }
+      else { fin.plotArea=p.landArea; fin.plotSqmt=Math.round(p.landArea/10.764); p.sqf=p.landArea; }
+    }
   }
   if(p.projectType){
     fin.projectType=p.projectType;
@@ -4977,7 +5022,7 @@ removeMilestone = function(pid, idx) { _remMs_orig(pid, idx); if(!GA_IS_DRAFT_MO
 function _doPrintSections(pid) {
   pid = pid || window._printPid;
   var s=[];
-  ['details','area','revenue','spv','milestones'].forEach(function(k){
+  ['details','area','revenue','spv','investor','milestones'].forEach(function(k){
     var el=document.getElementById('ps-'+k);
     if(el&&el.checked) s.push(k);
   });
@@ -5027,7 +5072,7 @@ function printFinModel(pid, sections, selInvId) {
       +'<div style="font-size:11px;color:#64748B;margin-bottom:14px">'+(p.name||pid)+'</div>'
       +invOpts
       +'<div style="font-size:11px;font-weight:700;color:#4A5568;margin-bottom:8px">Sections to include:</div>'
-      +[['details','Project Details & Deal Info'],['area','Area & FSI Calculations'],['revenue','Revenue & Expenses'],['spv','P&L & Investor Returns'],['milestones','Fund Requirement']].map(function(pair){
+      +[['details','Project Details & Deal Info'],['area','Area & FSI Calculations'],['revenue','Revenue & Expenses'],['spv','P&L Summary'],['investor','Investor Returns'],['milestones','Fund Requirement']].map(function(pair){
         var checked=pair[0]!=='details';
         return '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="ps-'+pair[0]+'" '+(checked?'checked':'')+' style="width:15px;height:15px"> <span style="font-size:12px">'+pair[1]+'</span></label>';
       }).join('')
@@ -5040,7 +5085,9 @@ function printFinModel(pid, sections, selInvId) {
   }
 
   // ── Helpers ──────────────────────────────────────────────────
+  var isPlottingPrint=f2.fsiMode==='plotting';
   var cr2=function(v){if(!v&&v!==0)return '—';var a=Math.abs(v),s=v<0?'−':'';return s+'₹'+(a/10000000).toFixed(2)+' Cr';};
+  var crExp=function(v){if(!v&&v!==0)return '—';var a=Math.abs(v);return '₹'+(a/10000000).toFixed(2)+' Cr';};
   var fm2=function(v){return v?Math.round(v).toLocaleString('en-IN'):'—';};
   var pt2=function(a,b){return b>0?((a/b)*100).toFixed(1)+'%':'—';};
   var has=function(s){return sections.indexOf(s)>-1;};
@@ -5069,7 +5116,7 @@ function printFinModel(pid, sections, selInvId) {
     totalReturn = RS.totalRet;
     xr = RS.xr;
     shareLabel = 'Revenue Share';
-    sharePctNote = revSharePct+'% of GDV ('+cr2(C.totRev)+')';
+    sharePctNote = revSharePct+'% of Total Revenue ('+cr2(C.totRev)+')';
     netToDev = C.grossP - shareAmt;
   } else {
     IM = getInvestorCashflowMetrics(pid,genInv,C,p);
@@ -5129,7 +5176,7 @@ function printFinModel(pid, sections, selInvId) {
     +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">'+(p.status||'Pre-Construction')+'</span>'
     +(f2.dealType?'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">'+f2.dealType+'</span>':'')
     +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">Area unit: '+areaUnitPr+'</span>'
-    +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">Return basis: '+(invReturnMode==='revenue_share'?'Revenue share ('+revSharePct+'% GDV)':'Investor returns (profit share)')+'</span>'
+    +'<span style="background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.18);border-radius:999px;padding:5px 14px">Return basis: '+(invReturnMode==='revenue_share'?'Revenue share ('+revSharePct+'% Total Revenue)':'Investor returns (profit share)')+'</span>'
     +'</div>'
     +'<div style="display:flex;gap:20px;flex-wrap:wrap;font-size:11px;opacity:.72;border-top:1px solid rgba(255,255,255,.15);padding-top:14px">'
     +(p.startDate?'<span>Start: '+p.startDate+'</span>':'')
@@ -5151,9 +5198,9 @@ function printFinModel(pid, sections, selInvId) {
     +(finHasAmount(totalReturn)?mc('Total Return to Investor',cr2(totalReturn),invName+' · debt term '+invDuration+' yr','#0A3266',true):'')
     +(xr!==null?mc('XIRR',(xr*100).toFixed(1)+'%','Annualised return on dated cashflows','#542B8A',true):'')
     +(eqMult>0?mc('Equity Multiple',eqMult.toFixed(2)+'x','Total return ÷ capital in','#0B7070'):'')
-    +(finHasAmount(C.totRev)?mc('Project GDV',cr2(C.totRev),'Gross development value','#1A7244'):'')
-    +(finHasAmount(C.grossP)?mc('Gross Profit',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),'#A07800'):'')
-    +(finHasAmount(intAmt+shareAmt)?mc(invReturnMode==='revenue_share'?'Interest + Revenue Share':'Interest + Profit Share',cr2(intAmt+shareAmt),invReturnMode==='revenue_share'?(invRate+'% p.a. + '+revSharePct+'% of GDV'):(invRate+'% p.a. + '+invProfitPct+'% profit share'),'#B54D0A'):'')
+    +(finHasAmount(C.totRev)?mc('Total Revenue',cr2(C.totRev),'Project topline revenue','#1A7244'):'')
+    +(finHasAmount(C.grossP)?mc('Gross Profit (PBT)',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),'#A07800'):'')
+    +(finHasAmount(intAmt+shareAmt)?mc(invReturnMode==='revenue_share'?'Interest + Revenue Share':'Interest + Profit Share',cr2(intAmt+shareAmt),invReturnMode==='revenue_share'?(invRate+'% p.a. + '+revSharePct+'% of Total Revenue'):(invRate+'% p.a. + '+invProfitPct+'% profit share'),'#B54D0A'):'')
     +'</div>';
 
   // ── TABLE ROWS ───────────────────────────────────────────────
@@ -5179,7 +5226,7 @@ function printFinModel(pid, sections, selInvId) {
     tableRows += spacer();
   }
   if(has('area')){
-    tableRows += sectionHead('KEY FACTS & ASSUMPTIONS — '+(f2.fsiMode==='pmrda'?'PMRDA MODE':f2.fsiMode==='mumbai'?'MUMBAI DCPR 2034':f2.fsiMode==='goa'?'GOA TCP/FAR':f2.fsiMode==='plotting'?'PLOTTING (NO FSI)':'SIMPLE MODE'),'◆','#0B7070');
+    tableRows += sectionHead('KEY FACTS & ASSUMPTIONS — '+(f2.fsiMode==='pmrda'?'PMRDA MODE':f2.fsiMode==='mumbai'?'MUMBAI DCPR 2034':f2.fsiMode==='goa'?'GOA TCP/FAR':f2.fsiMode==='plotting'?'PLOTTING MODE':'SIMPLE MODE'),'◆','#0B7070');
     if(f2.fsiMode==='pmrda'){
       tableRows += row2('Total Plot Area',prArea(C.totalPlotDisp),areaUnitPr,false,false,C.totalPlotDisp);
       var dedRows='';
@@ -5215,10 +5262,7 @@ function printFinModel(pid, sections, selInvId) {
       });
       if(addPlot){ tableRows+=subhead('Additions'); tableRows+=addPlot; }
       if(finHasAmount(C.disp&&C.disp.plotAdditionsTotal)) tableRows += row2('Total Additions',prArea(C.disp.plotAdditionsTotal),areaUnitPr,false,false,C.disp.plotAdditionsTotal);
-      if(finHasAmount(C.netPlotDisp)) tableRows += row2('Net Saleable Plot Area',prArea(C.netPlotDisp),areaUnitPr,true,false,C.netPlotDisp);
-      if(finHasAmount(C.cSal)&&(f2.commPct||0)>0) tableRows += row2('Commercial Plot Share ('+(f2.commPct||0)+'%)',prArea(C.cSal),areaUnitPr,false,false,C.cSal);
-      if(finHasAmount(C.rSal)) tableRows += row2('Residential Plot Share',prArea(C.rSal),areaUnitPr,false,false,C.rSal);
-      if(finHasAmount(C.totSal)) tableRows += row2('Total Saleable Plot Area',prArea(C.totSal),areaUnitPr,true,true,C.totSal);
+      if(finHasAmount(C.netPlotDisp)) tableRows += row2('Net Saleable Plot Area',prArea(C.netPlotDisp),areaUnitPr,true,true,C.netPlotDisp);
     } else {
       var plotDisp=uSqmtPr?(f2.plotSqmt||0):(f2.plotArea||0);
       if(finHasAmount(plotDisp)) tableRows += row2('Total Plot Area',fm2(plotDisp),areaUnitPr,false,false,plotDisp);
@@ -5234,6 +5278,12 @@ function printFinModel(pid, sections, selInvId) {
   }
   if(has('revenue')){
     tableRows += sectionHead('REVENUE FOR DEVELOPER','₹','#1A7244');
+    if(isPlottingPrint){
+      if(finHasAmount(C.totSal)) tableRows += row2('Saleable Plot Area',prArea(C.totSal),areaUnitPr,false,false,C.totSal);
+      var plotAvgRate=finNum(f2.resRate,0);
+      if(finHasAmount(plotAvgRate)) tableRows += row2('Average Sale Rate','₹'+(Number(plotAvgRate)||0).toLocaleString('en-IN')+' '+rateUnitPr,'',false,false,plotAvgRate);
+      tableRows += row2('Total Revenue',cr2(C.totRev),'',true,true,C.totRev);
+    }else{
     if(finHasAmount(C.cDevA)) tableRows += row2('Commercial Dev Area',prArea(C.cDevA),prRateNote(f2.commRate),false,false,C.cDevA);
     if(finHasAmount(C.cRev)) tableRows += row2('Commercial Revenue',cr2(C.cRev),(f2.commDevPct||50)+'% saleable');
     if(finHasAmount(C.rDevA)) tableRows += row2('Residential Dev Area',prArea(C.rDevA),prRateNote(f2.resRate),false,false,C.rDevA);
@@ -5247,41 +5297,57 @@ function printFinModel(pid, sections, selInvId) {
     if(finHasAmount(C.mhadaRev)){
       tableRows += row2('MHADA Revenue',cr2(C.mhadaRev),prArea(f2.mhadaAreaSqft||0)+' '+areaUnitPr+' '+prRateNote(f2.mhadaRate||0),false,false,C.mhadaRev);
     }
-    tableRows += row2('Total GDV',cr2(C.totRev),'',true,true,C.totRev);
+    tableRows += row2('Total Revenue',cr2(C.totRev),'',true,true,C.totRev);
+    }
     tableRows += spacer();
     tableRows += sectionHead('PROJECTED EXPENSES','▼','#B54D0A');
-    if(finHasAmount(C.consCost)) tableRows += row2('Construction Cost',cr2(C.consCost),prRateNote(f2.constructionRate||0),false,false,C.consCost);
-    if(finHasAmount(C.appCost)&&finHasAmount(f2.approvalsRate)) tableRows += row2('Approvals & Infrastructure',cr2(C.appCost),prRateNote(f2.approvalsRate),false,false,C.appCost);
-    if(finHasAmount(C.intCost)) tableRows += row2('Interest to Investor',cr2(C.intCost),invRate+'% × '+invDuration+' yr(s)',false,false,C.intCost);
-    if(finHasAmount(f2.miscCost)) tableRows += row2('Miscellaneous',cr2(f2.miscCost),'',false,false,f2.miscCost);
-    if(finHasAmount(C.dmFee)) tableRows += row2('Operational Cost',cr2(C.dmFee),(f2.dmFeePct||10)+'% of GDV',false,false,C.dmFee);
-    if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',cr2(C.consultFee),C.consultRateSum?C.consultRateSum.toFixed(2)+' '+rateUnitPr:'',false,false,C.consultFee);
+    if(isPlottingPrint){
+      var plotLandCost=(C.spvLandCost||0)+(C.nonRefundableDeposit||0);
+      var plotLandNote=[];
+      if(finHasAmount(C.spvLandCost)) plotLandNote.push('Land: '+crExp(C.spvLandCost));
+      if(finHasAmount(C.nonRefundableDeposit)) plotLandNote.push('Non-refundable deposit: '+crExp(C.nonRefundableDeposit));
+      if(finHasAmount(plotLandCost)) tableRows += row2('Land Cost',crExp(plotLandCost),plotLandNote.join(' · ')||'',false,false,plotLandCost);
+      if(finHasAmount(C.consCost)) tableRows += row2('Construction Cost',crExp(C.consCost),prArea(C.totSal)+' '+areaUnitPr+' × '+prRateNote(f2.constructionRate||0),false,false,C.consCost);
+      if(finHasAmount(C.appCost)) tableRows += row2('Approvals & Liaisoning',crExp(C.appCost),prArea(C.totSal)+' '+areaUnitPr+' × '+prRateNote(f2.approvalsRate||0),false,false,C.appCost);
+      if(finHasAmount(C.dmFee)) tableRows += row2('Operational Cost',crExp(C.dmFee),(f2.dmFeePct||10)+'% of Total Revenue',false,false,C.dmFee);
+      if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',crExp(C.consultFee),C.consultRateSum?C.consultRateSum.toFixed(2)+' '+rateUnitPr:'',false,false,C.consultFee);
+      if(finHasAmount(C.mktgCP||C.dmMktgCost)) tableRows += row2('Marketing',crExp(C.mktgCP||C.dmMktgCost),(f2.dmMktgCpPct||0)+'% of Total Revenue',false,false,C.mktgCP||C.dmMktgCost);
+      if(finHasAmount(f2.miscCost)) tableRows += row2('Misc',crExp(f2.miscCost),'',false,false,f2.miscCost);
+    }else{
+    if(finHasAmount(C.consCost)) tableRows += row2('Construction Cost',crExp(C.consCost),prRateNote(f2.constructionRate||0),false,false,C.consCost);
+    if(finHasAmount(C.appCost)&&finHasAmount(f2.approvalsRate)) tableRows += row2('Approvals & Infrastructure',crExp(C.appCost),prRateNote(f2.approvalsRate),false,false,C.appCost);
+    if(finHasAmount(C.intCost)) tableRows += row2('Interest to Investor',crExp(C.intCost),invRate+'% × '+invDuration+' yr(s)',false,false,C.intCost);
+    if(finHasAmount(f2.miscCost)) tableRows += row2('Miscellaneous',crExp(f2.miscCost),'',false,false,f2.miscCost);
+    if(finHasAmount(C.dmFee)) tableRows += row2('Operational Cost',crExp(C.dmFee),(f2.dmFeePct||10)+'% of Total Revenue',false,false,C.dmFee);
+    if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',crExp(C.consultFee),C.consultRateSum?C.consultRateSum.toFixed(2)+' '+rateUnitPr:'',false,false,C.consultFee);
     if(finHasAmount(C.mktgCP||C.dmMktgCost)){
-      var mktgNote=(f2.dmMktgCpPct||0)+'% of GDV'+(f2.spvAbsorbConsultMktg?' · absorbed to SPV':'');
-      tableRows += row2('Marketing + Channel Partner commission',cr2(C.mktgCP||C.dmMktgCost),mktgNote,false,false,C.mktgCP||C.dmMktgCost);
+      var mktgNote=(f2.dmMktgCpPct||0)+'% of Total Revenue'+(f2.spvAbsorbConsultMktg?' · absorbed to SPV':'');
+      tableRows += row2('Marketing + Channel Partner commission',crExp(C.mktgCP||C.dmMktgCost),mktgNote,false,false,C.mktgCP||C.dmMktgCost);
     }
     if(finHasAmount(C.totStamp)){
       var _sn=C.stampDutyNote||'';
-      tableRows += row2('Stamp duty (model)',cr2(C.totStamp),_sn.length>160?_sn.slice(0,157)+'…':_sn,false,false,C.totStamp);
+      tableRows += row2('Stamp duty (model)',crExp(C.totStamp),_sn.length>160?_sn.slice(0,157)+'…':_sn,false,false,C.totStamp);
     }
-    tableRows += row2('Total Projected Expenses',cr2(C.totExp),'',true,true,C.totExp);
+    }
+    tableRows += row2('Total Projected Expenses',crExp(C.totExp),'',true,true,C.totExp);
     tableRows += spacer();
   }
   if(has('spv')){
     tableRows += sectionHead('PROJECT P&L SUMMARY','■','#333');
-    tableRows += row2('Total Revenue (GDV)',cr2(C.totRev),'',false,false,C.totRev);
-    tableRows += row2('Total Expenses',cr2(-C.totExp),'incl. operational cost',false,false,C.totExp);
-    tableRows += row2('GROSS PROFIT',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),true,true,C.grossP);
-    if(finHasAmount(shareAmt)) tableRows += row2('Investor '+shareLabel,cr2(-shareAmt),sharePctNote,false,false,shareAmt);
-    tableRows += row2('Net after Investor Share',cr2(netToDev),'',true,false,netToDev);
+    tableRows += row2('Total Revenue',cr2(C.totRev),'',false,false,C.totRev);
+    tableRows += row2('Total Expenses',crExp(C.totExp),'incl. operational cost',false,false,C.totExp);
+    tableRows += row2('Gross Profit (PBT)',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),true,true,C.grossP);
+    if(finHasAmount(shareAmt)) tableRows += row2('Investor '+shareLabel,crExp(shareAmt),sharePctNote,false,false,shareAmt);
     tableRows += spacer();
+  }
+  if(has('investor')){
     tableRows += sectionHead('★ INVESTOR RETURNS — '+invName.toUpperCase()+(invReturnMode==='revenue_share'?' (REVENUE SHARE)':''),'★','#7B1D1D');
     tableRows += subhead(invReturnMode==='revenue_share'
-      ?('Year '+invDuration+': Principal + Interest returned   |   At project close: '+revSharePct+'% revenue share on GDV')
+      ?('Year '+invDuration+': Principal + Interest returned   |   At project close: '+revSharePct+'% revenue share on Total Revenue')
       :('Year '+invDuration+': Principal + Interest returned   |   At project close: Profit sharing'));
     if(finHasAmount(invPrincipal)) tableRows += row2('Principal Amount',cr2(invPrincipal),'Investment in',false,false,invPrincipal);
     if(finHasAmount(intAmt)) tableRows += row2('Interest ('+invRate+'% × '+invDuration+' yr)',cr2(intAmt),'',false,false,intAmt);
-    if(invReturnMode==='revenue_share'&&finHasAmount(C.totRev)) tableRows += row2('Project GDV (basis)',cr2(C.totRev),'',false,false,C.totRev);
+    if(invReturnMode==='revenue_share'&&finHasAmount(C.totRev)) tableRows += row2('Project Total Revenue (basis)',cr2(C.totRev),'',false,false,C.totRev);
     if(finHasAmount(shareAmt)) tableRows += row2(shareLabel+' ('+sharePctNote+')',cr2(shareAmt),invReturnMode==='revenue_share'?'at project close':'',false,false,shareAmt);
     tableRows += row2('TOTAL RETURN',cr2(totalReturn),'',true,true,totalReturn);
     tableRows += subhead('INVESTOR CASH OUTFLOWS FROM SPV (Reference)');
@@ -5293,7 +5359,6 @@ function printFinModel(pid, sections, selInvId) {
     if(eqMult>0) tableRows += row2('Equity Multiple',eqMult.toFixed(2)+'x','total return / capital in');
     if(xr!==null) tableRows += row2('XIRR (annualised)',(xr*100).toFixed(1)+'%','start → P+I → profit dates',true);
     if(retMetrics&&retMetrics.projMonths!=null) tableRows += row2('Project calendar duration',retMetrics.projMonths+' mo ('+(p.startDate||'—')+' → '+(p.endDate||'—')+')','For reporting horizon');
-    if(p.endDate||(retMetrics&&retMetrics.profitDate)) tableRows += row2((invReturnMode==='revenue_share'?'Revenue-share':'Profit-share')+' timing (indicative)',(p.endDate||(retMetrics&&retMetrics.profitDate)||'—')+' · see term sheet / waterfall','');
     tableRows += spacer();
   }
   if(has('milestones')){
@@ -5315,45 +5380,62 @@ function printFinModel(pid, sections, selInvId) {
     }
   }
 
-  // ── SPV P&L WATERFALL CHART (inline SVG) ────────────────────
-  var wfItems=[
-    {l:'GDV',v:C.totRev,c:'#1A7244',type:'bar'},
-    {l:'Construction',v:-C.consCost,c:'#B54D0A',type:'bar'},
-    {l:'Interest',v:-C.intCost,c:'#A8301E',type:'bar'},
-    {l:'Approvals',v:-(C.appCost||0),c:'#7A3205',type:'bar'},
-    {l:'Operational Cost',v:-C.dmFee,c:'#0B7070',type:'bar'},
-    {l:'Misc',v:-(f2.miscCost!==undefined&&f2.miscCost!==null?f2.miscCost:0),c:'#64748B',type:'bar'},
+  // ── SPV P&L WATERFALL CHART — Total Revenue vs stacked costs ─
+  var wfLandCost=(C.spvLandCost||0)+(C.nonRefundableDeposit||0);
+  var costSegs=isPlottingPrint?[
+    {l:'Land',v:wfLandCost,c:'#A07800'},
+    {l:'Construction',v:C.consCost||0,c:'#B54D0A'},
+    {l:'Approvals',v:C.appCost||0,c:'#7A3205'},
+    {l:'Operational',v:C.dmFee||0,c:'#0B7070'},
+    {l:'Consultants',v:C.consultFee||0,c:'#8A1D5E'},
+    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#9333EA'},
+    {l:'Misc',v:f2.miscCost||0,c:'#64748B'}
+  ]:[
+    {l:'Land',v:wfLandCost,c:'#A07800'},
+    {l:'Construction',v:C.consCost||0,c:'#B54D0A'},
+    {l:'Approvals',v:C.appCost||0,c:'#7A3205'},
+    {l:'Interest',v:C.intCost||0,c:'#A8301E'},
+    {l:'Operational',v:C.dmFee||0,c:'#0B7070'},
+    {l:'Consultants',v:C.consultFee||0,c:'#8A1D5E'},
+    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#9333EA'},
+    {l:'Misc',v:f2.miscCost||0,c:'#64748B'}
   ];
-  if(C.spvConsultShift&&C.spvConsultShift>0) wfItems.push({l:'Consult+Mk SPV',v:-C.spvConsultShift,c:'#8A1D5E',type:'bar'});
-  else {
-    if(finHasAmount(C.consultFee)) wfItems.push({l:'Consultants',v:-C.consultFee,c:'#8A1D5E',type:'bar'});
-    if(finHasAmount(C.mktgCP||C.dmMktgCost)) wfItems.push({l:'Marketing+CP',v:-(C.mktgCP||C.dmMktgCost),c:'#7A3205',type:'bar'});
-  }
-  wfItems.push({l:'Gross Profit',v:C.grossP,c:'#0A3266',type:'total'},{l:invReturnMode==='revenue_share'?'Rev. Share':'Inv. Share',v:-shareAmt,c:'#542B8A',type:'bar'},{l:'Net to Dev.',v:netToDev,c:'#1A7244',type:'total'});
-  wfItems=wfItems.filter(function(x){return Math.abs(x.v)>0;});
-  var maxV=Math.max.apply(null,wfItems.map(function(x){return Math.abs(x.v);}));
-  var chartH=120, barW=52, gap=8, leftPad=60;
-  var totalW=leftPad+(barW+gap)*wfItems.length+20;
-  var svgBars=wfItems.map(function(item,i){
-    var bh=maxV>0?Math.round((Math.abs(item.v)/maxV)*chartH):0;
-    var x=leftPad+i*(barW+gap);
-    var y=chartH-bh+4;
-    var labelY=y-4;
-    var amtLabel=(Math.abs(item.v)/10000000).toFixed(2)+' Cr';
-    return '<rect x="'+x+'" y="'+y+'" width="'+barW+'" height="'+bh+'" fill="'+item.c+'" rx="3"/>'
-      +'<text x="'+(x+barW/2)+'" y="'+(labelY<8?12:labelY)+'" text-anchor="middle" font-size="9" fill="'+item.c+'">'+(item.v<0?'-':'')+amtLabel+'</text>'
-      +'<text x="'+(x+barW/2)+'" y="'+(chartH+20)+'" text-anchor="middle" font-size="9" fill="#64748B">'+item.l+'</text>';
-  }).join('');
+  costSegs=costSegs.filter(function(x){return finHasAmount(x.v);});
+  var revBarVal=C.totRev||0;
+  var costBarVal=costSegs.reduce(function(s,x){return s+(x.v||0);},0);
+  var maxBar=Math.max(revBarVal,costBarVal,1);
+  var chartH=140, barW=96, barGap=56, leftPad=72;
+  var baseY=chartH+4;
+  var totalW=leftPad+2*barW+barGap+48;
+  var revH=Math.round((revBarVal/maxBar)*chartH);
+  var revX=leftPad;
+  var revY=baseY-revH;
+  var svgBars='<rect x="'+revX+'" y="'+revY+'" width="'+barW+'" height="'+revH+'" fill="#1A7244" rx="4"/>'
+    +'<text x="'+(revX+barW/2)+'" y="'+(revY>12?revY-6:12)+'" text-anchor="middle" font-size="10" fill="#1A7244" font-weight="600">'+(revBarVal/10000000).toFixed(2)+' Cr</text>'
+    +'<text x="'+(revX+barW/2)+'" y="'+(baseY+18)+'" text-anchor="middle" font-size="10" fill="#334155" font-weight="600">Total Revenue</text>';
+  var costX=revX+barW+barGap;
+  var stackY=baseY, stackRects='';
+  costSegs.forEach(function(seg){
+    var segH=Math.max(1,Math.round((seg.v/maxBar)*chartH));
+    stackY-=segH;
+    stackRects+='<rect x="'+costX+'" y="'+stackY+'" width="'+barW+'" height="'+segH+'" fill="'+seg.c+'" stroke="#fff" stroke-width="1"/>';
+  });
+  svgBars+=stackRects
+    +'<text x="'+(costX+barW/2)+'" y="'+(stackY>12?stackY-6:12)+'" text-anchor="middle" font-size="10" fill="#B54D0A" font-weight="600">'+(costBarVal/10000000).toFixed(2)+' Cr</text>'
+    +'<text x="'+(costX+barW/2)+'" y="'+(baseY+18)+'" text-anchor="middle" font-size="10" fill="#334155" font-weight="600">Project Costs</text>';
+  var costLegend=costSegs.map(function(seg){return '<span style="margin-right:12px"><span style="color:'+seg.c+'">■</span> '+seg.l+': '+crExp(seg.v)+'</span>';}).join('');
   var wfSection='<div style="padding:20px 24px;background:#F8FAFC">'
     +'<div style="font-size:11px;font-weight:700;color:#0A3266;margin-bottom:12px;letter-spacing:.06em">SPV P&amp;L WATERFALL</div>'
     +'<div style="overflow-x:auto">'
-    +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+totalW+' '+(chartH+30)+'" style="width:100%;max-width:'+totalW+'px;display:block">'
-    +'<line x1="'+leftPad+'" y1="0" x2="'+leftPad+'" y2="'+(chartH+4)+'" stroke="#E2E8F0" stroke-width="1"/>'
-    +'<line x1="'+leftPad+'" y1="'+(chartH+4)+'" x2="'+(totalW-10)+'" y2="'+(chartH+4)+'" stroke="#E2E8F0" stroke-width="1"/>'
+    +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 '+totalW+' '+(chartH+36)+'" style="width:100%;max-width:'+totalW+'px;display:block">'
+    +'<line x1="'+(leftPad-8)+'" y1="0" x2="'+(leftPad-8)+'" y2="'+baseY+'" stroke="#E2E8F0" stroke-width="1"/>'
+    +'<line x1="'+(leftPad-8)+'" y1="'+baseY+'" x2="'+(totalW-12)+'" y2="'+baseY+'" stroke="#E2E8F0" stroke-width="1"/>'
     +svgBars
-    +'</svg></div></div>';
+    +'</svg></div>'
+    +(costLegend?'<div style="font-size:10px;color:#475569;margin-top:10px;line-height:1.6">'+costLegend+'</div>':'')
+    +'</div>';
 
-  var revParts=[{l:'Commercial',v:C.cRev,c:'#1558A0'},{l:'Residential',v:C.rRev,c:'#1A7244'},{l:'Inv. sale (Res)',v:C.invSaleResRev||0,c:'#7C3AED'},{l:'Inv. sale (Comm)',v:C.invSaleCommRev||0,c:'#9333EA'}].filter(function(x){return x.v>0;});
+  var revParts=isPlottingPrint?[{l:'Plot sales',v:C.totRev,c:'#1A7244'}].filter(function(x){return x.v>0;}):[{l:'Commercial',v:C.cRev,c:'#1558A0'},{l:'Residential',v:C.rRev,c:'#1A7244'},{l:'Inv. sale (Res)',v:C.invSaleResRev||0,c:'#7C3AED'},{l:'Inv. sale (Comm)',v:C.invSaleCommRev||0,c:'#9333EA'}].filter(function(x){return x.v>0;});
   var revSum=revParts.reduce(function(s,x){return s+x.v;},0)||1;
   var rx=20, revRects='';
   revParts.forEach(function(seg){
@@ -5363,7 +5445,7 @@ function printFinModel(pid, sections, selInvId) {
   });
   var revLegend=revParts.map(function(p){return '<span style="margin-right:12px"><span style="color:'+p.c+'">■</span> '+p.l+': '+cr2(p.v)+'</span>';}).join('');
   var revChartSection='<div style="padding:18px 24px;background:#fff;border-top:1px solid #E2E8F0">'
-    +'<div style="font-size:11px;font-weight:700;color:#1A7244;margin-bottom:10px;letter-spacing:.06em">GDV BUILD-UP</div>'
+    +'<div style="font-size:11px;font-weight:700;color:#1A7244;margin-bottom:10px;letter-spacing:.06em">TOTAL REVENUE BUILD-UP</div>'
     +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 54" style="width:100%;max-width:420px;height:54px;display:block">'
     +'<text x="20" y="14" font-size="9" fill="#64748B">0</text><text x="380" y="14" text-anchor="end" font-size="9" fill="#64748B">'+cr2(revSum)+'</text>'
     +revRects+'</svg>'
