@@ -74,6 +74,36 @@ tfoot td{font-weight:700;background:var(--bg);border-top:1.5px solid var(--borde
 .proj-form-grid .full{grid-column:1/-1}
 .proj-form-lbl{font-size:10px;color:var(--muted);margin-bottom:3px}
 .proj-form-inp{width:100%;padding:6px 10px;border-radius:6px;border:1.5px solid var(--border);font-size:12px}
+/* Project Planning list */
+.proj-plan-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:16px;flex-wrap:wrap}
+.proj-plan-hero h2{font-size:18px;font-weight:800;color:var(--blue-b);letter-spacing:-.02em;line-height:1.2}
+.proj-plan-hero p{font-size:11px;color:var(--muted);margin-top:4px}
+.proj-plan-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.proj-plan-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;font-size:10px;font-weight:700;border:1px solid var(--border);background:var(--card)}
+.proj-plan-chip b{font-size:12px;font-weight:800}
+.proj-plan-wrap{background:var(--card);border-radius:12px;border:1px solid var(--border);box-shadow:0 2px 8px rgba(15,23,42,.06);overflow:hidden}
+.proj-plan-table{width:100%;border-collapse:collapse;font-size:12px}
+.proj-plan-table thead th{padding:10px 12px;text-align:left;color:var(--muted);font-weight:700;font-size:9px;text-transform:uppercase;letter-spacing:.07em;border-bottom:2px solid var(--border);background:linear-gradient(180deg,#F8FAFC,#F1F5F9);white-space:nowrap}
+.proj-plan-table tbody td{padding:10px 12px;border-bottom:1px solid #EEF2F6;vertical-align:middle}
+.proj-plan-table tbody tr.proj-row:hover td{background:#F8FAFC}
+.proj-plan-table tbody tr.proj-row td:first-child{border-left:3px solid var(--st,var(--border))}
+.proj-plan-name{font-weight:700;font-size:13px;color:var(--text);line-height:1.25}
+.proj-plan-loc{font-size:10px;color:var(--muted);margin-top:2px}
+.proj-plan-num{text-align:right;font-variant-numeric:tabular-nums;font-weight:600;color:var(--blue-b)}
+.proj-plan-num.muted{color:var(--muted);font-weight:500}
+.proj-plan-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.proj-plan-btn{padding:4px 10px;border-radius:6px;cursor:pointer;font-size:10px;font-weight:700;border:1.5px solid var(--border);background:#fff;color:var(--muted);transition:all .12s;white-space:nowrap}
+.proj-plan-btn:hover{border-color:var(--blue);color:var(--blue)}
+.proj-plan-btn.primary{border-color:var(--blue);color:var(--blue);background:var(--blue-l)}
+.proj-plan-btn.primary.on{background:var(--blue);color:#fff}
+.proj-plan-btn.tab{border-color:#7A3205;color:#7A3205;background:#FFFBEB}
+.proj-plan-btn.danger{border-color:var(--red);color:var(--red-b);padding:4px 8px}
+.proj-group-row td{padding:8px 12px!important;background:#F8FAFC;border-bottom:1px solid var(--border)!important;border-top:2px solid var(--border)}
+.proj-group-label{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;display:inline-flex;align-items:center;gap:8px}
+.proj-group-count{font-size:10px;font-weight:600;color:var(--muted)}
+.proj-status-badge{display:inline-block;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;line-height:1.3;white-space:nowrap}
+.proj-add-btn{padding:8px 18px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;border:none;background:linear-gradient(135deg,var(--blue),var(--blue-b));color:#fff;box-shadow:0 2px 6px rgba(21,88,160,.25)}
+.proj-add-btn:hover{filter:brightness(1.05)}
 /* Inputs */
 input[type=number]{width:50px;text-align:center;font-size:12px;font-weight:600;padding:3px 4px;border:1.5px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text);transition:border-color .15s}
 input[type=number]:focus{outline:none;border-color:var(--blue);background:#fff}
@@ -952,7 +982,18 @@ function renderDashboard() {
 const STAC = {Active:'#1A7244', Planned:'#A07800', Pipeline:'#4A5568', 'Non Adopted':'#7C3AED'};
 const STAB = {Active:'#E8F6EE',Planned:'#FDF8EC',Pipeline:'#F0F1F3','Non Adopted':'#F3E8FF'};
 const PROJ_STATUSES = ['Active','Planned','Pipeline','Non Adopted'];
-const PROJ_LIST_COLS = 14;
+const PROJ_LIST_COLS = 13;
+function projStatusSortKey(st){
+  var o={Pipeline:0,Planned:1,Active:2,'Non Adopted':3};
+  return o[st]!=null?o[st]:99;
+}
+function sortProjectsForList(arr){
+  return arr.slice().sort(function(a,b){
+    var sa=projStatusSortKey(a.status), sb=projStatusSortKey(b.status);
+    if(sa!==sb) return sa-sb;
+    return String(a.name||'').localeCompare(String(b.name||''),undefined,{sensitivity:'base'});
+  });
+}
 function projStatusColor(st){ return STAC[st]||'#4A5568'; }
 function touchProjectModified(p){ if(p) p.lastModifiedAt=new Date().toISOString(); }
 function formatProjLastModified(p){
@@ -2062,67 +2103,86 @@ function saveProjectModal(){
 }
 
 function renderProjects(){
-  const list = (GA_IS_DRAFT_MODE && GA_DRAFT_PID) ? PROJS.filter(function(x){ return x.id===GA_DRAFT_PID; }) : PROJS;
-  const rows = list.map(p=>{
-    const C = typeof finCalc==='function' ? finCalc(p.id) : {};
-    const isExp = expandedFinId===p.id;
-    const stCol = projStatusColor(p.status);
-    const stBg = STAB[p.status]||'#F0F1F3';
-    return `
-    <tr style="border-left:3px solid ${stCol}">
-      <td><b>${escProjCell(p.name)}</b><div style="font-size:10px;color:var(--muted)">${escProjCell(p.location||'—')}</div></td>
-      <td><span class="badge" style="background:${stBg};color:${stCol}">${escProjCell(p.status||'—')}</span></td>
-      <td style="font-size:10px">${escProjCell(projListType(p))}</td>
-      <td style="font-size:10px;white-space:nowrap">${escProjCell(projListLandArea(p))}</td>
-      <td style="font-size:10px;max-width:100px">${escProjCell(p.referredBy||'—')}</td>
-      <td style="font-size:10px;max-width:120px">${escProjCell(p.contactDetails||'—')}</td>
+  var rawList = (GA_IS_DRAFT_MODE && GA_DRAFT_PID) ? PROJS.filter(function(x){ return x.id===GA_DRAFT_PID; }) : PROJS;
+  var list = sortProjectsForList(rawList);
+  var statusCounts={};
+  rawList.forEach(function(p){ var s=p.status||'—'; statusCounts[s]=(statusCounts[s]||0)+1; });
+  var chipOrder=['Pipeline','Planned','Active','Non Adopted'];
+  var chipsHtml=chipOrder.filter(function(s){return statusCounts[s];}).map(function(s){
+    var col=projStatusColor(s), bg=STAB[s]||'#F0F1F3';
+    return '<span class="proj-plan-chip" style="border-color:'+col+'33;background:'+bg+'"><span style="color:'+col+'">'+s+'</span><b style="color:'+col+'">'+statusCounts[s]+'</b></span>';
+  }).join('');
+  var lastGroup=null, rows='';
+  list.forEach(function(p){
+    var C = typeof finCalc==='function' ? finCalc(p.id) : {};
+    var isExp = expandedFinId===p.id;
+    var stCol = projStatusColor(p.status);
+    var stBg = STAB[p.status]||'#F0F1F3';
+    var grp=p.status||'Other';
+    if(!GA_IS_DRAFT_MODE && grp!==lastGroup){
+      var gc=statusCounts[grp]||0;
+      rows+='<tr class="proj-group-row"><td colspan="'+PROJ_LIST_COLS+'">'
+        +'<span class="proj-group-label" style="color:'+stCol+'"><span class="proj-status-badge" style="background:'+stBg+';color:'+stCol+'">'+escProjCell(grp)+'</span>'
+        +'<span class="proj-group-count">'+gc+' project'+(gc===1?'':'s')+'</span></span></td></tr>';
+      lastGroup=grp;
+    }
+    var revDisp=C.totRev?((C.totRev/10000000).toFixed(1)+' Cr'):(p.rev?((p.rev/10000000).toFixed(1)+' Cr'):'—');
+    var dmDisp=C.dmFee?((C.dmFee/10000000).toFixed(1)+' Cr'):'—';
+    var salDisp=p.sqf?fmt(p.sqf,0):'—';
+    rows+=`
+    <tr class="proj-row" style="--st:${stCol}">
+      <td>
+        <div class="proj-plan-name">${escProjCell(p.name)}</div>
+        <div class="proj-plan-loc">${escProjCell(p.location||'—')}</div>
+      </td>
+      <td><span class="proj-status-badge" style="background:${stBg};color:${stCol}">${escProjCell(p.status||'—')}</span></td>
+      <td style="font-size:11px;color:var(--muted)">${escProjCell(projListType(p))}</td>
+      <td style="font-size:11px;white-space:nowrap;font-weight:600">${escProjCell(projListLandArea(p))}</td>
+      <td style="font-size:11px;max-width:90px;color:var(--muted)">${escProjCell(p.referredBy||'—')}</td>
+      <td style="font-size:11px;max-width:110px;color:var(--muted)">${escProjCell(p.contactDetails||'—')}</td>
       <td>${projListPinCell(p)}</td>
-      <td style="text-align:right">${p.sqf?(p.sqf/1000).toFixed(0)+'K':'-'}</td>
-      <td style="text-align:right">${p.unt||'-'}</td>
-      <td style="text-align:right">${p.rev?(p.rev/10000000).toFixed(1)+' Cr':'-'}</td>
-      <td style="text-align:right">${C.dmFee?(C.dmFee/10000000).toFixed(1)+' Cr':'-'}</td>
-      <td style="text-align:right">${p.cmp?p.cmp+'%':'-'}</td>
+      <td class="proj-plan-num">${salDisp}</td>
+      <td class="proj-plan-num muted">${p.unt||'—'}</td>
+      <td class="proj-plan-num">${revDisp}</td>
+      <td class="proj-plan-num muted">${dmDisp}</td>
       <td style="font-size:10px;color:var(--muted);white-space:nowrap">${formatProjLastModified(p)}</td>
       <td>
-        <div style="display:flex;gap:4px;flex-wrap:wrap">
-          <button onclick="expandedFinId=expandedFinId==='${p.id}'?null:'${p.id}';renderProjects()"
-            style="padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--blue);background:${isExp?'var(--blue)':'transparent'};color:${isExp?'#fff':'var(--blue)'}">
-            ${isExp?'▲ Close':'▼ Model (inline)'}
+        <div class="proj-plan-actions">
+          <button class="proj-plan-btn primary${isExp?' on':''}" onclick="expandedFinId=expandedFinId==='${p.id}'?null:'${p.id}';renderProjects()">
+            ${isExp?'▲ Close':'▼ Model'}
           </button>
-          <button onclick="openModelDraftTab('${p.id}')"
-            style="padding:3px 10px;border-radius:5px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid #7A3205;background:transparent;color:#7A3205">
-            ↗ Model (new tab)
-          </button>
-          ${GA_IS_DRAFT_MODE ? '' : `<button onclick="openProjectModal('${p.id}')"
-            style="padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;border:1.5px solid var(--border);background:transparent;color:var(--muted)">✎</button>
-          <button onclick="deleteProject('${p.id}')"
-            style="padding:3px 8px;border-radius:5px;cursor:pointer;font-size:11px;border:1.5px solid var(--red);background:transparent;color:var(--red-b)">✕</button>`}
+          <button class="proj-plan-btn tab" onclick="openModelDraftTab('${p.id}')">↗ Tab</button>
+          ${GA_IS_DRAFT_MODE ? '' : `<button class="proj-plan-btn" onclick="openProjectModal('${p.id}')">✎</button>
+          <button class="proj-plan-btn danger" onclick="deleteProject('${p.id}')">✕</button>`}
         </div>
       </td>
     </tr>
-    ${isExp?`<tr><td colspan="${PROJ_LIST_COLS}" style="padding:0">${typeof renderFinModel==='function'?renderFinModel(p.id):'<div style="padding:16px;color:var(--muted)">Financial model loading…</div>'}</td></tr>`:''}`;
-  }).join('');
+    ${isExp?`<tr><td colspan="${PROJ_LIST_COLS}" style="padding:0;border:none">${typeof renderFinModel==='function'?renderFinModel(p.id):'<div style="padding:16px;color:var(--muted)">Financial model loading…</div>'}</td></tr>`:''}`;
+  });
 
   document.getElementById('page-projects').innerHTML = `
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px">
-    <div style="font-size:16px;font-weight:700">${GA_IS_DRAFT_MODE ? 'Project Planning — Draft Model View' : 'Project Planning'}</div>
-    ${GA_IS_DRAFT_MODE ? '<div style="font-size:11px;color:#92400E;background:#FFF3CD;border:1px solid #FDE68A;padding:4px 10px;border-radius:10px">Only this project is editable in this tab. Use Save & Close to publish.</div>' : `<button onclick="openProjectModal('new')"
-      style="padding:7px 16px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;border:none;background:var(--blue);color:#fff">
-      ➕ Add project
-    </button>`}
+  <div class="proj-plan-hero">
+    <div>
+      <h2>${GA_IS_DRAFT_MODE ? 'Project Planning — Draft Model' : 'Project Planning'}</h2>
+      <p>${GA_IS_DRAFT_MODE ? 'Single-project draft view — save to publish changes to the portfolio.' : 'Pipeline first, then Planned, then Active — open a model to edit assumptions and print.'}</p>
+      ${!GA_IS_DRAFT_MODE && chipsHtml ? '<div class="proj-plan-chips">'+chipsHtml+'</div>' : ''}
+    </div>
+    ${GA_IS_DRAFT_MODE ? '<div style="font-size:11px;color:#92400E;background:#FFF3CD;border:1px solid #FDE68A;padding:6px 12px;border-radius:8px;max-width:320px">Only this project is editable in this tab. Use <strong>Save &amp; Close</strong> to publish.</div>' : '<button class="proj-add-btn" onclick="openProjectModal(\'new\')">+ Add project</button>'}
   </div>
-  <div style="overflow-x:auto;background:var(--card);border-radius:var(--radius);border:1px solid var(--border);box-shadow:var(--shadow)">
-    <table>
+  <div class="proj-plan-wrap">
+    <div style="overflow-x:auto">
+    <table class="proj-plan-table">
       <thead><tr>
         <th>Project</th><th>Status</th><th>Type</th><th>Land Area</th>
         <th>Referred By</th><th>Contact</th><th>Map</th>
-        <th style="text-align:right">Saleable sqft</th>
-        <th style="text-align:right">Units</th><th style="text-align:right">GDV</th>
-        <th style="text-align:right">DM Fee</th><th style="text-align:right">Completion</th>
-        <th>Last Modified</th><th>Actions</th>
+        <th style="text-align:right">Saleable Area</th>
+        <th style="text-align:right">Units</th><th style="text-align:right">Total Revenue</th>
+        <th style="text-align:right">DM Fee</th>
+        <th>Last Modified</th><th style="text-align:right">Actions</th>
       </tr></thead>
-      <tbody>${rows}</tbody>
+      <tbody>${rows||'<tr><td colspan="'+PROJ_LIST_COLS+'" style="padding:24px;text-align:center;color:var(--muted)">No projects yet — click <strong>Add project</strong> to start.</td></tr>'}</tbody>
     </table>
+    </div>
   </div>`;
 }
 
