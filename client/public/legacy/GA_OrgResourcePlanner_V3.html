@@ -5087,7 +5087,7 @@ removeMilestone = function(pid, idx) { _remMs_orig(pid, idx); if(!GA_IS_DRAFT_MO
 function _doPrintSections(pid) {
   pid = pid || window._printPid;
   var s=[];
-  ['details','area','revenue','spv','investor','milestones'].forEach(function(k){
+  ['details','area','revenue','spv','investor','milestones','kpi-investment','kpi-return','kpi-xirr','kpi-eqmult','kpi-revenue','kpi-gross','kpi-invshare'].forEach(function(k){
     var el=document.getElementById('ps-'+k);
     if(el&&el.checked) s.push(k);
   });
@@ -5132,15 +5132,21 @@ function printFinModel(pid, sections, selInvId) {
         +invList.map(function(inv){return '<option value="'+inv.id+'">'+inv.name+'</option>';}).join('')
         +'</select></div>'
       : '';
-    dlg.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px 28px;width:380px;box-shadow:0 8px 32px rgba(0,0,0,.25)">'
+    dlg.innerHTML = '<div style="background:#fff;border-radius:12px;padding:24px 28px;width:440px;max-height:90vh;overflow-y:auto;box-shadow:0 8px 32px rgba(0,0,0,.25)">'
       +'<div style="font-size:15px;font-weight:800;color:#0A3266;margin-bottom:4px">&#128438; Project Investment Memorandum</div>'
       +'<div style="font-size:11px;color:#64748B;margin-bottom:14px">'+(p.name||pid)+'</div>'
       +invOpts
-      +'<div style="font-size:11px;font-weight:700;color:#4A5568;margin-bottom:8px">Sections to include:</div>'
+      +'<div style="font-size:11px;font-weight:700;color:#4A5568;margin-bottom:8px">Report sections:</div>'
       +[['details','Project Details & Deal Info'],['area','Area & FSI Calculations'],['revenue','Revenue & Expenses'],['spv','P&L Summary'],['investor','Investor Returns'],['milestones','Fund Requirement']].map(function(pair){
         var checked=pair[0]!=='details';
-        return '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="ps-'+pair[0]+'" '+(checked?'checked':'')+' style="width:15px;height:15px"> <span style="font-size:12px">'+pair[1]+'</span></label>';
+        return '<label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer"><input type="checkbox" id="ps-'+pair[0]+'" '+(checked?'checked':'')+' style="width:15px;height:15px;accent-color:#0A3266"> <span style="font-size:12px">'+pair[1]+'</span></label>';
       }).join('')
+      +'<div style="font-size:11px;font-weight:700;color:#4A5568;margin:14px 0 8px;padding-top:12px;border-top:1px solid #E2E8F0">Cover summary cards <span style="font-weight:500;color:#94A3B8">(pick metrics to show)</span>:</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;margin-bottom:4px">'
+      +[['kpi-investment','Total Investment'],['kpi-return','Total Return to Investor'],['kpi-xirr','XIRR'],['kpi-eqmult','Equity Multiple'],['kpi-revenue','Total Revenue'],['kpi-gross','Gross Profit (PBT)'],['kpi-invshare','Interest + Investor Share']].map(function(pair){
+        return '<label style="display:flex;align-items:flex-start;gap:6px;cursor:pointer;padding:4px 0"><input type="checkbox" id="ps-'+pair[0]+'" checked style="width:14px;height:14px;margin-top:2px;accent-color:#0A3266;flex-shrink:0"> <span style="font-size:11px;line-height:1.35;color:#334155">'+pair[1]+'</span></label>';
+      }).join('')
+      +'</div>'
       +'<div style="display:flex;gap:8px;margin-top:20px">'
       +'<button onclick="_doPrintSections()" style="flex:1;padding:9px;background:#0A3266;color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:13px;font-weight:700">Generate Report</button>'
       +'<button onclick="_cancelPrint()" style="padding:9px 14px;border:1.5px solid #DDE2EA;border-radius:7px;cursor:pointer;font-size:13px">Cancel</button>'
@@ -5156,11 +5162,16 @@ function printFinModel(pid, sections, selInvId) {
   var fm2=function(v){return v?Math.round(v).toLocaleString('en-IN'):'—';};
   var pt2=function(a,b){return b>0?((a/b)*100).toFixed(1)+'%':'—';};
   var has=function(s){return sections.indexOf(s)>-1;};
+  var hasKpi=function(k){return has(k);};
   var uSqmtPr=finUsesSqmt(f2);
   var areaUnitPr=finAreaUnitShort(uSqmtPr);
   var rateUnitPr=finRateUnitShort(uSqmtPr);
   var prArea=function(sqft){return fm2(finAreaFromSqft(sqft,uSqmtPr));};
   var prRateNote=function(rate){return '@ ₹'+(Number(rate)||0).toLocaleString('en-IN')+' '+rateUnitPr;};
+  var prConsultNote=function(){
+    if(!finHasAmount(C.totSal)||!finHasAmount(C.consultRateSum)) return '';
+    return prArea(C.totSal)+' '+areaUnitPr+' × ₹'+(Number(C.consultRateSum)||0).toLocaleString('en-IN')+' '+rateUnitPr;
+  };
 
   // ── Selected investor ────────────────────────────────────────
   var selInv = selInvId ? invList.find(function(i){return i.id===selInvId;}) : null;
@@ -5258,15 +5269,15 @@ function printFinModel(pid, sections, selInvId) {
       +(sub?'<div style="font-size:10px;color:#94A3B8;margin-top:2px">'+sub+'</div>':'')
       +'</div>';
   };
-  var kpiGrid = '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:22px 24px;background:#F8FAFC;border-bottom:1px solid #E2E8F0">'
-    +(finHasAmount(invPrincipal||f2.totalInvestment)?mc('Total Investment Required',kpiInvVal,kpiInvSub,'#084E4E',true):'')
-    +(finHasAmount(totalReturn)?mc('Total Return to Investor',cr2(totalReturn),invName+' · debt term '+invDuration+' yr','#0A3266',true):'')
-    +(xr!==null?mc('XIRR',(xr*100).toFixed(1)+'%','Annualised return on dated cashflows','#542B8A',true):'')
-    +(eqMult>0?mc('Equity Multiple',eqMult.toFixed(2)+'x','Total return ÷ capital in','#0B7070'):'')
-    +(finHasAmount(C.totRev)?mc('Total Revenue',cr2(C.totRev),'Project topline revenue','#1A7244'):'')
-    +(finHasAmount(C.grossP)?mc('Gross Profit (PBT)',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),'#A07800'):'')
-    +(finHasAmount(intAmt+shareAmt)?mc(invReturnMode==='revenue_share'?'Interest + Revenue Share':'Interest + Profit Share',cr2(intAmt+shareAmt),invReturnMode==='revenue_share'?(invRate+'% p.a. + '+revSharePct+'% of Total Revenue'):(invRate+'% p.a. + '+invProfitPct+'% profit share'),'#B54D0A'):'')
-    +'</div>';
+  var kpiCards=[];
+  if(hasKpi('kpi-investment')&&finHasAmount(invPrincipal||f2.totalInvestment)) kpiCards.push(mc('Total Investment Required',kpiInvVal,kpiInvSub,'#084E4E',true));
+  if(hasKpi('kpi-return')&&finHasAmount(totalReturn)) kpiCards.push(mc('Total Return to Investor',cr2(totalReturn),invName+' · debt term '+invDuration+' yr','#0A3266',true));
+  if(hasKpi('kpi-xirr')&&xr!==null) kpiCards.push(mc('XIRR',(xr*100).toFixed(1)+'%','Annualised return on dated cashflows','#542B8A',true));
+  if(hasKpi('kpi-eqmult')&&eqMult>0) kpiCards.push(mc('Equity Multiple',eqMult.toFixed(2)+'x','Total return ÷ capital in','#0B7070'));
+  if(hasKpi('kpi-revenue')&&finHasAmount(C.totRev)) kpiCards.push(mc('Total Revenue',cr2(C.totRev),'Project topline revenue','#1A7244'));
+  if(hasKpi('kpi-gross')&&finHasAmount(C.grossP)) kpiCards.push(mc('Gross Profit (PBT)',cr2(C.grossP),'Margin: '+pt2(C.grossP,C.totRev),'#A07800'));
+  if(hasKpi('kpi-invshare')&&finHasAmount(intAmt+shareAmt)) kpiCards.push(mc(invReturnMode==='revenue_share'?'Interest + Revenue Share':'Interest + Profit Share',cr2(intAmt+shareAmt),invReturnMode==='revenue_share'?(invRate+'% p.a. + '+revSharePct+'% of Total Revenue'):(invRate+'% p.a. + '+invProfitPct+'% profit share'),'#B54D0A'));
+  var kpiGrid=kpiCards.length?'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:22px 24px;background:#F8FAFC;border-bottom:1px solid #E2E8F0">'+kpiCards.join('')+'</div>':'';
 
   // ── TABLE ROWS ───────────────────────────────────────────────
   var tableRows = '';
@@ -5375,8 +5386,8 @@ function printFinModel(pid, sections, selInvId) {
       if(finHasAmount(C.consCost)) tableRows += row2('Construction Cost',crExp(C.consCost),prArea(C.totSal)+' '+areaUnitPr+' × '+prRateNote(f2.constructionRate||0),false,false,C.consCost);
       if(finHasAmount(C.appCost)) tableRows += row2('Approvals & Liaisoning',crExp(C.appCost),prArea(C.totSal)+' '+areaUnitPr+' × '+prRateNote(f2.approvalsRate||0),false,false,C.appCost);
       if(finHasAmount(C.dmFee)) tableRows += row2('Operational Cost',crExp(C.dmFee),(f2.dmFeePct||10)+'% of Total Revenue',false,false,C.dmFee);
-      if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',crExp(C.consultFee),C.consultRateSum?C.consultRateSum.toFixed(2)+' '+rateUnitPr:'',false,false,C.consultFee);
-      if(finHasAmount(C.mktgCP||C.dmMktgCost)) tableRows += row2('Marketing',crExp(C.mktgCP||C.dmMktgCost),(f2.dmMktgCpPct||0)+'% of Total Revenue',false,false,C.mktgCP||C.dmMktgCost);
+      if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',crExp(C.consultFee),prConsultNote(),false,false,C.consultFee);
+      if(finHasAmount(C.mktgCP||C.dmMktgCost)) tableRows += row2('Marketing + Channel Partner',crExp(C.mktgCP||C.dmMktgCost),(f2.dmMktgCpPct||0)+'% of Total Revenue',false,false,C.mktgCP||C.dmMktgCost);
       if(finHasAmount(f2.miscCost)) tableRows += row2('Misc',crExp(f2.miscCost),'',false,false,f2.miscCost);
     }else{
     if(finHasAmount(C.consCost)) tableRows += row2('Construction Cost',crExp(C.consCost),prRateNote(f2.constructionRate||0),false,false,C.consCost);
@@ -5384,7 +5395,7 @@ function printFinModel(pid, sections, selInvId) {
     if(finHasAmount(C.intCost)) tableRows += row2('Interest to Investor',crExp(C.intCost),invRate+'% × '+invDuration+' yr(s)',false,false,C.intCost);
     if(finHasAmount(f2.miscCost)) tableRows += row2('Miscellaneous',crExp(f2.miscCost),'',false,false,f2.miscCost);
     if(finHasAmount(C.dmFee)) tableRows += row2('Operational Cost',crExp(C.dmFee),(f2.dmFeePct||10)+'% of Total Revenue',false,false,C.dmFee);
-    if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',crExp(C.consultFee),C.consultRateSum?C.consultRateSum.toFixed(2)+' '+rateUnitPr:'',false,false,C.consultFee);
+    if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',crExp(C.consultFee),prConsultNote(),false,false,C.consultFee);
     if(finHasAmount(C.mktgCP||C.dmMktgCost)){
       var mktgNote=(f2.dmMktgCpPct||0)+'% of Total Revenue'+(f2.spvAbsorbConsultMktg?' · absorbed to SPV':'');
       tableRows += row2('Marketing + Channel Partner commission',crExp(C.mktgCP||C.dmMktgCost),mktgNote,false,false,C.mktgCP||C.dmMktgCost);
@@ -5445,35 +5456,29 @@ function printFinModel(pid, sections, selInvId) {
     }
   }
 
-  // ── SPV P&L CHART — Revenue vs stacked project costs ─────────
-  var wfLandCost=(C.spvLandCost||0)+(C.nonRefundableDeposit||0);
-  var costSegs=isPlottingPrint?[
-    {l:'Land Cost',v:wfLandCost,c:'#B45309',g:'#FEF3C7'},
-    {l:'Construction',v:C.consCost||0,c:'#DC2626',g:'#FEE2E2'},
-    {l:'Approvals',v:C.appCost||0,c:'#C2410C',g:'#FFEDD5'},
-    {l:'Operational',v:C.dmFee||0,c:'#0D9488',g:'#CCFBF1'},
-    {l:'Consultants',v:C.consultFee||0,c:'#7C3AED',g:'#EDE9FE'},
-    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#2563EB',g:'#DBEAFE'},
-    {l:'Misc',v:f2.miscCost||0,c:'#64748B',g:'#F1F5F9'}
-  ]:[
-    {l:'Land Cost',v:wfLandCost,c:'#B45309',g:'#FEF3C7'},
-    {l:'Construction',v:C.consCost||0,c:'#DC2626',g:'#FEE2E2'},
-    {l:'Approvals',v:C.appCost||0,c:'#C2410C',g:'#FFEDD5'},
-    {l:'Interest',v:C.intCost||0,c:'#BE123C',g:'#FFE4E6'},
-    {l:'Operational',v:C.dmFee||0,c:'#0D9488',g:'#CCFBF1'},
-    {l:'Consultants',v:C.consultFee||0,c:'#7C3AED',g:'#EDE9FE'},
-    {l:'Marketing',v:C.mktgCP||C.dmMktgCost||0,c:'#2563EB',g:'#DBEAFE'},
-    {l:'Misc',v:f2.miscCost||0,c:'#64748B',g:'#F1F5F9'}
+  // ── SPV P&L CHART — Revenue vs stacked project costs (all totExp items) ─
+  var costSegs=[
+    {l:'Land Cost',v:C.spvLandCost||0,c:'#B45309'},
+    {l:'Non-Ref. Deposit',v:C.nonRefundableDeposit||0,c:'#D97706'},
+    {l:'Construction',v:C.consCost||0,c:'#DC2626'},
+    {l:'Approvals',v:C.appCost||0,c:'#C2410C'},
+    {l:'Interest',v:C.intCost||0,c:'#BE123C'},
+    {l:'Operational',v:C.dmFee||0,c:'#0D9488'},
+    {l:'Consultants',v:C.consultFee||0,c:'#7C3AED'},
+    {l:'Mktg + Channel Partner',v:C.mktgCP||C.dmMktgCost||0,c:'#2563EB'},
+    {l:'Legal & SPV',v:C.spvLegalCost||0,c:'#6366F1'},
+    {l:'Other SPV',v:C.spvOtherCost||0,c:'#8B5CF6'},
+    {l:'Misc',v:f2.miscCost||0,c:'#64748B'}
   ];
   costSegs=costSegs.filter(function(x){return finHasAmount(x.v);});
   var revBarVal=Math.max(0,C.totRev||0);
-  var costBarVal=costSegs.reduce(function(s,x){return s+(x.v||0);},0);
+  var costBarVal=Math.max(0,C.totExp||0);
   var grossBarVal=Math.max(0,C.grossP||0);
   var chartMax=Math.max(revBarVal,costBarVal,grossBarVal,1);
   var crShort=function(v){return (Math.abs(v||0)/10000000).toFixed(2);};
   var pctOf=function(v,base){return base>0?((v/base)*100).toFixed(1)+'%':'—';};
   var pctOfInt=function(v,base){return base>0?Math.round((v/base)*100)+'%':'—';};
-  var svgW=920,svgH=360,padL=68,padR=200,padT=56,padB=78;
+  var svgW=920,svgH=Math.max(360,120+costSegs.length*30),padL=68,padR=200,padT=56,padB=78;
   var plotW=svgW-padL-padR,plotH=svgH-padT-padB,baseY=padT+plotH;
   var yScale=function(v){return plotH-(v/chartMax)*plotH;};
   var yTicks=[0,0.25,0.5,0.75,1].map(function(t){return {v:chartMax*t,y:padT+yScale(chartMax*t)};});
@@ -5504,7 +5509,8 @@ function printFinModel(pid, sections, selInvId) {
   });
   var calloutSvg='';
   if(segMeta.length){
-    var labelGap=28,minLy=padT+10,maxLy=baseY-10;
+    var labelGap=Math.max(22,Math.min(28,Math.floor((baseY-padT-20)/Math.max(costSegs.length,1))));
+    var minLy=padT+10,maxLy=baseY-10;
     var lblLayout=segMeta.map(function(s,i){return {i:i,y:s.mid,adj:s.mid};});
     lblLayout.sort(function(a,b){return a.adj-b.adj;});
     for(var lj=1;lj<lblLayout.length;lj++){
@@ -5558,22 +5564,6 @@ function printFinModel(pid, sections, selInvId) {
     +'</svg></div>'
     +'</div>';
 
-  var revParts=isPlottingPrint?[{l:'Plot sales',v:C.totRev,c:'#1A7244'}].filter(function(x){return x.v>0;}):[{l:'Commercial',v:C.cRev,c:'#1558A0'},{l:'Residential',v:C.rRev,c:'#1A7244'},{l:'Inv. sale (Res)',v:C.invSaleResRev||0,c:'#7C3AED'},{l:'Inv. sale (Comm)',v:C.invSaleCommRev||0,c:'#9333EA'}].filter(function(x){return x.v>0;});
-  var revSum=revParts.reduce(function(s,x){return s+x.v;},0)||1;
-  var rx=20, revRects='';
-  revParts.forEach(function(seg){
-    var w=Math.max(10,Math.round((seg.v/revSum)*360));
-    revRects+='<rect x="'+rx+'" y="24" width="'+w+'" height="26" fill="'+seg.c+'" rx="4"/>';
-    rx+=w;
-  });
-  var revLegend=revParts.map(function(p){return '<span style="margin-right:12px"><span style="color:'+p.c+'">■</span> '+p.l+': '+cr2(p.v)+'</span>';}).join('');
-  var revChartSection='<div style="padding:18px 24px;background:#fff;border-top:1px solid #E2E8F0">'
-    +'<div style="font-size:11px;font-weight:700;color:#1A7244;margin-bottom:10px;letter-spacing:.06em">TOTAL REVENUE BUILD-UP</div>'
-    +'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 54" style="width:100%;max-width:420px;height:54px;display:block">'
-    +'<text x="20" y="14" font-size="9" fill="#64748B">0</text><text x="380" y="14" text-anchor="end" font-size="9" fill="#64748B">'+cr2(revSum)+'</text>'
-    +revRects+'</svg>'
-    +'<div style="font-size:10px;color:#475569;margin-top:8px;line-height:1.5">'+revLegend+'</div></div>';
-
   // ── Assemble page ────────────────────────────────────────────
   var win=window.open('','_blank');
   if(!win){alert('Enable popups to print');return;}
@@ -5599,7 +5589,6 @@ function printFinModel(pid, sections, selInvId) {
     +kpiGrid
     +(tableRows?'<div style="padding:8px 0 0"><table><thead><tr><th style="width:42%">Parameter</th><th style="width:22%;text-align:right">Value</th><th>Notes</th></tr></thead><tbody>'+tableRows+'</tbody></table></div>':'')
     +wfSection
-    +revChartSection
     +'<div style="padding:16px 24px;background:#0A3266;color:rgba(255,255,255,.72);font-size:10px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;line-height:1.5">'
     +'<span><strong style="color:#fff">Golden Abodes</strong> — Confidential investment memorandum. Figures are model outputs; verify with counsel, valuers &amp; statutory authorities before commitment.</span>'
     +'<span>'+new Date().toLocaleString('en-IN')+'</span>'
