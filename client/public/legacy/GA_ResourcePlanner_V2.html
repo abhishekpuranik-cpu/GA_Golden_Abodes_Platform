@@ -493,7 +493,7 @@ var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
 var CUSTOM  = [];
 var HC_RULES = [];
-var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}};
+var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}, bandAssign:{}};
 var kpiSetSel = 'HR';   // selected KPI set on the Team KPIs tab
 var kpiSlotSel = 0;     // selected person slot within the set
 var kpiMode = 'score';  // 'score' = scorecard | 'edit' = KPI definitions editor (admin only)
@@ -991,14 +991,14 @@ function setSS(msg,col){
   if(el) el.innerHTML='<span style="color:var(--'+col+'-b)">&#9679; '+msg+'</span>';
 }
 function saveState(){
-  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
+  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,bandAssign:ST.bandAssign||{},scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
 }
 function loadState(){
   try{
     var raw=localStorage.getItem('ga_rp_state_v1');
     if(!raw) return;
     var d=JSON.parse(raw);
-    ['ex','ap','capOv','rel','col','alloc','kpiAct','kpiNames','kpiSlots','kpiDefs'].forEach(function(k){if(d[k])Object.assign(ST[k],d[k]);});
+    ['ex','ap','capOv','rel','col','alloc','kpiAct','kpiNames','kpiSlots','kpiDefs','bandAssign'].forEach(function(k){if(d[k])Object.assign(ST[k],d[k]);});
     if(d.scen) scen=d.scen;
     if(d.hcRules) HC_RULES=d.hcRules;
     if(d.custom) CUSTOM=d.custom;
@@ -1027,6 +1027,18 @@ document.addEventListener('change',function(e){
   if(a.ruleThr!==undefined)    { HC_RULES[+a.idx].threshold=+el.value; saveState(); renderTab('hire'); }
   if(a.ruleHc!==undefined)     { HC_RULES[+a.idx].addHC=+el.value; saveState(); renderTab('hire'); }
   if(a.ruleRid!==undefined)    { HC_RULES[+a.idx].rid=el.value;    saveState(); renderTab('hire'); }
+  if(a.bandslotRid!==undefined){
+    var syncEl=document.getElementById('bandsync-'+a.bandslotRid+'-'+a.bandslotIdx);
+    assignBandSlot(a.bandslotRid, +a.bandslotIdx, el.value, syncEl?syncEl.checked:true);
+    return;
+  }
+  if(a.bandprojpick!==undefined){
+    var pn=el.value; if(!pn) return;
+    var eid=a.bandprojpick;
+    if(ALLOC.some(function(ax){return ax.empId===eid&&ax.project===pn;})){el.selectedIndex=0; return;}
+    ALLOC.push({empId:eid,project:pn,pct:100});
+    afterTeamAllocChange(); el.selectedIndex=0; return;
+  }
 });
 document.addEventListener('input',function(e){
   var d=e.target.dataset;
@@ -1034,7 +1046,7 @@ document.addEventListener('input',function(e){
   if(d.pcid&&d.pckey){ updatePC(d.pcid,d.pckey,e.target.value); }
   if(d['allocEmpid']!==undefined){
     var ax=ALLOC.find(function(a){return a.empId===d['allocEmpid']&&a.project===d['allocProj'];});
-    if(ax){ax.pct=Math.min(100,Math.max(0,parseFloat(e.target.value)||0));saveTeamState();}
+    if(ax){ax.pct=Math.min(100,Math.max(0,parseFloat(e.target.value)||0));afterTeamAllocChange();}
   }
 });
 document.addEventListener('change',function(e){
@@ -1057,11 +1069,14 @@ document.addEventListener('click',function(e){
     var pn=chosen.trim();
     if(ALLOC.some(function(ax){return ax.empId===a.addalloceid&&ax.project===pn;})){alert('Already allocated to: '+pn);return;}
     ALLOC.push({empId:a.addalloceid,project:pn,pct:100});
-    saveTeamState(); renderTeam(); return;
+    afterTeamAllocChange(); return;
   }
   if(a.delaeid!==undefined){
     ALLOC=ALLOC.filter(function(ax){return !(ax.empId===a.delaeid&&ax.project===a.delaproj);});
-    saveTeamState(); renderTeam(); return;
+    afterTeamAllocChange(); return;
+  }
+  if(a.bandclear!==undefined){
+    clearBandSlot(a.bandclear, +a.bandidx); return;
   }
   if(a.setdoj!==undefined){
     var dojVal=prompt('Enter Date of Joining for '+a.setdoj+' (YYYY-MM-DD, e.g. 2019-04-01):','');
@@ -1454,6 +1469,111 @@ function bandRoleNums(r,D){
   return n;
 }
 function _cleanRoleTitle(s){ return String(s||'').trim().toLowerCase(); }
+function bandSlotKey(rid,idx){ return rid+'_'+idx; }
+function afterTeamAllocChange(){
+  saveTeamState();
+  if(curTab==='band'&&bandSubView==='actual') renderTab('band');
+  else if(curTab==='team') renderTeam();
+  else renderTeam();
+}
+function empSlotMeta(e,r){
+  if(r.type==='Dedicated'&&bandProjFilt!=='ALL'){
+    var proj=null; getRpProjects().forEach(function(p){ if(p.id===bandProjFilt) proj=p; });
+    return proj?proj.name:'Site';
+  }
+  var projs=ALLOC.filter(function(a){ return a.empId===e.id; }).map(function(a){ return a.project; });
+  return projs.length?projs.join(', '):'No project tagged yet';
+}
+function empToSlotPerson(e,r){
+  if(!e) return null;
+  return {id:e.id,name:e.name,meta:empSlotMeta(e,r),role:e.role||''};
+}
+function getBandSlotManual(rid,idx){
+  if(!ST.bandAssign) return undefined;
+  var k=bandSlotKey(rid,idx);
+  if(ST.bandAssign[k]===undefined) return undefined;
+  return ST.bandAssign[k];
+}
+function setBandSlotManual(rid,idx,empId){
+  if(!ST.bandAssign) ST.bandAssign={};
+  var k=bandSlotKey(rid,idx);
+  if(!empId) ST.bandAssign[k]='__vacant__';
+  else ST.bandAssign[k]=empId;
+  saveState();
+}
+function clearBandSlot(rid,idx){
+  if(!ST.bandAssign) return;
+  delete ST.bandAssign[bandSlotKey(rid,idx)];
+  saveState();
+  renderTab('band');
+}
+function assignBandSlot(rid,idx,empId,syncRole){
+  var r=allR().find(function(x){return x.id===rid;});
+  if(!r) return;
+  if(!empId){
+    setBandSlotManual(rid,idx,'');
+  } else {
+    setBandSlotManual(rid,idx,empId);
+    if(syncRole){
+      var emp=EMPLOYEES.find(function(e){return e.id===empId;});
+      if(emp&&_cleanRoleTitle(emp.role)!==_cleanRoleTitle(r.role)){
+        emp.role=r.role;
+        saveTeamState();
+      }
+    }
+    if(r.type==='Dedicated'&&bandProjFilt!=='ALL'){
+      var proj=null; getRpProjects().forEach(function(p){ if(p.id===bandProjFilt) proj=p; });
+      if(proj&&!ALLOC.some(function(a){return a.empId===empId&&a.project===proj.name;})){
+        ALLOC.push({empId:empId,project:proj.name,pct:100});
+        saveTeamState();
+      }
+    }
+  }
+  renderTab('band');
+}
+function allBandSlotAssignments(){
+  var map={};
+  if(!ST.bandAssign) return map;
+  Object.keys(ST.bandAssign).forEach(function(k){
+    var v=ST.bandAssign[k];
+    if(v&&v!=='__vacant__') map[v]=k;
+  });
+  return map;
+}
+function renderEmpAllocChips(empId){
+  var allocs=ALLOC.filter(function(a){return a.empId===empId;});
+  var html='';
+  if(!allocs.length) html+='<span style="font-size:9px;color:var(--orange)">No projects tagged</span>';
+  allocs.forEach(function(a){
+    var sc2c=((PROJS.find(function(p){return p.name===a.project;})||{}).status);
+    sc2c=sc2c?STAC[sc2c]||'#64748B':'#64748B';
+    html+='<span style="display:inline-flex;align-items:center;gap:2px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:2px 5px;margin:1px 2px 1px 0">';
+    html+='<span style="width:5px;height:5px;border-radius:50%;background:'+sc2c+';flex-shrink:0"></span>';
+    html+='<span style="max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">'+a.project+'</span>';
+    html+=' <input type="number" min="0" max="100" value="'+a.pct+'" data-alloc-empid="'+empId+'" data-alloc-proj="'+a.project+'" style="width:30px;border:none;background:transparent;font-size:9px;font-weight:700;text-align:right;padding:0"/>';
+    html+='<span style="font-size:9px">%</span>';
+    html+='<button data-delaeid="'+empId+'" data-delaproj="'+a.project+'" style="margin-left:1px;background:none;border:none;color:var(--red);cursor:pointer;font-size:10px;padding:0;line-height:1" title="Remove project tag">×</button>';
+    html+='</span>';
+  });
+  var opts='<option value="">+ Tag to project…</option>';
+  rpVisibleProjs().forEach(function(p){
+    if(!allocs.some(function(a){return a.project===p.name;}))
+      opts+='<option value="'+p.name+'">'+p.name+' ('+p.status+')</option>';
+  });
+  html+='<select data-bandprojpick="'+empId+'" style="font-size:9px;padding:2px 4px;border:1px dashed var(--blue);border-radius:3px;color:var(--blue);background:var(--card);max-width:120px;margin-top:2px">'+opts+'</select>';
+  return html;
+}
+function bandSlotPickerOptions(r,idx,currentId){
+  var html='<option value="">— Vacant seat —</option>';
+  var sorted=EMPLOYEES.slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
+  sorted.forEach(function(e){
+    var sel=currentId===e.id?' selected':'';
+    var hint=(e.role||'').trim();
+    if(hint&&_cleanRoleTitle(hint)!==_cleanRoleTitle(r.role)) hint=' · '+hint; else hint=hint?' · '+hint:'';
+    html+='<option value="'+e.id+'"'+sel+'>'+e.name+hint+'</option>';
+  });
+  return html;
+}
 function teamForPlanRole(r){
   var rt=_cleanRoleTitle(r.role);
   if(!rt) return [];
@@ -1480,15 +1600,29 @@ function teamForPlanRole(r){
 function bandPositionSlots(r,D){
   var n=bandRoleNums(r,D);
   if(!(n.ap>0||n.ex>0||n.sg>0)) return null;
-  var people=teamForPlanRole(r);
-  var seats=Math.max(n.ap, people.length, n.ex>0?n.ex:0);
+  var autoPeople=teamForPlanRole(r);
+  var seats=Math.max(n.ap, autoPeople.length, n.ex>0?n.ex:0);
   if(!seats) seats=1;
-  var slots=[];
+  var slots=[], autoIdx=0;
   for(var i=0;i<seats;i++){
-    var p=people[i]||null;
-    slots.push({person:p, vacant:!p});
+    var manual=getBandSlotManual(r.id,i);
+    var person=null, vacant=true, isManual=false;
+    if(manual!==undefined){
+      isManual=true;
+      if(manual&&manual!=='__vacant__'){
+        var e=EMPLOYEES.find(function(x){return x.id===manual;});
+        if(e){ person=empToSlotPerson(e,r); vacant=false; }
+      }
+    } else {
+      while(autoIdx<autoPeople.length){
+        person=autoPeople[autoIdx++];
+        vacant=false;
+        break;
+      }
+    }
+    slots.push({person:person,vacant:vacant,manual:isManual,idx:i});
   }
-  return {role:r, approved:n.ap, existing:n.ex, suggested:n.sg, people:people, slots:slots};
+  return {role:r, approved:n.ap, existing:n.ex, suggested:n.sg, people:autoPeople, slots:slots};
 }
 function renderBandPlanMatrix(D){
   var html='';
@@ -1554,10 +1688,20 @@ function renderBandPlanMatrix(D){
 }
 function renderBandActualStructure(D){
   var html='';
-  var totSeats=0,totFilled=0,totVacant=0,matchedEmp={};
+  var totSeats=0,totFilled=0,totVacant=0,matchedEmp={},assignMap=allBandSlotAssignments();
   allR().forEach(function(r){
-    teamForPlanRole(r).forEach(function(p){ matchedEmp[p.id]=true; });
+    var pos=bandPositionSlots(r,D);
+    if(!pos) return;
+    pos.slots.forEach(function(s){ if(s.person) matchedEmp[s.person.id]=true; });
   });
+  html+='<div class="info" style="margin-bottom:16px;line-height:1.55">';
+  html+='<strong>How to edit actual structure</strong><br>';
+  html+='1. <strong>Assign a person</strong> — use the dropdown on each seat to pick someone from payroll (or leave as Vacant).<br>';
+  html+='2. <strong>Tag projects</strong> — under each name, use <em>+ Tag to project</em> and set the % split (same data as Team View).<br>';
+  html+='3. <strong>Sync role title</strong> — tick the box when assigning so Team View role matches this plan position.<br>';
+  html+='<span style="font-size:10px;color:var(--muted)">Auto-match (green, no dropdown change) still uses exact role title from Team View. Manual picks are saved when you click Save.</span>';
+  html+='</div>';
+
   BAND_ORDER.forEach(function(bid){
     var bdf=null; BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
     var positions=allR().filter(function(r){return r.band===bid;}).map(function(r){return bandPositionSlots(r,D);}).filter(Boolean);
@@ -1567,7 +1711,7 @@ function renderBandActualStructure(D){
     html+='<span style="font-size:15px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</span>';
     html+='<span style="font-size:11px;color:var(--muted)">'+(bdf?bdf.title:'')+' &middot; '+(bdf?bdf.exp:'')+'</span>';
     html+='</div>';
-    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:10px">';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(292px,1fr));gap:10px">';
     positions.forEach(function(pos){
       var r=pos.role,f2=fc(r.fn);
       var filled=pos.slots.filter(function(s){return !s.vacant;}).length;
@@ -1575,21 +1719,33 @@ function renderBandActualStructure(D){
       totSeats+=pos.slots.length; totFilled+=filled; totVacant+=vacant;
       html+='<div style="background:var(--card);border:1px solid var(--border);border-left:4px solid '+f2.c+';border-radius:8px;padding:10px 12px">';
       html+='<div style="font-size:9px;font-weight:700;color:'+f2.c+';text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">'+r.fn+'</div>';
-      html+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);line-height:1.3;margin-bottom:8px">'+r.role+'</div>';
-      html+='<div style="font-size:9px;color:var(--muted);margin-bottom:8px">'+r.type+' &middot; Approved <strong>'+pos.approved+'</strong> &middot; On payroll <strong>'+filled+'</strong></div>';
+      html+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);line-height:1.3;margin-bottom:4px">'+r.role+'</div>';
+      html+='<div style="font-size:9px;color:var(--muted);margin-bottom:10px">'+r.type+' &middot; Approved <strong>'+pos.approved+'</strong> &middot; Filled <strong>'+filled+'</strong></div>';
       pos.slots.forEach(function(s,idx){
+        var curId=s.person?s.person.id:'';
+        var dupElse=curId&&assignMap[curId]&&assignMap[curId]!==bandSlotKey(r.id,idx);
+        html+='<div style="margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid '+(s.vacant?'#B54D0A40':'#1A724430')+';background:'+(s.vacant?'#FEF0E5':'#E8F6EE')+'">';
+        html+='<div style="font-size:9px;font-weight:700;color:var(--muted);margin-bottom:4px">Seat '+(idx+1)+'</div>';
+        html+='<select data-bandslot-rid="'+r.id+'" data-bandslot-idx="'+idx+'" style="width:100%;font-size:11px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);margin-bottom:4px" title="Who fills this position?">';
+        html+=bandSlotPickerOptions(r,idx,curId);
+        html+='</select>';
+        html+='<label style="display:flex;align-items:center;gap:5px;font-size:9px;color:var(--muted);margin-bottom:6px;cursor:pointer">';
+        html+='<input type="checkbox" id="bandsync-'+r.id+'-'+idx+'" checked style="margin:0"/> Sync Team View role to <em>'+r.role+'</em>';
+        html+='</label>';
         if(s.person){
-          html+='<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;margin-bottom:4px;border-radius:6px;background:#E8F6EE;border:1px solid #1A724430">';
-          html+='<span style="font-size:14px;line-height:1">&#9679;</span>';
-          html+='<div><div style="font-size:12px;font-weight:700;color:#0F4829">'+s.person.name+'</div>';
-          if(s.person.meta) html+='<div style="font-size:10px;color:#1A7244">'+s.person.meta+'</div>';
-          html+='</div></div>';
+          var roleOk=_cleanRoleTitle(s.person.role||'')===_cleanRoleTitle(r.role);
+          html+='<div style="font-size:11px;font-weight:700;color:#0F4829;margin-bottom:2px">'+s.person.name+'</div>';
+          if(!roleOk) html+='<div style="font-size:9px;color:#B45309;margin-bottom:4px">Team role differs from plan — assign again with sync, or edit in Team View</div>';
+          if(dupElse) html+='<div style="font-size:9px;color:#B45309;margin-bottom:4px">Also assigned to another seat</div>';
+          html+='<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:6px 0 4px">Projects</div>';
+          html+='<div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap">'+renderEmpAllocChips(s.person.id)+'</div>';
         } else {
-          html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;border-radius:6px;background:#FEF0E5;border:1px dashed #B54D0A60">';
-          html+='<span style="font-size:14px;line-height:1;color:#B54D0A">&#9675;</span>';
-          html+='<div><div style="font-size:11px;font-weight:600;color:#7A3205;font-style:italic">Vacant</div>';
-          html+='<div style="font-size:9px;color:#B54D0A">Open seat '+(idx+1)+' for '+r.role+'</div></div></div>';
+          html+='<div style="font-size:10px;color:#7A3205;font-style:italic">Vacant — pick someone above or hire for '+r.role+'</div>';
         }
+        if(s.manual){
+          html+='<button data-bandclear="'+r.id+'" data-bandidx="'+idx+'" style="margin-top:6px;font-size:9px;padding:2px 8px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer" title="Revert to auto-match from Team View">Reset to auto-match</button>';
+        }
+        html+='</div>';
       });
       html+='</div>';
     });
@@ -1598,19 +1754,20 @@ function renderBandActualStructure(D){
   var unassigned=EMPLOYEES.filter(function(e){ return !matchedEmp[e.id]; });
   if(unassigned.length){
     html+='<div style="margin-top:8px;padding:14px 16px;background:var(--bg);border-radius:10px;border:1px solid var(--border)">';
-    html+='<div style="font-size:12px;font-weight:800;color:var(--slate-b);margin-bottom:8px">On payroll — not matched to an approved plan role</div>';
-    html+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">These people are in Team View but their <strong>Role / Designation</strong> does not exactly match a Headcount Plan role title. Align names in Team View or use Sync E from Team on Headcount Plan.</div>';
+    html+='<div style="font-size:12px;font-weight:800;color:var(--slate-b);margin-bottom:8px">On payroll — not yet placed in a seat</div>';
+    html+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Assign them using the dropdown on any vacant seat above, or align their <strong>Role / Designation</strong> in Team View to auto-fill.</div>';
     html+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
     unassigned.forEach(function(e){
-      html+='<span style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--card);border:1px solid var(--border)"><strong>'+e.name+'</strong> <span style="color:var(--muted)">'+((e.role||'')+(e.band?' · '+e.band:''))+'</span></span>';
+      var projs=ALLOC.filter(function(a){return a.empId===e.id;}).map(function(a){return a.project+' '+a.pct+'%';}).join(', ');
+      html+='<span style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--card);border:1px solid var(--border)"><strong>'+e.name+'</strong> <span style="color:var(--muted)">'+((e.role||'')+(e.band?' · '+e.band:''))+'</span>'+(projs?' <span style="color:var(--blue)">· '+projs+'</span>':'')+'</span>';
     });
     html+='</div></div>';
   }
   var summary='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">';
   summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--blue)">'+totSeats+'</div><div style="font-size:10px;color:var(--muted)">Approved seats</div></div>';
-  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--green)">'+totFilled+'</div><div style="font-size:10px;color:var(--muted)">Filled (payroll)</div></div>';
+  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--green)">'+totFilled+'</div><div style="font-size:10px;color:var(--muted)">Filled</div></div>';
   summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--orange)">'+totVacant+'</div><div style="font-size:10px;color:var(--muted)">Vacant seats</div></div>';
-  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--slate)">'+unassigned.length+'</div><div style="font-size:10px;color:var(--muted)">Unmapped on payroll</div></div>';
+  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--slate)">'+unassigned.length+'</div><div style="font-size:10px;color:var(--muted)">Not placed</div></div>';
   summary+='</div>';
   return summary+html;
 }
@@ -1621,7 +1778,7 @@ function renderBand(){
   if(bandSubView==='plan'){
     html+='<strong>Planned</strong> view: headcount chips with <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. Click a role to edit.</div>';
   } else {
-    html+='<strong>Actual structure</strong>: each card is an <em>approved plan position</em> (role title = placeholder name). Green = person on payroll (exact role match from Team View). Orange = vacant seat still to be filled.</div>';
+    html+='<strong>Actual structure</strong>: each card is an approved plan position. Use the seat dropdown to assign people, tag projects underneath each name, then click <strong>Save</strong>.</div>';
   }
 
   html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
