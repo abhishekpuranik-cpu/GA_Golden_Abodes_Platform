@@ -1453,90 +1453,202 @@ function bandRoleNums(r,D){
   if(r.type==='Hybrid'){ n.ex+=getEx(gk(r.id)); n.sg+=D.sug[gk(r.id)]||0; n.ap+=getAp(gk(r.id)); }
   return n;
 }
-function empBandMatchesPlanRole(e,r){
-  var eb=String(e.band||'').trim();
-  var rb=r.band;
-  if(rb==='MP') return eb==='MP'||eb==='B2'||getVertMatch('Leadership',e.vertical,e.role);
-  if(eb===rb) return true;
-  if(eb==='0'&&(rb==='A1'||rb==='A2')) return true;
-  return false;
-}
-function actualPeopleForRole(r){
-  var clean=function(s){return String(s||'').trim().toLowerCase();};
-  var exact=EMPLOYEES.filter(function(e){ return clean(e.role)===clean(r.role); });
-  if(exact.length) return exact;
-  return EMPLOYEES.filter(function(e){
-    return empBandMatchesPlanRole(e,r)&&getVertMatch(r.fn,e.vertical,e.role);
+function _cleanRoleTitle(s){ return String(s||'').trim().toLowerCase(); }
+function teamForPlanRole(r){
+  var rt=_cleanRoleTitle(r.role);
+  if(!rt) return [];
+  if(r.type!=='Dedicated'){
+    return EMPLOYEES.filter(function(e){ return _cleanRoleTitle(e.role)===rt; }).map(function(e){
+      return {id:e.id,name:e.name,meta:(e.vertical||'Corporate').trim()};
+    });
+  }
+  if(bandProjFilt!=='ALL'){
+    var proj=null;
+    getRpProjects().forEach(function(p){ if(p.id===bandProjFilt) proj=p; });
+    var pn=proj?proj.name:'';
+    return EMPLOYEES.filter(function(e){
+      return _cleanRoleTitle(e.role)===rt && ALLOC.some(function(a){
+        return a.empId===e.id && _cleanRoleTitle(a.project)===_cleanRoleTitle(pn);
+      });
+    }).map(function(e){ return {id:e.id,name:e.name,meta:pn||'Site'}; });
+  }
+  return EMPLOYEES.filter(function(e){ return _cleanRoleTitle(e.role)===rt; }).map(function(e){
+    var projs=ALLOC.filter(function(a){ return a.empId===e.id; }).map(function(a){ return a.project; });
+    return {id:e.id,name:e.name,meta:projs.length?projs.join(', '):'Unallocated'};
   });
 }
-function actualSlotsForRole(r,D){
-  var people=actualPeopleForRole(r);
+function bandPositionSlots(r,D){
   var n=bandRoleNums(r,D);
-  var count=Math.max(n.ap,n.ex,people.length,n.sg>0?n.sg:0);
-  if(!count&&people.length) count=people.length;
+  if(!(n.ap>0||n.ex>0||n.sg>0)) return null;
+  var people=teamForPlanRole(r);
+  var seats=Math.max(n.ap, people.length, n.ex>0?n.ex:0);
+  if(!seats) seats=1;
   var slots=[];
-  for(var i=0;i<count;i++){
-    if(people[i]) slots.push({kind:'filled',name:people[i].name,sub:people[i].role||people[i].vertical||''});
-    else slots.push({kind:'open',name:'Placeholder '+(i+1),sub:'Vacant'});
+  for(var i=0;i<seats;i++){
+    var p=people[i]||null;
+    slots.push({person:p, vacant:!p});
   }
-  if(!slots.length) slots.push({kind:'open',name:'—',sub:'No appointee'});
-  return slots;
+  return {role:r, approved:n.ap, existing:n.ex, suggested:n.sg, people:people, slots:slots};
 }
-function renderBandRoleCell(r,D,f2){
+function renderBandPlanMatrix(D){
   var html='';
-  if(bandSubView==='actual'){
-    var slots=actualSlotsForRole(r,D);
-    html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px solid var(--border);border-left:3px solid '+f2.c+';border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card)'+(selNode===r.id?';box-shadow:0 0 0 2px var(--blue)':'')+'" title="'+r.role+' — actual structure">';
-    html+='<div style="font-size:10px;font-weight:700;line-height:1.25;margin-bottom:4px">'+r.role+'</div>';
-    slots.forEach(function(s){
-      var bg=s.kind==='filled'?'#E8F6EE':'#FEF0E5';
-      var col=s.kind==='filled'?'#1A7244':'#B54D0A';
-      html+='<div style="font-size:9px;padding:3px 6px;margin-bottom:3px;border-radius:4px;background:'+bg+';color:'+col+';border:1px dashed '+(s.kind==='open'?col:'transparent')+'">';
-      html+='<div style="font-weight:700">'+s.name+'</div>';
-      if(s.sub) html+='<div style="font-size:8px;opacity:.85">'+s.sub+'</div>';
+  var fns=[];
+  Object.keys(FN_COL).forEach(function(f){ if(allR().some(function(r){return r.fn===f;})) fns.push(f); });
+  allR().forEach(function(r){ if(fns.indexOf(r.fn)<0) fns.push(r.fn); });
+  html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">';
+  html+='<div style="overflow-x:auto"><table style="min-width:'+(120+fns.length*150)+'px;border-collapse:separate;border-spacing:0">';
+  html+='<thead><tr><th style="position:sticky;left:0;background:var(--bg);z-index:2;min-width:96px">Band</th>';
+  fns.forEach(function(f){
+    var f2=fc(f);
+    html+='<th style="border-bottom:2.5px solid '+f2.c+';min-width:146px"><span style="color:'+f2.t+'">'+f+'</span></th>';
+  });
+  html+='</tr></thead><tbody>';
+  BAND_ORDER.forEach(function(bid){
+    var bdf=null; BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
+    html+='<tr><td style="position:sticky;left:0;background:'+BAND_BGC[bid]+';z-index:1;vertical-align:top;border-right:2px solid '+BAND_COL[bid]+'40">';
+    html+='<div style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</div>';
+    html+='<div style="font-size:9px;color:'+BAND_COL[bid]+';line-height:1.3">'+(bid==='MP'?(bdf?bdf.exp:''):(bdf?bdf.title:''))+'</div>';
+    html+='<div style="font-size:8px;color:var(--muted);margin-top:2px">'+(bdf?bdf.span:'')+'</div>';
+    html+='</td>';
+    fns.forEach(function(f){
+      var cellRoles=allR().filter(function(r){return r.fn===f&&r.band===bid;});
+      html+='<td style="vertical-align:top;padding:5px 6px">';
+      if(!cellRoles.length){
+        html+='<div style="font-size:9px;color:var(--border);text-align:center;padding:6px 0">&mdash;</div>';
+      } else {
+        cellRoles.forEach(function(r){
+          var n=bandRoleNums(r,D);
+          var gap=n.ap-n.ex;
+          var tc=gap>0?'#A8301E':gap<0?'#B54D0A':n.ap>0?'#1A7244':'#94A3B8';
+          var f2=fc(r.fn);
+          html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px solid var(--border);border-left:3px solid '+f2.c+';border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card);'+(n.dim?'opacity:.5;':'')+(selNode===r.id?'box-shadow:0 0 0 2px var(--blue);':'')+'" title="'+r.role+' — click to plan">';
+          html+='<div style="font-size:10px;font-weight:700;line-height:1.25;margin-bottom:2px">'+r.role+'</div>';
+          html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">';
+          html+='<span style="font-size:8px;font-weight:700;color:'+TYPC[r.type]+'">'+(r.type==='Dedicated'?'SITE':r.type==='Hybrid'?'HYBRID':'SHARED')+'</span>';
+          html+='<span style="font-size:9px;color:var(--muted)">E'+n.ex+' S'+n.sg+' <strong style="color:var(--blue)">A'+n.ap+'</strong></span>';
+          html+='<span style="font-size:9px;font-weight:700;color:'+tc+'">'+(gap>0?'+'+gap:gap<0?gap:'&#10003;')+'</span>';
+          html+='</div></div>';
+        });
+      }
+      html+='</td>';
+    });
+    html+='</tr>';
+  });
+  var oddRoles=allR().filter(function(r){return BAND_ORDER.indexOf(r.band)<0;});
+  if(oddRoles.length){
+    html+='<tr><td style="position:sticky;left:0;background:var(--bg);z-index:1;vertical-align:top"><div style="font-size:11px;font-weight:800;color:var(--muted)">Other</div></td>';
+    fns.forEach(function(f){
+      html+='<td style="vertical-align:top;padding:5px 6px">';
+      oddRoles.filter(function(r){return r.fn===f;}).forEach(function(r){
+        var n=bandRoleNums(r,D);
+        html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px dashed var(--border);border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card)">';
+        html+='<div style="font-size:10px;font-weight:700">'+r.role+'</div>';
+        html+='<div style="font-size:9px;color:var(--muted)">E'+n.ex+' A'+n.ap+'</div></div>';
+      });
+      html+='</td>';
+    });
+    html+='</tr>';
+  }
+  html+='</tbody></table></div></div>';
+  return html;
+}
+function renderBandActualStructure(D){
+  var html='';
+  var totSeats=0,totFilled=0,totVacant=0,matchedEmp={};
+  allR().forEach(function(r){
+    teamForPlanRole(r).forEach(function(p){ matchedEmp[p.id]=true; });
+  });
+  BAND_ORDER.forEach(function(bid){
+    var bdf=null; BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
+    var positions=allR().filter(function(r){return r.band===bid;}).map(function(r){return bandPositionSlots(r,D);}).filter(Boolean);
+    if(!positions.length) return;
+    html+='<div style="margin-bottom:20px">';
+    html+='<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+BAND_COL[bid]+'40">';
+    html+='<span style="font-size:15px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</span>';
+    html+='<span style="font-size:11px;color:var(--muted)">'+(bdf?bdf.title:'')+' &middot; '+(bdf?bdf.exp:'')+'</span>';
+    html+='</div>';
+    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(272px,1fr));gap:10px">';
+    positions.forEach(function(pos){
+      var r=pos.role,f2=fc(r.fn);
+      var filled=pos.slots.filter(function(s){return !s.vacant;}).length;
+      var vacant=pos.slots.length-filled;
+      totSeats+=pos.slots.length; totFilled+=filled; totVacant+=vacant;
+      html+='<div style="background:var(--card);border:1px solid var(--border);border-left:4px solid '+f2.c+';border-radius:8px;padding:10px 12px">';
+      html+='<div style="font-size:9px;font-weight:700;color:'+f2.c+';text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">'+r.fn+'</div>';
+      html+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);line-height:1.3;margin-bottom:8px">'+r.role+'</div>';
+      html+='<div style="font-size:9px;color:var(--muted);margin-bottom:8px">'+r.type+' &middot; Approved <strong>'+pos.approved+'</strong> &middot; On payroll <strong>'+filled+'</strong></div>';
+      pos.slots.forEach(function(s,idx){
+        if(s.person){
+          html+='<div style="display:flex;align-items:flex-start;gap:8px;padding:6px 8px;margin-bottom:4px;border-radius:6px;background:#E8F6EE;border:1px solid #1A724430">';
+          html+='<span style="font-size:14px;line-height:1">&#9679;</span>';
+          html+='<div><div style="font-size:12px;font-weight:700;color:#0F4829">'+s.person.name+'</div>';
+          if(s.person.meta) html+='<div style="font-size:10px;color:#1A7244">'+s.person.meta+'</div>';
+          html+='</div></div>';
+        } else {
+          html+='<div style="display:flex;align-items:center;gap:8px;padding:6px 8px;margin-bottom:4px;border-radius:6px;background:#FEF0E5;border:1px dashed #B54D0A60">';
+          html+='<span style="font-size:14px;line-height:1;color:#B54D0A">&#9675;</span>';
+          html+='<div><div style="font-size:11px;font-weight:600;color:#7A3205;font-style:italic">Vacant</div>';
+          html+='<div style="font-size:9px;color:#B54D0A">Open seat '+(idx+1)+' for '+r.role+'</div></div></div>';
+        }
+      });
       html+='</div>';
     });
-    html+='</div>';
-  } else {
-    var n=bandRoleNums(r,D);
-    var gap=n.ap-n.ex;
-    var tc=gap>0?'#A8301E':gap<0?'#B54D0A':n.ap>0?'#1A7244':'#94A3B8';
-    html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px solid var(--border);border-left:3px solid '+f2.c+';border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card);'+(n.dim?'opacity:.5;':'')+(selNode===r.id?'box-shadow:0 0 0 2px var(--blue);':'')+'" title="'+r.role+' — click to plan">';
-    html+='<div style="font-size:10px;font-weight:700;line-height:1.25;margin-bottom:2px">'+r.role+'</div>';
-    html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">';
-    html+='<span style="font-size:8px;font-weight:700;color:'+TYPC[r.type]+'">'+(r.type==='Dedicated'?'SITE':r.type==='Hybrid'?'HYBRID':'SHARED')+'</span>';
-    html+='<span style="font-size:9px;color:var(--muted)">E'+n.ex+' S'+n.sg+' <strong style="color:var(--blue)">A'+n.ap+'</strong></span>';
-    html+='<span style="font-size:9px;font-weight:700;color:'+tc+'">'+(gap>0?'+'+gap:gap<0?gap:'&#10003;')+'</span>';
+    html+='</div></div>';
+  });
+  var unassigned=EMPLOYEES.filter(function(e){ return !matchedEmp[e.id]; });
+  if(unassigned.length){
+    html+='<div style="margin-top:8px;padding:14px 16px;background:var(--bg);border-radius:10px;border:1px solid var(--border)">';
+    html+='<div style="font-size:12px;font-weight:800;color:var(--slate-b);margin-bottom:8px">On payroll — not matched to an approved plan role</div>';
+    html+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">These people are in Team View but their <strong>Role / Designation</strong> does not exactly match a Headcount Plan role title. Align names in Team View or use Sync E from Team on Headcount Plan.</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
+    unassigned.forEach(function(e){
+      html+='<span style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--card);border:1px solid var(--border)"><strong>'+e.name+'</strong> <span style="color:var(--muted)">'+((e.role||'')+(e.band?' · '+e.band:''))+'</span></span>';
+    });
     html+='</div></div>';
   }
-  return html;
+  var summary='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">';
+  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--blue)">'+totSeats+'</div><div style="font-size:10px;color:var(--muted)">Approved seats</div></div>';
+  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--green)">'+totFilled+'</div><div style="font-size:10px;color:var(--muted)">Filled (payroll)</div></div>';
+  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--orange)">'+totVacant+'</div><div style="font-size:10px;color:var(--muted)">Vacant seats</div></div>';
+  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--slate)">'+unassigned.length+'</div><div style="font-size:10px;color:var(--muted)">Unmapped on payroll</div></div>';
+  summary+='</div>';
+  return summary+html;
 }
 function renderBand(){
   var D=calcEngine();
   var html='';
-  html+='<div class="info">GA band structure <strong>A1 &#8594; A2 &#8594; A3 &#8594; B1 &#8594; B2</strong> (Directors/MP/COO sits above the bands) mapped to live planning data. ';
-  html+='Every chip is a role from the Headcount Plan: <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. ';
-  html+='Click a chip to open its planning panel (edit E/A, capacity, conditions, JD). Changes save to the planner state and flow to Headcount, Cost and P&amp;L.</div>';
+  html+='<div class="info">GA band structure <strong>A1 &#8594; A2 &#8594; A3 &#8594; B1 &#8594; B2</strong> (Directors/MP/COO sits above the bands). ';
+  if(bandSubView==='plan'){
+    html+='<strong>Planned</strong> view: headcount chips with <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. Click a role to edit.</div>';
+  } else {
+    html+='<strong>Actual structure</strong>: each card is an <em>approved plan position</em> (role title = placeholder name). Green = person on payroll (exact role match from Team View). Orange = vacant seat still to be filled.</div>';
+  }
 
-  // ── Sub-view: Planned headcount vs Actual people ──
-  html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
-  html+='<span style="font-size:11px;color:var(--muted);font-weight:600">Structure:</span>';
-  html+='<button class="sc-btn'+(bandSubView==='plan'?' on':'')+'" data-bandsub="plan">Planned (E / S / A)</button>';
-  html+='<button class="sc-btn'+(bandSubView==='actual'?' on':'')+'" data-bandsub="actual">Actual (names &amp; placeholders)</button>';
-  if(bandSubView==='actual') html+='<span style="font-size:10px;color:var(--muted)">Filled from Team View by band + function; vacant slots show as placeholders</span>';
-  html+='</div>';
-
-  // ── Project filter pills ──
   html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
   html+='<span style="font-size:11px;color:var(--muted);font-weight:600">View:</span>';
+  html+='<button class="sc-btn'+(bandSubView==='plan'?' on':'')+'" data-bandsub="plan">Planned headcount</button>';
+  html+='<button class="sc-btn'+(bandSubView==='actual'?' on':'')+'" data-bandsub="actual">Actual structure</button>';
+  html+='</div>';
+
+  html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
+  html+='<span style="font-size:11px;color:var(--muted);font-weight:600">Project:</span>';
   html+='<button class="sc-btn'+(bandProjFilt==='ALL'?' on':'')+'" data-bandfilt="ALL">All Projects</button>';
   D.rpProjs.forEach(function(p){
     var sc=STAC[p.status]||'#4A5568',isSel=bandProjFilt===p.id;
     html+='<button data-bandfilt="'+p.id+'" style="padding:4px 12px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:600;border:1.5px solid '+sc+';background:'+(isSel?sc:'transparent')+';color:'+(isSel?'#fff':sc)+'">'+p.name+'</button>';
   });
-  if(bandProjFilt!=='ALL') html+='<span style="font-size:10px;color:var(--muted)">Shared roles shown dimmed with corporate numbers</span>';
+  if(bandProjFilt!=='ALL'&&bandSubView==='plan') html+='<span style="font-size:10px;color:var(--muted)">Shared roles shown dimmed with corporate numbers</span>';
+  if(bandProjFilt!=='ALL'&&bandSubView==='actual') html+='<span style="font-size:10px;color:var(--muted)">Site roles filtered to people allocated to this project</span>';
   html+='</div>';
 
+  if(bandSubView==='actual'){
+    html+=renderBandActualStructure(D);
+    html+='<div id="band-detail-slot"></div>';
+    document.getElementById('page-band').innerHTML=html;
+    return;
+  }
+
+  // ── Planned view below ──
   // ── Band KPI strip (portfolio-wide, approved basis) ──
   var bandTot={};
   BAND_ORDER.forEach(function(b){bandTot[b]={ex:0,sg:0,ap:0,cost:0};});
@@ -1575,56 +1687,7 @@ function renderBand(){
   html+='<span style="font-size:10px;color:var(--muted)">Total approved: <strong>'+deplTot+'</strong></span>';
   html+='</div></div>';
 
-  // ── Band × Department matrix ──
-  var fns=[];
-  Object.keys(FN_COL).forEach(function(f){ if(allR().some(function(r){return r.fn===f;})) fns.push(f); });
-  allR().forEach(function(r){ if(fns.indexOf(r.fn)<0) fns.push(r.fn); });
-
-  html+='<div class="card" style="padding:0;overflow:hidden;margin-bottom:14px">';
-  html+='<div style="overflow-x:auto"><table style="min-width:'+(120+fns.length*150)+'px;border-collapse:separate;border-spacing:0">';
-  html+='<thead><tr><th style="position:sticky;left:0;background:var(--bg);z-index:2;min-width:96px">Band</th>';
-  fns.forEach(function(f){
-    var f2=fc(f);
-    html+='<th style="border-bottom:2.5px solid '+f2.c+';min-width:146px"><span style="color:'+f2.t+'">'+f+'</span></th>';
-  });
-  html+='</tr></thead><tbody>';
-  BAND_ORDER.forEach(function(bid){
-    var bdf=null; BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
-    html+='<tr><td style="position:sticky;left:0;background:'+BAND_BGC[bid]+';z-index:1;vertical-align:top;border-right:2px solid '+BAND_COL[bid]+'40">';
-    html+='<div style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</div>';
-    html+='<div style="font-size:9px;color:'+BAND_COL[bid]+';line-height:1.3">'+(bid==='MP'?(bdf?bdf.exp:''):(bdf?bdf.title:''))+'</div>';
-    html+='<div style="font-size:8px;color:var(--muted);margin-top:2px">'+(bdf?bdf.span:'')+'</div>';
-    html+='</td>';
-    fns.forEach(function(f){
-      var cellRoles=allR().filter(function(r){return r.fn===f&&r.band===bid;});
-      html+='<td style="vertical-align:top;padding:5px 6px">';
-      if(!cellRoles.length){
-        html+='<div style="font-size:9px;color:var(--border);text-align:center;padding:6px 0">&mdash;</div>';
-      } else {
-        cellRoles.forEach(function(r){
-          var f2=fc(r.fn);
-          html+=renderBandRoleCell(r,D,f2);
-        });
-      }
-      html+='</td>';
-    });
-    html+='</tr>';
-  });
-  // Fallback row for roles whose band is outside the A1–B2 ladder (e.g. custom roles)
-  var oddRoles=allR().filter(function(r){return BAND_ORDER.indexOf(r.band)<0;});
-  if(oddRoles.length){
-    html+='<tr><td style="position:sticky;left:0;background:var(--bg);z-index:1;vertical-align:top"><div style="font-size:11px;font-weight:800;color:var(--muted)">Other</div><div style="font-size:8px;color:var(--muted)">unbanded roles</div></td>';
-    fns.forEach(function(f){
-      html+='<td style="vertical-align:top;padding:5px 6px">';
-      oddRoles.filter(function(r){return r.fn===f;}).forEach(function(r){
-        var f2o=fc(r.fn);
-        html+=renderBandRoleCell(r,D,f2o);
-      });
-      html+='</td>';
-    });
-    html+='</tr>';
-  }
-  html+='</tbody></table></div></div>';
+  html+=renderBandPlanMatrix(D);
 
   // ── Band charters legend ──
   var lk='band_charters';
