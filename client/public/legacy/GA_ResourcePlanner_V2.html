@@ -197,11 +197,13 @@ tr:hover td{background:#FAFBFD}
   <button class="tab" id="tab-pnl" onclick="showTab('pnl')" style="display:none">&#128200; P&amp;L View</button>
   <button class="tab" id="tab-kpi" onclick="showTab('kpi')">&#127919; Team KPIs</button>
   <button class="tab" id="tab-hrcal" onclick="showTab('hrcal')">&#128197; HR Calendar</button>
+  <button class="tab" id="tab-hire" onclick="showTab('hire')">&#128188; Hiring</button>
 </div>
 <div id="page-dash" class="page"></div>
 <div id="page-band" class="page hidden"></div>
 <div id="page-kpi" class="page hidden"></div>
 <div id="page-hrcal" class="page hidden"></div>
+<div id="page-hire" class="page hidden"></div>
 <div id="page-res" class="page hidden"></div>
 
 <div id="page-cost" class="page hidden"></div>
@@ -598,11 +600,13 @@ var _bandAssignIdx = null;
 var hrCalView = 'month';
 var hrCalCursor = ''; // YYYY-MM-DD anchor
 var HR_EVT_TYPES = {Interview:'#1558A0',Onboarding:'#1A7244',Training:'#542B8A',Performance:'#A07800',Payroll:'#0B7070',Engagement:'#8A1D5E',Policy:'#4A5568',Leave:'#B54D0A',Other:'#94A3B8'};
+var HIRE_STAGES = ['Requisition','Sourcing','Screening','Interview','Offer','Onboarding','Joined','Closed'];
+var HIRE_STAGE_COL = {Requisition:'#64748B',Sourcing:'#1558A0',Screening:'#542B8A',Interview:'#A07800',Offer:'#0B7070',Onboarding:'#1A7244',Joined:'#1A7244',Closed:'#94A3B8'};
 var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
 var CUSTOM  = [];
 var HC_RULES = [];
-var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}, bandAssign:{}, hrEvents:[]};
+var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}, bandAssign:{}, hrEvents:[], hirePipeline:[]};
 var kpiSetSel = 'HR';   // selected KPI set on the Team KPIs tab
 var kpiSlotSel = 0;     // selected person slot within the set
 var kpiMode = 'score';  // 'score' = scorecard | 'edit' = KPI definitions editor (admin only)
@@ -1028,7 +1032,7 @@ function calcEngine(){
 // ═══════════════════════════════════════════════════════
 function showTab(t){
   if(t==='pnl'&&!ADMIN){ alert('P&L View is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; }
-  ['dash','band','kpi','res','cost','team','shared','pnl','hrcal'].forEach(function(x){
+  ['dash','band','kpi','res','cost','team','shared','pnl','hrcal','hire'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
@@ -1050,7 +1054,7 @@ function setScen(s){
   ['Lean','Base','Stretch'].forEach(function(x){document.getElementById('sc-'+x).className='sc-btn'+(x===s?' on':'');});
   renderAll();
 }
-function renderTab(t){ var f={dash:renderDash,band:renderBand,kpi:renderKpi,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL,hrcal:renderHrCal}; if(f[t])f[t](); }
+function renderTab(t){ var f={dash:renderDash,band:renderBand,kpi:renderKpi,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL,hrcal:renderHrCal,hire:renderHire}; if(f[t])f[t](); }
 function renderAll(){ renderTab(curTab); }
 
 // ═══════════════════════════════════════════════════════
@@ -1100,7 +1104,7 @@ function setSS(msg,col){
   if(el) el.innerHTML='<span style="color:var(--'+col+'-b)">&#9679; '+msg+'</span>';
 }
 function saveState(){
-  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,bandAssign:ST.bandAssign||{},hrEvents:ST.hrEvents||[],scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
+  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,bandAssign:ST.bandAssign||{},hrEvents:ST.hrEvents||[],hirePipeline:ST.hirePipeline||[],scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
 }
 function loadState(){
   try{
@@ -1114,6 +1118,7 @@ function loadState(){
     if(d.cond) Object.assign(COND,d.cond);
     if(d.projFlags) Object.assign(PROJ_FLAGS,d.projFlags);
     if(d.hrEvents&&Array.isArray(d.hrEvents)) ST.hrEvents=d.hrEvents;
+    if(d.hirePipeline&&Array.isArray(d.hirePipeline)) ST.hirePipeline=d.hirePipeline;
   }catch(e){}
 }
 
@@ -1145,6 +1150,8 @@ document.addEventListener('change',function(e){
     afterTeamAllocChange(); el.selectedIndex=0; return;
   }
   if(el.id==='org-fn-filt'){ bandActualFnFilt=el.value; renderTab('band'); return; }
+  if(a.hireStage!==undefined){ setHireStage(a.hireId, el.value); return; }
+  if(a.hireField!==undefined){ setHireField(a.hireId, a.hireField, el.value); return; }
 });
 document.addEventListener('input',function(e){
   var d=e.target.dataset;
@@ -1156,17 +1163,37 @@ document.addEventListener('input',function(e){
   }
   if(e.target.id==='org-search'){ bandActualSearch=e.target.value; renderTab('band'); }
 });
-document.addEventListener('change',function(e){
-  var d=e.target.dataset;
-  if(d.scid&&d.sckey){ updateSC(d.scid,d.sckey,e.target.value); }
-  if(d.pcid&&d.pckey){ updatePC(d.pcid,d.pckey,e.target.value); }
-});
 document.addEventListener('click',function(e){
   var findEl=function(attr){
     var n=e.target;
-    for(var i=0;i<6;i++){ if(n&&n.dataset&&n.dataset[attr]!==undefined) return n; n=n&&n.parentElement; }
+    for(var i=0;i<12;i++){ if(n&&n.dataset&&n.dataset[attr]!==undefined) return n; n=n&&n.parentElement; }
     return null;
   };
+  // ── Modals first (Save/Cancel must not bubble to backdrop close) ──
+  var hSave=findEl('hrEventSave');
+  if(hSave){ saveHrEventFromForm(); return; }
+  var hDel=findEl('hrEventDel');
+  if(hDel){ deleteHrEvent(hDel.dataset.hrEventDel); return; }
+  var hCan=findEl('hrModalClose');
+  if(hCan){ closeHrEventModal(); return; }
+  if(e.target&&e.target.id==='hr-event-modal'){ closeHrEventModal(); return; }
+  var bCan=findEl('bandmodalClose');
+  if(bCan){ closeBandAssignModal(); return; }
+  if(e.target&&e.target.id==='band-assign-modal'){ closeBandAssignModal(); return; }
+  var hAddSave=findEl('hireAddSave');
+  if(hAddSave){ saveHireAddFromForm(); return; }
+  var hAddClose=findEl('hireAddClose');
+  if(hAddClose){ closeHireAddModal(); return; }
+  if(e.target&&e.target.id==='hire-add-modal'){ closeHireAddModal(); return; }
+  var bp=findEl('bandpick');
+  if(bp){
+    var syncEl=document.getElementById('band-assign-sync');
+    assignBandSlot(bp.dataset.bandpickRid, +bp.dataset.bandpickIdx, bp.dataset.bandpick, syncEl?syncEl.checked:true);
+    closeBandAssignModal(); return;
+  }
+  var bpv=findEl('bandpickVacant');
+  if(bpv){ assignBandSlot(bpv.dataset.bandpickVacant, +bpv.dataset.bandpickIdx, '', false); closeBandAssignModal(); return; }
+
   // Check action buttons FIRST (they may live inside togcoll divs)
   var el=e.target, a=el.dataset;
   if(a.addalloceid!==undefined){
@@ -1189,15 +1216,6 @@ document.addEventListener('click',function(e){
   if(br){ removeBandSlotAssignment(br.dataset.bandRemove, +br.dataset.bandRemoveIdx); return; }
   var ba=findEl('bandAssignOpen');
   if(ba){ showBandAssignModal(ba.dataset.bandAssignOpen, +ba.dataset.bandAssignIdx); return; }
-  var bp=findEl('bandpick');
-  if(bp){
-    var syncEl=document.getElementById('band-assign-sync');
-    assignBandSlot(bp.dataset.bandpickRid, +bp.dataset.bandpickIdx, bp.dataset.bandpick, syncEl?syncEl.checked:true);
-    closeBandAssignModal(); return;
-  }
-  var bpv=findEl('bandpickVacant');
-  if(bpv){ assignBandSlot(bpv.dataset.bandpickVacant, +bpv.dataset.bandpickIdx, '', false); closeBandAssignModal(); return; }
-  if(findEl('bandmodalClose')){ closeBandAssignModal(); return; }
   var bq=findEl('bandQuickassign');
   if(bq&&_bandPoolEmpId){ assignBandSlot(bq.dataset.bandQuickassign, +bq.dataset.bandQuickidx, _bandPoolEmpId, true); return; }
   var bpool=findEl('bandpoolAssign');
@@ -1231,9 +1249,12 @@ document.addEventListener('click',function(e){
   if(hev){ showHrEventModal(hev.dataset.hrEventId); return; }
   var hca=findEl('hrCalAdd');
   if(hca){ showHrEventModal(null, hca.dataset.hrCalAdd); return; }
-  if(a.hrEventSave!==undefined){ saveHrEventFromForm(); return; }
-  if(a.hrEventDel!==undefined){ deleteHrEvent(a.hrEventDel); return; }
-  if(findEl('hrModalClose')){ closeHrEventModal(); return; }
+  var hAdd=findEl('hireAdd');
+  if(hAdd){ showHireAddModal(); return; }
+  var hfg=findEl('hireFromGap');
+  if(hfg){ addHireFromGap(hfg.dataset.hireFromGap); return; }
+  var hd=findEl('hireDel');
+  if(hd){ deleteHireReq(hd.dataset.hireDel); return; }
   if(a.kpiset!==undefined)     { kpiSetSel=a.kpiset; kpiSlotSel=0; renderTab('kpi'); return; }
   if(a.kpislot!==undefined)    { kpiSlotSel=+a.kpislot; renderTab('kpi'); return; }
   if(a.kpimode!==undefined)    { if(a.kpimode==='edit'&&!ADMIN){ alert('Editing KPIs is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; } kpiMode=a.kpimode; renderTab('kpi'); return; }
@@ -1325,6 +1346,7 @@ function calcHrHealth(D){
   var kgPct=kgPersons>0?Math.round(kgWithData/kgPersons*100):null;
   var kgAvg=kgWithData>0?Math.round(kgSum/kgWithData*100)/100:null;
   var icRatio=ldN>0?icN/ldN:null;
+  var hm=calcHireMetrics();
   var scores=[];
   if(seatFill!==null) scores.push(seatFill>=90?100:seatFill>=75?80:seatFill>=60?60:35);
   if(planFill!==null) scores.push(planFill>=90?100:planFill>=75?80:planFill>=60?60:40);
@@ -1332,12 +1354,104 @@ function calcHrHealth(D){
   if(kgPct!==null) scores.push(kgPct);
   if(cN>0) scores.push(Math.max(20,100-cN*15));
   else scores.push(100);
+  if(hm.list.length) scores.push(hm.health);
   var health=scores.length?Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length):null;
   var label=health===null?'No data':health>=85?'Excellent':health>=70?'Good':health>=50?'Needs attention':'At risk';
   var col=health===null?'#94A3B8':health>=85?'#1A7244':health>=70?'#1558A0':health>=50?'#A07800':'#A8301E';
   var today=hrTodayYmd();
   var upcoming=hrEventsList().filter(function(ev){return ev.date>=today;}).sort(function(a,b){return a.date.localeCompare(b.date);}).slice(0,5);
-  return {seatFill,planFill,vacOpen,hN,cN,unplaced,allocPct,kgPct,kgAvg,kgAtRisk,icRatio,health,label,col,totSeats,totFilled,hrEx,hrAp,upcoming,matchedEmp};
+  return {seatFill,planFill,vacOpen,hN,cN,unplaced,allocPct,kgPct,kgAvg,kgAtRisk,icRatio,health,label,col,totSeats,totFilled,hrEx,hrAp,upcoming,matchedEmp,hireHealth:hm.health,hireActive:hm.active,hireAvgFill:hm.avgFill};
+}
+function hirePipelineList(){ return ST.hirePipeline||[]; }
+function daysBetweenYmd(d1,d2){
+  if(!d1||!d2) return null;
+  return Math.round((hrParseYmd(d2)-hrParseYmd(d1))/(86400000));
+}
+function calcHireMetrics(){
+  var list=hirePipelineList();
+  var active=list.filter(function(h){return h.stage!=='Joined'&&h.stage!=='Closed';});
+  var joined=list.filter(function(h){return h.stage==='Joined';});
+  var fillDays=[];
+  joined.forEach(function(h){
+    if(h.opened&&h.joinedDate){ var d=daysBetweenYmd(h.opened,h.joinedDate); if(d!==null&&d>=0) fillDays.push(d); }
+  });
+  var avgFill=fillDays.length?Math.round(fillDays.reduce(function(a,b){return a+b;},0)/fillDays.length):null;
+  var stale=active.filter(function(h){
+    var d=daysBetweenYmd(h.opened||'', hrTodayYmd());
+    return d!==null&&d>45&&HIRE_STAGES.indexOf(h.stage)<HIRE_STAGES.indexOf('Offer');
+  }).length;
+  var inInterview=active.filter(function(h){return h.stage==='Interview'||h.stage==='Offer';}).length;
+  var health=85;
+  if(active.length>8) health-=12;
+  if(stale>0) health-=Math.min(40,stale*10);
+  if(avgFill!==null&&avgFill>60) health-=15;
+  if(avgFill!==null&&avgFill<=25) health+=8;
+  if(!list.length) health=50;
+  health=Math.max(0,Math.min(100,health));
+  var conv=joined.length&&list.length?Math.round(joined.length/list.length*100):null;
+  return {active:active.length,joined:joined.length,avgFill,stale,inInterview,health,conv,list:list};
+}
+function addHireRequisition(title,project,priority){
+  var t=(title||'').trim();
+  if(!t) return;
+  if(!ST.hirePipeline) ST.hirePipeline=[];
+  ST.hirePipeline.push({id:'hir_'+Date.now(),roleTitle:t,roleId:'',project:(project||'').trim(),candidate:'',source:'',stage:'Requisition',priority:priority||'Medium',opened:hrTodayYmd(),targetDate:'',joinedDate:'',notes:''});
+  saveState(); renderTab('hire');
+}
+function closeHireAddModal(){ var m=document.getElementById('hire-add-modal'); if(m) m.remove(); }
+function showHireAddModal(prefill){
+  closeHireAddModal();
+  var p=prefill||{};
+  var html='<div class="org-modal-bg" id="hire-add-modal"><div class="org-modal" style="max-width:420px">';
+  html+='<div class="org-modal-hdr"><div class="org-modal-title">New hiring requisition</div>';
+  html+='<div class="org-modal-sub">Starts at Requisition — move through the cycle as candidates progress</div></div>';
+  html+='<div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">';
+  html+='<label style="font-size:11px;font-weight:600">Role title<input type="text" id="hire-add-title" value="'+(p.roleTitle||'').replace(/"/g,'&quot;')+'" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px" placeholder="e.g. Site Engineer"/></label>';
+  html+='<label style="font-size:11px;font-weight:600">Project (optional)<input type="text" id="hire-add-project" value="'+(p.project||'').replace(/"/g,'&quot;')+'" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px" placeholder="Corporate or project name"/></label>';
+  html+='<label style="font-size:11px;font-weight:600">Priority<select id="hire-add-priority" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px">';
+  ['Low','Medium','High','Critical'].forEach(function(pr){ html+='<option value="'+pr+'"'+(p.priority===pr?' selected':'')+'>'+pr+'</option>'; });
+  html+='</select></label></div>';
+  html+='<div class="org-modal-ft" style="justify-content:flex-end">';
+  html+='<button class="org-btn org-btn-ghost" data-hire-add-close="1">Cancel</button>';
+  html+='<button class="org-btn org-btn-primary" data-hire-add-save="1">Create requisition</button></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+  var ti=document.getElementById('hire-add-title'); if(ti) ti.focus();
+}
+function saveHireAddFromForm(){
+  var title=document.getElementById('hire-add-title');
+  var project=document.getElementById('hire-add-project');
+  var priority=document.getElementById('hire-add-priority');
+  if(!title||!(title.value||'').trim()){ alert('Role title is required.'); return; }
+  addHireRequisition(title.value, project?project.value:'', priority?priority.value:'Medium');
+  closeHireAddModal();
+}
+function addHireFromGap(gapKey){
+  var parts=String(gapKey).split('|');
+  var rid=parts[0],proj=parts[1]||'';
+  var r=allR().find(function(x){return x.id===rid;});
+  if(!r) return;
+  if(!ST.hirePipeline) ST.hirePipeline=[];
+  if(ST.hirePipeline.some(function(h){return h.roleId===rid&&h.project===proj&&h.stage!=='Joined'&&h.stage!=='Closed';})){ alert('Already tracking this opening.'); return; }
+  ST.hirePipeline.push({id:'hir_'+Date.now(),roleTitle:r.role,roleId:rid,project:proj,candidate:'',source:'',stage:'Requisition',priority:r.pri||'Medium',opened:hrTodayYmd(),targetDate:'',joinedDate:'',notes:''});
+  saveState(); renderTab('hire');
+}
+function setHireStage(id,stage){
+  var h=(ST.hirePipeline||[]).find(function(x){return x.id===id;});
+  if(!h) return;
+  h.stage=stage;
+  if(stage==='Joined'&&!h.joinedDate) h.joinedDate=hrTodayYmd();
+  saveState(); renderTab('hire');
+}
+function setHireField(id,field,val){
+  var h=(ST.hirePipeline||[]).find(function(x){return x.id===id;});
+  if(!h) return;
+  h[field]=val;
+  saveState();
+}
+function deleteHireReq(id){
+  if(!confirm('Remove this hiring requisition?')) return;
+  ST.hirePipeline=(ST.hirePipeline||[]).filter(function(x){return x.id!==id;});
+  saveState(); renderTab('hire');
 }
 function hrCalNav(dir){
   var d=hrCalCursorDate();
@@ -1353,7 +1467,7 @@ function showHrEventModal(id,defaultDate){
   closeHrEventModal();
   var ev=id?hrEventsList().find(function(x){return x.id===id;}):null;
   var dt=ev?ev.date:(defaultDate||hrCalCursor||hrTodayYmd());
-  var html='<div class="org-modal-bg" id="hr-event-modal" data-hr-modal-close="1"><div class="org-modal" style="max-width:440px" onclick="event.stopPropagation()">';
+  var html='<div class="org-modal-bg" id="hr-event-modal"><div class="org-modal" style="max-width:440px">';
   html+='<div class="org-modal-hdr"><div class="org-modal-title">'+(ev?'Edit event':'New HR activity')+'</div></div>';
   html+='<div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">';
   html+='<input type="hidden" id="hr-ev-id" value="'+(ev?ev.id:'')+'"/>';
@@ -1425,13 +1539,14 @@ function renderDash(){
   html+=card('Open hires', H.hN, H.cN+' critical · '+H.vacOpen+' plan vacancies', H.cN>0?'#A8301E':'#1A7244', H.cN>0?'#FEF2F2':'#F0FDF4');
   html+=card('Project allocation', H.allocPct!==null?H.allocPct+'%':'—', 'employees at 100% tagged', H.allocPct>=80?'#1A7244':'#A07800');
   html+=card('KPI scorecards', H.kgPct!==null?H.kgPct+'%':'—', (H.kgAvg!==null?'avg '+H.kgAvg.toFixed(2):'no entries')+(H.kgAtRisk?' · '+H.kgAtRisk+' at risk':''), H.kgPct>=80?'#1A7244':'#A07800');
+  html+=card('Hiring pipeline', H.hireActive+' active · '+H.hireHealth+'/100 health', (H.hireAvgFill!==null?H.hireAvgFill+'d avg fill':'open Hiring tab'), H.hireHealth>=70?'#1A7244':H.hireHealth>=50?'#A07800':'#A8301E');
   html+=card('IC : Leader', H.icRatio!==null?H.icRatio.toFixed(1)+':1':'—', 'A1–A2 per A3+ (target 2–5)', (H.icRatio>=2&&H.icRatio<=5)?'#1A7244':'#A07800');
   html+='</div>';
 
   html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">';
   html+='<div style="background:var(--card);border-radius:12px;padding:16px;border:1px solid var(--border)">';
   html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:13px;font-weight:800;color:var(--blue-b)">&#128200; Headcount health</div><button onclick="showTab(\'res\')" class="org-btn org-btn-ghost">Headcount Plan</button></div>';
-  var bars=[{l:'Seats filled',v:H.seatFill||0,c:'#1A7244'},{l:'Plan coverage',v:H.planFill||0,c:'#1558A0'},{l:'Allocations OK',v:H.allocPct||0,c:'#542B8A'},{l:'KPI tracking',v:H.kgPct||0,c:'#A07800'}];
+  var bars=[{l:'Seats filled',v:H.seatFill||0,c:'#1A7244'},{l:'Plan coverage',v:H.planFill||0,c:'#1558A0'},{l:'Allocations OK',v:H.allocPct||0,c:'#542B8A'},{l:'KPI tracking',v:H.kgPct||0,c:'#A07800'},{l:'Hiring health',v:H.hireHealth||0,c:'#0B7070'}];
   bars.forEach(function(b){
     html+='<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px"><span>'+b.l+'</span><strong style="color:'+b.c+'">'+b.v+'%</strong></div>';
     html+='<div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:'+b.v+'%;height:100%;background:'+b.c+';border-radius:4px"></div></div></div>';
@@ -1470,6 +1585,7 @@ function renderDash(){
   html+='<button onclick="showTab(\'team\')" class="btn btn-ghost">&#128100; Team &amp; payroll</button>';
   html+='<button onclick="showTab(\'kpi\')" class="btn btn-ghost">&#127919; Team KPIs</button>';
   html+='<button onclick="showTab(\'hrcal\')" class="btn btn-ghost">&#128197; HR calendar</button>';
+  html+='<button onclick="showTab(\'hire\')" class="btn btn-ghost">&#128188; Hiring</button>';
   html+='</div>';
 
   document.getElementById('page-dash').innerHTML=html;
@@ -1636,8 +1752,7 @@ function showBandAssignModal(rid,slotIdx){
   _bandAssignRid=rid; _bandAssignIdx=slotIdx;
   var q=(bandActualSearch||'').toLowerCase();
   var sorted=EMPLOYEES.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
-  var html='<div class="org-modal-bg" id="band-assign-modal" data-bandmodal-close="1">';
-  html+='<div class="org-modal" onclick="event.stopPropagation()">';
+  var html='<div class="org-modal-bg" id="band-assign-modal"><div class="org-modal">';
   html+='<div class="org-modal-hdr"><div class="org-modal-title">Assign to '+r.role+'</div>';
   html+='<div class="org-modal-sub">Seat '+(slotIdx+1)+' &middot; '+r.fn+' &middot; '+r.type+'</div></div>';
   html+='<div style="padding:8px 12px;border-bottom:1px solid var(--border)"><input type="text" id="band-modal-search" placeholder="Search by name or role…" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px" value="'+(bandActualSearch||'').replace(/"/g,'&quot;')+'"/></div>';
@@ -2825,42 +2940,75 @@ function exportHCReport(){
 
 function renderHire(){
   var D=calcEngine();
-  var hN=D.hp.filter(function(h){return h.action==='Hire';}).length;
-  var cN=D.hp.filter(function(h){return h.action==='Hire'&&h.pri==='Critical';}).length;
+  var hm=calcHireMetrics();
   var html='';
-  html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
-  [{l:'To Hire',v:hN,c:'#A8301E'},{l:'Critical',v:cN,c:'#A8301E'},
-   {l:'Stable',v:D.hp.filter(function(h){return h.action==='Stable';}).length,c:'#1A7244'},
-   {l:'Total Tracked',v:D.hp.length,c:'#1558A0'}].forEach(function(k){
-    html+='<div class="kpi" style="flex:1;min-width:110px;border-top:3px solid '+k.c+'">';
-    html+='<div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px">'+k.l+'</div>';
-    html+='<div style="font-size:22px;font-weight:800;color:'+k.c+'">'+k.v+'</div></div>';
+  html+='<div style="background:linear-gradient(135deg,#0A3266,#1558A0);border-radius:14px;padding:20px 24px;color:#fff;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between">';
+  html+='<div><div style="font-size:11px;opacity:.85;text-transform:uppercase;letter-spacing:.06em;font-weight:700">Hiring process health</div>';
+  html+='<div style="font-size:36px;font-weight:800">'+hm.health+'<span style="font-size:16px;opacity:.7">/100</span></div></div>';
+  html+='<div style="display:flex;gap:20px;flex-wrap:wrap">';
+  [{l:'Active reqs',v:hm.active},{l:'Joined',v:hm.joined},{l:'Avg days to fill',v:hm.avgFill!==null?hm.avgFill:'—'},{l:'Stale (>45d)',v:hm.stale,c:hm.stale>0?'#FCA5A5':'#fff'}].forEach(function(k){
+    html+='<div style="text-align:center"><div style="font-size:22px;font-weight:800;color:'+(k.c||'#fff')+'">'+k.v+'</div><div style="font-size:10px;opacity:.85">'+k.l+'</div></div>';
   });
+  html+='</div></div>';
+
+  html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center">';
+  html+='<button class="org-btn org-btn-primary" data-hire-add="1">+ New requisition</button>';
+  html+='<span style="font-size:11px;color:var(--muted)">Track each role through the hiring cycle — effectiveness updates automatically.</span>';
   html+='</div>';
-  if(!D.hp.length){
-    html+='<div class="info">No roles tracked yet. Headcount data will populate once you set E and A values above.</div>';
+
+  var gaps=D.hp.filter(function(h){return h.action==='Hire';});
+  if(gaps.length){
+    html+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:16px">';
+    html+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:10px">Open from headcount plan ('+gaps.length+')</div>';
+    html+='<div style="display:flex;flex-wrap:wrap;gap:8px">';
+    gaps.slice(0,12).forEach(function(h){
+      var gk=h.id+'|'+(h.projName||'');
+      html+='<button data-hire-from-gap="'+gk+'" style="font-size:11px;padding:6px 12px;border-radius:20px;border:1px solid var(--border);background:var(--bg);cursor:pointer;font-weight:600">'+h.role+(h.projName?' · '+h.projName:'')+' <span style="color:var(--red)">+'+(h.ap-h.ex)+'</span></button>';
+    });
+    html+='</div></div>';
+  }
+
+  html+='<div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px">Hiring pipeline</div>';
+  var active=hm.list.filter(function(h){return h.stage!=='Joined'&&h.stage!=='Closed';});
+  if(!active.length){
+    html+='<div style="text-align:center;padding:40px;background:var(--card);border-radius:12px;border:1px dashed var(--border);color:var(--muted)">No active requisitions — add from plan gaps above or create a new one.</div>';
   } else {
-    html+='<div style="overflow-x:auto"><table>';
-    html+='<thead><tr><th>Role</th><th>Function</th><th>Type</th><th>Project</th>';
-    html+='<th style="text-align:center">E</th><th style="text-align:center">S</th><th style="text-align:center">A</th>';
-    html+='<th style="text-align:center">Gap</th><th>Action</th><th>Priority</th></tr></thead><tbody>';
-    D.hp.forEach(function(h){
-      var ac=h.action==='Hire'?'#FDECEA':h.action==='Stable'?'#E8F6EE':'#FDF8EC';
-      html+='<tr style="background:'+ac+'">';
-      html+='<td style="font-weight:600;font-size:12px">'+h.role+'</td>';
-      html+='<td style="font-size:11px;color:var(--muted)">'+h.fn+'</td>';
-      html+='<td style="font-size:10px">'+h.type+'</td>';
-      html+='<td style="font-size:11px">'+h.proj+'</td>';
-      html+='<td style="text-align:center">'+h.ex+'</td>';
-      html+='<td style="text-align:center;font-weight:700;color:#A07800">'+h.sug+'</td>';
-      html+='<td style="text-align:center">'+h.ap+'</td>';
-      html+='<td style="text-align:center">'+gpill(h.ap-h.ex)+'</td>';
-      html+='<td><strong style="color:'+(h.action==='Hire'?'#A8301E':'#1A7244')+'">'+h.action+'</strong></td>';
-      html+='<td>'+bd(h.pri,{Critical:'#6E1D12',High:'#7A3205',Medium:'#0A3266',Low:'#2C3E50'}[h.pri]||'#4A5568',{Critical:'#FDECEA',High:'#FEF0E5',Medium:'#EAF1FB',Low:'#F0F1F3'}[h.pri]||'#eee')+'</td>';
-      html+='</tr>';
+    active.forEach(function(h){
+      var si=HIRE_STAGES.indexOf(h.stage);
+      var days=daysBetweenYmd(h.opened, hrTodayYmd());
+      html+='<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:10px;border-left:4px solid '+(HIRE_STAGE_COL[h.stage]||'#64748B')+'">';
+      html+='<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:flex-start;margin-bottom:10px">';
+      html+='<div style="flex:1;min-width:200px"><div style="font-size:14px;font-weight:800">'+h.roleTitle+'</div>';
+      html+='<div style="font-size:11px;color:var(--muted)">'+(h.project||'Corporate')+' · opened '+h.opened+(days!==null?' ('+days+'d)':'')+'</div></div>';
+      html+='<select data-hire-stage="'+h.id+'" data-hire-id="'+h.id+'" style="padding:6px 10px;border-radius:8px;border:1.5px solid var(--border);font-size:12px;font-weight:600;background:'+(HIRE_STAGE_COL[h.stage]||'#64748B')+'15">';
+      HIRE_STAGES.forEach(function(s){ html+='<option value="'+s+'"'+(h.stage===s?' selected':'')+'>'+s+'</option>'; });
+      html+='</select>';
+      html+='<button class="org-btn org-btn-danger" data-hire-del="'+h.id+'">Remove</button></div>';
+      html+='<div style="display:flex;gap:4px;margin-bottom:10px">';
+      HIRE_STAGES.slice(0,7).forEach(function(s,i){
+        var done=i<si, cur=i===si;
+        html+='<div style="flex:1;height:6px;border-radius:3px;background:'+(done?'#1A7244':cur?(HIRE_STAGE_COL[s]||'#1558A0'):'var(--border)')+'" title="'+s+'"></div>';
+      });
+      html+='</div>';
+      html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px">';
+      html+='<input type="text" placeholder="Candidate name" value="'+(h.candidate||'').replace(/"/g,'&quot;')+'" data-hire-field="candidate" data-hire-id="'+h.id+'" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px"/>';
+      html+='<input type="text" placeholder="Source (e.g. LinkedIn)" value="'+(h.source||'').replace(/"/g,'&quot;')+'" data-hire-field="source" data-hire-id="'+h.id+'" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px"/>';
+      html+='<input type="date" title="Target join date" value="'+(h.targetDate||'')+'" data-hire-field="targetDate" data-hire-id="'+h.id+'" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px"/>';
+      html+='</div></div>';
+    });
+  }
+
+  var done=hm.list.filter(function(h){return h.stage==='Joined'||h.stage==='Closed';});
+  if(done.length){
+    html+='<div style="margin-top:18px;font-size:12px;font-weight:800;color:var(--muted);margin-bottom:8px">Recently closed / joined</div>';
+    html+='<div style="overflow-x:auto"><table style="font-size:11px"><thead><tr><th>Role</th><th>Candidate</th><th>Stage</th><th>Opened</th><th>Joined</th><th>Days</th></tr></thead><tbody>';
+    done.slice(0,10).forEach(function(h){
+      var d=h.joinedDate?daysBetweenYmd(h.opened,h.joinedDate):'—';
+      html+='<tr><td style="font-weight:600">'+h.roleTitle+'</td><td>'+(h.candidate||'—')+'</td><td>'+h.stage+'</td><td>'+h.opened+'</td><td>'+(h.joinedDate||'—')+'</td><td>'+d+'</td></tr>';
     });
     html+='</tbody></table></div>';
   }
+
   var el=document.getElementById('page-hire');
   if(el) el.innerHTML=html;
 }
