@@ -124,14 +124,14 @@ html+='</div>';
   // Project filter
   html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';
   html+='<button onclick="_pnlFilt=\'ALL\';renderPnL()" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(_pnlFilt==='ALL'?'var(--blue)':'var(--border)')+';background:'+(_pnlFilt==='ALL'?'var(--blue)':'var(--card)')+';color:'+(_pnlFilt==='ALL'?'#fff':'var(--muted)')+';font-size:11px;font-weight:700;cursor:pointer">All Projects</button>';
-  PROJS.filter(function(p){return p.on||p._gdv;}).forEach(function(p){
+  rpVisibleProjs().forEach(function(p){
     var sc=STAC[p.status]||'#4A5568'; var sel=_pnlFilt===p.id;
     html+='<button onclick="_pnlFilt=\''+p.id+'\';renderPnL()" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(sel?sc:'var(--border)')+';background:'+(sel?sc:'var(--card)')+';color:'+(sel?'#fff':'var(--muted)')+';font-size:11px;font-weight:700;cursor:pointer">'+p.name+'</button>';
   });
   html+='</div>';
 
-  var numActive=Math.max(1,PROJS.filter(function(p){return p.on;}).length);
-  var activeProjs=PROJS.filter(function(p){return p.on||p._gdv;});
+  var numActive=Math.max(1,rpActiveProjs().length);
+  var activeProjs=rpVisibleProjs();
   var filtProjs=_pnlFilt==='ALL'?activeProjs:activeProjs.filter(function(p){return p.id===_pnlFilt;});
   var _pnlPeopleBasis=window._pnlPeopleBasis||'approved'; // approved | suggested
 
@@ -341,7 +341,7 @@ var ROLES = [
 // BAND MASTER — GA org structure (A1 entry → B2 function head)
 // ═══════════════════════════════════════════════════════
 var BANDS_DEF=[
-  {id:'MP',title:'Managing Partner / COO',exp:'Apex',span:'All B2s + player-coach B1s',charter:'Above the band structure. Makes land/capital calls, B2 hires & promotions, DoA exceptions, weekly cash allocation. Everything else is delegated to a named owner.'},
+  {id:'MP',title:'Directors/MP/COO',exp:'Apex',span:'All B2s + player-coach B1s',charter:'Above the band structure. Makes land/capital calls, B2 hires & promotions, DoA exceptions, weekly cash allocation. Everything else is delegated to a named owner.'},
   {id:'B2',title:'Function Head (Sr Manager / GM)',exp:'12-18 yrs',span:'4-7 direct',charter:'Owns the function\'s outcomes and budget. Sets SOPs, signs off within DoA, develops B1s. Reports to MP/COO.'},
   {id:'B1',title:'Manager / Sr Manager',exp:'7-12 yrs',span:'3-6 direct',charter:'Owns a vertical or one project\'s delivery end-to-end. Runs the weekly cadence; first approval gate.'},
   {id:'A3',title:'Asst Manager / Team Lead',exp:'4-7 yrs',span:'2-5 direct',charter:'Owns a workstream or site section. Checks A1/A2 output; owns data quality going into dashboards.'},
@@ -351,6 +351,7 @@ var BANDS_DEF=[
 var BAND_ORDER=['MP','B2','B1','A3','A2','A1'];
 var BAND_COL={MP:'#A07800',B2:'#6B5000',B1:'#0A3266',A3:'#341860',A2:'#064646',A1:'#4A5568'};
 var BAND_BGC={MP:'#FDF3D7',B2:'#FDF8EC',B1:'#EAF1FB',A3:'#F2ECF9',A2:'#E6F5F5',A1:'#F0F1F3'};
+function bandLevelLabel(bid,bdf){ return bid==='MP'?(bdf&&bdf.title?bdf.title:'Directors/MP/COO'):bid; }
 
 // Default 8 projects — overridden by sync from V3
 var DEFAULT_PROJS = [
@@ -363,6 +364,56 @@ var DEFAULT_PROJS = [
   {id:'P007',name:'Tissa - Wakad',    location:'Pune',status:'Pipeline',startDate:'2026-01',endDate:'2029-06',sqf:88000, unt:130,slb:16,rev:880000000, bkn:38000000,lds:220,trx:190,lab:4,cmp:40,mnt:130,on:false},
   {id:'P008',name:'Mutha - Wakad',    location:'Pune',status:'Pipeline',startDate:'2026-06',endDate:'2030-01',sqf:65000, unt:95, slb:12,rev:650000000, bkn:25000000,lds:155,trx:130,lab:3,cmp:25,mnt:95, on:false},
 ];
+
+// V3 → V2 project scope: Pipeline, Planned, Active only (excludes Non Adopted)
+var RP_STATUSES=['Pipeline','Planned','Active'];
+// Active projects: teams come online by completion % (phased rollout)
+var RP_ACTIVE_PHASES=[
+  {cmp:0,  label:'Land & BD',                 fns:['Land & BD']},
+  {cmp:10, label:'Pre-Construction & Finance', fns:['Land & BD','Pre-Construction','Finance']},
+  {cmp:25, label:'Construction mobilisation',  fns:['Land & BD','Pre-Construction','Finance','Procurement','Construction','Admin']},
+  {cmp:40, label:'Sales & marketing',          fns:['Land & BD','Pre-Construction','Finance','Procurement','Construction','Admin','Sales & Marketing','MIS & Systems']},
+  {cmp:60, label:'CRM & handover',             fns:['Land & BD','Pre-Construction','Finance','Procurement','Construction','Admin','Sales & Marketing','MIS & Systems','CRM & CX']},
+  {cmp:80, label:'Property operations',        fns:['Land & BD','Pre-Construction','Finance','Procurement','Construction','Admin','Sales & Marketing','MIS & Systems','CRM & CX','Property Mgmt']}
+];
+function normalizeV3ProjectsForRP(raw){
+  if(!raw||!Array.isArray(raw)) return [];
+  return raw.filter(function(p){ return p&&RP_STATUSES.indexOf(String(p.status||'').trim())>=0; })
+    .map(function(p){
+      var o=Object.assign({},p);
+      if(o.status!=='Active') o.on=true;
+      else if(o.on===undefined) o.on=true;
+      return o;
+    });
+}
+function setRpProjectsFromV3(raw){
+  var pp=normalizeV3ProjectsForRP(raw);
+  if(pp&&pp.length){ PROJS=pp; _D=null; return pp; }
+  return null;
+}
+function getRpProjects(){ return PROJS.filter(function(p){ return RP_STATUSES.indexOf(p.status)>=0; }); }
+function rpVisibleProjs(){ return getRpProjects().filter(function(p){ return p.on!==false||p._gdv; }); }
+function rpActiveProjs(){ return getRpProjects().filter(function(p){ return p.status==='Active'&&p.on!==false; }); }
+function activePhaseForProj(p){
+  var cmp=Number(p.cmp)||0, ph=RP_ACTIVE_PHASES[0];
+  for(var i=0;i<RP_ACTIVE_PHASES.length;i++){ if(cmp>=RP_ACTIVE_PHASES[i].cmp) ph=RP_ACTIVE_PHASES[i]; }
+  return ph;
+}
+function alignedFnsForProj(p){
+  if(!p) return [];
+  if(p.status==='Pipeline'||p.status==='Planned') return ['Land & BD'];
+  if(p.status==='Active') return activePhaseForProj(p).fns;
+  return [];
+}
+function isFnAlignedToProj(p,fn){ return alignedFnsForProj(p).indexOf(fn)>=0; }
+function isRoleAlignedToProj(p,r){ return r&&isFnAlignedToProj(p,r.fn); }
+function projsForRoleCalc(r){
+  var rp=getRpProjects();
+  if(!r) return [];
+  if(r.fn==='Land & BD') return rp;
+  if(r.fn==='Leadership') return rp.filter(function(p){ return p.status==='Active'; });
+  return rp.filter(function(p){ return p.status==='Active'&&isRoleAlignedToProj(p,r); });
+}
 
 // ═══════════════════════════════════════════════════════
 // LOOKUP TABLES
@@ -741,24 +792,27 @@ function calcAndRender(){ _D=null; renderAll(); } // invalidate cache then rende
 var _D = null;
 function calcEngine(){
   if(_D) return _D;
-  var active = PROJS.filter(function(p){return p.on;});
+  var rpProjs=getRpProjects();
+  var active=rpActiveProjs();
+  var earlyStage=rpProjs.filter(function(p){ return p.status==='Pipeline'||p.status==='Planned'; });
   var vp     = PAY[scen];
   var sug    = {};
 
-  // Build suggestions using conditions
+  // Build suggestions using conditions (Pipeline/Planned → Land & BD only; Active → phased by cmp%)
   allR().forEach(function(r){
+    var scope=projsForRoleCalc(r);
     var cap = getCap(r);
     if(r.type==='Shared'){
-      var tot=r.d==='cnt'?active.length:active.reduce(function(s,p){return s+dv(p,r.d);},0);
+      var tot=r.d==='cnt'?scope.length:scope.reduce(function(s,p){return s+dv(p,r.d);},0);
       sug[gk(r.id)]=computeSug(r, null, cc(tot/cap));
     } else if(r.type==='Hybrid'){
       sug[gk(r.id)]=cc(r.hyb||0);
-      active.forEach(function(p){
+      scope.forEach(function(p){
         var base=cc(dv(p,r.d)/cap);
         sug[pk(p.id,r.id)]=computeSug(r,p.id,base);
       });
     } else {
-      active.forEach(function(p){
+      scope.forEach(function(p){
         // flr roles only suggest once the driver fully crosses the cap (volume-gated seats, e.g. site sales head)
         var base=r.flr?Math.floor(dv(p,r.d)/cap):cc(dv(p,r.d)/cap);
         sug[pk(p.id,r.id)]=computeSug(r,p.id,base);
@@ -766,28 +820,31 @@ function calcEngine(){
     }
   });
 
-  function nEx(rid){ var r=allR().find(function(x){return x.id===rid;}); if(!r)return 0; if(r.type!=='Dedicated')return getEx(gk(rid)); return active.reduce(function(s,p){return s+getEx(pk(p.id,rid));},0); }
-  function nSg(rid){ var r=allR().find(function(x){return x.id===rid;}); if(!r)return 0; if(r.type==='Dedicated')return active.reduce(function(s,p){return s+(sug[pk(p.id,rid)]||0);},0); if(r.type==='Hybrid')return (sug[gk(rid)]||0)+active.reduce(function(s,p){return s+(sug[pk(p.id,rid)]||0);},0); return sug[gk(rid)]||0; }
-  function nAp(rid){ var r=allR().find(function(x){return x.id===rid;}); if(!r)return 0; if(r.type!=='Dedicated')return getAp(gk(rid)); return active.reduce(function(s,p){return s+getAp(pk(p.id,rid));},0); }
+  function dedScope(r){ return active.filter(function(p){ return isRoleAlignedToProj(p,r); }); }
+  function nEx(rid){ var r=allR().find(function(x){return x.id===rid;}); if(!r)return 0; if(r.type!=='Dedicated')return getEx(gk(rid)); return dedScope(r).reduce(function(s,p){return s+getEx(pk(p.id,rid));},0); }
+  function nSg(rid){ var r=allR().find(function(x){return x.id===rid;}); if(!r)return 0; if(r.type==='Dedicated')return dedScope(r).reduce(function(s,p){return s+(sug[pk(p.id,rid)]||0);},0); if(r.type==='Hybrid')return (sug[gk(rid)]||0)+dedScope(r).reduce(function(s,p){return s+(sug[pk(p.id,rid)]||0);},0); return sug[gk(rid)]||0; }
+  function nAp(rid){ var r=allR().find(function(x){return x.id===rid;}); if(!r)return 0; if(r.type!=='Dedicated')return getAp(gk(rid)); return dedScope(r).reduce(function(s,p){return s+getAp(pk(p.id,rid));},0); }
 
   var totAp=0,totSg=0;
   allR().forEach(function(r){
     var ctc=r.fix*(1+vp);
     if(r.type!=='Dedicated'){totAp+=getAp(gk(r.id))*ctc;totSg+=(sug[gk(r.id)]||0)*ctc;}
-    if(r.type!=='Shared'){active.forEach(function(p){totAp+=getAp(pk(p.id,r.id))*ctc;totSg+=(sug[pk(p.id,r.id)]||0)*ctc;});}
+    if(r.type!=='Shared'){dedScope(r).forEach(function(p){totAp+=getAp(pk(p.id,r.id))*ctc;totSg+=(sug[pk(p.id,r.id)]||0)*ctc;});}
   });
 
   var projCost={};
-  active.forEach(function(p){
+  rpProjs.forEach(function(p){
     var cost=0;
+    var costScope=p.status==='Active'?active:rpProjs;
     allR().forEach(function(r){
+      if(!isRoleAlignedToProj(p,r)) return;
       var ctc=r.fix*(1+vp);
-      if(r.type==='Dedicated'){cost+=getAp(pk(p.id,r.id))*ctc;}
+      if(r.type==='Dedicated'){ if(p.status==='Active') cost+=getAp(pk(p.id,r.id))*ctc; }
       else{
         var ma=getAlloc(p.id,r.id);
-        var w=ma>0?ma/100:(r.d==='cnt'?1/Math.max(1,active.length):(dv(p,r.d)/Math.max(1,active.reduce(function(s,pp){return s+dv(pp,r.d);},0))));
+        var w=ma>0?ma/100:(r.d==='cnt'?1/Math.max(1,costScope.length):(dv(p,r.d)/Math.max(1,costScope.reduce(function(s,pp){return s+dv(pp,r.d);},0))));
         cost+=getAp(gk(r.id))*w*ctc;
-        if(r.type==='Hybrid') cost+=getAp(pk(p.id,r.id))*ctc;
+        if(r.type==='Hybrid'&&p.status==='Active') cost+=getAp(pk(p.id,r.id))*ctc;
       }
     });
     projCost[p.id]=cost;
@@ -800,6 +857,7 @@ function calcEngine(){
   });
   active.forEach(function(p){
     allR().filter(function(r){return r.type==='Dedicated';}).forEach(function(r){
+      if(!isRoleAlignedToProj(p,r)) return;
       var k=pk(p.id,r.id),sg=sug[k]||0;
       if(!sg&&!getAp(k)) return;
       var ex=getEx(k),ap=getAp(k),gap=ap-ex;
@@ -814,9 +872,9 @@ function calcEngine(){
   }).filter(function(f){return f.sg>0||f.ap>0;});
 
   var totHC=0;
-  allR().forEach(function(r){if(r.type!=='Dedicated')totHC+=getAp(gk(r.id));else active.forEach(function(p){totHC+=getAp(pk(p.id,r.id));});});
+  allR().forEach(function(r){if(r.type!=='Dedicated')totHC+=getAp(gk(r.id));else dedScope(r).forEach(function(p){totHC+=getAp(pk(p.id,r.id));});});
 
-  _D = {active:active,vp:vp,sug:sug,nEx:nEx,nSg:nSg,nAp:nAp,totAp:totAp,totSg:totSg,projCost:projCost,fnSum:fnSum,hp:hp,totHC:totHC};
+  _D = {active:active,rpProjs:rpProjs,earlyStage:earlyStage,vp:vp,sug:sug,nEx:nEx,nSg:nSg,nAp:nAp,totAp:totAp,totSg:totSg,projCost:projCost,fnSum:fnSum,hp:hp,totHC:totHC};
   return _D;
 }
 
@@ -837,7 +895,7 @@ function showTab(t){
     var raw=localStorage.getItem('ga_rp_projects');
     if(raw&&raw!==_lastProjHash){
       var pp=JSON.parse(raw);
-      if(pp&&pp.length){_lastProjHash=raw;PROJS=pp;_D=null;setSS('Synced '+pp.length+' projects','green');}
+      if(pp&&pp.length){_lastProjHash=raw;var synced=setRpProjectsFromV3(pp);if(synced)setSS('Synced '+synced.length+' projects','green');else setSS('No Pipeline/Planned/Active projects in V3 sync','gold');}
     }
   }catch(e){}
   renderAll();
@@ -864,9 +922,10 @@ function syncFromV3(){
     if(raw && raw !== '[]'){
       var pp = JSON.parse(raw);
       if(pp && pp.length){
-        PROJS = pp; _D = null; _lastProjHash = raw;
-        setSS('Synced ' + pp.length + ' projects from V3','green');
-        renderAll(); return;
+        var synced=setRpProjectsFromV3(pp);
+        if(synced){ _D = null; _lastProjHash = raw;
+        setSS('Synced ' + synced.length + ' projects from V3','green');
+        renderAll(); return; }
       }
     }
     if(isFile){
@@ -883,8 +942,8 @@ function pasteProjectsFromClipboard(){
   var txt=prompt('Paste the JSON copied from V3 "Push to RP" button:','');
   if(!txt) return;
   try{
-    var pp=JSON.parse(txt.trim());
-    if(!Array.isArray(pp)||!pp.length){alert('Invalid JSON — paste the full JSON from V3.');return;}
+    var pp=normalizeV3ProjectsForRP(JSON.parse(txt.trim()));
+    if(!pp.length){alert('No Pipeline, Planned or Active projects in paste — Non Adopted projects are excluded from Resource Planner.');return;}
     PROJS=pp; _D=null; _lastProjHash=JSON.stringify(pp);
     localStorage.setItem('ga_rp_projects',_lastProjHash);
     setSS('Imported '+pp.length+' projects via paste','green');
@@ -956,7 +1015,7 @@ document.addEventListener('click',function(e){
   // Check action buttons FIRST (they may live inside togcoll divs)
   var el=e.target, a=el.dataset;
   if(a.addalloceid!==undefined){
-    var pnms=PROJS.filter(function(p){return p.on||p._gdv;}).map(function(p){return p.name;});
+    var pnms=rpVisibleProjs().map(function(p){return p.name;});
     var chosen=prompt('Add allocation — enter project name:\n'+pnms.join('\n'),'');
     if(!chosen||!chosen.trim()) return;
     var pn=chosen.trim();
@@ -1035,8 +1094,8 @@ function renderDash(){
   var totGDV=PROJS.reduce(function(s,p){return s+(p._gdv||0);},0);
   var totPeopleCostAnn=D.totAp; // approved annual org cost
   var totSharedAnn=scTotalMonthly()*12;
-  var numActive2=PROJS.filter(function(p){return p.on;}).length||1;
-  var totDirectAnn=PROJS.filter(function(p){return p.on;}).reduce(function(s,p){return s+projCostTotal(p.id)*12;},0);
+  var numActive2=rpActiveProjs().length||1;
+  var totDirectAnn=rpActiveProjs().reduce(function(s,p){return s+projCostTotal(p.id)*12;},0);
   var totCostAnn=totPeopleCostAnn+totSharedAnn+totDirectAnn;
   var gaNetAnn=totDmFee-totCostAnn;
 
@@ -1048,7 +1107,7 @@ function renderDash(){
     {l:'Annual Org Cost',      v:cr(D.totAp),   s:'Approved headcount',    c:'#542B8A',bg:'#F3EEFF'},
     {l:'Shared Costs/yr',      v:cr(totSharedAnn), s:'Corporate overheads',c:'#B54D0A',bg:'#FEF0E5'},
     {l:'GA Net (Annual)',       v:cr(gaNetAnn),  s:'Fee minus all costs',   c:gaNetAnn>=0?'#1A7244':'#A8301E',bg:gaNetAnn>=0?'#E8F6EE':'#FEECEC'},
-    {l:'Active Projects',      v:D.active.length, s:PROJS.filter(function(p){return p.status==='Planned';}).length+' planned', c:'#A07800',bg:'#FDF8EC'},
+    {l:'RP Projects',          v:D.rpProjs.length, s:getRpProjects().filter(function(p){return p.status==='Planned'||p.status==='Pipeline';}).length+' early-stage', c:'#A07800',bg:'#FDF8EC'},
   ].forEach(function(k){
     html+='<div style="flex:1;min-width:130px;background:'+k.bg+';border-radius:10px;padding:12px 16px;border:1.5px solid '+k.c+'30">';
     html+='<div style="font-size:9px;color:'+k.c+';text-transform:uppercase;letter-spacing:.07em;font-weight:700;margin-bottom:4px">'+k.l+'</div>';
@@ -1084,7 +1143,7 @@ function renderDash(){
   html+='</div>';
 
   // Right: Project-level DM Fee + Status donut
-  var activeProjs=PROJS.filter(function(p){return (p.on||p._gdv)&&p._dmFee;});
+  var activeProjs=rpVisibleProjs().filter(function(p){return p._dmFee;});
   html+='<div style="background:var(--card);border-radius:10px;padding:16px;border:1.5px solid var(--border)">';
   html+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:12px">&#127381; DM Fee by Project</div>';
   if(activeProjs.length){
@@ -1130,20 +1189,20 @@ function renderDash(){
   html+='<div style="font-size:13px;font-weight:700;color:var(--blue-b);margin-bottom:10px">Project Details</div>';
   html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';
   html+='<button onclick="_dashProjFilt=\'ALL\';renderDash()" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(_dashProjFilt==='ALL'?'var(--blue)':'var(--border)')+';background:'+(_dashProjFilt==='ALL'?'var(--blue)':'var(--card)')+';color:'+(_dashProjFilt==='ALL'?'#fff':'var(--muted)')+';font-size:11px;font-weight:700;cursor:pointer">All</button>';
-  PROJS.filter(function(p){return p.on||p._gdv;}).forEach(function(p){
+  rpVisibleProjs().forEach(function(p){
     var sc=STAC[p.status]||'#4A5568'; var sel=_dashProjFilt===p.id;
     html+='<button onclick="_dashProjFilt=\''+p.id+'\';renderDash()" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(sel?sc:'var(--border)')+';background:'+(sel?sc:'var(--card)')+';color:'+(sel?'#fff':'var(--muted)')+';font-size:11px;font-weight:700;cursor:pointer">'+p.name+'</button>';
   });
   html+='</div>';
 
   // ── Project cards — GA-centric data points ────────────────
-  var filtProjs=_dashProjFilt==='ALL'?PROJS:PROJS.filter(function(p){return p.id===_dashProjFilt;});
+  var filtProjs=_dashProjFilt==='ALL'?getRpProjects():getRpProjects().filter(function(p){return p.id===_dashProjFilt;});
   html+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">';
-  filtProjs.filter(function(p){return p.on||p._gdv;}).forEach(function(p){
+  filtProjs.forEach(function(p){
     var sc=STAC[p.status]||'#4A5568';
-    var numOn=PROJS.filter(function(x){return x.on;}).length||1;
+    var numOn=rpActiveProjs().length||1;
     var projOrgCost=0;
-    allR().filter(function(r){return r.type==='Dedicated';}).forEach(function(r){projOrgCost+=getAp(pk(p.id,r.id))*r.fix*(1+D.vp);});
+    allR().filter(function(r){return r.type==='Dedicated'&&isRoleAlignedToProj(p,r);}).forEach(function(r){projOrgCost+=getAp(pk(p.id,r.id))*r.fix*(1+D.vp);});
     var sharedAnn=Math.round(scTotalMonthly()*12/numOn);
     var directAnn=projCostTotal(p.id)*12;
     var totalCostAnn=projOrgCost+sharedAnn+directAnn;
@@ -1168,7 +1227,7 @@ function renderDash(){
     html+=cell('GA Net (End)', p._projMonths?cr(gaNetPrj):'—', gaNetPrj>=0?'#0B7070':'#A8301E', p._projMonths?projMo+'mo':'Set in V3');
     html+='</div></div>';
   });
-  if(!filtProjs.filter(function(p){return p.on||p._gdv;}).length){
+  if(!filtProjs.length){
     html+='<div class="card" style="color:var(--muted);text-align:center;padding:20px">No active projects — sync from V3 first.</div>';
   }
   html+='</div>';
@@ -1360,7 +1419,7 @@ function bandRoleNums(r,D){
 function renderBand(){
   var D=calcEngine();
   var html='';
-  html+='<div class="info">GA band structure <strong>A1 &#8594; A2 &#8594; A3 &#8594; B1 &#8594; B2</strong> (Managing Partner / COO sits above the bands) mapped to live planning data. ';
+  html+='<div class="info">GA band structure <strong>A1 &#8594; A2 &#8594; A3 &#8594; B1 &#8594; B2</strong> (Directors/MP/COO sits above the bands) mapped to live planning data. ';
   html+='Every chip is a role from the Headcount Plan: <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. ';
   html+='Click a chip to open its planning panel (edit E/A, capacity, conditions, JD). Changes save to the planner state and flow to Headcount, Cost and P&amp;L.</div>';
 
@@ -1368,7 +1427,7 @@ function renderBand(){
   html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
   html+='<span style="font-size:11px;color:var(--muted);font-weight:600">View:</span>';
   html+='<button class="sc-btn'+(bandProjFilt==='ALL'?' on':'')+'" data-bandfilt="ALL">All Projects</button>';
-  D.active.forEach(function(p){
+  D.rpProjs.forEach(function(p){
     var sc=STAC[p.status]||'#4A5568',isSel=bandProjFilt===p.id;
     html+='<button data-bandfilt="'+p.id+'" style="padding:4px 12px;border-radius:20px;cursor:pointer;font-size:11px;font-weight:600;border:1.5px solid '+sc+';background:'+(isSel?sc:'transparent')+';color:'+(isSel?'#fff':sc)+'">'+p.name+'</button>';
   });
@@ -1389,8 +1448,8 @@ function renderBand(){
     BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
     var gap=bt.ap-bt.ex;
     html+='<div style="flex:1;min-width:150px;background:'+BAND_BGC[bid]+';border-radius:10px;padding:10px 14px;border:1.5px solid '+BAND_COL[bid]+'30" title="'+(bdf?bdf.charter.replace(/"/g,'&quot;'):'')+'">';
-    html+='<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bid+'</span><span style="font-size:9px;color:'+BAND_COL[bid]+'">'+(bdf?bdf.exp:'')+'</span></div>';
-    html+='<div style="font-size:10px;color:'+BAND_COL[bid]+';margin:2px 0 6px">'+(bdf?bdf.title:'')+'</div>';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</span><span style="font-size:9px;color:'+BAND_COL[bid]+'">'+(bdf?bdf.exp:'')+'</span></div>';
+    html+='<div style="font-size:10px;color:'+BAND_COL[bid]+';margin:2px 0 6px">'+(bid==='MP'?(bdf?bdf.span:''):(bdf?bdf.title:''))+'</div>';
     html+='<div style="display:flex;gap:8px;align-items:baseline"><span style="font-size:18px;font-weight:800;color:'+BAND_COL[bid]+'">'+bt.ap+'</span><span style="font-size:9px;color:var(--muted)">approved</span>';
     html+='<span style="font-size:11px;color:var(--muted)">E '+bt.ex+' &middot; S '+bt.sg+'</span></div>';
     html+='<div style="display:flex;justify-content:space-between;margin-top:3px"><span style="font-size:9px;color:var(--muted)">'+cr(bt.cost)+'/yr</span>'+gpill(gap)+'</div>';
@@ -1429,8 +1488,8 @@ function renderBand(){
   BAND_ORDER.forEach(function(bid){
     var bdf=null; BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
     html+='<tr><td style="position:sticky;left:0;background:'+BAND_BGC[bid]+';z-index:1;vertical-align:top;border-right:2px solid '+BAND_COL[bid]+'40">';
-    html+='<div style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bid+'</div>';
-    html+='<div style="font-size:9px;color:'+BAND_COL[bid]+';line-height:1.3">'+(bdf?bdf.title:'')+'</div>';
+    html+='<div style="font-size:13px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</div>';
+    html+='<div style="font-size:9px;color:'+BAND_COL[bid]+';line-height:1.3">'+(bid==='MP'?(bdf?bdf.exp:''):(bdf?bdf.title:''))+'</div>';
     html+='<div style="font-size:8px;color:var(--muted);margin-top:2px">'+(bdf?bdf.span:'')+'</div>';
     html+='</td>';
     fns.forEach(function(f){
@@ -1483,7 +1542,7 @@ function renderBand(){
     html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px">';
     BANDS_DEF.forEach(function(b){
       html+='<div style="flex:1;min-width:190px;background:var(--card);border-radius:8px;border:1px solid var(--border);border-top:3px solid '+BAND_COL[b.id]+';padding:10px 12px">';
-      html+='<div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:800;color:'+BAND_COL[b.id]+'">'+b.id+' &middot; '+b.title+'</span></div>';
+      html+='<div style="display:flex;justify-content:space-between"><span style="font-size:12px;font-weight:800;color:'+BAND_COL[b.id]+'">'+(b.id==='MP'?b.title:b.id+' &middot; '+b.title)+'</span></div>';
       html+='<div style="font-size:10px;color:var(--muted);margin:4px 0">'+b.exp+' &middot; span '+b.span+'</div>';
       html+='<div style="font-size:10px;line-height:1.45">'+b.charter+'</div>';
       html+='</div>';
@@ -1898,7 +1957,7 @@ function renderRes(){
   // ── TOP BAR ──────────────────────────────────────────────────────
   html+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">';
   html+='<div><div style="font-size:16px;font-weight:800;color:var(--blue-b)">&#128202; Headcount Plan</div>';
-  html+='<div style="font-size:11px;color:var(--muted);margin-top:2px">Corporate = shared cost across all projects &nbsp;|&nbsp; Site = dedicated per project &nbsp;|&nbsp; S = suggested based on condition</div>';
+  html+='<div style="font-size:11px;color:var(--muted);margin-top:2px">Corporate = shared cost across projects &nbsp;|&nbsp; Site = dedicated per project &nbsp;|&nbsp; V3 sync: Pipeline/Planned → Land &amp; BD only &nbsp;|&nbsp; Active → phased by completion %</div>';
   html+='</div>';
   html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
   html+='<button onclick="dlHCTemplate()" style="padding:7px 14px;background:var(--green);color:#fff;border:none;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">&#11123; Download Template</button>';
@@ -1999,17 +2058,40 @@ function renderRes(){
   html+='</div>';
 
   // ═══════════════════════════════════════════════════════
-  // SECTION B: PER-PROJECT (Dedicated roles)
+  // SECTION B: EARLY-STAGE (Pipeline / Planned — Land & BD only)
+  // ═══════════════════════════════════════════════════════
+  if(D.earlyStage&&D.earlyStage.length){
+    html+='<div style="margin-bottom:16px">';
+    html+='<div style="font-size:12px;font-weight:800;color:var(--slate-b);margin-bottom:8px">&#128203; Pipeline &amp; Planned (Land &amp; BD alignment only)</div>';
+    D.earlyStage.forEach(function(p){
+      var sc=STAC[p.status]||'#4A5568';
+      html+='<div style="background:var(--card);border-radius:8px;padding:12px 16px;border:1.5px solid var(--border);border-left:4px solid '+sc+';margin-bottom:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">';
+      html+='<div><span style="font-size:13px;font-weight:700;color:'+sc+'">'+p.name+'</span> <span style="font-size:10px;background:'+(STAB[p.status]||'#F0F1F3')+';color:'+sc+';border-radius:4px;padding:2px 8px;font-weight:700;margin-left:6px">'+p.status+'</span></div>';
+      html+='<span style="font-size:11px;color:var(--muted)">Team: <strong style="color:#B54D0A">Land &amp; BD</strong> (shared corporate roles in section above)</span>';
+      html+='</div>';
+    });
+    html+='</div>';
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // SECTION C: ACTIVE PROJECTS (Dedicated roles — phased)
   // ═══════════════════════════════════════════════════════
   var dedRoles=allR().filter(function(r){return r.type==='Dedicated';});
-  if(!D.active.length){
-    html+='<div class="card" style="text-align:center;padding:20px;color:var(--muted)">No active projects. Enable projects in V3 and click Sync.</div>';
+  if(!D.rpProjs.length){
+    html+='<div class="card" style="text-align:center;padding:20px;color:var(--muted)">No Pipeline, Planned or Active projects from V3. Push to RP in Project Acquisition V3.</div>';
+  } else if(!D.active.length){
+    html+='<div class="card" style="text-align:center;padding:16px;color:var(--muted)">No Active projects yet — '+D.earlyStage.length+' early-stage project(s) aligned to Land &amp; BD above.</div>';
   } else {
     D.active.forEach(function(p){
       var hasMgr=getPF(p.id,'hasMgr');
       var sc=STAC[p.status]||'#4A5568';
+      var phase=activePhaseForProj(p);
+      var alignedFns=alignedFnsForProj(p);
       var projE=0,projA=0,projCost=0;
-      dedRoles.forEach(function(r){var ap2=getAp(pk(p.id,r.id));projA+=ap2;projE+=getEx(pk(p.id,r.id));projCost+=ap2*r.fix*(1+(D.vp||0));});
+      dedRoles.forEach(function(r){
+        if(!isRoleAlignedToProj(p,r)) return;
+        var ap2=getAp(pk(p.id,r.id));projA+=ap2;projE+=getEx(pk(p.id,r.id));projCost+=ap2*r.fix*(1+(D.vp||0));
+      });
       var projKey='proj_'+p.id;
       var projColl=isColl(projKey);
       var condBg=hasMgr?'#C6F0D8':'#FEE5C8';
@@ -2020,6 +2102,7 @@ function renderRes(){
       html+='<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">';
       html+='<span style="font-size:14px;font-weight:800">&#127979; '+p.name+'</span>';
       html+='<span style="font-size:11px;opacity:.9">'+p.status+'</span>';
+      html+='<span style="font-size:10px;background:rgba(255,255,255,.22);border-radius:6px;padding:2px 10px">Phase: '+phase.label+' ('+(p.cmp||0)+'%)</span>';
       html+='<span style="font-size:11px;background:rgba(255,255,255,.2);border-radius:6px;padding:2px 10px">'+projE+' existing &nbsp;|&nbsp; '+projA+' approved</span>';
       html+='<span style="font-size:12px;font-weight:700;background:rgba(255,255,255,.15);border-radius:6px;padding:2px 10px">'+cr(projCost)+'/yr</span>';
       html+='</div>';
@@ -2034,8 +2117,11 @@ function renderRes(){
 
       if(!projColl){
         html+='<div style="background:var(--card);border:1.5px solid '+sc+'44;border-top:none;border-radius:0 0 10px 10px;overflow:hidden">';
-        // Group dedicated roles by function
-        var dedFns=[...new Set(dedRoles.map(function(r){return r.fn;}))];
+        // Group dedicated roles by function (phased — only aligned teams)
+        var dedFns=alignedFns.filter(function(fn){ return dedRoles.some(function(r){return r.fn===fn;}); });
+        if(!dedFns.length){
+          html+='<div style="padding:14px 16px;font-size:12px;color:var(--muted)">No site-dedicated teams in current phase. Teams unlock as completion % rises.</div>';
+        }
         dedFns.forEach(function(fn){
           var fnRoles=dedRoles.filter(function(r){return r.fn===fn;});
           var f2=fc(fn);
@@ -2097,10 +2183,10 @@ function renderRes(){
 // Compute S for a role assuming a specific material condition (for template generation)
 function computeSugForRole(r, mode){
   var D=calcEngine();
-  var active=D.active;
+  var scope=projsForRoleCalc(r).filter(function(p){ return p.status==='Active'; });
   var cap=getCap(r);
   if(r.type==='Shared'){
-    var tot=r.d==='cnt'?active.length:active.reduce(function(s,p){return s+dv(p,r.d);},0);
+    var tot=r.d==='cnt'?scope.length:scope.reduce(function(s,p){return s+dv(p,r.d);},0);
     var base=cc(tot/cap);
     var c=getCond(r.id);
     if(c.withMgr===''&&c.withoutMgr==='') return base;
@@ -2128,11 +2214,13 @@ function exportHCReport(){
   });
   D.active.forEach(function(p){
     var cond=getPF(p.id,'hasMgr')?'With Material':'Without Material';
+    var phase=activePhaseForProj(p);
     allR().filter(function(r){return r.type==='Dedicated';}).forEach(function(r){
+      if(!isRoleAlignedToProj(p,r)) return;
       var k2=pk(p.id,r.id);
       var ex2=getEx(k2),ap2=getAp(k2),sug2=D.sug[k2]||0;
       rows.push([r.id,r.role,r.fn,r.type,r.band,'SITE',p.name,
-                 p.status,cond,ex2,sug2,ap2,ap2-ex2,Math.round(ap2*r.fix*(1+D.vp))]);
+                 p.status+' / '+phase.label,cond,ex2,sug2,ap2,ap2-ex2,Math.round(ap2*r.fix*(1+D.vp))]);
     });
   });
   var wb=XLSX.utils.book_new(),ws=XLSX.utils.aoa_to_sheet(rows);
@@ -2870,7 +2958,7 @@ var _scFilt = {pool:'ALL'};
 
 function scTotalMonthly(){ return SHARED_COSTS.reduce(function(s,c){return s+(c.monthly||0);},0); }
 function scAllocPerProject(pn){
-  var active=PROJS.filter(function(p){return p.on;}); if(!active.length) return 0;
+  var active=rpActiveProjs(); if(!active.length) return 0;
   return SHARED_COSTS.reduce(function(s,c){return s+(c.monthly||0);},0)/active.length;
 }
 
@@ -2925,7 +3013,7 @@ function renderShared(){
   var el=document.getElementById('page-shared'); if(!el) return;
   var pools=SC_POOLS;
   var total=scTotalMonthly();
-  var active=PROJS.filter(function(p){return p.on;});
+  var active=rpActiveProjs();
   var html='';
 
   // Top bar
@@ -3011,7 +3099,7 @@ function renderShared(){
   html+='<div><div style="font-size:14px;font-weight:800;color:var(--blue-b)">&#127979; Project Direct Costs</div>';
   html+='<div style="font-size:11px;color:var(--muted)">Sales Office, Site Office, Events and other project-specific recurring costs</div></div>';
   html+='</div>';
-  var pcActiveProjs=PROJS.filter(function(p){return p.on||p._gdv;});
+  var pcActiveProjs=rpVisibleProjs();
   if(!pcActiveProjs.length){
     html+='<div style="font-size:12px;color:var(--muted);padding:14px;background:var(--bg);border-radius:8px;text-align:center">No active projects yet — sync from V3 or add a project first.</div>';
   } else {
@@ -3178,7 +3266,7 @@ function pushCostsToCF(){
   var D=calcEngine();
   var payload={ts:Date.now(),projects:[]};
   var useSug=(window._pnlPeopleBasis==='suggested');
-  PROJS.filter(function(p){return p.on||p._gdv;}).forEach(function(p){
+  rpVisibleProjs().forEach(function(p){
     var oc_roles_corp=0,oc_roles_ded=0;
     allR().filter(function(r){return r.type!=='Dedicated';}).forEach(function(r){
       var n=useSug?(D.sug[gk(r.id)]||0):getAp(gk(r.id));
@@ -3188,7 +3276,7 @@ function pushCostsToCF(){
       var n2=useSug?(D.sug[pk(p.id,r.id)]||0):getAp(pk(p.id,r.id));
       oc_roles_ded+=n2*r.fix*(1+D.vp);
     });
-    var numAct=Math.max(1,PROJS.filter(function(x){return x.on;}).length);
+    var numAct=Math.max(1,rpActiveProjs().length);
     var peoplePa=(oc_roles_ded+oc_roles_corp/numAct);
     var sharedPa=scTotalMonthly()/numAct*12;
     var directPa=projCostTotal(p.id)*12;
@@ -3279,7 +3367,7 @@ function syncEFromTeamView(){
       roleMatched=matchEmp.length>0;
     } else {
       // Dedicated: strict role-name + project-name allocation match
-      PROJS.filter(function(p){return p.on||p._gdv;}).forEach(function(p){
+      rpVisibleProjs().forEach(function(p){
         var matchEmp=EMPLOYEES.filter(function(e){
           var hasAlloc=ALLOC.some(function(a){return a.empId===e.id&&clean(a.project)===clean(p.name);});
           return hasAlloc&&clean(e.role)===clean(r.role);
@@ -3390,10 +3478,13 @@ setInterval(function(){
     if(!raw||raw===_lastProjHash) return;
     var pp=JSON.parse(raw);
     if(pp&&pp.length){
+      var synced=setRpProjectsFromV3(pp);
+      if(synced){
       _lastProjHash=raw;
-      PROJS=pp;_D=null;
-      setSS('Live sync: '+pp.length+' projects','green');
+      PROJS=synced;_D=null;
+      setSS('Live sync: '+synced.length+' projects','green');
       renderAll();
+      }
     }
   }catch(e){}
 },1500);
@@ -3403,7 +3494,7 @@ window.addEventListener('storage', function(e){
   if(e.key==='ga_rp_projects'&&e.newValue){
     try{
       var pp=JSON.parse(e.newValue);
-      if(pp&&pp.length){ _lastProjHash=e.newValue; PROJS=pp;_D=null; setSS('Synced '+pp.length+' projects','green'); renderAll(); }
+      if(pp&&pp.length){ var synced=setRpProjectsFromV3(pp); if(synced){ _lastProjHash=e.newValue; PROJS=synced;_D=null; setSS('Synced '+synced.length+' projects','green'); renderAll(); } }
     }catch(err){}
   }
   if(e.key==='ga_planner_state_v1'&&curTab==='cost') renderCost();

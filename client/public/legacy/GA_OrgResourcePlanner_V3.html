@@ -2031,7 +2031,7 @@ function deleteProject(id){
   delete ST.fin[id]; delete ST.dd[id];
   if(expandedFinId===id) expandedFinId=null;
   if(window.FUND_MILESTONES&&FUND_MILESTONES[id]) delete FUND_MILESTONES[id];
-  initProjBtns(); try{localStorage.setItem("ga_rp_projects",JSON.stringify(PROJS.map(function(p){return Object.assign({},p);})));}catch(e){}
+  initProjBtns(); writeGaRpProjects();
   renderAll();
 }
 
@@ -2098,7 +2098,7 @@ function saveProjectModal(){
   }
   closeProjectModal();
   initProjBtns();
-  try{ localStorage.setItem('ga_rp_projects',JSON.stringify(PROJS.map(function(p){return Object.assign({},p);}))); }catch(e){}
+  try{ writeGaRpProjects(); }catch(e){}
   renderAll();
 }
 
@@ -2196,7 +2196,7 @@ function openModelDraftTab(pid){
 function saveDraftModelNow(pid){
   try{
     localStorage.setItem(GA_LS_KEY, JSON.stringify(gaSerialise()));
-    localStorage.setItem('ga_rp_projects', JSON.stringify(PROJS.map(function(p){return Object.assign({},p);})));
+    writeGaRpProjects();
     pushV3CashflowHints();
     localStorage.setItem('ga_v3_last_manual_save', JSON.stringify({pid:pid, ts:Date.now()}));
     alert('Saved to database. You can refresh the main tab to see latest values.');
@@ -4230,6 +4230,16 @@ if(!document.getElementById('dd-spin-style')){
   document.head.appendChild(s);
 }
 
+// ── Resource Planner V2 sync (Pipeline / Planned / Active only) ──
+var RP_V3_SYNC_STATUSES=['Pipeline','Planned','Active'];
+function projectsForRpSync(){
+  return PROJS.filter(function(p){ return RP_V3_SYNC_STATUSES.indexOf(p.status)>=0; })
+    .map(function(p){ return Object.assign({},p); });
+}
+function writeGaRpProjects(){
+  try{ localStorage.setItem('ga_rp_projects', JSON.stringify(projectsForRpSync())); }catch(e){}
+}
+
 // ── Project nav buttons ───────────────────────────────────────
 function initProjBtns(){
   const wrap=document.getElementById('pj-btns'); if(!wrap) return;
@@ -4239,7 +4249,7 @@ function initProjBtns(){
     btn.className='pj-btn '+(p.on?p.status:'');
     btn.textContent=p.name.split(' ')[0];
     btn.title=p.name;
-    btn.onclick=()=>{p.on=!p.on;initProjBtns();try{localStorage.setItem("ga_rp_projects",JSON.stringify(PROJS.map(function(q){return Object.assign({},q);})));}catch(e){}renderAll();};
+    btn.onclick=()=>{p.on=!p.on;initProjBtns();writeGaRpProjects();renderAll();};
     wrap.appendChild(btn);
   });
 }
@@ -4279,7 +4289,7 @@ function renderAll(){
 // Push projects to Resource Planner via localStorage
 function pushProjectsToRP(){
   try{
-    var projs=PROJS.map(function(p){var C=finCalc(p.id);return Object.assign({},p,{
+    var projs=projectsForRpSync().map(function(p){var C=finCalc(p.id);return Object.assign({},p,{
         _gdv:Math.round(C.totRev||0),
         _gp:Math.round(C.grossP||0),
         _margin:C.totRev>0?+((C.grossP/C.totRev)*100).toFixed(1):0,
@@ -4897,7 +4907,7 @@ function gaAutoSave() {
   if(GA_IS_DRAFT_MODE) return;
   try { localStorage.setItem(GA_LS_KEY, JSON.stringify(gaSerialise())); } catch(e) {}
   // Also push projects to Resource Planner on every save
-  try { localStorage.setItem('ga_rp_projects', JSON.stringify(PROJS.map(function(p){return Object.assign({},p);}))); } catch(e) {}
+  try { writeGaRpProjects(); } catch(e) {}
   pushV3CashflowHints();
 }
 function gaLoadLocal() {
@@ -5725,7 +5735,7 @@ document.addEventListener('keydown',function(e){
   if(typeof next.select==='function'&&next.type!=='number') try{next.select();}catch(x){}
 },true);
 // Push current projects to RP (after state restore so we push the real data)
-try{ localStorage.setItem('ga_rp_projects', JSON.stringify(PROJS.map(function(p){return Object.assign({},p);}))); }catch(e){}
+writeGaRpProjects();
 
 setTimeout(function(){
   var d=document.getElementById('page-dashboard');
