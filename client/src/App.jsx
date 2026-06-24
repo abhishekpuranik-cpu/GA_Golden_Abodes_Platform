@@ -38,6 +38,7 @@ const PsDemands = lazy(() => import('./pages/postsales/Demands.jsx'));
 const PsLoans = lazy(() => import('./pages/postsales/Loans.jsx'));
 const PsTickets = lazy(() => import('./pages/postsales/Tickets.jsx'));
 const PsMilestones = lazy(() => import('./pages/postsales/Milestones.jsx'));
+const PsReports = lazy(() => import('./pages/postsales/Reports.jsx'));
 const PsInventorySetup = lazy(() => import('./pages/postsales/InventorySetup.jsx'));
 
 function Fall() {
@@ -163,6 +164,7 @@ export default function App() {
           <Route path="loans" element={<PsLoans />} />
           <Route path="tickets" element={<PsTickets />} />
           <Route path="milestones" element={<PsMilestones />} />
+          <Route path="reports" element={<PsReports />} />
         </Route>
         <Route path="/post-sales/*" element={<PostSalesRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />

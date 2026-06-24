@@ -15,6 +15,7 @@ import tasksRouter from './tasks.js';
 import inventoryRouter from './inventory.js';
 import allocationRouter from './allocation.js';
 import bootstrapRouter from './bootstrap.js';
+import reportsRouter from './reports.js';
 
 const router = Router();
 
@@ -36,5 +37,6 @@ router.use('/tasks', tasksRouter);
 router.use('/allocation', allocationRouter);
 router.use('/bootstrap', bootstrapRouter);
 router.use('/inventory', inventoryRouter);
+router.use('/reports', reportsRouter);
 
 export default router;

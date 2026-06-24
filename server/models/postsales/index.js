@@ -8,3 +8,4 @@ export { default as Ticket } from './Ticket.js';
 export { default as ConstructionMilestone } from './ConstructionMilestone.js';
 export { default as PossessionClearance } from './PossessionClearance.js';
 export { default as CHSFormation } from './CHSFormation.js';
+export { default as CollectionForecast } from './CollectionForecast.js';

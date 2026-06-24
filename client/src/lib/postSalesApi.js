@@ -172,4 +172,48 @@ export const postSalesApi = {
   },
   createMilestone: (body) => apiFetch(`${BASE}/milestones`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   triggerMilestone: (id) => apiFetch(`${BASE}/milestones/${id}/trigger`, { method: 'POST' }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+
+  getCollectionRegister: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/reports/collection-register${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+  getDisbursementForecast: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/reports/disbursement-forecast${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+  saveCollectionForecast: (unitId, body) => apiFetch(`${BASE}/reports/forecasts/${unitId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+
+  downloadReportsTemplate: async () => {
+    const res = await fetch(`${BASE}/reports/template`, { credentials: 'include' });
+    if (!res.ok) throw new Error('Template download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'PostSales_Reports_Template.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  downloadCollectionRegisterExcel: async (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    const res = await fetch(`${BASE}/reports/export${q ? `?${q}` : ''}`, { credentials: 'include' });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Export failed');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `PostSales_Collection_Register_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  uploadReportsExcel: async (file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await apiFetch(`${BASE}/reports/upload`, { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(r.data?.error || r.data?.message || 'Upload failed');
+    return r.data;
+  },
 };

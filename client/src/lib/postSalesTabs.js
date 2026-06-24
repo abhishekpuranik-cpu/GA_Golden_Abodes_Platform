@@ -9,4 +9,5 @@ export const PS_NAV = [
   { id: 'ps_loans', path: '/app/post-sales/loans', label: 'Loans' },
   { id: 'ps_tickets', path: '/app/post-sales/tickets', label: 'Tickets' },
   { id: 'ps_milestones', path: '/app/post-sales/milestones', label: 'Milestones' },
+  { id: 'ps_reports', path: '/app/post-sales/reports', label: 'Reports' },
 ];
