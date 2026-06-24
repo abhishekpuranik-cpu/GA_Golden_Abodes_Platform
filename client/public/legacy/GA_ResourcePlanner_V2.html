@@ -63,6 +63,105 @@ tr:hover td{background:#FAFBFD}
 .info{background:var(--blue-l);border-radius:8px;padding:10px 14px;font-size:11px;margin-bottom:12px;color:var(--blue-b)}
 .coll-btn{font-size:16px;color:var(--muted);transition:transform .15s;display:inline-block}
 .collapsed .coll-btn{transform:rotate(-90deg)}
+/* ── Org structure (Band → Actual) ── */
+.org-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px;padding:12px 16px;background:var(--card);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow)}
+.org-search{flex:1;min-width:200px;padding:8px 12px 8px 34px;border:1.5px solid var(--border);border-radius:8px;font-size:13px;background:var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%2364748B' viewBox='0 0 16 16'%3E%3Cpath d='M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85zm-5.242 1.156a4.5 4.5 0 1 1 0-9 4.5 4.5 0 0 1 0 9z'/%3E%3C/svg%3E") no-repeat 10px center}
+.org-search:focus{border-color:var(--blue);outline:none;background-color:#F0F6FF}
+.org-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:18px}
+@media(max-width:720px){.org-kpi-row{grid-template-columns:repeat(2,1fr)}}
+.org-kpi{background:linear-gradient(135deg,var(--card) 0%,var(--bg) 100%);border-radius:10px;padding:14px 16px;border:1px solid var(--border);text-align:center}
+.org-kpi-num{font-size:26px;font-weight:800;line-height:1.1}
+.org-kpi-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-top:4px}
+.org-band{margin-bottom:24px}
+.org-band-hdr{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.org-band-rail{width:4px;height:36px;border-radius:4px;flex-shrink:0}
+.org-band-title{font-size:16px;font-weight:800}
+.org-band-sub{font-size:11px;color:var(--muted)}
+.org-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px}
+.org-role{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.04);transition:box-shadow .15s}
+.org-role:hover{box-shadow:0 4px 16px rgba(0,0,0,.08)}
+.org-role-hdr{padding:12px 14px 10px;border-bottom:1px solid var(--border)}
+.org-role-fn{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px}
+.org-role-title{font-size:13px;font-weight:800;color:var(--blue-b);line-height:1.3}
+.org-role-meta{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+.org-pill{font-size:9px;font-weight:700;padding:2px 8px;border-radius:10px}
+.org-seats{padding:8px 10px 10px}
+.org-seat{display:flex;gap:10px;align-items:flex-start;padding:10px;border-radius:10px;margin-bottom:6px;border:1px solid transparent}
+.org-seat:last-child{margin-bottom:0}
+.org-seat-filled{background:linear-gradient(135deg,#E8F6EE 0%,#f4fbf7 100%);border-color:#1A724425}
+.org-seat-vacant{background:linear-gradient(135deg,#FEF0E5 0%,#fffaf5 100%);border:1.5px dashed #B54D0A50}
+.org-avatar{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:800;color:#fff;flex-shrink:0}
+.org-seat-body{flex:1;min-width:0}
+.org-seat-name{font-size:13px;font-weight:700;color:var(--text);line-height:1.2}
+.org-seat-role{font-size:10px;color:var(--muted);margin-top:2px}
+.org-seat-actions{display:flex;gap:4px;flex-shrink:0}
+.org-btn{font-size:10px;font-weight:700;padding:4px 10px;border-radius:6px;border:none;cursor:pointer;white-space:nowrap}
+.org-btn-primary{background:var(--blue);color:#fff}
+.org-btn-ghost{background:var(--card);border:1px solid var(--border);color:var(--muted)}
+.org-btn-danger{background:transparent;border:1px solid #fca5a5;color:var(--red-b)}
+.org-proj-row{display:flex;flex-wrap:wrap;gap:4px;margin-top:8px;align-items:center}
+.org-proj-tag{display:inline-flex;align-items:center;gap:4px;font-size:10px;font-weight:600;padding:3px 8px;border-radius:20px;background:var(--card);border:1px solid var(--border)}
+.org-proj-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.org-proj-add{font-size:10px;padding:3px 8px;border-radius:20px;border:1.5px dashed var(--blue);background:transparent;color:var(--blue);cursor:pointer;font-weight:600}
+.org-pool{margin-top:20px;padding:16px;background:var(--card);border:1px solid var(--border);border-radius:12px}
+.org-pool-title{font-size:13px;font-weight:800;margin-bottom:10px}
+.org-pool-chips{display:flex;flex-wrap:wrap;gap:8px}
+.org-pool-chip{font-size:11px;padding:6px 12px;border-radius:20px;background:var(--bg);border:1px solid var(--border);cursor:pointer;transition:all .12s}
+.org-pool-chip:hover{border-color:var(--blue);background:var(--blue-l)}
+.org-modal-bg{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:9000;display:flex;align-items:center;justify-content:center;padding:20px}
+.org-modal{background:var(--card);border-radius:14px;width:100%;max-width:420px;max-height:80vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.2);border:1px solid var(--border)}
+.org-modal-hdr{padding:16px 18px;border-bottom:1px solid var(--border)}
+.org-modal-title{font-size:15px;font-weight:800}
+.org-modal-sub{font-size:11px;color:var(--muted);margin-top:4px}
+.org-modal-list{overflow-y:auto;padding:8px;flex:1}
+.org-pick-row{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;cursor:pointer;border:1px solid transparent}
+.org-pick-row:hover{background:var(--blue-l);border-color:#1558A030}
+.org-pick-av{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:#fff;flex-shrink:0}
+.org-pick-info{flex:1;min-width:0}
+.org-pick-name{font-size:12px;font-weight:700}
+.org-pick-role{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.org-modal-ft{padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px}
+/* ── HR Calendar ── */
+.hr-cal-wrap{background:var(--card);border-radius:14px;border:1px solid var(--border);box-shadow:0 4px 20px rgba(0,0,0,.06);overflow:hidden}
+.hr-cal-top{display:flex;flex-wrap:wrap;align-items:center;gap:12px;padding:16px 20px;background:linear-gradient(135deg,#FDF8EC 0%,#fff 50%,#EAF1FB 100%);border-bottom:1px solid var(--border)}
+.hr-cal-title{font-size:18px;font-weight:800;color:var(--blue-b)}
+.hr-cal-nav{display:flex;gap:4px;align-items:center}
+.hr-cal-nav button{width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--card);cursor:pointer;font-size:14px}
+.hr-cal-nav button:hover{background:var(--blue-l);border-color:var(--blue)}
+.hr-cal-views{display:flex;gap:4px;background:var(--bg);padding:3px;border-radius:10px}
+.hr-cal-views button{padding:6px 14px;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted)}
+.hr-cal-views button.on{background:var(--card);color:var(--blue);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.hr-cal-body{padding:16px}
+.hr-cal-month{display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--border);border-radius:10px;overflow:hidden}
+.hr-cal-dow{background:var(--bg);padding:8px 4px;text-align:center;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase}
+.hr-cal-day{background:var(--card);min-height:88px;padding:6px;cursor:pointer;transition:background .12s}
+.hr-cal-day:hover{background:#F8FAFC}
+.hr-cal-day.other{opacity:.45;background:#FAFBFC}
+.hr-cal-day.today{box-shadow:inset 0 0 0 2px var(--blue)}
+.hr-cal-day-num{font-size:11px;font-weight:700;color:var(--muted);margin-bottom:4px}
+.hr-cal-day.today .hr-cal-day-num{color:var(--blue)}
+.hr-cal-ev{font-size:9px;font-weight:600;padding:2px 5px;border-radius:4px;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;cursor:pointer}
+.hr-cal-week{display:grid;grid-template-columns:56px repeat(7,1fr);gap:1px;background:var(--border);border-radius:10px;overflow:hidden}
+.hr-cal-week .hr-cal-day{min-height:120px}
+.hr-cal-day-col{display:flex;flex-direction:column;gap:6px}
+.hr-cal-day-full{background:var(--card);border-radius:12px;padding:16px;min-height:320px}
+.hr-cal-year{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.hr-cal-mini{border:1px solid var(--border);border-radius:10px;padding:10px;background:var(--card)}
+.hr-cal-mini-title{font-size:11px;font-weight:800;text-align:center;margin-bottom:6px;color:var(--blue-b)}
+.hr-cal-mini-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;font-size:8px;text-align:center}
+.hr-cal-mini-d{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:3px;color:var(--muted)}
+.hr-cal-mini-d.has{background:var(--gold-l);color:var(--gold-b);font-weight:700}
+.hr-cal-mini-d.today{background:var(--blue);color:#fff;font-weight:800}
+.hr-dash-hero{background:linear-gradient(135deg,#0A3266 0%,#1558A0 55%,#1A7244 100%);border-radius:16px;padding:24px 28px;color:#fff;margin-bottom:20px;display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
+.hr-dash-score{font-size:48px;font-weight:800;line-height:1}
+.hr-dash-ring{width:72px;height:72px;border-radius:50%;border:4px solid rgba(255,255,255,.3);display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800}
+.org-simple-band{margin-bottom:12px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--card)}
+.org-simple-hdr{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;user-select:none;background:var(--bg)}
+.org-simple-hdr:hover{background:#EEF2F7}
+.org-simple-list{padding:0}
+.org-simple-row{display:flex;align-items:center;gap:12px;padding:10px 16px;border-top:1px solid var(--border);font-size:12px}
+.org-simple-row.vacant{background:#FFFBF5}
+.org-roster-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
 </style>
 </head>
 <body>
@@ -97,10 +196,12 @@ tr:hover td{background:#FAFBFD}
   <button class="tab" id="tab-shared" onclick="showTab('shared')">&#9878; Shared Costs</button>
   <button class="tab" id="tab-pnl" onclick="showTab('pnl')" style="display:none">&#128200; P&amp;L View</button>
   <button class="tab" id="tab-kpi" onclick="showTab('kpi')">&#127919; Team KPIs</button>
+  <button class="tab" id="tab-hrcal" onclick="showTab('hrcal')">&#128197; HR Calendar</button>
 </div>
 <div id="page-dash" class="page"></div>
 <div id="page-band" class="page hidden"></div>
 <div id="page-kpi" class="page hidden"></div>
+<div id="page-hrcal" class="page hidden"></div>
 <div id="page-res" class="page hidden"></div>
 
 <div id="page-cost" class="page hidden"></div>
@@ -489,11 +590,19 @@ function clickFileInput(id){
 var curTab  = 'dash';
 var bandProjFilt = 'ALL';
 var bandSubView = 'plan'; // 'plan' = headcount matrix | 'actual' = Team View names in slots
+var bandActualSearch = '';
+var bandActualFnFilt = 'ALL';
+var _bandPoolEmpId = null; // click-to-assign from unplaced pool
+var _bandAssignRid = null;
+var _bandAssignIdx = null;
+var hrCalView = 'month';
+var hrCalCursor = ''; // YYYY-MM-DD anchor
+var HR_EVT_TYPES = {Interview:'#1558A0',Onboarding:'#1A7244',Training:'#542B8A',Performance:'#A07800',Payroll:'#0B7070',Engagement:'#8A1D5E',Policy:'#4A5568',Leave:'#B54D0A',Other:'#94A3B8'};
 var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
 var CUSTOM  = [];
 var HC_RULES = [];
-var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}, bandAssign:{}};
+var ST = {ex:{}, ap:{}, capOv:{}, rel:{}, col:{}, alloc:{}, kpiAct:{}, kpiNames:{}, kpiSlots:{}, kpiDefs:{}, bandAssign:{}, hrEvents:[]};
 var kpiSetSel = 'HR';   // selected KPI set on the Team KPIs tab
 var kpiSlotSel = 0;     // selected person slot within the set
 var kpiMode = 'score';  // 'score' = scorecard | 'edit' = KPI definitions editor (admin only)
@@ -919,7 +1028,7 @@ function calcEngine(){
 // ═══════════════════════════════════════════════════════
 function showTab(t){
   if(t==='pnl'&&!ADMIN){ alert('P&L View is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; }
-  ['dash','band','kpi','res','cost','team','shared','pnl'].forEach(function(x){
+  ['dash','band','kpi','res','cost','team','shared','pnl','hrcal'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
@@ -941,7 +1050,7 @@ function setScen(s){
   ['Lean','Base','Stretch'].forEach(function(x){document.getElementById('sc-'+x).className='sc-btn'+(x===s?' on':'');});
   renderAll();
 }
-function renderTab(t){ var f={dash:renderDash,band:renderBand,kpi:renderKpi,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL}; if(f[t])f[t](); }
+function renderTab(t){ var f={dash:renderDash,band:renderBand,kpi:renderKpi,res:renderRes,cost:renderCost,team:renderTeam,shared:renderShared,pnl:renderPnL,hrcal:renderHrCal}; if(f[t])f[t](); }
 function renderAll(){ renderTab(curTab); }
 
 // ═══════════════════════════════════════════════════════
@@ -991,7 +1100,7 @@ function setSS(msg,col){
   if(el) el.innerHTML='<span style="color:var(--'+col+'-b)">&#9679; '+msg+'</span>';
 }
 function saveState(){
-  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,bandAssign:ST.bandAssign||{},scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
+  try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,bandAssign:ST.bandAssign||{},hrEvents:ST.hrEvents||[],scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
 }
 function loadState(){
   try{
@@ -1004,6 +1113,7 @@ function loadState(){
     if(d.custom) CUSTOM=d.custom;
     if(d.cond) Object.assign(COND,d.cond);
     if(d.projFlags) Object.assign(PROJ_FLAGS,d.projFlags);
+    if(d.hrEvents&&Array.isArray(d.hrEvents)) ST.hrEvents=d.hrEvents;
   }catch(e){}
 }
 
@@ -1027,18 +1137,14 @@ document.addEventListener('change',function(e){
   if(a.ruleThr!==undefined)    { HC_RULES[+a.idx].threshold=+el.value; saveState(); renderTab('hire'); }
   if(a.ruleHc!==undefined)     { HC_RULES[+a.idx].addHC=+el.value; saveState(); renderTab('hire'); }
   if(a.ruleRid!==undefined)    { HC_RULES[+a.idx].rid=el.value;    saveState(); renderTab('hire'); }
-  if(a.bandslotRid!==undefined){
-    var syncEl=document.getElementById('bandsync-'+a.bandslotRid+'-'+a.bandslotIdx);
-    assignBandSlot(a.bandslotRid, +a.bandslotIdx, el.value, syncEl?syncEl.checked:true);
-    return;
-  }
-  if(a.bandprojpick!==undefined){
-    var pn=el.value; if(!pn) return;
-    var eid=a.bandprojpick;
+  if(el.getAttribute('data-band-proj-pick')){
+    var eid=el.getAttribute('data-band-proj-pick'), pn=el.value;
+    if(!pn) return;
     if(ALLOC.some(function(ax){return ax.empId===eid&&ax.project===pn;})){el.selectedIndex=0; return;}
     ALLOC.push({empId:eid,project:pn,pct:100});
     afterTeamAllocChange(); el.selectedIndex=0; return;
   }
+  if(el.id==='org-fn-filt'){ bandActualFnFilt=el.value; renderTab('band'); return; }
 });
 document.addEventListener('input',function(e){
   var d=e.target.dataset;
@@ -1048,6 +1154,7 @@ document.addEventListener('input',function(e){
     var ax=ALLOC.find(function(a){return a.empId===d['allocEmpid']&&a.project===d['allocProj'];});
     if(ax){ax.pct=Math.min(100,Math.max(0,parseFloat(e.target.value)||0));afterTeamAllocChange();}
   }
+  if(e.target.id==='org-search'){ bandActualSearch=e.target.value; renderTab('band'); }
 });
 document.addEventListener('change',function(e){
   var d=e.target.dataset;
@@ -1078,6 +1185,27 @@ document.addEventListener('click',function(e){
   if(a.bandclear!==undefined){
     clearBandSlot(a.bandclear, +a.bandidx); return;
   }
+  var br=findEl('bandRemove');
+  if(br){ removeBandSlotAssignment(br.dataset.bandRemove, +br.dataset.bandRemoveIdx); return; }
+  var ba=findEl('bandAssignOpen');
+  if(ba){ showBandAssignModal(ba.dataset.bandAssignOpen, +ba.dataset.bandAssignIdx); return; }
+  var bp=findEl('bandpick');
+  if(bp){
+    var syncEl=document.getElementById('band-assign-sync');
+    assignBandSlot(bp.dataset.bandpickRid, +bp.dataset.bandpickIdx, bp.dataset.bandpick, syncEl?syncEl.checked:true);
+    closeBandAssignModal(); return;
+  }
+  var bpv=findEl('bandpickVacant');
+  if(bpv){ assignBandSlot(bpv.dataset.bandpickVacant, +bpv.dataset.bandpickIdx, '', false); closeBandAssignModal(); return; }
+  if(findEl('bandmodalClose')){ closeBandAssignModal(); return; }
+  var bq=findEl('bandQuickassign');
+  if(bq&&_bandPoolEmpId){ assignBandSlot(bq.dataset.bandQuickassign, +bq.dataset.bandQuickidx, _bandPoolEmpId, true); return; }
+  var bpool=findEl('bandpoolAssign');
+  if(bpool){
+    _bandPoolEmpId=bpool.dataset.bandpoolAssign;
+    setSS('Click + Assign on any vacant seat','green');
+    renderTab('band'); return;
+  }
   if(a.setdoj!==undefined){
     var dojVal=prompt('Enter Date of Joining for '+a.setdoj+' (YYYY-MM-DD, e.g. 2019-04-01):','');
     if(dojVal&&/^\d{4}-\d{2}-\d{2}$/.test(dojVal.trim())){
@@ -1093,6 +1221,19 @@ document.addEventListener('click',function(e){
   var tc=findEl('togcoll'); if(tc){ togColl(tc.dataset.togcoll); return; }
   if(a.bandfilt!==undefined)   { bandProjFilt=a.bandfilt; renderTab('band'); return; }
   if(a.bandsub!==undefined)    { bandSubView=a.bandsub; renderTab('band'); return; }
+  var bacc=findEl('bandacc');
+  if(bacc){ togColl('bandacc_'+bacc.dataset.bandacc); return; }
+  var hcv=findEl('hrCalView');
+  if(hcv){ hrCalView=hcv.dataset.hrCalView; renderTab('hrcal'); return; }
+  if(a.hrCalNav!==undefined){ hrCalNav(a.hrCalNav); return; }
+  if(a.hrCalToday!==undefined){ hrCalCursor=hrTodayYmd(); renderTab('hrcal'); return; }
+  var hev=findEl('hrEventId');
+  if(hev){ showHrEventModal(hev.dataset.hrEventId); return; }
+  var hca=findEl('hrCalAdd');
+  if(hca){ showHrEventModal(null, hca.dataset.hrCalAdd); return; }
+  if(a.hrEventSave!==undefined){ saveHrEventFromForm(); return; }
+  if(a.hrEventDel!==undefined){ deleteHrEvent(a.hrEventDel); return; }
+  if(findEl('hrModalClose')){ closeHrEventModal(); return; }
   if(a.kpiset!==undefined)     { kpiSetSel=a.kpiset; kpiSlotSel=0; renderTab('kpi'); return; }
   if(a.kpislot!==undefined)    { kpiSlotSel=+a.kpislot; renderTab('kpi'); return; }
   if(a.kpimode!==undefined)    { if(a.kpimode==='edit'&&!ADMIN){ alert('Editing KPIs is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; } kpiMode=a.kpimode; renderTab('kpi'); return; }
@@ -1126,189 +1267,53 @@ document.addEventListener('click',function(e){
 });
 
 // ═══════════════════════════════════════════════════════
-// TAB 1 — EXECUTIVE DASHBOARD
+// HR HEALTH METRICS + CALENDAR HELPERS
 // ═══════════════════════════════════════════════════════
-function renderDash(){
-  var D=calcEngine();
+function hrTodayYmd(){
+  var t=new Date(); return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+}
+function hrParseYmd(s){ var p=(s||'').split('-'); return new Date(+p[0],+p[1]-1,+p[2]); }
+function hrFmtYmd(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function hrCalCursorDate(){
+  if(!hrCalCursor) hrCalCursor=hrTodayYmd();
+  return hrParseYmd(hrCalCursor);
+}
+function hrEventsList(){ return ST.hrEvents||[]; }
+function hrEventOnDay(ymd){
+  return hrEventsList().filter(function(ev){
+    var end=ev.endDate||ev.date;
+    return ymd>=ev.date&&ymd<=end;
+  });
+}
+function hrEvtColor(t){ return HR_EVT_TYPES[t]||HR_EVT_TYPES.Other; }
+function calcHrHealth(D){
+  var totSeats=0,totFilled=0,matchedEmp={};
+  allR().forEach(function(r){
+    var pos=bandPositionSlots(r,D);
+    if(!pos) return;
+    totSeats+=pos.slots.length;
+    pos.slots.forEach(function(s){ if(s.person){ totFilled++; matchedEmp[s.person.id]=true; } });
+  });
+  var seatFill=totSeats>0?Math.round(totFilled/totSeats*100):null;
+  var hrEx=0,hrAp=0,icN=0,ldN=0;
+  allR().forEach(function(r){
+    var e=D.nEx(r.id),ap2=D.nAp(r.id);
+    hrEx+=e; hrAp+=ap2;
+    var n=ap2>0?ap2:e;
+    if(r.band==='A1'||r.band==='A2') icN+=n; else if(r.band&&r.band!=='0') ldN+=n;
+  });
+  var planFill=hrAp>0?Math.round(hrEx/hrAp*100):null;
+  var vacOpen=hrAp>0?Math.max(0,hrAp-hrEx):0;
   var hN=D.hp.filter(function(h){return h.action==='Hire';}).length;
   var cN=D.hp.filter(function(h){return h.action==='Hire'&&h.pri==='Critical';}).length;
-  var numActive=Math.max(1,D.active.length);
-  var html='';
-
-  if(_usingDefaults){
-    html+='<div style="background:var(--gold-l);border:1.5px solid var(--gold);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">';
-    html+='<span style="font-size:11px;color:var(--gold-b);font-weight:600">&#9888; Demo data shown. Open <strong>GA_OrgResourcePlanner_V3.html</strong> → click <strong>Push to RP</strong> to sync live data.</span>';
-    html+='<button onclick="syncFromV3()" style="padding:4px 12px;border-radius:6px;background:var(--gold);color:#fff;font-size:11px;font-weight:700;border:none;cursor:pointer">&#8635; Sync Now</button></div>';
-  }
-
-  // ── GA-centric financials ─────────────────────────────────
-  var totDmFee=getRpProjects().reduce(function(s,p){return s+(p._dmFee||0);},0);
-  var totGDV=getRpProjects().reduce(function(s,p){return s+(p._gdv||0);},0);
-  var totPeopleCostAnn=D.totAp; // approved annual org cost
-  var totSharedAnn=scTotalMonthly()*12;
-  var numActive2=rpActiveProjs().length||1;
-  var totDirectAnn=rpActiveProjs().reduce(function(s,p){return s+projCostTotal(p.id)*12;},0);
-  var totCostAnn=totPeopleCostAnn+totSharedAnn+totDirectAnn;
-  var gaNetAnn=totDmFee-totCostAnn;
-
-  // ── KPI strip ─────────────────────────────────────────────
-  html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px">';
-  [
-    {l:'GA DM Fee / Revenue',  v:cr(totDmFee),  s:'GA annual revenue',    c:'#0B7070',bg:'#E6F7F7'},
-    {l:'Portfolio GDV',        v:cr(totGDV),    s:'Developer revenue',     c:'#1558A0',bg:'#EBF2FF'},
-    {l:'Annual Org Cost',      v:cr(D.totAp),   s:'Approved headcount',    c:'#542B8A',bg:'#F3EEFF'},
-    {l:'Shared Costs/yr',      v:cr(totSharedAnn), s:'Corporate overheads',c:'#B54D0A',bg:'#FEF0E5'},
-    {l:'GA Net (Annual)',       v:cr(gaNetAnn),  s:'Fee minus all costs',   c:gaNetAnn>=0?'#1A7244':'#A8301E',bg:gaNetAnn>=0?'#E8F6EE':'#FEECEC'},
-    {l:'RP Projects',          v:D.rpProjs.length, s:getRpProjects().filter(function(p){return p.status==='Planned'||p.status==='Pipeline';}).length+' early-stage', c:'#A07800',bg:'#FDF8EC'},
-  ].forEach(function(k){
-    html+='<div style="flex:1;min-width:130px;background:'+k.bg+';border-radius:10px;padding:12px 16px;border:1.5px solid '+k.c+'30">';
-    html+='<div style="font-size:9px;color:'+k.c+';text-transform:uppercase;letter-spacing:.07em;font-weight:700;margin-bottom:4px">'+k.l+'</div>';
-    html+='<div style="font-size:22px;font-weight:800;color:'+k.c+'">'+k.v+'</div>';
-    html+='<div style="font-size:10px;color:'+k.c+'99;margin-top:3px">'+k.s+'</div></div>';
+  var unplaced=EMPLOYEES.filter(function(e){return !matchedEmp[e.id];}).length;
+  var allocOk=0;
+  EMPLOYEES.forEach(function(e){
+    var allocs=ALLOC.filter(function(a){return String(a.empId)===String(e.id);});
+    var pct=allocs.reduce(function(s,a){return s+a.pct;},0);
+    if(allocs.length&&Math.abs(pct-100)<1) allocOk++;
   });
-  html+='</div>';
-
-  // ── Chart row — GA Revenue vs Cost waterfall + Project contribution donut ──
-  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">';
-
-  // Left: Revenue vs Cost stacked bar (pure SVG, no library needed)
-  var bars=[
-    {l:'DM Fee',v:totDmFee,c:'#0B7070'},
-    {l:'People',v:totPeopleCostAnn,c:'#542B8A'},
-    {l:'Shared',v:totSharedAnn,c:'#B54D0A'},
-    {l:'Direct',v:totDirectAnn,c:'#A07800'},
-    {l:'GA Net',v:Math.abs(gaNetAnn),c:gaNetAnn>=0?'#1A7244':'#A8301E'},
-  ];
-  var maxBar=Math.max.apply(null,bars.map(function(b){return b.v;})); maxBar=maxBar||1;
-  html+='<div style="background:var(--card);border-radius:10px;padding:16px;border:1.5px solid var(--border)">';
-  html+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:12px">&#128202; GA Revenue vs Costs (Annual)</div>';
-  bars.forEach(function(b){
-    var w=Math.max(2,(b.v/maxBar*100)).toFixed(1);
-    var lbl=b.v>=10000000?(b.v/10000000).toFixed(2)+' Cr':b.v>=100000?(b.v/100000).toFixed(1)+' L':'Rs '+Math.round(b.v).toLocaleString('en-IN');
-    html+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">';
-    html+='<div style="width:80px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0">'+b.l+'</div>';
-    html+='<div style="flex:1;height:22px;background:var(--bg);border-radius:4px;overflow:hidden">';
-    html+='<div style="width:'+w+'%;height:100%;background:'+b.c+';border-radius:4px;display:flex;align-items:center;padding-left:6px;box-sizing:border-box;transition:width .4s"></div></div>';
-    html+='<div style="min-width:70px;font-size:10px;font-weight:700;color:'+b.c+'">'+lbl+'</div>';
-    html+='</div>';
-  });
-  html+='</div>';
-
-  // Right: Project-level DM Fee + Status donut
-  var activeProjs=rpVisibleProjs().filter(function(p){return p._dmFee;});
-  html+='<div style="background:var(--card);border-radius:10px;padding:16px;border:1.5px solid var(--border)">';
-  html+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:12px">&#127381; DM Fee by Project</div>';
-  if(activeProjs.length){
-    // SVG pie/donut
-    var total=activeProjs.reduce(function(s,p){return s+(p._dmFee||0);},0)||1;
-    var cx=80,cy=80,r=60,ir=30;
-    var svg='<svg viewBox="0 0 200 160" style="width:100%;max-width:200px;margin:0 auto;display:block">';
-    var angle=-Math.PI/2;
-    var PCOLS=['#0B7070','#1558A0','#542B8A','#1A7244','#B54D0A','#A07800','#A8301E','#4A5568'];
-    activeProjs.slice(0,8).forEach(function(p,i){
-      var sweep=(p._dmFee||0)/total*Math.PI*2;
-      var x1=cx+r*Math.cos(angle), y1=cy+r*Math.sin(angle);
-      var x2=cx+r*Math.cos(angle+sweep), y2=cy+r*Math.sin(angle+sweep);
-      var xi1=cx+ir*Math.cos(angle), yi1=cy+ir*Math.sin(angle);
-      var xi2=cx+ir*Math.cos(angle+sweep), yi2=cy+ir*Math.sin(angle+sweep);
-      var lg=sweep>Math.PI?1:0;
-      if(sweep>0.01)
-        svg+='<path d="M'+xi1+' '+yi1+' L'+x1+' '+y1+' A'+r+' '+r+' 0 '+lg+' 1 '+x2+' '+y2+' L'+xi2+' '+yi2+' A'+ir+' '+ir+' 0 '+lg+' 0 '+xi1+' '+yi1+' Z" fill="'+PCOLS[i%PCOLS.length]+'" stroke="#fff" stroke-width="1.5"/>';
-      angle+=sweep;
-    });
-    // Center text
-    svg+='<text x="'+cx+'" y="'+(cy-6)+'" text-anchor="middle" style="font-size:9px;fill:#4A5568">DM Fee</text>';
-    svg+='<text x="'+cx+'" y="'+(cy+8)+'" text-anchor="middle" style="font-size:10px;font-weight:700;fill:#0A3266">'+(total>=10000000?(total/10000000).toFixed(1)+' Cr':(total/100000).toFixed(0)+' L')+'</text>';
-    svg+='</svg>';
-    html+=svg;
-    // Legend
-    html+='<div style="display:flex;flex-direction:column;gap:3px;margin-top:6px">';
-    activeProjs.slice(0,8).forEach(function(p,i){
-      var pct=total>0?((p._dmFee||0)/total*100).toFixed(0)+'%':'';
-      html+='<div style="display:flex;align-items:center;gap:6px;font-size:10px">';
-      html+='<span style="width:8px;height:8px;border-radius:2px;background:'+PCOLS[i%PCOLS.length]+';flex-shrink:0;display:inline-block"></span>';
-      html+='<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)">'+p.name+'</span>';
-      html+='<span style="font-weight:700;color:#0A3266">'+pct+'</span></div>';
-    });
-    html+='</div>';
-  } else {
-    html+='<div style="text-align:center;color:var(--muted);padding:20px;font-size:12px">Sync from V3 to see DM fee breakdown</div>';
-  }
-  html+='</div>';
-  html+='</div>'; // end chart row
-
-  // ── Project filter pills ──────────────────────────────────
-  html+='<div style="font-size:13px;font-weight:700;color:var(--blue-b);margin-bottom:10px">Project Details</div>';
-  html+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">';
-  html+='<button onclick="_dashProjFilt=\'ALL\';renderDash()" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(_dashProjFilt==='ALL'?'var(--blue)':'var(--border)')+';background:'+(_dashProjFilt==='ALL'?'var(--blue)':'var(--card)')+';color:'+(_dashProjFilt==='ALL'?'#fff':'var(--muted)')+';font-size:11px;font-weight:700;cursor:pointer">All</button>';
-  rpVisibleProjs().forEach(function(p){
-    var sc=STAC[p.status]||'#4A5568'; var sel=_dashProjFilt===p.id;
-    html+='<button onclick="_dashProjFilt=\''+p.id+'\';renderDash()" style="padding:5px 14px;border-radius:20px;border:1.5px solid '+(sel?sc:'var(--border)')+';background:'+(sel?sc:'var(--card)')+';color:'+(sel?'#fff':'var(--muted)')+';font-size:11px;font-weight:700;cursor:pointer">'+p.name+'</button>';
-  });
-  html+='</div>';
-
-  // ── Project cards — GA-centric data points ────────────────
-  var filtProjs=_dashProjFilt==='ALL'?getRpProjects():getRpProjects().filter(function(p){return p.id===_dashProjFilt;});
-  html+='<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px">';
-  filtProjs.forEach(function(p){
-    var sc=STAC[p.status]||'#4A5568';
-    var numOn=rpActiveProjs().length||1;
-    var projOrgCost=0;
-    allR().filter(function(r){return r.type==='Dedicated'&&isRoleAlignedToProj(p,r);}).forEach(function(r){projOrgCost+=getAp(pk(p.id,r.id))*r.fix*(1+D.vp);});
-    var sharedAnn=Math.round(scTotalMonthly()*12/numOn);
-    var directAnn=projCostTotal(p.id)*12;
-    var totalCostAnn=projOrgCost+sharedAnn+directAnn;
-    var dmFee=p._dmFee||0;
-    var gaNetAnn2=dmFee-totalCostAnn;
-    var projMo=p._projMonths||48;
-    var projYrs=projMo/12;
-    var gaNetPrj=Math.round(dmFee*projYrs)-(Math.round(totalCostAnn/12*projMo));
-
-    html+='<div style="background:var(--card);border-radius:10px;padding:14px 16px;border:1.5px solid var(--border);border-top:3px solid '+sc+';min-width:220px;flex:1">';
-    html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">';
-    html+='<div style="font-size:12px;font-weight:700;color:'+sc+'">'+p.name+'</div>';
-    html+='<span style="font-size:9px;font-weight:700;background:'+sc+'20;color:'+sc+';border-radius:4px;padding:2px 8px">'+p.status+'</span>';
-    html+='</div>';
-    html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">';
-    var cell=function(lbl,val,col,sub){return '<div style="background:var(--bg);padding:6px 8px;border-radius:6px"><div style="font-size:9px;color:var(--muted)">'+lbl+'</div><div style="font-size:12px;font-weight:700;color:'+(col||'var(--blue-b)')+'">'+val+'</div>'+(sub?'<div style="font-size:9px;color:var(--muted)">'+sub+'</div>':'')+'</div>';};
-    html+=cell('GDV (Dev.)', p._gdv?cr(p._gdv):'—', '#1558A0');
-    html+=cell('GA DM Fee', p._dmFee?cr(p._dmFee):'—', '#0B7070', p._projMonths?(projMo+'mo proj'):'');
-    html+=cell('People Cost/yr', cr(projOrgCost), '#542B8A');
-    html+=cell('Total Cost/yr', cr(totalCostAnn), '#B54D0A');
-    html+=cell('GA Net/yr', cr(gaNetAnn2), gaNetAnn2>=0?'#1A7244':'#A8301E');
-    html+=cell('GA Net (End)', p._projMonths?cr(gaNetPrj):'—', gaNetPrj>=0?'#0B7070':'#A8301E', p._projMonths?projMo+'mo':'Set in V3');
-    html+='</div></div>';
-  });
-  if(!filtProjs.length){
-    html+='<div class="card" style="color:var(--muted);text-align:center;padding:20px">No active projects — sync from V3 first.</div>';
-  }
-  html+='</div>';
-
-  // ── HC summary strip ─────────────────────────────────────
-  html+='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">';
-  [{l:'Total Headcount',v:D.totHC,c:'#1558A0'},{l:'Open Positions',v:hN,c:'#A8301E'},
-   {l:'Critical Hires',v:cN,c:'#B54D0A'},{l:'Approved Org Cost',v:cr(D.totAp),c:'#542B8A'}
-  ].forEach(function(k){
-    html+='<div style="background:var(--card);border-radius:8px;padding:10px 14px;border:1.5px solid var(--border);text-align:center">';
-    html+='<div style="font-size:20px;font-weight:800;color:'+k.c+'">'+k.v+'</div>';
-    html+='<div style="font-size:10px;color:var(--muted);margin-top:3px">'+k.l+'</div></div>';
-  });
-  html+='</div>';
-
-  // ── HR Health (people + KPI governance) ──────────────────
-  var hrEx=0,hrAp=0,hrSg=0,icN=0,ldN=0;
-  allR().forEach(function(r){
-    var e=D.nEx(r.id),ap2=D.nAp(r.id),sg2=D.nSg(r.id);
-    hrEx+=e; hrAp+=ap2; hrSg+=sg2;
-    var n=ap2>0?ap2:e; // use approved seats, fall back to existing
-    if(r.band==='A1'||r.band==='A2') icN+=n; else ldN+=n;
-  });
-  var hrBasis=hrAp>0?hrAp:hrSg, basisLbl=hrAp>0?'approved':'suggested';
-  var vacRate=hrBasis>0?Math.max(0,Math.round((hrBasis-hrEx)/hrBasis*100)):null;
-  var icRatio=ldN>0?(icN/ldN):null;
-  var dmFeeTot=0; D.active.forEach(function(p){ dmFeeTot+=(p._dmFee||0); });
-  var costPct=dmFeeTot>0?Math.round((hrAp>0?D.totAp:D.totSg)/dmFeeTot*100):null;
-  // KPI governance rollup from the Team KPIs tab
+  var allocPct=EMPLOYEES.length?Math.round(allocOk/EMPLOYEES.length*100):null;
   var kgPersons=0,kgWithData=0,kgSum=0,kgAtRisk=0;
   Object.keys(KPI_SETS).forEach(function(sid){
     for(var s2=0;s2<kpiSlotCount(sid);s2++){
@@ -1317,55 +1322,155 @@ function renderDash(){
       if(ms2.length){ kgWithData++; var av2=ms2.reduce(function(a,b){return a+b;},0)/ms2.length; kgSum+=av2; if(av2<2.5) kgAtRisk++; }
     }
   });
+  var kgPct=kgPersons>0?Math.round(kgWithData/kgPersons*100):null;
   var kgAvg=kgWithData>0?Math.round(kgSum/kgWithData*100)/100:null;
-  html+='<div style="background:var(--card);border-radius:10px;padding:14px 16px;border:1.5px solid var(--border);border-left:3px solid var(--teal);margin-bottom:16px">';
-  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px">';
-  html+='<div style="font-size:12px;font-weight:700;color:var(--teal)">&#129658; HR Health \u2014 People &amp; KPI Governance</div>';
-  html+='<button onclick="showTab(\'kpi\')" style="font-size:10px;font-weight:700;color:var(--blue-b);background:var(--blue-l);border:1px solid var(--blue);border-radius:5px;padding:3px 10px;cursor:pointer">&#127919; Open Team KPIs</button></div>';
-  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">';
-  var tile=function(lbl,val,col,sub){return '<div style="background:var(--bg);border-radius:8px;padding:9px 12px"><div style="font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em">'+lbl+'</div><div style="font-size:17px;font-weight:800;color:'+col+'">'+val+'</div><div style="font-size:9px;color:var(--muted)">'+sub+'</div></div>';};
-  html+=tile('Vacancy rate', vacRate!==null?vacRate+'%':'\u2014', vacRate===null?'var(--muted)':vacRate>25?'#A8301E':vacRate>10?'#A07800':'#1A7244', vacRate!==null?(hrEx+' filled of '+hrBasis+' '+basisLbl):'no plan data');
-  html+=tile('IC : Leader ratio', icRatio!==null?icRatio.toFixed(1)+' : 1':'\u2014', icRatio===null?'var(--muted)':(icRatio>=2&&icRatio<=5)?'#1A7244':'#A07800', 'A1-A2 per A3+ leader (healthy 2-5)');
-  html+=tile('Critical seats open', cN, cN>0?'#A8301E':'#1A7244', cN>0?'hire immediately':'all critical roles covered');
-  html+=tile('People cost vs GA fee', costPct!==null?costPct+'%':'\u2014', costPct===null?'var(--muted)':costPct>40?'#A8301E':costPct>25?'#A07800':'#1A7244', dmFeeTot>0?cr(hrAp>0?D.totAp:D.totSg)+' of '+cr(dmFeeTot)+'/yr':'sync DM fee from V3');
-  html+=tile('KPI scorecards active', kgWithData+' / '+kgPersons, kgWithData===kgPersons?'#1A7244':kgWithData>0?'#A07800':'#A8301E', 'persons with monthly entries');
-  html+=tile('Avg KPI score', kgAvg!==null?kgAvg.toFixed(2):'\u2014', kgAvg!==null?kpiBandCol(kgAvg):'var(--muted)', kgAvg!==null?(kpiBandLabel(kgAvg)+(kgAtRisk?' \u00b7 '+kgAtRisk+' below 2.5':'')):'enter actuals in Team KPIs');
+  var icRatio=ldN>0?icN/ldN:null;
+  var scores=[];
+  if(seatFill!==null) scores.push(seatFill>=90?100:seatFill>=75?80:seatFill>=60?60:35);
+  if(planFill!==null) scores.push(planFill>=90?100:planFill>=75?80:planFill>=60?60:40);
+  if(allocPct!==null) scores.push(allocPct);
+  if(kgPct!==null) scores.push(kgPct);
+  if(cN>0) scores.push(Math.max(20,100-cN*15));
+  else scores.push(100);
+  var health=scores.length?Math.round(scores.reduce(function(a,b){return a+b;},0)/scores.length):null;
+  var label=health===null?'No data':health>=85?'Excellent':health>=70?'Good':health>=50?'Needs attention':'At risk';
+  var col=health===null?'#94A3B8':health>=85?'#1A7244':health>=70?'#1558A0':health>=50?'#A07800':'#A8301E';
+  var today=hrTodayYmd();
+  var upcoming=hrEventsList().filter(function(ev){return ev.date>=today;}).sort(function(a,b){return a.date.localeCompare(b.date);}).slice(0,5);
+  return {seatFill,planFill,vacOpen,hN,cN,unplaced,allocPct,kgPct,kgAvg,kgAtRisk,icRatio,health,label,col,totSeats,totFilled,hrEx,hrAp,upcoming,matchedEmp};
+}
+function hrCalNav(dir){
+  var d=hrCalCursorDate();
+  if(hrCalView==='day') d.setDate(d.getDate()+(dir==='next'?1:-1));
+  else if(hrCalView==='week') d.setDate(d.getDate()+(dir==='next'?7:-7));
+  else if(hrCalView==='year') d.setFullYear(d.getFullYear()+(dir==='next'?1:-1));
+  else d.setMonth(d.getMonth()+(dir==='next'?1:-1));
+  hrCalCursor=hrFmtYmd(d);
+  renderTab('hrcal');
+}
+function closeHrEventModal(){ var m=document.getElementById('hr-event-modal'); if(m) m.remove(); }
+function showHrEventModal(id,defaultDate){
+  closeHrEventModal();
+  var ev=id?hrEventsList().find(function(x){return x.id===id;}):null;
+  var dt=ev?ev.date:(defaultDate||hrCalCursor||hrTodayYmd());
+  var html='<div class="org-modal-bg" id="hr-event-modal" data-hr-modal-close="1"><div class="org-modal" style="max-width:440px" onclick="event.stopPropagation()">';
+  html+='<div class="org-modal-hdr"><div class="org-modal-title">'+(ev?'Edit event':'New HR activity')+'</div></div>';
+  html+='<div style="padding:16px 18px;display:flex;flex-direction:column;gap:10px">';
+  html+='<input type="hidden" id="hr-ev-id" value="'+(ev?ev.id:'')+'"/>';
+  html+='<label style="font-size:11px;font-weight:600">Title<input type="text" id="hr-ev-title" value="'+(ev?(ev.title||'').replace(/"/g,'&quot;'):'')+'" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px" placeholder="e.g. New hire induction"/></label>';
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">';
+  html+='<label style="font-size:11px;font-weight:600">Start<input type="date" id="hr-ev-date" value="'+dt+'" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px"/></label>';
+  html+='<label style="font-size:11px;font-weight:600">End (optional)<input type="date" id="hr-ev-end" value="'+(ev&&ev.endDate?ev.endDate:'')+'" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px"/></label>';
+  html+='</div>';
+  html+='<label style="font-size:11px;font-weight:600">Time<input type="time" id="hr-ev-time" value="'+(ev&&ev.time?ev.time:'')+'" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px"/></label>';
+  html+='<label style="font-size:11px;font-weight:600">Type<select id="hr-ev-type" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px">';
+  Object.keys(HR_EVT_TYPES).forEach(function(t){ html+='<option value="'+t+'"'+(ev&&ev.type===t?' selected':'')+'>'+t+'</option>'; });
+  html+='</select></label>';
+  html+='<label style="font-size:11px;font-weight:600">Notes<textarea id="hr-ev-notes" rows="2" style="width:100%;margin-top:4px;padding:8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit">'+(ev?(ev.notes||''):'')+'</textarea></label>';
+  html+='</div>';
+  html+='<div class="org-modal-ft" style="justify-content:flex-end">';
+  if(ev) html+='<button class="org-btn org-btn-danger" data-hr-event-del="'+ev.id+'" style="margin-right:auto">Delete</button>';
+  html+='<button class="org-btn org-btn-ghost" data-hr-modal-close="1">Cancel</button>';
+  html+='<button class="org-btn org-btn-primary" data-hr-event-save="1">Save event</button></div></div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+}
+function saveHrEventFromForm(){
+  var id=document.getElementById('hr-ev-id').value;
+  var title=(document.getElementById('hr-ev-title').value||'').trim();
+  var date=document.getElementById('hr-ev-date').value;
+  if(!title||!date){ alert('Title and start date are required.'); return; }
+  var end=document.getElementById('hr-ev-end').value;
+  var ev={id:id||'hev_'+Date.now(),title:title,date:date,endDate:end&&end>=date?end:'',time:document.getElementById('hr-ev-time').value||'',type:document.getElementById('hr-ev-type').value,notes:document.getElementById('hr-ev-notes').value||''};
+  if(!ST.hrEvents) ST.hrEvents=[];
+  var idx=ST.hrEvents.findIndex(function(x){return x.id===ev.id;});
+  if(idx>=0) ST.hrEvents[idx]=ev; else ST.hrEvents.push(ev);
+  saveState(); closeHrEventModal(); renderTab('hrcal');
+}
+function deleteHrEvent(id){
+  if(!confirm('Delete this event?')) return;
+  ST.hrEvents=(ST.hrEvents||[]).filter(function(x){return x.id!==id;});
+  saveState(); closeHrEventModal(); renderTab('hrcal');
+}
+
+// ═══════════════════════════════════════════════════════
+// TAB 1 — HR HEALTH DASHBOARD
+// ═══════════════════════════════════════════════════════
+function renderDash(){
+  var D=calcEngine();
+  var H=calcHrHealth(D);
+  var html='';
+
+  if(_usingDefaults){
+    html+='<div style="background:var(--gold-l);border:1.5px solid var(--gold);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">';
+    html+='<span style="font-size:11px;color:var(--gold-b);font-weight:600">&#9888; Demo data — sync from V3 for live headcount.</span>';
+    html+='<button onclick="syncFromV3()" style="padding:4px 12px;border-radius:6px;background:var(--gold);color:#fff;font-size:11px;font-weight:700;border:none;cursor:pointer">&#8635; Sync</button></div>';
+  }
+
+  html+='<div class="hr-dash-hero">';
+  html+='<div><div style="font-size:11px;opacity:.85;text-transform:uppercase;letter-spacing:.08em;font-weight:700;margin-bottom:6px">HR Health Score</div>';
+  html+='<div class="hr-dash-score">'+(H.health!==null?H.health:'—')+'<span style="font-size:20px;opacity:.7">/100</span></div>';
+  html+='<div style="font-size:14px;font-weight:600;margin-top:6px;opacity:.95">'+H.label+'</div></div>';
+  html+='<div style="display:flex;gap:16px;flex-wrap:wrap">';
+  html+='<div style="text-align:center"><div class="hr-dash-ring" style="border-color:'+H.col+'">'+(H.totFilled||0)+'</div><div style="font-size:10px;margin-top:6px;opacity:.9">In seats</div></div>';
+  html+='<div style="text-align:center"><div class="hr-dash-ring">'+(H.vacOpen||0)+'</div><div style="font-size:10px;margin-top:6px;opacity:.9">Plan gaps</div></div>';
+  html+='<div style="text-align:center"><div class="hr-dash-ring">'+(H.unplaced||0)+'</div><div style="font-size:10px;margin-top:6px;opacity:.9">Unplaced</div></div>';
   html+='</div></div>';
 
-  // ── Vertical cost breakdown bar chart ────────────────────
-  var vertCosts={};
-  EMPLOYEES.forEach(function(e){var v=e.vertical||'Unassigned';vertCosts[v]=(vertCosts[v]||0)+((e.salary||0)+(e.pf||0)+(e.profTax||0)+(e.insurance||0));});
-  var sortedV=Object.keys(vertCosts).sort(function(a,b){return vertCosts[b]-vertCosts[a];}).slice(0,6);
-  var maxVC=sortedV.length?Math.max.apply(null,sortedV.map(function(v){return vertCosts[v];}))||1:1;
-  var VCOLS=['#1558A0','#0B7070','#1A7244','#A07800','#542B8A','#B54D0A'];
-  if(sortedV.length){
-    html+='<div style="background:var(--card);border-radius:10px;padding:16px;border:1.5px solid var(--border);margin-bottom:16px">';
-    html+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:10px">&#128100; People Cost by Vertical (Monthly)</div>';
-    html+='<div style="display:flex;flex-direction:column;gap:6px">';
-    sortedV.forEach(function(v,i){
-      var w=Math.max(2,(vertCosts[v]/maxVC*100)).toFixed(1);
-      var lbl=vertCosts[v]>=100000?(vertCosts[v]/100000).toFixed(1)+' L':'Rs '+(vertCosts[v]/1000).toFixed(0)+'K';
-      html+='<div style="display:flex;align-items:center;gap:8px">';
-      html+='<div style="width:120px;font-size:10px;color:var(--muted);text-align:right;flex-shrink:0">'+v+'</div>';
-      html+='<div style="flex:1;height:18px;background:var(--bg);border-radius:4px;overflow:hidden">';
-      html+='<div style="width:'+w+'%;height:100%;background:'+VCOLS[i%VCOLS.length]+';border-radius:4px;box-sizing:border-box"></div></div>';
-      html+='<div style="min-width:65px;font-size:10px;font-weight:700;color:'+VCOLS[i%VCOLS.length]+'">'+lbl+'</div>';
-      html+='</div>';
+  html+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">';
+  var card=function(lbl,val,sub,col,bg){
+    return '<div style="background:'+(bg||'var(--card)')+';border-radius:12px;padding:14px 16px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em">'+lbl+'</div><div style="font-size:24px;font-weight:800;color:'+(col||'var(--blue-b)')+';margin:4px 0">'+val+'</div><div style="font-size:10px;color:var(--muted)">'+sub+'</div></div>';
+  };
+  html+=card('Org seats filled', H.seatFill!==null?H.seatFill+'%':'—', H.totFilled+' of '+H.totSeats+' approved seats', H.seatFill>=85?'#1A7244':H.seatFill>=60?'#A07800':'#A8301E', '#F8FAFC');
+  html+=card('Plan vs payroll', H.planFill!==null?H.planFill+'%':'—', H.hrEx+' on payroll · '+H.hrAp+' approved', H.planFill>=85?'#1A7244':'#A07800');
+  html+=card('Open hires', H.hN, H.cN+' critical · '+H.vacOpen+' plan vacancies', H.cN>0?'#A8301E':'#1A7244', H.cN>0?'#FEF2F2':'#F0FDF4');
+  html+=card('Project allocation', H.allocPct!==null?H.allocPct+'%':'—', 'employees at 100% tagged', H.allocPct>=80?'#1A7244':'#A07800');
+  html+=card('KPI scorecards', H.kgPct!==null?H.kgPct+'%':'—', (H.kgAvg!==null?'avg '+H.kgAvg.toFixed(2):'no entries')+(H.kgAtRisk?' · '+H.kgAtRisk+' at risk':''), H.kgPct>=80?'#1A7244':'#A07800');
+  html+=card('IC : Leader', H.icRatio!==null?H.icRatio.toFixed(1)+':1':'—', 'A1–A2 per A3+ (target 2–5)', (H.icRatio>=2&&H.icRatio<=5)?'#1A7244':'#A07800');
+  html+='</div>';
+
+  html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px">';
+  html+='<div style="background:var(--card);border-radius:12px;padding:16px;border:1px solid var(--border)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:13px;font-weight:800;color:var(--blue-b)">&#128200; Headcount health</div><button onclick="showTab(\'res\')" class="org-btn org-btn-ghost">Headcount Plan</button></div>';
+  var bars=[{l:'Seats filled',v:H.seatFill||0,c:'#1A7244'},{l:'Plan coverage',v:H.planFill||0,c:'#1558A0'},{l:'Allocations OK',v:H.allocPct||0,c:'#542B8A'},{l:'KPI tracking',v:H.kgPct||0,c:'#A07800'}];
+  bars.forEach(function(b){
+    html+='<div style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;font-size:10px;margin-bottom:3px"><span>'+b.l+'</span><strong style="color:'+b.c+'">'+b.v+'%</strong></div>';
+    html+='<div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden"><div style="width:'+b.v+'%;height:100%;background:'+b.c+';border-radius:4px"></div></div></div>';
+  });
+  html+='</div>';
+
+  html+='<div style="background:var(--card);border-radius:12px;padding:16px;border:1px solid var(--border)">';
+  html+='<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><div style="font-size:13px;font-weight:800;color:var(--teal)">&#128197; Upcoming HR activities</div>';
+  html+='<button onclick="showTab(\'hrcal\')" class="org-btn org-btn-primary">Open calendar</button></div>';
+  if(H.upcoming.length){
+    H.upcoming.forEach(function(ev){
+      html+='<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">';
+      html+='<span style="font-size:10px;font-weight:700;color:var(--muted);min-width:72px">'+ev.date+(ev.time?' '+ev.time:'')+'</span>';
+      html+='<span style="width:8px;height:8px;border-radius:50%;background:'+hrEvtColor(ev.type)+'"></span>';
+      html+='<span style="font-size:12px;font-weight:600;flex:1">'+ev.title+'</span>';
+      html+='<span style="font-size:9px;font-weight:700;color:'+hrEvtColor(ev.type)+'">'+ev.type+'</span></div>';
     });
+  } else {
+    html+='<div style="text-align:center;padding:24px;color:var(--muted);font-size:12px">No upcoming events — <button onclick="showTab(\'hrcal\')" style="background:none;border:none;color:var(--blue);cursor:pointer;font-weight:700">plan your first activity</button></div>';
+  }
+  html+='</div></div>';
+
+  if(H.cN>0){
+    var critHires=D.hp.filter(function(h){return h.pri==='Critical'&&h.action==='Hire';});
+    html+='<div style="background:#FEF2F2;border-radius:12px;padding:14px 16px;border:1px solid #fca5a5;margin-bottom:16px">';
+    html+='<div style="font-size:12px;font-weight:800;color:var(--red);margin-bottom:8px">&#9888; Critical roles to fill ('+H.cN+')</div><div style="display:flex;gap:8px;flex-wrap:wrap">';
+    critHires.slice(0,8).forEach(function(h){
+      html+='<span style="font-size:11px;background:#fff;color:var(--red-b);border:1px solid #fca5a5;border-radius:20px;padding:4px 12px;font-weight:600">'+h.role+(h.projName?' · '+h.projName:'')+'</span>';
+    });
+    html+='<button onclick="showTab(\'band\')" style="font-size:10px;padding:4px 12px;border-radius:20px;border:1px dashed var(--red);background:#fff;color:var(--red-b);cursor:pointer;font-weight:700">View org structure</button>';
     html+='</div></div>';
   }
 
-  // ── Critical hires ────────────────────────────────────────
-  var critHires=D.hp.filter(function(h){return h.pri==='Critical'&&h.action==='Hire';});
-  if(critHires.length){
-    html+='<div style="background:var(--card);border-radius:10px;padding:14px 16px;border:1.5px solid var(--border);border-left:3px solid var(--red)">';
-    html+='<div style="font-size:12px;font-weight:700;color:var(--red);margin-bottom:8px">&#9888; Critical Open Positions</div>';
-    html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
-    critHires.slice(0,10).forEach(function(h){
-      html+='<span style="font-size:11px;background:#FEE5E5;color:var(--red);border-radius:4px;padding:4px 12px;font-weight:600">'+h.role+(h.projName?' ('+h.projName+')':'')+'</span>';
-    });
-    html+='</div></div>';
-  }
+  html+='<div style="display:flex;gap:10px;flex-wrap:wrap">';
+  html+='<button onclick="showTab(\'band\')" class="btn btn-blue">&#9699; Org structure</button>';
+  html+='<button onclick="showTab(\'team\')" class="btn btn-ghost">&#128100; Team &amp; payroll</button>';
+  html+='<button onclick="showTab(\'kpi\')" class="btn btn-ghost">&#127919; Team KPIs</button>';
+  html+='<button onclick="showTab(\'hrcal\')" class="btn btn-ghost">&#128197; HR calendar</button>';
+  html+='</div>';
 
   document.getElementById('page-dash').innerHTML=html;
 }
@@ -1507,15 +1612,77 @@ function clearBandSlot(rid,idx){
   saveState();
   renderTab('band');
 }
+function removeBandSlotAssignment(rid,idx){
+  setBandSlotManual(rid,idx,'');
+  renderTab('band');
+}
+function closeBandAssignModal(){
+  var m=document.getElementById('band-assign-modal');
+  if(m) m.remove();
+  _bandAssignRid=null; _bandAssignIdx=null;
+}
+function orgInitials(name){
+  return String(name||'?').split(/\s+/).slice(0,2).map(function(w){return w[0]||'';}).join('').toUpperCase();
+}
+function orgAvatarColor(seed){
+  var cols=['#1558A0','#1A7244','#542B8A','#0B7070','#A07800','#A8301E','#4A5568','#B54D0A'];
+  var h=0; for(var i=0;i<String(seed).length;i++) h=(h+seed.charCodeAt(i)*17)%cols.length;
+  return cols[h];
+}
+function showBandAssignModal(rid,slotIdx){
+  closeBandAssignModal();
+  var r=allR().find(function(x){return x.id===rid;});
+  if(!r) return;
+  _bandAssignRid=rid; _bandAssignIdx=slotIdx;
+  var q=(bandActualSearch||'').toLowerCase();
+  var sorted=EMPLOYEES.slice().sort(function(a,b){return a.name.localeCompare(b.name);});
+  var html='<div class="org-modal-bg" id="band-assign-modal" data-bandmodal-close="1">';
+  html+='<div class="org-modal" onclick="event.stopPropagation()">';
+  html+='<div class="org-modal-hdr"><div class="org-modal-title">Assign to '+r.role+'</div>';
+  html+='<div class="org-modal-sub">Seat '+(slotIdx+1)+' &middot; '+r.fn+' &middot; '+r.type+'</div></div>';
+  html+='<div style="padding:8px 12px;border-bottom:1px solid var(--border)"><input type="text" id="band-modal-search" placeholder="Search by name or role…" style="width:100%;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:12px" value="'+(bandActualSearch||'').replace(/"/g,'&quot;')+'"/></div>';
+  html+='<div class="org-modal-list" id="band-modal-list">';
+  html+='<div class="org-pick-row" data-bandpick-vacant="'+rid+'" data-bandpick-idx="'+slotIdx+'" style="border:1px dashed var(--border);margin-bottom:6px">';
+  html+='<div class="org-pick-av" style="background:#94A3B8">—</div>';
+  html+='<div class="org-pick-info"><div class="org-pick-name" style="color:var(--orange)">Leave vacant</div><div class="org-pick-role">Open seat — no one assigned</div></div></div>';
+  sorted.forEach(function(e){
+    if(q&&e.name.toLowerCase().indexOf(q)<0&&(e.role||'').toLowerCase().indexOf(q)<0) return;
+    var col=orgAvatarColor(e.id);
+    html+='<div class="org-pick-row" data-bandpick="'+e.id+'" data-bandpick-rid="'+rid+'" data-bandpick-idx="'+slotIdx+'">';
+    html+='<div class="org-pick-av" style="background:'+col+'">'+orgInitials(e.name)+'</div>';
+    html+='<div class="org-pick-info"><div class="org-pick-name">'+e.name+'</div><div class="org-pick-role">'+(e.role||'—')+(e.band?' · Band '+e.band:'')+'</div></div></div>';
+  });
+  html+='</div>';
+  html+='<div class="org-modal-ft"><label style="font-size:11px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="band-assign-sync" checked/> Sync role to plan title</label>';
+  html+='<button class="org-btn org-btn-ghost" data-bandmodal-close="1">Cancel</button></div>';
+  html+='</div></div>';
+  document.body.insertAdjacentHTML('beforeend',html);
+  var si=document.getElementById('band-modal-search');
+  if(si){
+    si.focus();
+    si.addEventListener('input',function(){
+      bandActualSearch=si.value;
+      var list=document.getElementById('band-modal-list');
+      if(!list) return;
+      q=si.value.toLowerCase();
+      var h='<div class="org-pick-row" data-bandpick-vacant="'+rid+'" data-bandpick-idx="'+slotIdx+'" style="border:1px dashed var(--border);margin-bottom:6px"><div class="org-pick-av" style="background:#94A3B8">—</div><div class="org-pick-info"><div class="org-pick-name" style="color:var(--orange)">Leave vacant</div><div class="org-pick-role">Open seat</div></div></div>';
+      sorted.forEach(function(e){
+        if(q&&e.name.toLowerCase().indexOf(q)<0&&(e.role||'').toLowerCase().indexOf(q)<0) return;
+        h+='<div class="org-pick-row" data-bandpick="'+e.id+'" data-bandpick-rid="'+rid+'" data-bandpick-idx="'+slotIdx+'"><div class="org-pick-av" style="background:'+orgAvatarColor(e.id)+'">'+orgInitials(e.name)+'</div><div class="org-pick-info"><div class="org-pick-name">'+e.name+'</div><div class="org-pick-role">'+(e.role||'—')+'</div></div></div>';
+      });
+      list.innerHTML=h;
+    });
+  }
+}
 function assignBandSlot(rid,idx,empId,syncRole){
   var r=allR().find(function(x){return x.id===rid;});
   if(!r) return;
   if(!empId){
     setBandSlotManual(rid,idx,'');
   } else {
-    setBandSlotManual(rid,idx,empId);
+    setBandSlotManual(rid,idx,String(empId));
     if(syncRole){
-      var emp=EMPLOYEES.find(function(e){return e.id===empId;});
+      var emp=EMPLOYEES.find(function(e){return String(e.id)===String(empId);});
       if(emp&&_cleanRoleTitle(emp.role)!==_cleanRoleTitle(r.role)){
         emp.role=r.role;
         saveTeamState();
@@ -1523,63 +1690,49 @@ function assignBandSlot(rid,idx,empId,syncRole){
     }
     if(r.type==='Dedicated'&&bandProjFilt!=='ALL'){
       var proj=null; getRpProjects().forEach(function(p){ if(p.id===bandProjFilt) proj=p; });
-      if(proj&&!ALLOC.some(function(a){return a.empId===empId&&a.project===proj.name;})){
+      if(proj&&!ALLOC.some(function(a){return String(a.empId)===String(empId)&&a.project===proj.name;})){
         ALLOC.push({empId:empId,project:proj.name,pct:100});
         saveTeamState();
       }
     }
   }
+  _bandPoolEmpId=null;
   renderTab('band');
 }
-function allBandSlotAssignments(){
-  var map={};
-  if(!ST.bandAssign) return map;
-  Object.keys(ST.bandAssign).forEach(function(k){
-    var v=ST.bandAssign[k];
-    if(v&&v!=='__vacant__') map[v]=k;
-  });
-  return map;
-}
 function renderEmpAllocChips(empId){
-  var allocs=ALLOC.filter(function(a){return a.empId===empId;});
+  var allocs=ALLOC.filter(function(a){return String(a.empId)===String(empId);});
   var html='';
-  if(!allocs.length) html+='<span style="font-size:9px;color:var(--orange)">No projects tagged</span>';
   allocs.forEach(function(a){
     var sc2c=((PROJS.find(function(p){return p.name===a.project;})||{}).status);
     sc2c=sc2c?STAC[sc2c]||'#64748B':'#64748B';
-    html+='<span style="display:inline-flex;align-items:center;gap:2px;font-size:9px;background:var(--bg);border:1px solid var(--border);border-radius:3px;padding:2px 5px;margin:1px 2px 1px 0">';
-    html+='<span style="width:5px;height:5px;border-radius:50%;background:'+sc2c+';flex-shrink:0"></span>';
-    html+='<span style="max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600">'+a.project+'</span>';
-    html+=' <input type="number" min="0" max="100" value="'+a.pct+'" data-alloc-empid="'+empId+'" data-alloc-proj="'+a.project+'" style="width:30px;border:none;background:transparent;font-size:9px;font-weight:700;text-align:right;padding:0"/>';
-    html+='<span style="font-size:9px">%</span>';
-    html+='<button data-delaeid="'+empId+'" data-delaproj="'+a.project+'" style="margin-left:1px;background:none;border:none;color:var(--red);cursor:pointer;font-size:10px;padding:0;line-height:1" title="Remove project tag">×</button>';
-    html+='</span>';
+    html+='<span class="org-proj-tag"><span class="org-proj-dot" style="background:'+sc2c+'"></span>';
+    html+='<span style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+a.project+'</span>';
+    html+='<input type="number" min="0" max="100" value="'+a.pct+'" data-alloc-empid="'+empId+'" data-alloc-proj="'+a.project+'" style="width:28px;border:none;background:transparent;font-size:10px;font-weight:700;text-align:right;padding:0"/>%';
+    html+='<button data-delaeid="'+empId+'" data-delaproj="'+a.project+'" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px;padding:0;line-height:1" title="Remove">×</button></span>';
   });
-  var opts='<option value="">+ Tag to project…</option>';
+  var opts='<option value="">+ Project</option>';
   rpVisibleProjs().forEach(function(p){
     if(!allocs.some(function(a){return a.project===p.name;}))
-      opts+='<option value="'+p.name+'">'+p.name+' ('+p.status+')</option>';
+      opts+='<option value="'+p.name+'">'+p.name+'</option>';
   });
-  html+='<select data-bandprojpick="'+empId+'" style="font-size:9px;padding:2px 4px;border:1px dashed var(--blue);border-radius:3px;color:var(--blue);background:var(--card);max-width:120px;margin-top:2px">'+opts+'</select>';
+  html+='<select data-band-proj-pick="'+empId+'" class="org-proj-add" style="font-size:10px;padding:2px 6px">'+opts+'</select>';
   return html;
 }
-function bandSlotPickerOptions(r,idx,currentId){
-  var html='<option value="">— Vacant seat —</option>';
-  var sorted=EMPLOYEES.slice().sort(function(a,b){ return a.name.localeCompare(b.name); });
-  sorted.forEach(function(e){
-    var sel=currentId===e.id?' selected':'';
-    var hint=(e.role||'').trim();
-    if(hint&&_cleanRoleTitle(hint)!==_cleanRoleTitle(r.role)) hint=' · '+hint; else hint=hint?' · '+hint:'';
-    html+='<option value="'+e.id+'"'+sel+'>'+e.name+hint+'</option>';
-  });
-  return html;
+function bandRoleMatchesSearch(r,q){
+  if(!q) return true;
+  return r.role.toLowerCase().indexOf(q)>=0||r.fn.toLowerCase().indexOf(q)>=0;
+}
+function bandSeatMatchesSearch(s,q){
+  if(!q) return true;
+  if(!s.person) return false;
+  return s.person.name.toLowerCase().indexOf(q)>=0||(s.person.role||'').toLowerCase().indexOf(q)>=0;
 }
 function teamForPlanRole(r){
   var rt=_cleanRoleTitle(r.role);
   if(!rt) return [];
   if(r.type!=='Dedicated'){
     return EMPLOYEES.filter(function(e){ return _cleanRoleTitle(e.role)===rt; }).map(function(e){
-      return {id:e.id,name:e.name,meta:(e.vertical||'Corporate').trim()};
+      return {id:e.id,name:e.name,meta:(e.vertical||'Corporate').trim(),role:e.role||''};
     });
   }
   if(bandProjFilt!=='ALL'){
@@ -1590,11 +1743,11 @@ function teamForPlanRole(r){
       return _cleanRoleTitle(e.role)===rt && ALLOC.some(function(a){
         return a.empId===e.id && _cleanRoleTitle(a.project)===_cleanRoleTitle(pn);
       });
-    }).map(function(e){ return {id:e.id,name:e.name,meta:pn||'Site'}; });
+    }).map(function(e){ return {id:e.id,name:e.name,meta:pn||'Site',role:e.role||''}; });
   }
   return EMPLOYEES.filter(function(e){ return _cleanRoleTitle(e.role)===rt; }).map(function(e){
     var projs=ALLOC.filter(function(a){ return a.empId===e.id; }).map(function(a){ return a.project; });
-    return {id:e.id,name:e.name,meta:projs.length?projs.join(', '):'Unallocated'};
+    return {id:e.id,name:e.name,meta:projs.length?projs.join(', '):'Unallocated',role:e.role||''};
   });
 }
 function bandPositionSlots(r,D){
@@ -1610,7 +1763,7 @@ function bandPositionSlots(r,D){
     if(manual!==undefined){
       isManual=true;
       if(manual&&manual!=='__vacant__'){
-        var e=EMPLOYEES.find(function(x){return x.id===manual;});
+        var e=EMPLOYEES.find(function(x){return String(x.id)===String(manual);});
         if(e){ person=empToSlotPerson(e,r); vacant=false; }
       }
     } else {
@@ -1687,89 +1840,214 @@ function renderBandPlanMatrix(D){
   return html;
 }
 function renderBandActualStructure(D){
-  var html='';
-  var totSeats=0,totFilled=0,totVacant=0,matchedEmp={},assignMap=allBandSlotAssignments();
+  var html='',q=(bandActualSearch||'').trim().toLowerCase();
+  var totSeats=0,totFilled=0,matchedEmp={};
   allR().forEach(function(r){
     var pos=bandPositionSlots(r,D);
     if(!pos) return;
     pos.slots.forEach(function(s){ if(s.person) matchedEmp[s.person.id]=true; });
   });
-  html+='<div class="info" style="margin-bottom:16px;line-height:1.55">';
-  html+='<strong>How to edit actual structure</strong><br>';
-  html+='1. <strong>Assign a person</strong> — use the dropdown on each seat to pick someone from payroll (or leave as Vacant).<br>';
-  html+='2. <strong>Tag projects</strong> — under each name, use <em>+ Tag to project</em> and set the % split (same data as Team View).<br>';
-  html+='3. <strong>Sync role title</strong> — tick the box when assigning so Team View role matches this plan position.<br>';
-  html+='<span style="font-size:10px;color:var(--muted)">Auto-match (green, no dropdown change) still uses exact role title from Team View. Manual picks are saved when you click Save.</span>';
+  var poolEmp=_bandPoolEmpId?EMPLOYEES.find(function(e){return String(e.id)===String(_bandPoolEmpId);}):null;
+  allR().forEach(function(r){
+    if(bandActualFnFilt!=='ALL'&&r.fn!==bandActualFnFilt) return;
+    var pos=bandPositionSlots(r,D);
+    if(!pos) return;
+    if(q&&!bandRoleMatchesSearch(pos.role,q)&&!pos.slots.some(function(s){return bandSeatMatchesSearch(s,q);})) return;
+    totSeats+=pos.slots.length;
+    totFilled+=pos.slots.filter(function(s){return !s.vacant;}).length;
+  });
+  var totVacant=totSeats-totFilled;
+  var unassigned=EMPLOYEES.filter(function(e){ return !matchedEmp[e.id]; });
+
+  html+='<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;padding:12px 16px;background:var(--card);border-radius:12px;border:1px solid var(--border)">';
+  html+='<input type="text" id="org-search" class="org-search" style="flex:1;min-width:180px" placeholder="Find a person or role…" value="'+(bandActualSearch||'').replace(/"/g,'&quot;')+'"/>';
+  html+='<span style="font-size:12px;color:var(--muted)"><strong style="color:var(--green)">'+totFilled+'</strong> filled · <strong style="color:var(--orange)">'+totVacant+'</strong> open · <strong>'+totSeats+'</strong> seats</span>';
+  if(poolEmp) html+='<span style="font-size:11px;font-weight:700;color:var(--green-b);padding:4px 10px;background:var(--green-l);border-radius:16px">Assigning: '+poolEmp.name+'</span>';
   html+='</div>';
 
   BAND_ORDER.forEach(function(bid){
     var bdf=null; BANDS_DEF.forEach(function(x){if(x.id===bid)bdf=x;});
-    var positions=allR().filter(function(r){return r.band===bid;}).map(function(r){return bandPositionSlots(r,D);}).filter(Boolean);
+    var positions=allR().filter(function(r){
+      if(r.band!==bid) return false;
+      if(bandActualFnFilt!=='ALL'&&r.fn!==bandActualFnFilt) return false;
+      return bandPositionSlots(r,D);
+    }).map(function(r){return bandPositionSlots(r,D);}).filter(Boolean);
+    if(q) positions=positions.filter(function(pos){
+      return bandRoleMatchesSearch(pos.role,q)||pos.slots.some(function(s){return bandSeatMatchesSearch(s,q);});
+    });
     if(!positions.length) return;
-    html+='<div style="margin-bottom:20px">';
-    html+='<div style="display:flex;align-items:baseline;gap:10px;margin-bottom:10px;padding-bottom:8px;border-bottom:2px solid '+BAND_COL[bid]+'40">';
-    html+='<span style="font-size:15px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</span>';
-    html+='<span style="font-size:11px;color:var(--muted)">'+(bdf?bdf.title:'')+' &middot; '+(bdf?bdf.exp:'')+'</span>';
-    html+='</div>';
-    html+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(292px,1fr));gap:10px">';
+    var bandFilled=0,bandSeats=0;
     positions.forEach(function(pos){
-      var r=pos.role,f2=fc(r.fn);
-      var filled=pos.slots.filter(function(s){return !s.vacant;}).length;
-      var vacant=pos.slots.length-filled;
-      totSeats+=pos.slots.length; totFilled+=filled; totVacant+=vacant;
-      html+='<div style="background:var(--card);border:1px solid var(--border);border-left:4px solid '+f2.c+';border-radius:8px;padding:10px 12px">';
-      html+='<div style="font-size:9px;font-weight:700;color:'+f2.c+';text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">'+r.fn+'</div>';
-      html+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);line-height:1.3;margin-bottom:4px">'+r.role+'</div>';
-      html+='<div style="font-size:9px;color:var(--muted);margin-bottom:10px">'+r.type+' &middot; Approved <strong>'+pos.approved+'</strong> &middot; Filled <strong>'+filled+'</strong></div>';
-      pos.slots.forEach(function(s,idx){
-        var curId=s.person?s.person.id:'';
-        var dupElse=curId&&assignMap[curId]&&assignMap[curId]!==bandSlotKey(r.id,idx);
-        html+='<div style="margin-bottom:8px;padding:8px;border-radius:8px;border:1px solid '+(s.vacant?'#B54D0A40':'#1A724430')+';background:'+(s.vacant?'#FEF0E5':'#E8F6EE')+'">';
-        html+='<div style="font-size:9px;font-weight:700;color:var(--muted);margin-bottom:4px">Seat '+(idx+1)+'</div>';
-        html+='<select data-bandslot-rid="'+r.id+'" data-bandslot-idx="'+idx+'" style="width:100%;font-size:11px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--card);margin-bottom:4px" title="Who fills this position?">';
-        html+=bandSlotPickerOptions(r,idx,curId);
-        html+='</select>';
-        html+='<label style="display:flex;align-items:center;gap:5px;font-size:9px;color:var(--muted);margin-bottom:6px;cursor:pointer">';
-        html+='<input type="checkbox" id="bandsync-'+r.id+'-'+idx+'" checked style="margin:0"/> Sync Team View role to <em>'+r.role+'</em>';
-        html+='</label>';
-        if(s.person){
-          var roleOk=_cleanRoleTitle(s.person.role||'')===_cleanRoleTitle(r.role);
-          html+='<div style="font-size:11px;font-weight:700;color:#0F4829;margin-bottom:2px">'+s.person.name+'</div>';
-          if(!roleOk) html+='<div style="font-size:9px;color:#B45309;margin-bottom:4px">Team role differs from plan — assign again with sync, or edit in Team View</div>';
-          if(dupElse) html+='<div style="font-size:9px;color:#B45309;margin-bottom:4px">Also assigned to another seat</div>';
-          html+='<div style="font-size:9px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:6px 0 4px">Projects</div>';
-          html+='<div style="display:flex;align-items:center;gap:3px;flex-wrap:wrap">'+renderEmpAllocChips(s.person.id)+'</div>';
-        } else {
-          html+='<div style="font-size:10px;color:#7A3205;font-style:italic">Vacant — pick someone above or hire for '+r.role+'</div>';
-        }
-        if(s.manual){
-          html+='<button data-bandclear="'+r.id+'" data-bandidx="'+idx+'" style="margin-top:6px;font-size:9px;padding:2px 8px;background:none;border:1px solid var(--border);border-radius:4px;color:var(--muted);cursor:pointer" title="Revert to auto-match from Team View">Reset to auto-match</button>';
-        }
-        html+='</div>';
+      bandSeats+=pos.slots.length;
+      bandFilled+=pos.slots.filter(function(s){return !s.vacant;}).length;
+    });
+    var bandVac=bandSeats-bandFilled;
+    var accK='bandacc_'+bid;
+    var open=ST.col[accK]!==undefined?!isColl(accK):(bandVac>0||bid==='MP'||!!q);
+    html+='<div class="org-simple-band">';
+    html+='<div class="org-simple-hdr" data-bandacc="'+bid+'">';
+    html+='<span style="font-size:14px;color:var(--muted);width:20px">'+(open?'▼':'▶')+'</span>';
+    html+='<span style="font-size:14px;font-weight:800;color:'+BAND_COL[bid]+'">'+bandLevelLabel(bid,bdf)+'</span>';
+    html+='<span style="font-size:11px;color:var(--muted);margin-left:auto">'+bandFilled+'/'+bandSeats+' filled</span>';
+    if(bandVac) html+='<span style="font-size:10px;font-weight:700;color:var(--orange);background:#FEF0E5;padding:2px 8px;border-radius:10px">'+bandVac+' open</span>';
+    html+='</div>';
+    if(open){
+      html+='<div class="org-simple-list">';
+      positions.forEach(function(pos){
+        var r=pos.role;
+        pos.slots.forEach(function(s,idx){
+          if(s.person){
+            html+='<div class="org-simple-row">';
+            html+='<span class="org-roster-dot" style="background:#1A7244"></span>';
+            html+='<span style="flex:1;min-width:0"><strong>'+s.person.name+'</strong> <span style="color:var(--muted)">— '+r.role+'</span></span>';
+            html+='<button class="org-btn org-btn-ghost" data-band-assign-open="'+r.id+'" data-band-assign-idx="'+idx+'">Change</button>';
+            html+='<button class="org-btn org-btn-danger" data-band-remove="'+r.id+'" data-band-remove-idx="'+idx+'">×</button>';
+            html+='</div>';
+          } else {
+            html+='<div class="org-simple-row vacant">';
+            html+='<span class="org-roster-dot" style="background:#B54D0A"></span>';
+            html+='<span style="flex:1;color:#7A3205"><em>Vacant</em> — '+r.role+'</span>';
+            if(poolEmp) html+='<button class="org-btn org-btn-primary" data-band-quickassign="'+r.id+'" data-band-quickidx="'+idx+'">Assign '+poolEmp.name.split(' ')[0]+'</button>';
+            else html+='<button class="org-btn org-btn-primary" data-band-assign-open="'+r.id+'" data-band-assign-idx="'+idx+'">+ Assign</button>';
+            html+='</div>';
+          }
+        });
       });
       html+='</div>';
-    });
-    html+='</div></div>';
+    }
+    html+='</div>';
   });
-  var unassigned=EMPLOYEES.filter(function(e){ return !matchedEmp[e.id]; });
+
   if(unassigned.length){
-    html+='<div style="margin-top:8px;padding:14px 16px;background:var(--bg);border-radius:10px;border:1px solid var(--border)">';
-    html+='<div style="font-size:12px;font-weight:800;color:var(--slate-b);margin-bottom:8px">On payroll — not yet placed in a seat</div>';
-    html+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Assign them using the dropdown on any vacant seat above, or align their <strong>Role / Designation</strong> in Team View to auto-fill.</div>';
-    html+='<div style="display:flex;flex-wrap:wrap;gap:6px">';
-    unassigned.forEach(function(e){
-      var projs=ALLOC.filter(function(a){return a.empId===e.id;}).map(function(a){return a.project+' '+a.pct+'%';}).join(', ');
-      html+='<span style="font-size:11px;padding:4px 10px;border-radius:20px;background:var(--card);border:1px solid var(--border)"><strong>'+e.name+'</strong> <span style="color:var(--muted)">'+((e.role||'')+(e.band?' · '+e.band:''))+'</span>'+(projs?' <span style="color:var(--blue)">· '+projs+'</span>':'')+'</span>';
+    html+='<div style="margin-top:14px;padding:12px 16px;background:var(--bg);border-radius:10px;font-size:12px;color:var(--muted)">';
+    html+='<strong style="color:var(--slate-b)">'+unassigned.length+' on payroll not in org chart</strong> — click a name, then <em>+ Assign</em> on any open role. ';
+    html+='<span style="display:inline-flex;flex-wrap:wrap;gap:6px;margin-top:8px">';
+    unassigned.slice(0,12).forEach(function(e){
+      if(q&&e.name.toLowerCase().indexOf(q)<0&&(e.role||'').toLowerCase().indexOf(q)<0) return;
+      var sel=String(_bandPoolEmpId)===String(e.id);
+      html+='<button data-bandpool-assign="'+e.id+'" style="font-size:11px;padding:4px 10px;border-radius:16px;border:1px solid '+(sel?'var(--blue)':'var(--border)')+';background:'+(sel?'var(--blue-l)':'var(--card)')+';cursor:pointer">'+e.name+'</button>';
     });
-    html+='</div></div>';
+    if(unassigned.length>12) html+='<span>+'+(unassigned.length-12)+' more</span>';
+    html+='</span></div>';
   }
-  var summary='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">';
-  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--blue)">'+totSeats+'</div><div style="font-size:10px;color:var(--muted)">Approved seats</div></div>';
-  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--green)">'+totFilled+'</div><div style="font-size:10px;color:var(--muted)">Filled</div></div>';
-  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--orange)">'+totVacant+'</div><div style="font-size:10px;color:var(--muted)">Vacant seats</div></div>';
-  summary+='<div style="background:var(--card);border-radius:8px;padding:10px 18px;border:1.5px solid var(--border);text-align:center"><div style="font-size:20px;font-weight:800;color:var(--slate)">'+unassigned.length+'</div><div style="font-size:10px;color:var(--muted)">Not placed</div></div>';
-  summary+='</div>';
-  return summary+html;
+  html+='<div style="margin-top:12px;font-size:11px;color:var(--muted)">Tag projects per person in <a href="#" onclick="showTab(\'team\');return false" style="color:var(--blue);font-weight:600">Team View</a>. Click <strong>Save</strong> after changes.</div>';
+  return html;
+}
+function renderHrCal(){
+  var d=hrCalCursorDate();
+  var today=hrTodayYmd();
+  var html='';
+  var MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var DOW=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var title='';
+  if(hrCalView==='day') title=d.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
+  else if(hrCalView==='week'){
+    var ws=new Date(d); ws.setDate(d.getDate()-d.getDay());
+    var we=new Date(ws); we.setDate(ws.getDate()+6);
+    title=ws.toLocaleDateString('en-IN',{month:'short',day:'numeric'})+' – '+we.toLocaleDateString('en-IN',{month:'short',day:'numeric',year:'numeric'});
+  } else if(hrCalView==='year') title=String(d.getFullYear());
+  else title=MONTHS[d.getMonth()]+' '+d.getFullYear();
+
+  html+='<div class="hr-cal-wrap">';
+  html+='<div class="hr-cal-top">';
+  html+='<div><div style="font-size:10px;font-weight:700;color:var(--gold-b);text-transform:uppercase;letter-spacing:.06em">HR Activities</div>';
+  html+='<div class="hr-cal-title">'+title+'</div></div>';
+  html+='<div class="hr-cal-nav">';
+  html+='<button data-hr-cal-nav="prev" title="Previous">&#9664;</button>';
+  html+='<button data-hr-cal-today="1" style="width:auto;padding:0 12px;font-size:11px;font-weight:700">Today</button>';
+  html+='<button data-hr-cal-nav="next" title="Next">&#9654;</button>';
+  html+='</div>';
+  html+='<div class="hr-cal-views">';
+  ['day','week','month','year'].forEach(function(v){
+    html+='<button data-hr-cal-view="'+v+'" class="'+(hrCalView===v?'on':'')+'">'+v.charAt(0).toUpperCase()+v.slice(1)+'</button>';
+  });
+  html+='</div>';
+  html+='<button class="org-btn org-btn-primary" data-hr-cal-add="'+hrFmtYmd(d)+'" style="margin-left:auto">+ New activity</button>';
+  html+='</div>';
+  html+='<div class="hr-cal-body">';
+
+  if(hrCalView==='month'){
+    html+='<div class="hr-cal-month">';
+    DOW.forEach(function(w){ html+='<div class="hr-cal-dow">'+w+'</div>'; });
+    var y=d.getFullYear(),m=d.getMonth();
+    var first=new Date(y,m,1), start=new Date(first); start.setDate(1-first.getDay());
+    for(var i=0;i<42;i++){
+      var cell=new Date(start); cell.setDate(start.getDate()+i);
+      var ymd=hrFmtYmd(cell), isOther=cell.getMonth()!==m, isTod=ymd===today;
+      var evs=hrEventOnDay(ymd);
+      html+='<div class="hr-cal-day'+(isOther?' other':'')+(isTod?' today':'')+'" data-hr-cal-add="'+ymd+'">';
+      html+='<div class="hr-cal-day-num">'+cell.getDate()+'</div>';
+      evs.slice(0,3).forEach(function(ev){
+        html+='<div class="hr-cal-ev" style="background:'+hrEvtColor(ev.type)+'" data-hr-event-id="'+ev.id+'" title="'+ev.title+'">'+ev.title+'</div>';
+      });
+      if(evs.length>3) html+='<div style="font-size:8px;color:var(--muted)">+'+(evs.length-3)+' more</div>';
+      html+='</div>';
+    }
+    html+='</div>';
+  } else if(hrCalView==='week'){
+    var ws2=new Date(d); ws2.setDate(d.getDate()-d.getDay());
+    html+='<div class="hr-cal-week">';
+    html+='<div class="hr-cal-dow" style="background:var(--card)"></div>';
+    for(var w=0;w<7;w++){
+      var wd=new Date(ws2); wd.setDate(ws2.getDate()+w);
+      var wymd=hrFmtYmd(wd);
+      html+='<div class="hr-cal-dow'+(wymd===today?' today':'')+'">'+DOW[w]+'<br><strong>'+wd.getDate()+'</strong></div>';
+    }
+    html+='<div style="background:var(--card)"></div>';
+    for(var w2=0;w2<7;w2++){
+      var wd2=new Date(ws2); wd2.setDate(ws2.getDate()+w2);
+      var wymd2=hrFmtYmd(wd2);
+      var evs2=hrEventOnDay(wymd2);
+      html+='<div class="hr-cal-day'+(wymd2===today?' today':'')+'" data-hr-cal-add="'+wymd2+'">';
+      evs2.forEach(function(ev){
+        html+='<div class="hr-cal-ev" style="background:'+hrEvtColor(ev.type)+';white-space:normal" data-hr-event-id="'+ev.id+'">'+(ev.time?ev.time+' ':'')+ev.title+'</div>';
+      });
+      if(!evs2.length) html+='<div style="font-size:9px;color:var(--border);text-align:center;margin-top:20px">+ add</div>';
+      html+='</div>';
+    }
+    html+='</div>';
+  } else if(hrCalView==='day'){
+    var dymd=hrFmtYmd(d);
+    var devs=hrEventOnDay(dymd).sort(function(a,b){return (a.time||'').localeCompare(b.time||'');});
+    html+='<div class="hr-cal-day-full">';
+    html+='<div style="font-size:13px;font-weight:800;margin-bottom:14px;color:var(--blue-b)">'+d.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long',year:'numeric'})+'</div>';
+    if(!devs.length) html+='<div style="text-align:center;padding:40px;color:var(--muted)">No activities — <button data-hr-cal-add="'+dymd+'" class="org-btn org-btn-primary">Plan something</button></div>';
+    devs.forEach(function(ev){
+      html+='<div style="display:flex;gap:12px;padding:12px;margin-bottom:8px;background:var(--bg);border-radius:10px;border-left:4px solid '+hrEvtColor(ev.type)+';cursor:pointer" data-hr-event-id="'+ev.id+'">';
+      html+='<div style="min-width:52px;font-size:11px;font-weight:700;color:var(--muted)">'+(ev.time||'All day')+'</div>';
+      html+='<div><div style="font-size:13px;font-weight:700">'+ev.title+'</div>';
+      html+='<div style="font-size:10px;color:'+hrEvtColor(ev.type)+';font-weight:600;margin-top:2px">'+ev.type+'</div>';
+      if(ev.notes) html+='<div style="font-size:11px;color:var(--muted);margin-top:4px">'+ev.notes+'</div>';
+      html+='</div></div>';
+    });
+    html+='</div>';
+  } else {
+    html+='<div class="hr-cal-year">';
+    for(var mo=0;mo<12;mo++){
+      html+='<div class="hr-cal-mini">';
+      html+='<div class="hr-cal-mini-title">'+MONTHS[mo]+'</div>';
+      html+='<div class="hr-cal-mini-grid">';
+      DOW.forEach(function(w){ html+='<span style="font-size:7px;color:var(--muted)">'+w[0]+'</span>'; });
+      var f2=new Date(d.getFullYear(),mo,1), st2=new Date(f2); st2.setDate(1-f2.getDay());
+      for(var j=0;j<42;j++){
+        var c2=new Date(st2); c2.setDate(st2.getDate()+j);
+        if(c2.getMonth()!==mo){ html+='<span class="hr-cal-mini-d"></span>'; continue; }
+        var y2=hrFmtYmd(c2);
+        var has=hrEventOnDay(y2).length>0;
+        html+='<span class="hr-cal-mini-d'+(has?' has':'')+(y2===today?' today':'')+'" data-hr-cal-add="'+y2+'" style="cursor:pointer">'+c2.getDate()+'</span>';
+      }
+      html+='</div></div>';
+    }
+    html+='</div>';
+  }
+
+  html+='</div>';
+  html+='<div style="padding:12px 20px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:8px;background:var(--bg)">';
+  Object.keys(HR_EVT_TYPES).forEach(function(t){
+    html+='<span style="font-size:10px;font-weight:600;display:inline-flex;align-items:center;gap:4px"><span style="width:8px;height:8px;border-radius:2px;background:'+HR_EVT_TYPES[t]+'"></span>'+t+'</span>';
+  });
+  html+='</div></div>';
+  document.getElementById('page-hrcal').innerHTML=html;
 }
 function renderBand(){
   var D=calcEngine();
@@ -1778,7 +2056,7 @@ function renderBand(){
   if(bandSubView==='plan'){
     html+='<strong>Planned</strong> view: headcount chips with <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. Click a role to edit.</div>';
   } else {
-    html+='<strong>Actual structure</strong>: each card is an approved plan position. Use the seat dropdown to assign people, tag projects underneath each name, then click <strong>Save</strong>.</div>';
+    html+='<strong>Actual structure</strong> — simple roster by band. Click a band to expand. Use <strong>+ Assign</strong> on open roles. Project tags live in Team View.</div>';
   }
 
   html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
@@ -1802,6 +2080,8 @@ function renderBand(){
     html+=renderBandActualStructure(D);
     html+='<div id="band-detail-slot"></div>';
     document.getElementById('page-band').innerHTML=html;
+    var os=document.getElementById('org-search');
+    if(os&&bandActualSearch){os.focus();var v=os.value.length;os.setSelectionRange(v,v);}
     return;
   }
 
@@ -3776,6 +4056,7 @@ function loadTeamState(){
 // ═══════════════════════════════════════════════════════
 var _lastProjHash=''; // declare BEFORE syncFromV3 so it persists
 loadState();
+if(!hrCalCursor) hrCalCursor=hrTodayYmd();
 enforceRpProjectScope();
 loadTeamState();
 loadPnlMktg();
