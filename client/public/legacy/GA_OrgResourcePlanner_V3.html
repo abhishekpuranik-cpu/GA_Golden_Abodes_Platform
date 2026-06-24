@@ -4232,9 +4232,20 @@ if(!document.getElementById('dd-spin-style')){
 
 // ── Resource Planner V2 sync (Pipeline / Planned / Active only) ──
 var RP_V3_SYNC_STATUSES=['Pipeline','Planned','Active'];
+function v3CanonicalStatus(s){
+  var t=String(s||'').trim();
+  var low=t.toLowerCase();
+  if(low==='non adopted'||low==='non-adopted'||low==='nonadopted') return 'Non Adopted';
+  if(low==='active') return 'Active';
+  if(low==='planned') return 'Planned';
+  if(low==='pipeline') return 'Pipeline';
+  return t;
+}
 function projectsForRpSync(){
-  return PROJS.filter(function(p){ return RP_V3_SYNC_STATUSES.indexOf(p.status)>=0; })
-    .map(function(p){ return Object.assign({},p); });
+  return PROJS.filter(function(p){
+    var st=v3CanonicalStatus(p.status);
+    return RP_V3_SYNC_STATUSES.indexOf(st)>=0;
+  }).map(function(p){ return Object.assign({},p,{status:v3CanonicalStatus(p.status)}); });
 }
 function writeGaRpProjects(){
   try{ localStorage.setItem('ga_rp_projects', JSON.stringify(projectsForRpSync())); }catch(e){}

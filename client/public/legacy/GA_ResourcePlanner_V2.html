@@ -367,6 +367,22 @@ var DEFAULT_PROJS = [
 
 // V3 → V2 project scope: Pipeline, Planned, Active only (excludes Non Adopted)
 var RP_STATUSES=['Pipeline','Planned','Active'];
+var RP_EXCLUDED_STATUSES=['Non Adopted','Non-Adopted','NonAdopted','Rejected','Dropped','Cancelled','Canceled'];
+function canonicalProjStatus(s){
+  var t=String(s||'').trim();
+  if(!t) return '';
+  var low=t.toLowerCase();
+  if(low==='non adopted'||low==='non-adopted'||low==='nonadopted') return 'Non Adopted';
+  if(low==='active') return 'Active';
+  if(low==='planned') return 'Planned';
+  if(low==='pipeline') return 'Pipeline';
+  return t;
+}
+function isRpEligibleStatus(s){
+  var c=canonicalProjStatus(s);
+  if(RP_EXCLUDED_STATUSES.indexOf(c)>=0) return false;
+  return RP_STATUSES.indexOf(c)>=0;
+}
 // Active projects: teams come online by completion % (phased rollout)
 var RP_ACTIVE_PHASES=[
   {cmp:0,  label:'Land & BD',                 fns:['Land & BD']},
@@ -378,20 +394,34 @@ var RP_ACTIVE_PHASES=[
 ];
 function normalizeV3ProjectsForRP(raw){
   if(!raw||!Array.isArray(raw)) return [];
-  return raw.filter(function(p){ return p&&RP_STATUSES.indexOf(String(p.status||'').trim())>=0; })
-    .map(function(p){
-      var o=Object.assign({},p);
-      if(o.status!=='Active') o.on=true;
-      else if(o.on===undefined) o.on=true;
-      return o;
-    });
+  return raw.filter(function(p){
+    if(!p) return false;
+    var st=canonicalProjStatus(p.status);
+    return isRpEligibleStatus(st);
+  }).map(function(p){
+    var o=Object.assign({},p);
+    o.status=canonicalProjStatus(o.status);
+    if(o.status!=='Active') o.on=true;
+    else if(o.on===undefined) o.on=true;
+    return o;
+  });
 }
 function setRpProjectsFromV3(raw){
   var pp=normalizeV3ProjectsForRP(raw);
-  if(pp&&pp.length){ PROJS=pp; _D=null; return pp; }
-  return null;
+  var excluded=Array.isArray(raw)?raw.length-pp.length:0;
+  PROJS=pp; _D=null;
+  var cleaned=JSON.stringify(pp);
+  if(excluded>0){
+    try{ localStorage.setItem('ga_rp_projects',cleaned); }catch(e){}
+  }
+  return {projects:pp, excluded:excluded, hash:excluded>0?cleaned:(typeof raw==='string'?raw:cleaned)};
 }
-function getRpProjects(){ return PROJS.filter(function(p){ return RP_STATUSES.indexOf(p.status)>=0; }); }
+function getRpProjects(){ return PROJS.filter(function(p){ return isRpEligibleStatus(p.status); }); }
+function enforceRpProjectScope(){
+  var before=PROJS.length;
+  PROJS=normalizeV3ProjectsForRP(PROJS);
+  if(PROJS.length!==before) _D=null;
+}
 function rpVisibleProjs(){ return getRpProjects().filter(function(p){ return p.on!==false||p._gdv; }); }
 function rpActiveProjs(){ return getRpProjects().filter(function(p){ return p.status==='Active'&&p.on!==false; }); }
 function activePhaseForProj(p){
@@ -407,6 +437,11 @@ function alignedFnsForProj(p){
 }
 function isFnAlignedToProj(p,fn){ return alignedFnsForProj(p).indexOf(fn)>=0; }
 function isRoleAlignedToProj(p,r){ return r&&isFnAlignedToProj(p,r.fn); }
+function rpSyncStatusMsg(r){
+  var msg=r.projects.length?('Synced '+r.projects.length+' project'+(r.projects.length!==1?'s':'')):'No Pipeline/Planned/Active projects in V3 sync';
+  if(r.excluded>0) msg+=' — '+r.excluded+' Non Adopted excluded';
+  return msg;
+}
 function projsForRoleCalc(r){
   var rp=getRpProjects();
   if(!r) return [];
@@ -453,6 +488,7 @@ function clickFileInput(id){
 }
 var curTab  = 'dash';
 var bandProjFilt = 'ALL';
+var bandSubView = 'plan'; // 'plan' = headcount matrix | 'actual' = Team View names in slots
 var _dashProjFilt = 'ALL';
 var PROJS   = DEFAULT_PROJS.slice();
 var CUSTOM  = [];
@@ -895,7 +931,7 @@ function showTab(t){
     var raw=localStorage.getItem('ga_rp_projects');
     if(raw&&raw!==_lastProjHash){
       var pp=JSON.parse(raw);
-      if(pp&&pp.length){_lastProjHash=raw;var synced=setRpProjectsFromV3(pp);if(synced)setSS('Synced '+synced.length+' projects','green');else setSS('No Pipeline/Planned/Active projects in V3 sync','gold');}
+      if(Array.isArray(pp)){var r=setRpProjectsFromV3(pp);_lastProjHash=r.hash;setSS(rpSyncStatusMsg(r),r.projects.length?'green':'gold');}
     }
   }catch(e){}
   renderAll();
@@ -921,11 +957,11 @@ function syncFromV3(){
     var raw = localStorage.getItem('ga_rp_projects');
     if(raw && raw !== '[]'){
       var pp = JSON.parse(raw);
-      if(pp && pp.length){
-        var synced=setRpProjectsFromV3(pp);
-        if(synced){ _D = null; _lastProjHash = raw;
-        setSS('Synced ' + synced.length + ' projects from V3','green');
-        renderAll(); return; }
+      if(Array.isArray(pp)){
+        var r=setRpProjectsFromV3(pp);
+        _D = null; _lastProjHash = r.hash;
+        setSS(rpSyncStatusMsg(r), r.projects.length?'green':'gold');
+        renderAll(); return;
       }
     }
     if(isFile){
@@ -1041,6 +1077,7 @@ document.addEventListener('click',function(e){
   // Now check togcoll (section collapse/expand)
   var tc=findEl('togcoll'); if(tc){ togColl(tc.dataset.togcoll); return; }
   if(a.bandfilt!==undefined)   { bandProjFilt=a.bandfilt; renderTab('band'); return; }
+  if(a.bandsub!==undefined)    { bandSubView=a.bandsub; renderTab('band'); return; }
   if(a.kpiset!==undefined)     { kpiSetSel=a.kpiset; kpiSlotSel=0; renderTab('kpi'); return; }
   if(a.kpislot!==undefined)    { kpiSlotSel=+a.kpislot; renderTab('kpi'); return; }
   if(a.kpimode!==undefined)    { if(a.kpimode==='edit'&&!ADMIN){ alert('Editing KPIs is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; } kpiMode=a.kpimode; renderTab('kpi'); return; }
@@ -1090,8 +1127,8 @@ function renderDash(){
   }
 
   // ── GA-centric financials ─────────────────────────────────
-  var totDmFee=PROJS.reduce(function(s,p){return s+(p._dmFee||0);},0);
-  var totGDV=PROJS.reduce(function(s,p){return s+(p._gdv||0);},0);
+  var totDmFee=getRpProjects().reduce(function(s,p){return s+(p._dmFee||0);},0);
+  var totGDV=getRpProjects().reduce(function(s,p){return s+(p._gdv||0);},0);
   var totPeopleCostAnn=D.totAp; // approved annual org cost
   var totSharedAnn=scTotalMonthly()*12;
   var numActive2=rpActiveProjs().length||1;
@@ -1416,12 +1453,78 @@ function bandRoleNums(r,D){
   if(r.type==='Hybrid'){ n.ex+=getEx(gk(r.id)); n.sg+=D.sug[gk(r.id)]||0; n.ap+=getAp(gk(r.id)); }
   return n;
 }
+function empBandMatchesPlanRole(e,r){
+  var eb=String(e.band||'').trim();
+  var rb=r.band;
+  if(rb==='MP') return eb==='MP'||eb==='B2'||getVertMatch('Leadership',e.vertical,e.role);
+  if(eb===rb) return true;
+  if(eb==='0'&&(rb==='A1'||rb==='A2')) return true;
+  return false;
+}
+function actualPeopleForRole(r){
+  var clean=function(s){return String(s||'').trim().toLowerCase();};
+  var exact=EMPLOYEES.filter(function(e){ return clean(e.role)===clean(r.role); });
+  if(exact.length) return exact;
+  return EMPLOYEES.filter(function(e){
+    return empBandMatchesPlanRole(e,r)&&getVertMatch(r.fn,e.vertical,e.role);
+  });
+}
+function actualSlotsForRole(r,D){
+  var people=actualPeopleForRole(r);
+  var n=bandRoleNums(r,D);
+  var count=Math.max(n.ap,n.ex,people.length,n.sg>0?n.sg:0);
+  if(!count&&people.length) count=people.length;
+  var slots=[];
+  for(var i=0;i<count;i++){
+    if(people[i]) slots.push({kind:'filled',name:people[i].name,sub:people[i].role||people[i].vertical||''});
+    else slots.push({kind:'open',name:'Placeholder '+(i+1),sub:'Vacant'});
+  }
+  if(!slots.length) slots.push({kind:'open',name:'—',sub:'No appointee'});
+  return slots;
+}
+function renderBandRoleCell(r,D,f2){
+  var html='';
+  if(bandSubView==='actual'){
+    var slots=actualSlotsForRole(r,D);
+    html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px solid var(--border);border-left:3px solid '+f2.c+';border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card)'+(selNode===r.id?';box-shadow:0 0 0 2px var(--blue)':'')+'" title="'+r.role+' — actual structure">';
+    html+='<div style="font-size:10px;font-weight:700;line-height:1.25;margin-bottom:4px">'+r.role+'</div>';
+    slots.forEach(function(s){
+      var bg=s.kind==='filled'?'#E8F6EE':'#FEF0E5';
+      var col=s.kind==='filled'?'#1A7244':'#B54D0A';
+      html+='<div style="font-size:9px;padding:3px 6px;margin-bottom:3px;border-radius:4px;background:'+bg+';color:'+col+';border:1px dashed '+(s.kind==='open'?col:'transparent')+'">';
+      html+='<div style="font-weight:700">'+s.name+'</div>';
+      if(s.sub) html+='<div style="font-size:8px;opacity:.85">'+s.sub+'</div>';
+      html+='</div>';
+    });
+    html+='</div>';
+  } else {
+    var n=bandRoleNums(r,D);
+    var gap=n.ap-n.ex;
+    var tc=gap>0?'#A8301E':gap<0?'#B54D0A':n.ap>0?'#1A7244':'#94A3B8';
+    html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px solid var(--border);border-left:3px solid '+f2.c+';border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card);'+(n.dim?'opacity:.5;':'')+(selNode===r.id?'box-shadow:0 0 0 2px var(--blue);':'')+'" title="'+r.role+' — click to plan">';
+    html+='<div style="font-size:10px;font-weight:700;line-height:1.25;margin-bottom:2px">'+r.role+'</div>';
+    html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">';
+    html+='<span style="font-size:8px;font-weight:700;color:'+TYPC[r.type]+'">'+(r.type==='Dedicated'?'SITE':r.type==='Hybrid'?'HYBRID':'SHARED')+'</span>';
+    html+='<span style="font-size:9px;color:var(--muted)">E'+n.ex+' S'+n.sg+' <strong style="color:var(--blue)">A'+n.ap+'</strong></span>';
+    html+='<span style="font-size:9px;font-weight:700;color:'+tc+'">'+(gap>0?'+'+gap:gap<0?gap:'&#10003;')+'</span>';
+    html+='</div></div>';
+  }
+  return html;
+}
 function renderBand(){
   var D=calcEngine();
   var html='';
   html+='<div class="info">GA band structure <strong>A1 &#8594; A2 &#8594; A3 &#8594; B1 &#8594; B2</strong> (Directors/MP/COO sits above the bands) mapped to live planning data. ';
   html+='Every chip is a role from the Headcount Plan: <strong>E</strong>=Existing, <strong>S</strong>=Suggested, <strong>A</strong>=Approved. ';
   html+='Click a chip to open its planning panel (edit E/A, capacity, conditions, JD). Changes save to the planner state and flow to Headcount, Cost and P&amp;L.</div>';
+
+  // ── Sub-view: Planned headcount vs Actual people ──
+  html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
+  html+='<span style="font-size:11px;color:var(--muted);font-weight:600">Structure:</span>';
+  html+='<button class="sc-btn'+(bandSubView==='plan'?' on':'')+'" data-bandsub="plan">Planned (E / S / A)</button>';
+  html+='<button class="sc-btn'+(bandSubView==='actual'?' on':'')+'" data-bandsub="actual">Actual (names &amp; placeholders)</button>';
+  if(bandSubView==='actual') html+='<span style="font-size:10px;color:var(--muted)">Filled from Team View by band + function; vacant slots show as placeholders</span>';
+  html+='</div>';
 
   // ── Project filter pills ──
   html+='<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:14px">';
@@ -1499,17 +1602,8 @@ function renderBand(){
         html+='<div style="font-size:9px;color:var(--border);text-align:center;padding:6px 0">&mdash;</div>';
       } else {
         cellRoles.forEach(function(r){
-          var n=bandRoleNums(r,D);
-          var gap=n.ap-n.ex;
-          var tc=gap>0?'#A8301E':gap<0?'#B54D0A':n.ap>0?'#1A7244':'#94A3B8';
           var f2=fc(r.fn);
-          html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px solid var(--border);border-left:3px solid '+f2.c+';border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card);'+(n.dim?'opacity:.5;':'')+(selNode===r.id?'box-shadow:0 0 0 2px var(--blue);':'')+'" title="'+r.role+' — click to plan">';
-          html+='<div style="font-size:10px;font-weight:700;line-height:1.25;margin-bottom:2px">'+r.role+'</div>';
-          html+='<div style="display:flex;justify-content:space-between;align-items:center;gap:4px">';
-          html+='<span style="font-size:8px;font-weight:700;color:'+TYPC[r.type]+'">'+(r.type==='Dedicated'?'SITE':r.type==='Hybrid'?'HYBRID':'SHARED')+'</span>';
-          html+='<span style="font-size:9px;color:var(--muted)">E'+n.ex+' S'+n.sg+' <strong style="color:var(--blue)">A'+n.ap+'</strong></span>';
-          html+='<span style="font-size:9px;font-weight:700;color:'+tc+'">'+(gap>0?'+'+gap:gap<0?gap:'&#10003;')+'</span>';
-          html+='</div></div>';
+          html+=renderBandRoleCell(r,D,f2);
         });
       }
       html+='</td>';
@@ -1523,11 +1617,8 @@ function renderBand(){
     fns.forEach(function(f){
       html+='<td style="vertical-align:top;padding:5px 6px">';
       oddRoles.filter(function(r){return r.fn===f;}).forEach(function(r){
-        var n=bandRoleNums(r,D);
-        html+='<div data-bandsel="'+r.id+'" style="cursor:pointer;border:1px dashed var(--border);border-radius:6px;padding:5px 7px;margin-bottom:5px;background:var(--card)'+(n.dim?';opacity:.5':'')+'">';
-        html+='<div style="font-size:10px;font-weight:700">'+r.role+' <span style="font-size:8px;color:var(--muted)">('+(r.band||'?')+')</span></div>';
-        html+='<div style="font-size:9px;color:var(--muted)">E'+n.ex+' S'+n.sg+' <strong style="color:var(--blue)">A'+n.ap+'</strong></div>';
-        html+='</div>';
+        var f2o=fc(r.fn);
+        html+=renderBandRoleCell(r,D,f2o);
       });
       html+='</td>';
     });
@@ -3306,6 +3397,8 @@ function uPnlMktg(pid,v){ PNL_MKTG[pid]=Math.max(0,parseFloat(v)||0); savePnlMkt
 // Keys are EXACT role fn values from ROLES array
 var _fnVertMap = {
   'Leadership':        {terms:['leadership','lead'],    roles:['partner','coo','ceo','director','gm','general manager','vp','head of']},
+  'Land & BD':         {terms:['acquisition','land'], roles:['acquisition','bd','liaison','market research','deal']},
+  'Pre-Construction':  {terms:['pre-construction','design','architecture'], roles:['architect','approvals','rera','draughtsman','design']},
   'Construction':      {terms:['construction - civil','construction - arch','construction'],  roles:['site engineer','project engineer','sr. engineer','jr. engineer','civil','architect','planner','billing','quantity','rcc','mep']},
   'Finance':           {terms:['finance','finance/accounts'],                                 roles:['accountant','jr. accountant','accounts','ca ','audit','tax','finance']},
   'Sales & Marketing': {terms:['sales','marketing','presales'],                               roles:['sales manager','sales head','sales exec','pre sales','presales','digital mktg','brand']},
@@ -3463,6 +3556,7 @@ function loadTeamState(){
 // ═══════════════════════════════════════════════════════
 var _lastProjHash=''; // declare BEFORE syncFromV3 so it persists
 loadState();
+enforceRpProjectScope();
 loadTeamState();
 loadPnlMktg();
 loadJD();
@@ -3477,14 +3571,11 @@ setInterval(function(){
     var raw=localStorage.getItem('ga_rp_projects');
     if(!raw||raw===_lastProjHash) return;
     var pp=JSON.parse(raw);
-    if(pp&&pp.length){
-      var synced=setRpProjectsFromV3(pp);
-      if(synced){
-      _lastProjHash=raw;
-      PROJS=synced;_D=null;
-      setSS('Live sync: '+synced.length+' projects','green');
+    if(Array.isArray(pp)){
+      var r=setRpProjectsFromV3(pp);
+      _lastProjHash=r.hash;
+      setSS('Live sync: '+rpSyncStatusMsg(r),r.projects.length?'green':'gold');
       renderAll();
-      }
     }
   }catch(e){}
 },1500);
@@ -3494,7 +3585,7 @@ window.addEventListener('storage', function(e){
   if(e.key==='ga_rp_projects'&&e.newValue){
     try{
       var pp=JSON.parse(e.newValue);
-      if(pp&&pp.length){ var synced=setRpProjectsFromV3(pp); if(synced){ _lastProjHash=e.newValue; PROJS=synced;_D=null; setSS('Synced '+synced.length+' projects','green'); renderAll(); } }
+      if(Array.isArray(pp)){ var r=setRpProjectsFromV3(pp); _lastProjHash=r.hash; setSS(rpSyncStatusMsg(r),r.projects.length?'green':'gold'); renderAll(); }
     }catch(err){}
   }
   if(e.key==='ga_planner_state_v1'&&curTab==='cost') renderCost();
