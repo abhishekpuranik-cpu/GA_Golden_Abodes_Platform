@@ -32,8 +32,9 @@ export function groupUnitInstallments(unit) {
       if (ins.date) g.dueIso = String(ins.date).slice(0, 10);
     }
   }
-  return Object.values(acc).map((g) => ({
+  return Object.values(acc).map((g, index) => ({
     milestoneName: g.base,
+    milestoneOrder: index,
     dueAmount: g.due,
     receivedAmount: g.recv,
     pendingAmount: g.pendExplicit ? g.pendSum : Math.max(0, g.due - g.recv),

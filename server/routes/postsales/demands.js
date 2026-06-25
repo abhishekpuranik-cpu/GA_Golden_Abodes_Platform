@@ -9,6 +9,7 @@ import { activateClpLetterTaskFromDemand } from '../../lib/postsales/clpDemandTr
 import { isGstDemand, readGstDue, readGstReceived } from '../../lib/postsales/demandAmounts.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { sortDemandsByClpChronology } from '../../lib/postsales/clpMilestoneOrder.js';
+import { backfillMilestoneOrders, backfillPostStageOrders } from '../../lib/postsales/milestoneOrderBackfill.js';
 import { exportCollectionsForCashflow, syncDemandsFromV1 } from '../../lib/postsales/demandsV1Sync.js';
 import { syncSoldUnitsFromCashflowV1 } from '../../lib/postsales/cashflowV1Sync.js';
 
@@ -158,6 +159,8 @@ router.get('/', async (req, res) => {
     if (scopedUnitIds) filter.unitId = { $in: scopedUnitIds };
 
     const demands = await Demand.find(filter).sort({ issuedDate: -1 }).lean();
+    await backfillMilestoneOrders(Demand, demands);
+    await backfillPostStageOrders(Demand, demands);
     const unitIds = [...new Set(demands.map((d) => String(d.unitId)))];
     const units = await Unit.find({ _id: { $in: unitIds } }).populate('customerId').lean();
     const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));

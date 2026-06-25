@@ -70,12 +70,26 @@ export function iterCollectionBlocks(rawRows) {
   return blocks;
 }
 
-export function extractCollectionMilestones(block) {
+export function getCollectionReportColumnOrder(rawRows) {
+  if (!rawRows?.length) return [];
+  for (const row of rawRows.slice(0, 8)) {
+    if (slug(row.Type || row.type) === 'amount due') return Object.keys(row);
+  }
+  for (const row of rawRows.slice(0, 3)) {
+    const keys = Object.keys(row);
+    if (keys.some((k) => slug(k) === 'type')) return keys;
+  }
+  return Object.keys(rawRows[0] || {});
+}
+
+export function extractCollectionMilestones(block, columnOrder = null) {
   const { due, recv, pend, dates } = block;
   const milestones = [];
   const postStage = [];
   let order = 0;
-  for (const key of Object.keys(due)) {
+  const keys = columnOrder?.length ? columnOrder : Object.keys(due);
+  for (const key of keys) {
+    if (!Object.prototype.hasOwnProperty.call(due, key)) continue;
     const sk = slug(key);
     if (META_KEYS.has(sk) || sk.startsWith('total')) continue;
     const dueAmount = Number(due[key]) || 0;

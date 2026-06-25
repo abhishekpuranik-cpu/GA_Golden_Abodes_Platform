@@ -1,4 +1,6 @@
-/** CLP milestone chronology — aligned with Cashflow V1 CONST_MILESTONES (Token → Possession). */
+/** CLP milestone chronology — upload column order first, then dates, then standard CLP sequence. */
+import { isGstDemand, isPostStageDemand } from './demandAmounts.js';
+
 const ORDER_RULES = [
   { index: 0, test: /token|booking/i },
   { index: 1, test: /registration|agreement|stamp/i },
@@ -37,13 +39,53 @@ export function clpMilestoneSortIndex(name) {
   return 40;
 }
 
+function categoryRank(d) {
+  if (isGstDemand(d)) return 3;
+  if (isPostStageDemand(d)) return 2;
+  return 1;
+}
+
+function dateMs(d) {
+  const raw = d?.targetDate || d?.dueDate;
+  if (!raw) return null;
+  const t = new Date(raw).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+function uploadOrder(d) {
+  const mo = Number(d?.milestoneOrder);
+  if (!Number.isFinite(mo) || mo < 0) return null;
+  if (isGstDemand(d) || isPostStageDemand(d)) return mo >= 900 ? mo : 900 + mo;
+  return mo < 900 ? mo : null;
+}
+
+export function compareMilestoneChronology(a, b) {
+  const ca = categoryRank(a);
+  const cb = categoryRank(b);
+  if (ca !== cb) return ca - cb;
+
+  const uA = uploadOrder(a);
+  const uB = uploadOrder(b);
+  if (uA != null && uB != null && uA !== uB) return uA - uB;
+
+  const tA = dateMs(a);
+  const tB = dateMs(b);
+  if (tA != null && tB != null && tA !== tB) return tA - tB;
+  if (tA != null && tB == null) return -1;
+  if (tA == null && tB != null) return 1;
+
+  const iA = clpMilestoneSortIndex(a.milestoneNameRaw || a.milestoneName);
+  const iB = clpMilestoneSortIndex(b.milestoneNameRaw || b.milestoneName);
+  if (iA !== iB) return iA - iB;
+
+  if (uA != null && uB != null && uA !== uB) return uA - uB;
+
+  return String(a.milestoneNameRaw || a.milestoneName || '')
+    .localeCompare(String(b.milestoneNameRaw || b.milestoneName || ''));
+}
+
 export function sortDemandsByClpChronology(demands = []) {
-  return [...demands].sort((a, b) => {
-    const oa = a.milestoneOrder ?? clpMilestoneSortIndex(a.milestoneNameRaw || a.milestoneName);
-    const ob = b.milestoneOrder ?? clpMilestoneSortIndex(b.milestoneNameRaw || b.milestoneName);
-    if (oa !== ob) return oa - ob;
-    return String(a.milestoneName || '').localeCompare(String(b.milestoneName || ''));
-  });
+  return [...demands].sort(compareMilestoneChronology);
 }
 
 export function toIsoDateInput(value) {

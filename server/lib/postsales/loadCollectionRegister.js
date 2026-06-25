@@ -1,7 +1,8 @@
 import Unit from '../../models/postsales/Unit.js';
 import Demand from '../../models/postsales/Demand.js';
 import CollectionForecast from '../../models/postsales/CollectionForecast.js';
-import { buildCollectionRegisterRow, buildDisbursementForecast } from '../../lib/postsales/collectionReports.js';
+import { buildCollectionRegisterRow } from './collectionReports.js';
+import { backfillMilestoneOrders, backfillPostStageOrders } from './milestoneOrderBackfill.js';
 
 export function buildUnitFilter(query = {}) {
   const filter = { overallStatus: { $ne: 'cancelled' } };
@@ -25,6 +26,8 @@ export async function loadCollectionRegister(query = {}) {
     Demand.find({ unitId: { $in: unitIds } }).lean(),
     CollectionForecast.find({ unitId: { $in: unitIds } }).lean(),
   ]);
+  await backfillMilestoneOrders(Demand, demands);
+  await backfillPostStageOrders(Demand, demands);
 
   const demandsByUnit = new Map();
   for (const d of demands) {

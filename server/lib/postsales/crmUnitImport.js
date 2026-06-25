@@ -9,6 +9,7 @@ import { POST_SALES_PROJECTS, normUnitKey } from './projectMap.js';
 import { paymentStatusFromAmounts } from './collectionsLib.js';
 import {
   extractCollectionMilestones,
+  getCollectionReportColumnOrder,
   inferPipelineStep,
   isCollectionReport,
   iterCollectionBlocks,
@@ -418,6 +419,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
   };
 
   const blocks = iterCollectionBlocks(rawRows);
+  const columnOrder = getCollectionReportColumnOrder(rawRows);
   const normalized = [];
 
   for (const block of blocks) {
@@ -429,7 +431,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         report.rows.push({ action: 'error', ...row, error: err });
         continue;
       }
-      const { milestones, postStage } = extractCollectionMilestones(block);
+      const { milestones, postStage } = extractCollectionMilestones(block, columnOrder);
       const allMilestones = [...milestones, ...postStage];
       const startAtStep = inferPipelineStep(milestones, {
         registrationDate: row.registrationDate,

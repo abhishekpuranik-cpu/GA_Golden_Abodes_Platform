@@ -75,6 +75,7 @@ export async function syncDemandsFromV1(db, { project, overwrite = 'v1_only' } =
       const payload = {
         entity: unit.entity,
         milestoneName: row.milestoneName,
+        milestoneOrder: row.milestoneOrder ?? 0,
         clpPercent: row.clpPercent,
         demandAmount: row.dueAmount,
         gstAmount: Math.round((row.dueAmount || 0) * 0.05),
