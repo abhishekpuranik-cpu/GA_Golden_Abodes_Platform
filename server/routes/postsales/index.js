@@ -16,6 +16,7 @@ import inventoryRouter from './inventory.js';
 import allocationRouter from './allocation.js';
 import bootstrapRouter from './bootstrap.js';
 import reportsRouter from './reports.js';
+import clpScheduleRouter from './clpSchedule.js';
 
 const router = Router();
 
@@ -30,6 +31,7 @@ router.use('/demands', demandsRouter);
 router.use('/loans', loansRouter);
 router.use('/tickets', ticketsRouter);
 router.use('/milestones', milestonesRouter);
+router.use('/milestones', clpScheduleRouter);
 router.use('/possession', possessionRouter);
 router.use('/chs', chsRouter);
 router.use('/dashboard', dashboardRouter);

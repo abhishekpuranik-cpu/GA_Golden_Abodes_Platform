@@ -379,18 +379,74 @@
   white-space: nowrap;
 }
 .ps-reports-table .ps-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ps-reports-table tbody tr.ps-reports-unit-row { height: 38px; }
+.ps-reports-table tbody tr.ps-reports-unit-row td {
+  height: 38px;
+  max-height: 38px;
+  vertical-align: middle;
+  overflow: hidden;
+}
 .ps-reports-compact { font-size: 0.74rem; white-space: nowrap; }
 .ps-reports-unit-row:hover { background: #f8fafc; }
 .ps-reports-expected-cell { min-width: 130px; font-size: 0.74rem; line-height: 1.35; }
 .ps-reports-inst-count { display: block; font-size: 0.65rem; color: var(--ps-text-muted); }
-.ps-reports-remarks { max-width: 120px; font-size: 0.72rem; color: var(--ps-text-muted); }
+.ps-reports-remarks { max-width: 140px; font-size: 0.72rem; color: var(--ps-text-muted); padding: 0 !important; }
+.ps-reports-remarks-btn {
+  display: flex; align-items: center; gap: 4px; width: 100%; max-width: 140px;
+  padding: 2px 4px; border: none; background: transparent; cursor: pointer; text-align: left;
+  font: inherit; color: inherit;
+}
+.ps-reports-remarks-btn:hover { background: #eef2ff; border-radius: 4px; }
+.ps-reports-remarks-icon { flex-shrink: 0; font-size: 0.7rem; line-height: 1; }
+.ps-reports-remarks-preview {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+}
+.ps-reports-remarks-field { display: flex; flex-direction: column; gap: 4px; }
+.ps-reports-remarks-label { font-size: 0.72rem; font-weight: 600; color: var(--ps-text-muted); }
+.ps-reports-remarks-edit-btn {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%; min-height: 32px; max-height: 32px; padding: 4px 8px;
+  border: 1px solid var(--ps-border); border-radius: 6px; background: #fff;
+  cursor: pointer; font-size: 0.78rem; text-align: left;
+}
+.ps-reports-remarks-edit-btn:hover { border-color: var(--ps-accent); background: #f8fafc; }
+.ps-reports-remarks-action { flex-shrink: 0; font-size: 0.68rem; font-weight: 700; color: var(--ps-accent); text-transform: uppercase; }
+.ps-reports-note-btn {
+  flex-shrink: 0; min-width: 52px; height: 28px; padding: 0 8px;
+  border: 1px solid var(--ps-border); border-radius: 5px; background: #fff;
+  font-size: 0.72rem; cursor: pointer;
+}
+.ps-reports-note-btn.has-note { border-color: #93c5fd; background: #eff6ff; color: #1d4ed8; }
+.ps-note-modal-backdrop {
+  position: fixed; inset: 0; z-index: 1200; background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+}
+.ps-note-modal {
+  width: min(480px, 100%); background: #fff; border-radius: 10px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18); overflow: hidden;
+}
+.ps-note-modal-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-bottom: 1px solid var(--ps-border); background: #f8fafc;
+}
+.ps-note-modal-body {
+  padding: 14px; max-height: 50vh; overflow: auto; white-space: pre-wrap;
+  font-size: 0.88rem; line-height: 1.5;
+}
+.ps-note-modal-textarea {
+  display: block; width: 100%; min-height: 140px; padding: 12px 14px;
+  border: none; resize: vertical; font: inherit; font-size: 0.88rem; line-height: 1.5;
+  box-sizing: border-box;
+}
+.ps-note-modal-textarea:focus { outline: none; }
+.ps-note-modal-foot { padding: 10px 14px; border-top: 1px solid var(--ps-border); text-align: right; }
 .ps-reports-muted { color: var(--ps-text-muted); font-size: 0.72rem; }
 .ps-reports-mini-btn { font-size: 0.7rem !important; padding: 3px 8px !important; }
 .ps-reports-expand-row td { background: #f8fafc; padding: 0 !important; border-bottom: 2px solid var(--ps-border); }
 .ps-reports-expand-grid { padding: 12px 14px; }
 .ps-reports-meta-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .ps-reports-forecast-panel { background: #fff; border: 1px solid var(--ps-border); border-radius: 8px; padding: 12px; }
-.ps-reports-forecast-meta { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.ps-reports-forecast-meta { display: grid; grid-template-columns: 1fr 1fr 1.4fr; gap: 10px; margin-bottom: 12px; align-items: end; }
 @media (max-width: 900px) { .ps-reports-forecast-meta { grid-template-columns: 1fr; } }
 .ps-reports-forecast-meta label { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 600; color: var(--ps-text-muted); }
 .ps-reports-forecast-meta textarea, .ps-reports-forecast-meta input, .ps-reports-forecast-meta select {
@@ -399,7 +455,8 @@
 .ps-reports-ms-block { border-top: 1px solid #eef2f7; padding-top: 10px; margin-top: 8px; }
 .ps-reports-ms-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 6px; color: var(--ps-accent); }
 .ps-reports-inst-row {
-  display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px;
+  display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; margin-bottom: 6px;
+  min-height: 32px; max-height: 32px; overflow: hidden;
 }
 .ps-reports-inst-row input[type="number"], .ps-reports-inst-row input[type="date"], .ps-reports-inst-row select {
   width: 110px; padding: 4px 6px; border: 1px solid var(--ps-border); border-radius: 5px; font-size: 0.76rem;
@@ -443,3 +500,36 @@
 .ps-reports-total-pending { font-weight: 700; }
 .ps-reports-total-received { color: var(--ps-success); font-weight: 600; }
 .ps-reports-filter-note { font-size: 0.8rem; color: var(--ps-text-muted); padding: 8px 12px; margin: 0; }
+.ps-reports-unit-row { cursor: pointer; }
+.ps-reports-unit-row-editing { background: #eff6ff !important; }
+.ps-reports-edit-hint { font-size: 0.65rem; color: var(--ps-accent); font-weight: 600; margin-left: 4px; }
+.ps-reports-gst-block, .ps-reports-booking-block, .ps-reports-tasks-block {
+  border-top: 1px solid #eef2f7; padding-top: 10px; margin-top: 8px;
+}
+.ps-reports-gst-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+@media (max-width: 700px) { .ps-reports-gst-row { grid-template-columns: 1fr; } }
+.ps-reports-gst-row label { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 600; color: var(--ps-text-muted); }
+.ps-reports-gst-row input { padding: 6px 8px; border: 1px solid var(--ps-border); border-radius: 6px; font-size: 0.85rem; }
+.ps-reports-clp-meta { font-weight: 400; font-size: 0.72rem; color: var(--ps-text-muted); margin-left: 8px; }
+.ps-reports-task-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.78rem; border-bottom: 1px solid #eef2f7; }
+.ps-reports-settlement-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.ps-clp-schedule-table input, .ps-clp-schedule-table select { width: 100%; padding: 4px 6px; border: 1px solid var(--ps-border); border-radius: 4px; font-size: 0.82rem; }
+.ps-dash-kpi { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
+.ps-kpi-sub { font-size: 0.72rem; color: var(--ps-text-muted); margin-top: 4px; }
+.ps-dash-split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
+@media (max-width: 640px) { .ps-dash-split { grid-template-columns: 1fr; } }
+.ps-dash-big { font-size: 1.25rem; font-weight: 700; margin-top: 4px; }
+.ps-dash-risk-bar { display: flex; height: 12px; border-radius: 6px; overflow: hidden; margin-top: 12px; background: #e2e8f0; }
+.ps-dash-risk-clear { background: #22c55e; }
+.ps-dash-risk-risky { background: #f59e0b; }
+.ps-dash-risk-delayed { background: #ef4444; }
+.ps-dash-legend { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 10px; font-size: 0.78rem; }
+.ps-dash-legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.ps-dash-legend .dot.clear { background: #22c55e; }
+.ps-dash-legend .dot.risky { background: #f59e0b; }
+.ps-dash-legend .dot.delayed { background: #ef4444; }
+.ps-dash-list-row {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 0; border-bottom: 1px solid var(--ps-border); cursor: pointer; font-size: 0.85rem;
+}
+.ps-dash-list-row:hover { background: #f8fafc; }

@@ -38,13 +38,13 @@ function rowVal(row, ...keys) {
 const REGISTER_HEADERS = [
   'Unit', 'Client_Names', 'Project', 'Phase', 'Building', 'Booking_Date', 'Agreement Date',
   'Saleable Area', 'Agreement Value', 'Total Due', 'Received Amount', 'Pending_As Of Today',
-  'Tax Due', 'Tax Received', 'Tax Pending', 'Next Expected Amount', 'Next Expected Date',
+  'GST Due', 'GST Received', 'GST Pending', 'Next Expected Amount', 'Next Expected Date',
   'CX Executive', 'Payment Plan', 'Priority', 'Follow Up Owner', 'Collection Remarks',
 ];
 
 const FORECAST_HEADERS = [
   'Project', 'Unit', 'Milestone', 'Installment_Seq', 'Expected Amount', 'Expected Date',
-  'Risk Category', 'Includes Tax', 'Tax Amount', 'Note', 'Installment Received',
+  'Risk Category', 'Includes GST', 'GST Amount', 'Note', 'Installment Received',
 ];
 
 const DISB_HEADERS = [
@@ -66,9 +66,9 @@ export function buildCollectionRegisterWorkbook(rows, disbData = null) {
     r.totalDue || 0,
     r.receivedAmount || 0,
     r.pendingAsOfToday || 0,
-    r.taxDue || 0,
-    r.taxReceived || 0,
-    r.taxPending || 0,
+    r.gstDue || 0,
+    r.gstReceived || 0,
+    r.gstPending || 0,
     r.nextExpectedAmount || '',
     excelDate(r.nextExpectedDate),
     r.cxExecutive || '',
@@ -196,13 +196,13 @@ export function buildForecastUpdatesFromExcel(registerRows, forecastRows, unitLo
     if (!milestonesByKey.has(key)) milestonesByKey.set(key, new Map());
     const msMap = milestonesByKey.get(key);
     if (!msMap.has(milestone)) msMap.set(milestone, []);
-    const includesTaxRaw = String(rowVal(row, 'Includes Tax', 'includes_tax')).trim().toUpperCase();
+    const includesTaxRaw = String(rowVal(row, 'Includes GST', 'Includes Tax', 'includes_gst', 'includes_tax')).trim().toUpperCase();
     msMap.get(milestone).push({
       amount,
       expectedDate,
       riskCategory: String(rowVal(row, 'Risk Category', 'risk_category') || 'clear').trim().toLowerCase(),
       includesTax: includesTaxRaw === 'Y' || includesTaxRaw === 'YES' || includesTaxRaw === 'TRUE',
-      taxAmount: num(rowVal(row, 'Tax Amount', 'tax_amount')),
+      taxAmount: num(rowVal(row, 'GST Amount', 'Tax Amount', 'gst_amount', 'tax_amount')),
       note: String(rowVal(row, 'Note', 'note')).trim(),
       receivedAmount: num(rowVal(row, 'Installment Received', 'installment_received')),
     });

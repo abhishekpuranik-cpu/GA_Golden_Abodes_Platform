@@ -53,21 +53,57 @@ export function classifyInstallment(inst, asOf = new Date()) {
   return 'clear';
 }
 
+function slug(name) {
+  return String(name || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+}
+
+function milestoneMatchKey(m) {
+  return `${String(m.demandId || '')}|${slug(m.milestoneName || '')}`;
+}
+
+function findDemandForMilestone(demands, milestoneName, demandId) {
+  if (demandId) {
+    const hit = demands.find((d) => String(d._id) === String(demandId));
+    if (hit) return hit;
+  }
+  const s = slug(milestoneName);
+  return demands.find((d) => slug(d.milestoneName) === s || slug(d.milestoneName).includes(s) || s.includes(slug(d.milestoneName)));
+}
+
+function mapInstallments(list = []) {
+  return (list || []).map((i) => ({
+    _id: i._id,
+    amount: num(i.amount),
+    expectedDate: i.expectedDate,
+    includesTax: !!i.includesTax,
+    taxAmount: num(i.taxAmount),
+    riskCategory: i.riskCategory || 'clear',
+    note: i.note || '',
+    receivedAmount: num(i.receivedAmount),
+    status: i.status || 'planned',
+    revisedDate: i.revisedDate,
+  }));
+}
+
 function defaultMilestonesFromDemands(demands = []) {
   const sorted = sortDemandsByClpChronology(demands);
   return sorted
     .filter((d) => !isPostStageDemand(d) || isGstDemand(d))
     .map((d) => {
       const name = isGstDemand(d) ? 'GST' : (d.milestoneName || d.milestoneNameRaw);
-      const pending = isGstDemand(d)
-        ? Math.max(0, readGstDue(d) - readGstReceived(d))
-        : Math.max(0, agreementDueOnRow(d) - num(d.paidAmount));
+      const clpDue = isGstDemand(d) ? readGstDue(d) : agreementDueOnRow(d);
+      const clpReceived = isGstDemand(d) ? readGstReceived(d) : num(d.paidAmount);
+      const clpPending = Math.max(0, clpDue - clpReceived);
       const defaultDate = d.targetDate || d.dueDate || d.actualDate;
       return {
         demandId: d._id,
         milestoneName: name,
-        installments: pending > 0 && defaultDate
-          ? [{ amount: pending, expectedDate: defaultDate, includesTax: isGstDemand(d), taxAmount: isGstDemand(d) ? pending : 0, riskCategory: 'clear', receivedAmount: 0 }]
+        clpDueAmount: clpDue,
+        clpReceivedAmount: clpReceived,
+        clpPendingAmount: clpPending,
+        isGst: isGstDemand(d),
+        installments: clpPending > 0 && defaultDate
+          ? [{ amount: clpPending, expectedDate: defaultDate, includesTax: isGstDemand(d), taxAmount: isGstDemand(d) ? clpPending : 0, riskCategory: 'clear', receivedAmount: 0, status: 'planned' }]
           : [],
       };
     });
@@ -75,32 +111,69 @@ function defaultMilestonesFromDemands(demands = []) {
 
 function mergeForecastWithDemands(stored, demands) {
   const defaults = defaultMilestonesFromDemands(demands);
-  if (!stored?.milestones?.length) return defaults;
-  const byKey = new Map(stored.milestones.map((m) => [String(m.demandId || m.milestoneName), m]));
-  return defaults.map((def) => {
-    const key = String(def.demandId || def.milestoneName);
-    const saved = byKey.get(key) || byKey.get(def.milestoneName);
-    if (!saved) return def;
+  const storedList = stored?.milestones || [];
+  const storedByKey = new Map(storedList.map((m) => [milestoneMatchKey(m), m]));
+  const usedStored = new Set();
+
+  const merged = defaults.map((def) => {
+    const key = milestoneMatchKey(def);
+    let saved = storedByKey.get(key);
+    if (!saved) {
+      saved = storedList.find((s) => !usedStored.has(String(s._id)) && slug(s.milestoneName) === slug(def.milestoneName));
+    }
+    if (saved) usedStored.add(String(saved._id));
+
+    const demand = findDemandForMilestone(demands, def.milestoneName, def.demandId);
+    const clpDue = def.clpDueAmount;
+    const clpReceived = def.clpReceivedAmount;
+    const clpPending = def.clpPendingAmount;
+
     return {
       demandId: def.demandId,
       milestoneName: def.milestoneName,
-      installments: (saved.installments || []).map((i) => ({
-        _id: i._id,
-        amount: num(i.amount),
-        expectedDate: i.expectedDate,
-        includesTax: !!i.includesTax,
-        taxAmount: num(i.taxAmount),
-        riskCategory: i.riskCategory || 'clear',
-        note: i.note || '',
-        receivedAmount: num(i.receivedAmount),
-      })),
+      clpDueAmount: clpDue,
+      clpReceivedAmount: clpReceived,
+      clpPendingAmount: clpPending,
+      isGst: def.isGst,
+      installments: saved?.installments?.length
+        ? mapInstallments(saved.installments)
+        : def.installments,
     };
   });
+
+  for (const saved of storedList) {
+    if (usedStored.has(String(saved._id))) continue;
+    const demand = findDemandForMilestone(demands, saved.milestoneName, saved.demandId);
+    const clpDue = demand ? (isGstDemand(demand) ? readGstDue(demand) : agreementDueOnRow(demand)) : 0;
+    const clpReceived = demand ? (isGstDemand(demand) ? readGstReceived(demand) : num(demand.paidAmount)) : 0;
+    merged.push({
+      demandId: saved.demandId || demand?._id,
+      milestoneName: saved.milestoneName,
+      clpDueAmount: clpDue,
+      clpReceivedAmount: clpReceived,
+      clpPendingAmount: Math.max(0, clpDue - clpReceived),
+      isGst: demand ? isGstDemand(demand) : /^gst$/i.test(saved.milestoneName),
+      installments: mapInstallments(saved.installments),
+    });
+  }
+
+  return sortDemandsByClpChronology(merged.map((m) => ({ ...m, milestoneNameRaw: m.milestoneName })))
+    .map(({ milestoneNameRaw, ...rest }) => rest);
 }
 
 export function buildCollectionRegisterRow(unit, customer, demands, forecast, asOf = new Date()) {
   const totals = computeUnitCumulative(demands, asOf);
   const milestones = mergeForecastWithDemands(forecast, demands);
+
+  const gstDue = Number.isFinite(Number(forecast?.gstDueOverride))
+    ? Number(forecast.gstDueOverride)
+    : totals.gstDue;
+  const gstReceived = Number.isFinite(Number(forecast?.gstReceivedOverride))
+    ? Number(forecast.gstReceivedOverride)
+    : totals.gstReceived;
+  const gstPending = Number.isFinite(Number(forecast?.gstPendingOverride))
+    ? Number(forecast.gstPendingOverride)
+    : Math.max(0, gstDue - gstReceived);
 
   let nextExpectedDate = null;
   let nextExpectedAmount = 0;
@@ -148,13 +221,17 @@ export function buildCollectionRegisterRow(unit, customer, demands, forecast, as
     totalDue: totals.agreementDue,
     receivedAmount: totals.agreementReceived,
     pendingAsOfToday: totals.agreementPending,
-    taxDue: totals.gstDue,
-    taxReceived: totals.gstReceived,
-    taxPending: totals.gstPending,
-    totalOutstanding: totals.agreementPending + totals.gstPending,
+    gstDue,
+    gstReceived,
+    gstPending,
+    gstDueComputed: totals.gstDue,
+    gstReceivedComputed: totals.gstReceived,
+    totalOutstanding: totals.agreementPending + gstPending,
     collectionRemarks: forecast?.collectionRemarks || '',
     cxPriority: forecast?.cxPriority || 'normal',
     followUpOwner: forecast?.followUpOwner || unit.cxExecutive || '',
+    bookingDisbursedAmount: num(forecast?.bookingDisbursedAmount),
+    bookingSettlementAppliedAt: forecast?.bookingSettlementAppliedAt,
     milestones,
     nextExpectedDate,
     nextExpectedAmount,

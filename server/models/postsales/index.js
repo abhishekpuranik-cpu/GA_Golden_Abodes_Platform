@@ -9,3 +9,5 @@ export { default as ConstructionMilestone } from './ConstructionMilestone.js';
 export { default as PossessionClearance } from './PossessionClearance.js';
 export { default as CHSFormation } from './CHSFormation.js';
 export { default as CollectionForecast } from './CollectionForecast.js';
+export { default as DisbursementTask } from './DisbursementTask.js';
+export { default as ProjectClpSchedule } from './ProjectClpSchedule.js';

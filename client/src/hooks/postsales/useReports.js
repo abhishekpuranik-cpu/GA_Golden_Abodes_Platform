@@ -26,8 +26,9 @@ export function useCollectionRegister(filters = {}) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const saveForecast = async (unitId, body) => {
-    await postSalesApi.saveCollectionForecast(unitId, body);
+    const result = await postSalesApi.saveCollectionForecast(unitId, body);
     await refresh();
+    return result;
   };
 
   return { rows, summary, asOf, loading, error, refresh, saveForecast };

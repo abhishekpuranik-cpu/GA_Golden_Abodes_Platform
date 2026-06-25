@@ -3,6 +3,8 @@ import Demand from '../../models/postsales/Demand.js';
 import CollectionForecast from '../../models/postsales/CollectionForecast.js';
 import { buildCollectionRegisterRow } from './collectionReports.js';
 import { backfillMilestoneOrders, backfillPostStageOrders } from './milestoneOrderBackfill.js';
+import { applyBookingDisbursement } from './clpBookingSettlement.js';
+import { syncDisbursementTasksFromForecast } from './disbursementTasks.js';
 
 export function buildUnitFilter(query = {}) {
   const filter = { overallStatus: { $ne: 'cancelled' } };
@@ -15,6 +17,24 @@ export function buildUnitFilter(query = {}) {
     filter.$and = [...(filter.$and || []), { $or: [{ cxExecutive: query.cxExecutive }, { crmExecutive: query.cxExecutive }] }];
   }
   return filter;
+}
+
+function mapInstallmentInput(i) {
+  const amount = Number(i.amount) || 0;
+  const expectedDate = new Date(i.expectedDate);
+  if (amount <= 0 || Number.isNaN(expectedDate.getTime())) return null;
+  return {
+    ...(i._id ? { _id: i._id } : {}),
+    amount,
+    expectedDate,
+    includesTax: !!i.includesTax,
+    taxAmount: Number(i.taxAmount) || 0,
+    riskCategory: ['clear', 'risky', 'delayed'].includes(i.riskCategory) ? i.riskCategory : 'clear',
+    note: i.note || '',
+    receivedAmount: Number(i.receivedAmount) || 0,
+    status: ['planned', 'complete', 'delayed'].includes(i.status) ? i.status : 'planned',
+    revisedDate: i.revisedDate ? new Date(i.revisedDate) : undefined,
+  };
 }
 
 export async function loadCollectionRegister(query = {}) {
@@ -64,43 +84,80 @@ export async function loadCollectionRegister(query = {}) {
       totalDue: acc.totalDue + r.totalDue,
       receivedAmount: acc.receivedAmount + r.receivedAmount,
       pendingAsOfToday: acc.pendingAsOfToday + r.pendingAsOfToday,
-      taxDue: acc.taxDue + r.taxDue,
-      taxReceived: acc.taxReceived + r.taxReceived,
-      taxPending: acc.taxPending + r.taxPending,
+      gstDue: acc.gstDue + r.gstDue,
+      gstReceived: acc.gstReceived + r.gstReceived,
+      gstPending: acc.gstPending + r.gstPending,
       totalOutstanding: acc.totalOutstanding + r.totalOutstanding,
     }),
-    { units: 0, totalDue: 0, receivedAmount: 0, pendingAsOfToday: 0, taxDue: 0, taxReceived: 0, taxPending: 0, totalOutstanding: 0 },
+    { units: 0, totalDue: 0, receivedAmount: 0, pendingAsOfToday: 0, gstDue: 0, gstReceived: 0, gstPending: 0, totalOutstanding: 0 },
   );
 
   return { rows, summary, demandsByUnit, asOf: new Date().toISOString().slice(0, 10) };
 }
 
+function forecastMatchKey(m) {
+  return `${String(m.demandId || '')}|${String(m.milestoneName || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ')}`;
+}
+
 export async function upsertForecastPayload(unitId, body) {
+  const unit = await Unit.findById(unitId);
+  if (!unit) throw new Error('Unit not found');
+
+  const existing = await CollectionForecast.findOne({ unitId: unit._id }).lean();
+
   const payload = {
-    unitId,
+    unitId: unit._id,
     ...(body.collectionRemarks !== undefined ? { collectionRemarks: String(body.collectionRemarks) } : {}),
     ...(body.cxPriority ? { cxPriority: body.cxPriority } : {}),
     ...(body.followUpOwner !== undefined ? { followUpOwner: String(body.followUpOwner) } : {}),
-    ...(Array.isArray(body.milestones) ? {
-      milestones: body.milestones.map((m) => ({
-        demandId: m.demandId || undefined,
-        milestoneName: m.milestoneName,
-        installments: (m.installments || []).map((i) => ({
-          amount: Number(i.amount) || 0,
-          expectedDate: new Date(i.expectedDate),
-          includesTax: !!i.includesTax,
-          taxAmount: Number(i.taxAmount) || 0,
-          riskCategory: ['clear', 'risky', 'delayed'].includes(i.riskCategory) ? i.riskCategory : 'clear',
-          note: i.note || '',
-          receivedAmount: Number(i.receivedAmount) || 0,
-        })).filter((i) => i.amount > 0 && i.expectedDate && !Number.isNaN(new Date(i.expectedDate).getTime())),
-      })),
-    } : {}),
+    ...(body.gstDue !== undefined ? { gstDueOverride: Number(body.gstDue) } : {}),
+    ...(body.gstReceived !== undefined ? { gstReceivedOverride: Number(body.gstReceived) } : {}),
+    ...(body.gstPending !== undefined ? { gstPendingOverride: Number(body.gstPending) } : {}),
+    ...(body.bookingDisbursedAmount !== undefined ? { bookingDisbursedAmount: Number(body.bookingDisbursedAmount) || 0 } : {}),
   };
 
-  return CollectionForecast.findOneAndUpdate(
-    { unitId },
+  if (Array.isArray(body.milestones)) {
+    const existingByKey = new Map((existing?.milestones || []).map((m) => [forecastMatchKey(m), m]));
+    payload.milestones = body.milestones.map((m) => {
+      const saved = existingByKey.get(forecastMatchKey(m));
+      const savedInstById = new Map((saved?.installments || []).filter((i) => i._id).map((i) => [String(i._id), i]));
+      return {
+        ...(saved?._id ? { _id: saved._id } : {}),
+        ...(m._id ? { _id: m._id } : {}),
+        demandId: m.demandId || saved?.demandId,
+        milestoneName: m.milestoneName,
+        installments: (m.installments || []).map((inst, idx) => {
+          const mapped = mapInstallmentInput(inst);
+          if (!mapped) return null;
+          if (inst._id) mapped._id = inst._id;
+          else if (saved?.installments?.[idx]?._id) mapped._id = saved.installments[idx]._id;
+          else {
+            const byPos = [...savedInstById.values()][idx];
+            if (byPos?._id) mapped._id = byPos._id;
+          }
+          return mapped;
+        }).filter(Boolean),
+      };
+    });
+  }
+
+  let settlementSummary = null;
+  if (body.applyBookingSettlement && Number(body.bookingDisbursedAmount) > 0) {
+    const demands = await Demand.find({ unitId: unit._id }).lean();
+    settlementSummary = await applyBookingDisbursement(unit, demands, body.bookingDisbursedAmount);
+    payload.bookingSettlementAppliedAt = new Date();
+  }
+
+  let doc = await CollectionForecast.findOneAndUpdate(
+    { unitId: unit._id },
     { $set: payload },
     { upsert: true, new: true, setDefaultsOnInsert: true },
-  ).lean();
+  );
+
+  if (body.syncDisbursementTasks !== false) {
+    await syncDisbursementTasksFromForecast(unit, doc, payload.followUpOwner || unit.cxExecutive);
+    doc = await CollectionForecast.findById(doc._id);
+  }
+
+  return { doc: doc?.lean?.() ?? doc, settlementSummary };
 }

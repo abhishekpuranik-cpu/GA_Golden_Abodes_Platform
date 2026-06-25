@@ -183,6 +183,33 @@ export const postSalesApi = {
   },
   saveCollectionForecast: (unitId, body) => apiFetch(`${BASE}/reports/forecasts/${unitId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
+  getDisbursementTasks: (unitId) => apiFetch(`${BASE}/reports/disbursement-tasks/${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  completeDisbursementTask: (taskId, body = {}) => apiFetch(`${BASE}/reports/disbursement-tasks/${taskId}/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  delayDisbursementTask: (taskId, body) => apiFetch(`${BASE}/reports/disbursement-tasks/${taskId}/delay`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+
+  getClpSchedule: (project) => apiFetch(`${BASE}/milestones/clp-schedule?project=${encodeURIComponent(project)}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  saveClpSchedule: (body) => apiFetch(`${BASE}/milestones/clp-schedule`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  triggerClpDemandTasks: (body) => apiFetch(`${BASE}/milestones/clp-schedule/trigger-demands`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  downloadClpScheduleTemplate: async () => {
+    const res = await fetch(`${BASE}/milestones/clp-schedule/template`, { credentials: 'include' });
+    if (!res.ok) throw new Error('Template download failed');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'CLP_Schedule_Template.xlsx';
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+  uploadClpScheduleExcel: async (project, file) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('project', project);
+    const r = await apiFetch(`${BASE}/milestones/clp-schedule/upload`, { method: 'POST', body: fd });
+    if (!r.ok) throw new Error(r.data?.error || 'Upload failed');
+    return r.data;
+  },
+
   downloadReportsTemplate: async () => {
     const res = await fetch(`${BASE}/reports/template`, { credentials: 'include' });
     if (!res.ok) throw new Error('Template download failed');
