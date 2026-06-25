@@ -608,6 +608,7 @@
 .ps-task-month-chip.active { border-color: var(--ps-accent); background: var(--ps-accent-soft); }
 .ps-task-month-chip strong { font-size: 1rem; }
 .ps-task-unscheduled { margin-top: 18px; padding-top: 12px; border-top: 1px dashed var(--ps-border); }
+.ps-cal-day-panel { margin-top: 14px; padding: 14px 16px; }
 .ps-task-overdue-strip { margin-bottom: 14px; }
 .ps-task-drawer-backdrop {
   position: fixed; inset: 0; z-index: 1300; background: rgba(15, 23, 42, 0.35);

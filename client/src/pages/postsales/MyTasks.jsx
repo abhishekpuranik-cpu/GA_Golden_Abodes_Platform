@@ -3,29 +3,19 @@ import { useOutletContext } from 'react-router-dom';
 import { useMyTasks, useAssignees } from '../../hooks/postsales/useMyTasks.js';
 import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
 import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
+import ActivityCalendarShell from '../../components/postsales/ActivityCalendarShell.jsx';
 import TaskAgendaCard from '../../components/postsales/TaskAgendaCard.jsx';
 import TaskEditDrawer from '../../components/postsales/TaskEditDrawer.jsx';
+import { TASK_KINDS } from '../../data/postsales/taskKinds.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
+import { parseYmd, todayYmd } from '../../lib/postsales/activityCalendarUtils.js';
 import {
-  countTasksInMonth,
   dateKey,
   formatDayLabel,
-  formatMonthLabel,
-  groupTasksByDay,
-  horizonRange,
-  shiftAnchor,
-  splitTasksForView,
+  isOverdueTask,
   startOfDay,
   taskAnchorDate,
-  weekDays,
-  yearMonths,
 } from '../../lib/postsales/taskAgenda.js';
-
-const HORIZONS = [
-  { id: 'daily', label: 'Daily' },
-  { id: 'weekly', label: 'Weekly' },
-  { id: 'yearly', label: 'Yearly' },
-];
 
 const KIND_TABS = [
   { id: '', label: 'All tasks' },
@@ -33,12 +23,27 @@ const KIND_TABS = [
   { id: 'backend', label: 'Backend' },
 ];
 
+const LEGEND = [
+  { label: 'Overdue', color: '#B32E1E' },
+  { label: 'CX', color: TASK_KINDS.cx.color },
+  { label: 'Backend', color: TASK_KINDS.backend.color },
+];
+
+function taskTitle(task) {
+  return `Step ${task.stepNumber} · ${task.unitNumber} · ${task.stepName}`;
+}
+
+function taskColor(task) {
+  if (isOverdueTask(task)) return '#B32E1E';
+  return TASK_KINDS[task.taskKind]?.color || '#185FA5';
+}
+
 export default function MyTasks() {
   const { user } = useOutletContext() || {};
   const actor = user?.name || user?.email || '';
-  const [horizon, setHorizon] = useState('weekly');
-  const [anchorDate, setAnchorDate] = useState(() => startOfDay(new Date()));
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date().getMonth());
+  const [view, setView] = useState('month');
+  const [cursorDate, setCursorDate] = useState(() => startOfDay(new Date()));
+  const [selectedYmd, setSelectedYmd] = useState(todayYmd());
   const [taskKind, setTaskKind] = useState('');
   const [editTask, setEditTask] = useState(null);
   const [busyId, setBusyId] = useState(null);
@@ -50,41 +55,30 @@ export default function MyTasks() {
   const { tasks, assignee, cxCount, backendCount, loading, error, refresh, setTasks } = useMyTasks(filters);
   const { assignees } = useAssignees();
 
-  const range = useMemo(() => horizonRange(horizon, anchorDate), [horizon, anchorDate]);
-  const { overdue, scheduled, unscheduled } = useMemo(
-    () => splitTasksForView(tasks, horizon, anchorDate),
-    [tasks, horizon, anchorDate],
+  const scheduled = useMemo(
+    () => tasks.filter((t) => taskAnchorDate(t)),
+    [tasks],
+  );
+  const unscheduled = useMemo(
+    () => tasks.filter((t) => !taskAnchorDate(t)),
+    [tasks],
   );
 
-  const yearViewTasks = useMemo(() => {
-    if (horizon !== 'yearly') return scheduled;
-    const y = anchorDate.getFullYear();
-    return scheduled.filter((t) => {
-      const a = taskAnchorDate(t);
-      return a && a.getFullYear() === y && a.getMonth() === selectedMonth;
-    });
-  }, [horizon, scheduled, anchorDate, selectedMonth]);
-
-  const groupedDaily = useMemo(() => groupTasksByDay([...overdue, ...scheduled]), [overdue, scheduled]);
-  const weekColumns = useMemo(() => {
-    const days = weekDays(anchorDate);
-    const byKey = new Map(groupTasksByDay(scheduled).map((g) => [g.key, g.tasks]));
-    return days.map((day) => ({
-      ...day,
-      tasks: byKey.get(day.key) || [],
-    }));
-  }, [anchorDate, scheduled]);
-
   const stats = useMemo(() => {
-    const inView = [...overdue, ...scheduled];
-    const dueToday = inView.filter((t) => dateKey(taskAnchorDate(t) || 0) === dateKey(new Date())).length;
+    const overdue = scheduled.filter((t) => isOverdueTask(t));
+    const dueToday = scheduled.filter((t) => dateKey(taskAnchorDate(t)) === dateKey(new Date())).length;
     return {
-      total: inView.length,
+      total: tasks.length,
       overdue: overdue.length,
       dueToday,
       unscheduled: unscheduled.length,
     };
-  }, [overdue, scheduled, unscheduled]);
+  }, [tasks, scheduled, unscheduled]);
+
+  const selectedDayTasks = useMemo(() => {
+    if (!selectedYmd) return [];
+    return scheduled.filter((t) => dateKey(taskAnchorDate(t)) === selectedYmd);
+  }, [scheduled, selectedYmd]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -135,48 +129,18 @@ export default function MyTasks() {
     }
   };
 
-  const goToday = () => {
-    const today = startOfDay(new Date());
-    setAnchorDate(today);
-    setSelectedMonth(today.getMonth());
-  };
-
   return (
     <div className="ps-tasks-page">
       <div className="ps-reports-head">
         <div>
           <h2 style={{ margin: 0 }}>My Tasks</h2>
           <p className="ps-reports-sub">
-            View, edit, and complete pipeline work by day, week, or year.
+            Calendar view — click a task to edit or complete pipeline steps.
             {assignee ? ` · ${assignee}` : ''}
           </p>
         </div>
-        <div className="ps-task-horizon-tabs">
-          {HORIZONS.map((h) => (
-            <button
-              key={h.id}
-              type="button"
-              className={`ps-tab ${horizon === h.id ? 'active' : ''}`}
-              onClick={() => setHorizon(h.id)}
-            >
-              {h.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className="ps-task-toolbar">
-        <div className="ps-task-nav">
-          <button type="button" className="ps-btn ps-reports-mini-btn" onClick={() => setAnchorDate(shiftAnchor(horizon, anchorDate, -1))}>◀</button>
-          <div className="ps-task-nav-label">
-            <strong>{range.label}</strong>
-            {horizon === 'yearly' && <span className="ps-reports-muted"> · {formatMonthLabel(new Date(anchorDate.getFullYear(), selectedMonth, 1))}</span>}
-          </div>
-          <button type="button" className="ps-btn ps-reports-mini-btn" onClick={() => setAnchorDate(shiftAnchor(horizon, anchorDate, 1))}>▶</button>
-          <button type="button" className="ps-btn" onClick={goToday}>Today</button>
-        </div>
         <div className="ps-task-stats">
-          <span className="ps-badge ps-badge-blue">{stats.total} in view</span>
+          <span className="ps-badge ps-badge-blue">{stats.total} open</span>
           {stats.overdue > 0 && <span className="ps-badge ps-badge-red">{stats.overdue} overdue</span>}
           {stats.dueToday > 0 && <span className="ps-badge ps-badge-amber">{stats.dueToday} due today</span>}
           {stats.unscheduled > 0 && <span className="ps-badge ps-badge-grey">{stats.unscheduled} unscheduled</span>}
@@ -219,40 +183,69 @@ export default function MyTasks() {
         </div>
       )}
 
-      {!loading && tasks.length > 0 && horizon === 'daily' && (
-        <div className="ps-task-daily">
-          {groupedDaily.length === 0 && (
-            <div className="ps-card ps-empty">No tasks scheduled for {formatDayLabel(anchorDate)}.</div>
-          )}
-          {groupedDaily.map((group) => (
-            <section key={group.key} className="ps-task-day-section">
-              <h3 className="ps-task-day-title">
-                {group.key === 'unscheduled' ? 'Unscheduled' : formatDayLabel(group.date)}
-                <span className="ps-badge ps-badge-grey">{group.tasks.length}</span>
-              </h3>
-              <div className="ps-task-card-list">
-                {group.tasks.map((t) => (
-                  <TaskAgendaCard
-                    key={t._id}
-                    task={t}
-                    onEdit={setEditTask}
-                    onComplete={handleComplete}
-                    completing={busyId === t._id}
-                  />
-                ))}
-              </div>
-            </section>
-          ))}
-        </div>
-      )}
-
-      {!loading && tasks.length > 0 && horizon === 'weekly' && (
+      {!loading && tasks.length > 0 && (
         <>
-          {overdue.length > 0 && (
-            <section className="ps-task-overdue-strip">
-              <h3 className="ps-task-day-title">Overdue <span className="ps-badge ps-badge-red">{overdue.length}</span></h3>
+          <ActivityCalendarShell
+            eyebrow="My Tasks"
+            view={view}
+            cursorDate={cursorDate}
+            selectedYmd={selectedYmd}
+            tasks={scheduled}
+            getTaskYmd={(t) => {
+              const d = taskAnchorDate(t);
+              return d ? dateKey(d) : null;
+            }}
+            getTaskId={(t) => t._id}
+            getTaskTitle={taskTitle}
+            getTaskColor={taskColor}
+            onViewChange={setView}
+            onCursorChange={setCursorDate}
+            onToday={() => {
+              const t = startOfDay(new Date());
+              setCursorDate(t);
+              setSelectedYmd(todayYmd());
+            }}
+            onSelectDay={(ymd) => {
+              setSelectedYmd(ymd);
+              const d = parseYmd(ymd);
+              if (d) setCursorDate(d);
+            }}
+            onTaskClick={setEditTask}
+            legend={LEGEND}
+          />
+
+          {selectedYmd && view !== 'day' ? (
+            <section className="ps-card ps-cal-day-panel">
+              <h3 className="ps-task-day-title">
+                {formatDayLabel(parseYmd(selectedYmd) || new Date())}
+                <span className="ps-badge ps-badge-grey">{selectedDayTasks.length}</span>
+              </h3>
+              {selectedDayTasks.length === 0 ? (
+                <p className="ps-reports-muted" style={{ margin: 0 }}>No tasks on this date.</p>
+              ) : (
+                <div className="ps-task-card-list">
+                  {selectedDayTasks.map((t) => (
+                    <TaskAgendaCard
+                      key={t._id}
+                      task={t}
+                      onEdit={setEditTask}
+                      onComplete={handleComplete}
+                      completing={busyId === t._id}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          ) : null}
+
+          {unscheduled.length > 0 ? (
+            <section className="ps-task-unscheduled">
+              <h3 className="ps-task-day-title">
+                Unscheduled
+                <span className="ps-badge ps-badge-grey">{unscheduled.length}</span>
+              </h3>
               <div className="ps-task-card-list horizontal">
-                {overdue.map((t) => (
+                {unscheduled.map((t) => (
                   <TaskAgendaCard
                     key={t._id}
                     task={t}
@@ -264,97 +257,8 @@ export default function MyTasks() {
                 ))}
               </div>
             </section>
-          )}
-          <div className="ps-task-week-grid">
-          {weekColumns.map((col) => (
-            <div key={col.key} className={`ps-task-week-col ${col.isToday ? 'today' : ''}`}>
-              <div className="ps-task-week-col-head">
-                <strong>{col.label}</strong>
-                <span className="ps-badge ps-badge-grey">{col.tasks.length}</span>
-              </div>
-              <div className="ps-task-week-col-body">
-                {col.tasks.length === 0 && <div className="ps-task-week-empty">—</div>}
-                {col.tasks.map((t) => (
-                  <TaskAgendaCard
-                    key={t._id}
-                    task={t}
-                    compact
-                    onEdit={setEditTask}
-                    onComplete={handleComplete}
-                    completing={busyId === t._id}
-                  />
-                ))}
-              </div>
-            </div>
-          ))}
-          </div>
+          ) : null}
         </>
-      )}
-
-      {!loading && tasks.length > 0 && horizon === 'yearly' && (
-        <div className="ps-task-year-wrap">
-          <div className="ps-task-month-grid">
-            {yearMonths(anchorDate).map((m) => {
-              const count = countTasksInMonth(tasks, anchorDate.getFullYear(), m.month);
-              const active = selectedMonth === m.month;
-              return (
-                <button
-                  key={m.key}
-                  type="button"
-                  className={`ps-task-month-chip ${active ? 'active' : ''}`}
-                  onClick={() => setSelectedMonth(m.month)}
-                >
-                  <span>{m.label}</span>
-                  <strong>{count || '—'}</strong>
-                </button>
-              );
-            })}
-          </div>
-          <div className="ps-task-year-list">
-            {yearViewTasks.length === 0 ? (
-              <div className="ps-card ps-empty">No tasks in {formatMonthLabel(new Date(anchorDate.getFullYear(), selectedMonth, 1))}.</div>
-            ) : (
-              groupTasksByDay(yearViewTasks).map((group) => (
-                <section key={group.key} className="ps-task-day-section">
-                  <h3 className="ps-task-day-title">
-                    {group.key === 'unscheduled' ? 'Unscheduled' : formatDayLabel(group.date)}
-                    <span className="ps-badge ps-badge-grey">{group.tasks.length}</span>
-                  </h3>
-                  <div className="ps-task-card-list horizontal">
-                    {group.tasks.map((t) => (
-                      <TaskAgendaCard
-                        key={t._id}
-                        task={t}
-                        compact
-                        onEdit={setEditTask}
-                        onComplete={handleComplete}
-                        completing={busyId === t._id}
-                      />
-                    ))}
-                  </div>
-                </section>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-
-      {!loading && unscheduled.length > 0 && horizon !== 'daily' && (
-        <section className="ps-task-unscheduled">
-          <h3 className="ps-task-day-title">Unscheduled <span className="ps-badge ps-badge-grey">{unscheduled.length}</span></h3>
-          <div className="ps-task-card-list horizontal">
-            {unscheduled.map((t) => (
-              <TaskAgendaCard
-                key={t._id}
-                task={t}
-                compact
-                onEdit={setEditTask}
-                onComplete={handleComplete}
-                completing={busyId === t._id}
-              />
-            ))}
-          </div>
-        </section>
       )}
 
       <TaskEditDrawer
