@@ -27,7 +27,7 @@ export function useMyTasks(filters = {}) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  return { tasks, assignee, cxCount, backendCount, loading, error, refresh };
+  return { tasks, assignee, cxCount, backendCount, loading, error, refresh, setTasks };
 }
 
 export function useAssignees() {
