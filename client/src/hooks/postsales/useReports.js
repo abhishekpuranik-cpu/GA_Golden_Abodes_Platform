@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { postSalesApi } from '../postSalesApi.js';
+import { postSalesApi } from '../../lib/postSalesApi.js';
 
 export function useCollectionRegister(filters = {}) {
   const [rows, setRows] = useState([]);
