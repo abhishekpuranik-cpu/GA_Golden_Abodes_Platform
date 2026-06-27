@@ -194,6 +194,15 @@ export const authApi = {
     if (!ok) throw new Error(data?.error || `Update user failed (${status})`);
     return data;
   },
+  async resetUserPassword(id, password) {
+    const { ok, data, status } = await apiFetch(`/api/auth/admin/users/${encodeURIComponent(id)}/reset-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    if (!ok) throw new Error(data?.error || `Reset password failed (${status})`);
+    return data;
+  },
   async listPreconstructionProjects() {
     const { ok, data, status } = await apiFetch('/api/auth/admin/preconstruction-projects');
     if (!ok) throw new Error(data?.error || `Project catalog failed (${status})`);

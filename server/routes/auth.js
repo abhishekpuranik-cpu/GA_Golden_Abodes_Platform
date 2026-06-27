@@ -336,6 +336,27 @@ authRouter.post(
   })
 );
 
+authRouter.post(
+  '/admin/users/:id/reset-password',
+  withDb(async (req, res, db) => {
+    const sess = await resolveSession(db, req);
+    if (!sess || !sess.user.permissions.includes(PERM_ADMIN)) return res.status(403).json({ error: 'Forbidden' });
+    const id = String(req.params.id || '');
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid user id' });
+    const password = String(req.body?.password || '');
+    if (!password || password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+    const user = await db.collection('auth_users').findOne({ _id: new ObjectId(id) });
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    const { salt, hash } = await hashPassword(password);
+    await db.collection('auth_users').updateOne(
+      { _id: new ObjectId(id) },
+      { $set: { passwordSalt: salt, passwordHash: hash, updatedAt: new Date() } }
+    );
+    await db.collection('auth_sessions').deleteMany({ userId: id });
+    res.json({ ok: true, email: user.email });
+  })
+);
+
 authRouter.put(
   '/admin/users/:id',
   withDb(async (req, res, db) => {
@@ -355,14 +376,19 @@ authRouter.put(
       updatedAt: new Date()
     };
     const password = String(req.body?.password || '');
+    let passwordReset = false;
     if (password) {
       if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
       const { salt, hash } = await hashPassword(password);
       patch.passwordSalt = salt;
       patch.passwordHash = hash;
+      passwordReset = true;
     }
     await db.collection('auth_users').updateOne({ _id: new ObjectId(id) }, { $set: patch });
-    res.json({ ok: true });
+    if (passwordReset) {
+      await db.collection('auth_sessions').deleteMany({ userId: id });
+    }
+    res.json({ ok: true, passwordReset });
   })
 );
 

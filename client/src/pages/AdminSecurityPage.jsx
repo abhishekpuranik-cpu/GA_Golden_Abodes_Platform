@@ -26,6 +26,13 @@ const emptyNewUser = () => ({
   allowedApps: ''
 });
 
+function generatePassword(len = 12) {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$';
+  let out = '';
+  for (let i = 0; i < len; i += 1) out += chars[Math.floor(Math.random() * chars.length)];
+  return out;
+}
+
 export default function AdminSecurityPage() {
   const [session, setSession] = useState(null);
   const [roles, setRoles] = useState([]);
@@ -36,6 +43,12 @@ export default function AdminSecurityPage() {
   const [bwLoading, setBwLoading] = useState(false);
   const [bwError, setBwError] = useState('');
   const [newUser, setNewUser] = useState(emptyNewUser);
+  const [resetTargetId, setResetTargetId] = useState(null);
+  const [resetForm, setResetForm] = useState({ password: '', confirm: '' });
+  const [resetBusy, setResetBusy] = useState(false);
+  const [resetMsg, setResetMsg] = useState('');
+  const [resetErr, setResetErr] = useState('');
+  const [showResetPw, setShowResetPw] = useState(false);
 
   async function loadBandwidth() {
     setBwLoading(true);
@@ -112,6 +125,63 @@ export default function AdminSecurityPage() {
       allowedTabs: u.allowedTabs || []
     });
     await load();
+  }
+
+  function openResetPanel(u) {
+    if (resetTargetId === u.id) {
+      setResetTargetId(null);
+      setResetForm({ password: '', confirm: '' });
+      setResetMsg('');
+      setResetErr('');
+      setShowResetPw(false);
+      return;
+    }
+    setResetTargetId(u.id);
+    setResetForm({ password: '', confirm: '' });
+    setResetMsg('');
+    setResetErr('');
+    setShowResetPw(false);
+  }
+
+  function fillGeneratedPassword() {
+    const p = generatePassword();
+    setResetForm({ password: p, confirm: p });
+    setShowResetPw(true);
+    setResetMsg('');
+    setResetErr('');
+  }
+
+  async function submitReset(u) {
+    setResetErr('');
+    setResetMsg('');
+    const password = resetForm.password.trim();
+    const confirm = resetForm.confirm.trim();
+    if (password.length < 8) {
+      setResetErr('Password must be at least 8 characters.');
+      return;
+    }
+    if (password !== confirm) {
+      setResetErr('Passwords do not match.');
+      return;
+    }
+    if (
+      !window.confirm(
+        `Reset password for ${u.email}?\n\nThey will be signed out on all devices and must use the new password to log in.`
+      )
+    ) {
+      return;
+    }
+    setResetBusy(true);
+    try {
+      await authApi.resetUserPassword(u.id, password);
+      setResetMsg(`Password updated for ${u.email}. Share the new password securely — their active sessions were cleared.`);
+      setResetForm({ password: '', confirm: '' });
+      setShowResetPw(false);
+    } catch (e) {
+      setResetErr(e?.message || 'Reset failed');
+    } finally {
+      setResetBusy(false);
+    }
   }
 
   return (
@@ -298,9 +368,67 @@ export default function AdminSecurityPage() {
                 }
               />
             </div>
-            <button type="button" className="admin-btn" onClick={() => void saveUser(u)}>
-              Save user
-            </button>
+            <div className="admin-user-actions">
+              <button type="button" className="admin-btn" onClick={() => void saveUser(u)}>
+                Save user
+              </button>
+              <button
+                type="button"
+                className="admin-btn admin-btn-warn"
+                onClick={() => openResetPanel(u)}
+              >
+                {resetTargetId === u.id ? 'Cancel reset' : 'Reset password'}
+              </button>
+            </div>
+            {resetTargetId === u.id ? (
+              <div className="admin-reset-panel">
+                <h3>Reset password for {u.email}</h3>
+                <p className="admin-reset-hint">
+                  Set a new login password for this user. Minimum 8 characters. All their active sessions will end
+                  immediately.
+                </p>
+                <div className="admin-form-grid">
+                  <input
+                    type={showResetPw ? 'text' : 'password'}
+                    placeholder="New password (min 8)"
+                    value={resetForm.password}
+                    onChange={(e) => setResetForm((f) => ({ ...f, password: e.target.value }))}
+                    className="admin-inp"
+                    autoComplete="new-password"
+                  />
+                  <input
+                    type={showResetPw ? 'text' : 'password'}
+                    placeholder="Confirm new password"
+                    value={resetForm.confirm}
+                    onChange={(e) => setResetForm((f) => ({ ...f, confirm: e.target.value }))}
+                    className="admin-inp"
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="admin-user-actions">
+                  <button type="button" className="admin-btn" onClick={fillGeneratedPassword}>
+                    Generate secure password
+                  </button>
+                  <button
+                    type="button"
+                    className="admin-btn"
+                    onClick={() => setShowResetPw((v) => !v)}
+                  >
+                    {showResetPw ? 'Hide' : 'Show'} password
+                  </button>
+                  <button
+                    type="button"
+                    className="admin-btn admin-btn-primary"
+                    disabled={resetBusy}
+                    onClick={() => void submitReset(u)}
+                  >
+                    {resetBusy ? 'Updating…' : 'Set new password'}
+                  </button>
+                </div>
+                {resetErr ? <div className="admin-err">{resetErr}</div> : null}
+                {resetMsg ? <div className="admin-ok">{resetMsg}</div> : null}
+              </div>
+            ) : null}
           </div>
         ))}
       </section>
