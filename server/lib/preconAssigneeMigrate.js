@@ -13,14 +13,17 @@ const ASSIGNEE_CANONICAL = {
   ashish: 'Ashish Chaudhari',
   'ashish chaudhari': 'Ashish Chaudhari',
   'ashish chaudhari (ashish)': 'Ashish Chaudhari',
-  minal: 'Minal Firke',
-  'minal madam': 'Minal Firke',
-  'minal firke': 'Minal Firke',
-  'minal firke (minal)': 'Minal Firke',
-  'minal firke ( minal)': 'Minal Firke',
+  minal: 'Minal Firake',
+  'minal madam': 'Minal Firake',
+  'minal firake': 'Minal Firake',
+  'minal firake (minal)': 'Minal Firake',
+  'minal firake ( minal)': 'Minal Firake',
+  'minal firke': 'Minal Firake',
+  'minal firke (minal)': 'Minal Firake',
+  'minal firke ( minal)': 'Minal Firake',
 };
 
-export const ASSIGNEE_NAME_MIGRATE_VERSION = 1;
+export const ASSIGNEE_NAME_MIGRATE_VERSION = 2;
 
 function normAssigneeKey(name) {
   return String(name || '')
