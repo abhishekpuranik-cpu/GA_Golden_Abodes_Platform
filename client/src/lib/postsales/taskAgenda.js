@@ -50,10 +50,35 @@ export function dateKey(d) {
 }
 
 export function taskAnchorDate(task) {
-  const raw = task.nextActionDate || task.dueDate || task.triggerDate;
-  if (!raw) return null;
-  const d = new Date(raw);
-  return Number.isNaN(d.getTime()) ? null : d;
+  const dates = taskCalendarDates(task);
+  return dates.length ? new Date(`${dates[0]}T12:00:00`) : null;
+}
+
+/** YYYY-MM-DD keys for calendar indexing — next action and due date both appear. */
+export function taskCalendarDates(task) {
+  const dates = [];
+  const add = (raw) => {
+    if (!raw) return;
+    const d = new Date(raw);
+    if (!Number.isNaN(d.getTime())) dates.push(dateKey(d));
+  };
+  add(task.nextActionDate);
+  add(task.dueDate);
+  if (!dates.length) add(task.triggerDate);
+  return [...new Set(dates)];
+}
+
+export function taskMatchesCalendarDay(task, ymd) {
+  return taskCalendarDates(task).includes(ymd);
+}
+
+export function calendarDateLabel(task, ymd) {
+  const parts = [];
+  const na = task.nextActionDate ? dateKey(new Date(task.nextActionDate)) : '';
+  const due = task.dueDate ? dateKey(new Date(task.dueDate)) : '';
+  if (na === ymd) parts.push('Next action');
+  if (due === ymd) parts.push('Due');
+  return parts.join(' · ') || 'Scheduled';
 }
 
 export function isOverdueTask(task, asOf = new Date()) {
@@ -94,11 +119,13 @@ export function horizonRange(horizon, anchorDate) {
 }
 
 export function taskInHorizon(task, horizon, anchorDate) {
-  const anchor = taskAnchorDate(task);
+  const dates = taskCalendarDates(task);
   const { start, end } = horizonRange(horizon, anchorDate);
-  if (!anchor) return horizon === 'yearly';
-  const t = startOfDay(anchor);
-  return t >= start && t <= end;
+  if (!dates.length) return horizon === 'yearly';
+  return dates.some((key) => {
+    const t = startOfDay(new Date(`${key}T12:00:00`));
+    return t >= start && t <= end;
+  });
 }
 
 export function splitTasksForView(tasks, horizon, anchorDate) {

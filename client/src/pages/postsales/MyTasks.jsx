@@ -10,11 +10,14 @@ import { TASK_KINDS } from '../../data/postsales/taskKinds.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import { parseYmd, todayYmd } from '../../lib/postsales/activityCalendarUtils.js';
 import {
+  calendarDateLabel,
   dateKey,
   formatDayLabel,
   isOverdueTask,
   startOfDay,
   taskAnchorDate,
+  taskCalendarDates,
+  taskMatchesCalendarDay,
 } from '../../lib/postsales/taskAgenda.js';
 
 const KIND_TABS = [
@@ -56,17 +59,18 @@ export default function MyTasks() {
   const { assignees } = useAssignees();
 
   const scheduled = useMemo(
-    () => tasks.filter((t) => taskAnchorDate(t)),
+    () => tasks.filter((t) => taskCalendarDates(t).length > 0),
     [tasks],
   );
   const unscheduled = useMemo(
-    () => tasks.filter((t) => !taskAnchorDate(t)),
+    () => tasks.filter((t) => !taskCalendarDates(t).length),
     [tasks],
   );
 
   const stats = useMemo(() => {
+    const today = dateKey(new Date());
     const overdue = scheduled.filter((t) => isOverdueTask(t));
-    const dueToday = scheduled.filter((t) => dateKey(taskAnchorDate(t)) === dateKey(new Date())).length;
+    const dueToday = scheduled.filter((t) => taskCalendarDates(t).includes(today)).length;
     return {
       total: tasks.length,
       overdue: overdue.length,
@@ -77,7 +81,7 @@ export default function MyTasks() {
 
   const selectedDayTasks = useMemo(() => {
     if (!selectedYmd) return [];
-    return scheduled.filter((t) => dateKey(taskAnchorDate(t)) === selectedYmd);
+    return scheduled.filter((t) => taskMatchesCalendarDay(t, selectedYmd));
   }, [scheduled, selectedYmd]);
 
   const showToast = (msg) => {
@@ -191,10 +195,7 @@ export default function MyTasks() {
             cursorDate={cursorDate}
             selectedYmd={selectedYmd}
             tasks={scheduled}
-            getTaskYmd={(t) => {
-              const d = taskAnchorDate(t);
-              return d ? dateKey(d) : null;
-            }}
+            getTaskYmd={(t) => taskCalendarDates(t)}
             getTaskId={(t) => t._id}
             getTaskTitle={taskTitle}
             getTaskColor={taskColor}
@@ -228,6 +229,7 @@ export default function MyTasks() {
                     <TaskAgendaCard
                       key={t._id}
                       task={t}
+                      dateHint={calendarDateLabel(t, selectedYmd)}
                       onEdit={setEditTask}
                       onComplete={handleComplete}
                       completing={busyId === t._id}

@@ -8,7 +8,7 @@ function kindStyle(taskKind) {
   return { background: `${kind.color}18`, color: kind.color, borderColor: `${kind.color}44` };
 }
 
-export default function TaskAgendaCard({ task, compact = false, onEdit, onComplete, completing }) {
+export default function TaskAgendaCard({ task, compact = false, dateHint = '', onEdit, onComplete, completing }) {
   const countdown = slaCountdown(task);
   const overdue = isOverdueTask(task);
 
@@ -27,6 +27,7 @@ export default function TaskAgendaCard({ task, compact = false, onEdit, onComple
       <div className="ps-task-card-action">{task.nextAction || 'No next action set'}</div>
       <div className="ps-task-card-dates">
         <span>{formatDueDate(task.nextActionDate || task.dueDate)}</span>
+        {dateHint ? <span className="ps-reports-muted"> · {dateHint}</span> : null}
         {countdown && (
           <span className={`ps-task-card-sla ps-task-card-sla-${countdown.tone}`}>{countdown.label}</span>
         )}
