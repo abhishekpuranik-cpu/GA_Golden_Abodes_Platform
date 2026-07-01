@@ -604,6 +604,18 @@
 .ps-reports-gst-row label { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 600; color: var(--ps-text-muted); }
 .ps-reports-gst-row input { padding: 6px 8px; border: 1px solid var(--ps-border); border-radius: 6px; font-size: 0.85rem; }
 .ps-reports-clp-meta { font-weight: 400; font-size: 0.72rem; color: var(--ps-text-muted); margin-left: 8px; }
+.ps-reports-schedule-link {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ps-accent, #2563eb);
+  margin-left: 8px;
+  white-space: nowrap;
+  text-decoration: none;
+}
+.ps-reports-schedule-link:hover { text-decoration: underline; }
+.ps-reports-inst-row input[readonly] { background: #f0f4ff; cursor: default; }
 .ps-reports-task-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.78rem; border-bottom: 1px solid #eef2f7; }
 .ps-reports-settlement-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .ps-clp-schedule-table input, .ps-clp-schedule-table select { width: 100%; padding: 4px 6px; border: 1px solid var(--ps-border); border-radius: 4px; font-size: 0.82rem; }

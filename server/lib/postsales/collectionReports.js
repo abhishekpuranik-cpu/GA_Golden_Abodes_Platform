@@ -9,6 +9,7 @@ import {
 } from './demandAmounts.js';
 import { sortDemandsByClpChronology } from './clpMilestoneOrder.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
+import { achievedDateForMilestone } from './clpScheduleSync.js';
 
 function num(v) {
   const n = Number(v);
@@ -82,10 +83,34 @@ function mapInstallments(list = []) {
     receivedAmount: num(i.receivedAmount),
     status: i.status || 'planned',
     revisedDate: i.revisedDate,
+    scheduleLinked: !!i.scheduleLinked,
   }));
 }
 
-function defaultMilestonesFromDemands(demands = []) {
+function applyScheduleToInstallments(installments, scheduleDate, clpPending) {
+  if (!scheduleDate) return installments;
+  const base = {
+    amount: clpPending,
+    expectedDate: scheduleDate,
+    includesTax: false,
+    taxAmount: 0,
+    riskCategory: 'clear',
+    note: '',
+    receivedAmount: 0,
+    status: 'planned',
+    scheduleLinked: true,
+  };
+  if (!installments?.length) {
+    return clpPending > 0 ? [base] : [];
+  }
+  return installments.map((inst, idx) => (
+    idx === 0
+      ? { ...inst, expectedDate: scheduleDate, scheduleLinked: true }
+      : inst
+  ));
+}
+
+function defaultMilestonesFromDemands(demands = [], scheduleAchievedMap = null) {
   const sorted = sortDemandsByClpChronology(demands);
   return sorted
     .filter((d) => !isPostStageDemand(d) || isGstDemand(d))
@@ -94,7 +119,15 @@ function defaultMilestonesFromDemands(demands = []) {
       const clpDue = isGstDemand(d) ? readGstDue(d) : agreementDueOnRow(d);
       const clpReceived = isGstDemand(d) ? readGstReceived(d) : num(d.paidAmount);
       const clpPending = Math.max(0, clpDue - clpReceived);
-      const defaultDate = d.targetDate || d.dueDate || d.actualDate;
+      const scheduleDate = achievedDateForMilestone(scheduleAchievedMap, name);
+      const defaultDate = scheduleDate || d.actualDate || d.targetDate || d.dueDate;
+      const installments = clpPending > 0 && defaultDate
+        ? applyScheduleToInstallments(
+          [{ amount: clpPending, expectedDate: defaultDate, includesTax: isGstDemand(d), taxAmount: isGstDemand(d) ? clpPending : 0, riskCategory: 'clear', receivedAmount: 0, status: 'planned' }],
+          scheduleDate,
+          clpPending,
+        )
+        : [];
       return {
         demandId: d._id,
         milestoneName: name,
@@ -102,15 +135,14 @@ function defaultMilestonesFromDemands(demands = []) {
         clpReceivedAmount: clpReceived,
         clpPendingAmount: clpPending,
         isGst: isGstDemand(d),
-        installments: clpPending > 0 && defaultDate
-          ? [{ amount: clpPending, expectedDate: defaultDate, includesTax: isGstDemand(d), taxAmount: isGstDemand(d) ? clpPending : 0, riskCategory: 'clear', receivedAmount: 0, status: 'planned' }]
-          : [],
+        scheduleAchievedDate: scheduleDate || undefined,
+        installments,
       };
     });
 }
 
-function mergeForecastWithDemands(stored, demands) {
-  const defaults = defaultMilestonesFromDemands(demands);
+function mergeForecastWithDemands(stored, demands, scheduleAchievedMap = null) {
+  const defaults = defaultMilestonesFromDemands(demands, scheduleAchievedMap);
   const storedList = stored?.milestones || [];
   const storedByKey = new Map(storedList.map((m) => [milestoneMatchKey(m), m]));
   const usedStored = new Set();
@@ -127,6 +159,14 @@ function mergeForecastWithDemands(stored, demands) {
     const clpDue = def.clpDueAmount;
     const clpReceived = def.clpReceivedAmount;
     const clpPending = def.clpPendingAmount;
+    const scheduleDate = def.scheduleAchievedDate || achievedDateForMilestone(scheduleAchievedMap, def.milestoneName);
+
+    let installments = saved?.installments?.length
+      ? mapInstallments(saved.installments)
+      : def.installments;
+    if (scheduleDate) {
+      installments = applyScheduleToInstallments(installments, scheduleDate, clpPending);
+    }
 
     return {
       demandId: def.demandId,
@@ -135,9 +175,8 @@ function mergeForecastWithDemands(stored, demands) {
       clpReceivedAmount: clpReceived,
       clpPendingAmount: clpPending,
       isGst: def.isGst,
-      installments: saved?.installments?.length
-        ? mapInstallments(saved.installments)
-        : def.installments,
+      scheduleAchievedDate: scheduleDate || undefined,
+      installments,
     };
   });
 
@@ -161,9 +200,9 @@ function mergeForecastWithDemands(stored, demands) {
     .map(({ milestoneNameRaw, ...rest }) => rest);
 }
 
-export function buildCollectionRegisterRow(unit, customer, demands, forecast, asOf = new Date()) {
+export function buildCollectionRegisterRow(unit, customer, demands, forecast, asOf = new Date(), scheduleAchievedMap = null) {
   const totals = computeUnitCumulative(demands, asOf);
-  const milestones = mergeForecastWithDemands(forecast, demands);
+  const milestones = mergeForecastWithDemands(forecast, demands, scheduleAchievedMap);
 
   const gstDue = Number.isFinite(Number(forecast?.gstDueOverride))
     ? Number(forecast.gstDueOverride)

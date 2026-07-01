@@ -229,7 +229,9 @@ export default function Reports() {
         <div>
           <h2 style={{ margin: 0 }}>Reports</h2>
           <p className="ps-reports-sub">
-            Collection register with milestone payment forecasts · rolls up to weekly disbursement view (Clear / Risky / Delayed).
+            Collection register with milestone payment forecasts · expected dates linked to{' '}
+            <Link to="/app/post-sales/milestones">Milestones → Achieved Date</Link>
+            {' '}· rolls up to weekly disbursement view (Clear / Risky / Delayed).
             {asOf ? ` · As of ${asOf}` : ''}
           </p>
         </div>

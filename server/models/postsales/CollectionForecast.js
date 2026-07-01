@@ -10,6 +10,7 @@ const InstallmentSchema = new mongoose.Schema({
   receivedAmount: { type: Number, default: 0, min: 0 },
   status: { type: String, enum: ['planned', 'complete', 'delayed'], default: 'planned' },
   revisedDate: Date,
+  scheduleLinked: { type: Boolean, default: false },
 }, { _id: true });
 
 const MilestoneForecastSchema = new mongoose.Schema({

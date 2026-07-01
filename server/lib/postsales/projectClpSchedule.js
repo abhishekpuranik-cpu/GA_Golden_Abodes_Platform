@@ -1,7 +1,7 @@
 import XLSX from 'xlsx';
 import ProjectClpSchedule from '../../models/postsales/ProjectClpSchedule.js';
 import ConstructionMilestone from '../../models/postsales/ConstructionMilestone.js';
-import { processClpMilestoneCompletion } from './clpDemandTrigger.js';
+import { syncScheduleRowToUnits } from './clpScheduleSync.js';
 
 function slug(s) {
   return String(s || '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
@@ -60,28 +60,41 @@ export async function saveProjectClpSchedule(project, rows, updatedBy) {
   ).lean();
 }
 
-export async function triggerDemandTasksForAchievedRow(project, row, { tower, by = 'CLP Schedule' } = {}) {
-  if (!row.constructionLinked || !row.achievedDate || !row.percentDue) {
-    return { skipped: true, reason: 'Not construction-linked or missing achieved date / percent' };
+export async function triggerDemandTasksForAchievedRow(project, row, { tower, phase, building, by = 'CLP Schedule' } = {}) {
+  if (!row.achievedDate || !row.milestone) {
+    return { skipped: true, reason: 'Missing achieved date or milestone name' };
   }
 
-  const milestone = await ConstructionMilestone.create({
-    project,
-    tower: tower || '',
-    milestoneName: row.milestone,
-    clpPercent: row.percentDue,
-    completedDate: row.achievedDate,
-    loggedAt: new Date(),
-    loggedBy: by,
-    demandTriggerStatus: 'pending',
+  const scopedBuilding = building || tower || '';
+  const sync = await syncScheduleRowToUnits(project, row, {
+    phase: phase || '',
+    building: scopedBuilding,
+    by,
   });
 
-  const result = await processClpMilestoneCompletion(milestone, { by, createDemands: true });
+  if (row.constructionLinked && row.percentDue && row.achievedDate) {
+    const milestone = await ConstructionMilestone.create({
+      project,
+      tower: scopedBuilding,
+      milestoneName: row.milestone,
+      clpPercent: row.percentDue,
+      completedDate: row.achievedDate,
+      loggedAt: new Date(),
+      loggedBy: by,
+      demandTriggerStatus: 'triggered',
+      demandsCreated: sync.demandsCreated || 0,
+      tasksCreated: sync.tasksCreated || 0,
+    });
+    sync.milestoneId = milestone._id;
+  }
+
   return {
     skipped: false,
-    unitsAffected: result.unitsAffected,
-    demandsCreated: result.demandsCreated,
-    tasksCreated: result.tasksCreated,
-    milestoneId: milestone._id,
+    unitsAffected: sync.unitsAffected,
+    demandsCreated: sync.demandsCreated,
+    tasksCreated: sync.tasksCreated,
+    forecastsUpdated: sync.forecastsUpdated,
+    demandsUpdated: sync.demandsUpdated,
+    milestoneId: sync.milestoneId,
   };
 }

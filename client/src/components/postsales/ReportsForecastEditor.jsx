@@ -51,6 +51,7 @@ export default function ReportsForecastEditor({ row, onSave, onCancel, onTaskUpd
     clpReceivedAmount: m.clpReceivedAmount,
     clpPendingAmount: m.clpPendingAmount,
     isGst: m.isGst,
+    scheduleAchievedDate: m.scheduleAchievedDate,
     installments: (m.installments?.length ? m.installments : [emptyInstallment()]).map((i) => ({
       _id: i._id,
       amount: i.amount ?? '',
@@ -62,6 +63,7 @@ export default function ReportsForecastEditor({ row, onSave, onCancel, onTaskUpd
       receivedAmount: i.receivedAmount ?? '',
       status: i.status || 'planned',
       revisedDate: toInputDate(i.revisedDate),
+      scheduleLinked: !!i.scheduleLinked,
     })),
   })));
   const [tasks, setTasks] = useState([]);
@@ -306,11 +308,27 @@ export default function ReportsForecastEditor({ row, onSave, onCancel, onTaskUpd
             <span className="ps-reports-clp-meta">
               CLP Due {fmt(m.clpDueAmount)} · Recd {fmt(m.clpReceivedAmount)} · Pending {fmt(m.clpPendingAmount)}
             </span>
+            {m.scheduleAchievedDate && (
+              <span className="ps-reports-schedule-link" title="From Milestones tab → Achieved Date">
+                Linked to CLP schedule
+              </span>
+            )}
           </div>
           {m.installments.map((inst, ii) => (
             <div key={inst._id || ii} className="ps-reports-inst-row">
               <input type="number" placeholder="Amount ₹" value={inst.amount} onChange={(e) => updateInst(mi, ii, 'amount', e.target.value)} title={ii === 0 ? 'Edit first amount — remainder auto-fills next installment' : 'Amount'} />
-              <input type="date" value={inst.expectedDate} onChange={(e) => updateInst(mi, ii, 'expectedDate', e.target.value)} title="Expected date" />
+              <input
+                type="date"
+                value={inst.expectedDate}
+                readOnly={!!inst.scheduleLinked}
+                onChange={(e) => updateInst(mi, ii, 'expectedDate', e.target.value)}
+                title={inst.scheduleLinked ? 'Set Achieved Date on Milestones tab' : 'Expected date'}
+              />
+              {inst.scheduleLinked && (
+                <Link to="/app/post-sales/milestones" className="ps-reports-schedule-link" title="Edit on Milestones tab">
+                  Milestones
+                </Link>
+              )}
               <select value={inst.riskCategory} onChange={(e) => updateInst(mi, ii, 'riskCategory', e.target.value)} title="Risk">
                 <option value="clear">Clear</option>
                 <option value="risky">Risky</option>

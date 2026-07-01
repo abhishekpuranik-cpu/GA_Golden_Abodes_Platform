@@ -1,7 +1,9 @@
 import Unit from '../../models/postsales/Unit.js';
 import Demand from '../../models/postsales/Demand.js';
 import CollectionForecast from '../../models/postsales/CollectionForecast.js';
+import ProjectClpSchedule from '../../models/postsales/ProjectClpSchedule.js';
 import { buildCollectionRegisterRow } from './collectionReports.js';
+import { buildAchievedDateMap } from './clpScheduleSync.js';
 import { backfillMilestoneOrders, backfillPostStageOrders } from './milestoneOrderBackfill.js';
 import { applyBookingDisbursement } from './clpBookingSettlement.js';
 import { syncDisbursementTasksFromForecast } from './disbursementTasks.js';
@@ -42,9 +44,10 @@ export async function loadCollectionRegister(query = {}) {
   const units = await Unit.find(filter).populate('customerId').sort({ project: 1, unitNumber: 1 }).lean();
   const unitIds = units.map((u) => u._id);
 
-  const [demands, forecasts] = await Promise.all([
+  const [demands, forecasts, schedules] = await Promise.all([
     Demand.find({ unitId: { $in: unitIds } }).lean(),
     CollectionForecast.find({ unitId: { $in: unitIds } }).lean(),
+    ProjectClpSchedule.find({ project: { $in: [...new Set(units.map((u) => u.project).filter(Boolean))] } }).lean(),
   ]);
   await backfillMilestoneOrders(Demand, demands);
   await backfillPostStageOrders(Demand, demands);
@@ -57,6 +60,9 @@ export async function loadCollectionRegister(query = {}) {
   }
 
   const forecastByUnit = new Map(forecasts.map((f) => [String(f.unitId), f]));
+  const scheduleByProject = Object.fromEntries(
+    schedules.map((s) => [s.project, buildAchievedDateMap(s.rows)]),
+  );
   const q = String(query.search || '').trim().toLowerCase();
 
   let rows = units.map((unit) => buildCollectionRegisterRow(
@@ -64,6 +70,8 @@ export async function loadCollectionRegister(query = {}) {
     unit.customerId,
     demandsByUnit.get(String(unit._id)) || [],
     forecastByUnit.get(String(unit._id)),
+    new Date(),
+    scheduleByProject[unit.project] || null,
   ));
 
   if (q) {
