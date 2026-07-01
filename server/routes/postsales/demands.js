@@ -6,6 +6,7 @@ import Unit from '../../models/postsales/Unit.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { normalizeImportRow, paymentStatusFromAmounts } from '../../lib/postsales/collectionsLib.js';
 import { activateClpLetterTaskFromDemand } from '../../lib/postsales/clpDemandTrigger.js';
+import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import { isGstDemand, readGstDue, readGstReceived } from '../../lib/postsales/demandAmounts.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { sortDemandsByClpChronology } from '../../lib/postsales/clpMilestoneOrder.js';
@@ -24,8 +25,9 @@ function buildUnitFilter(query = {}) {
   return filter;
 }
 
-function enrichDemand(d, unitMap) {
+function enrichDemand(d, unitMap, clpMap = {}) {
   const u = unitMap[String(d.unitId)];
+  const clp = clpMap[String(d._id)];
   const received = Number(d.paidAmount) || 0;
   const agreementDue = isGstDemand(d)
     ? 0
@@ -44,6 +46,8 @@ function enrichDemand(d, unitMap) {
     targetDate: d.targetDate || d.dueDate,
     actualDate: d.actualDate,
     clpLetterTaskAt: d.clpLetterTaskAt,
+    clpLetterTaskId: clp?._id,
+    clpLetterStatus: clp?.status,
     dueAmount: agreementDue,
     receivedAmount: received,
     pendingAmount: Number.isFinite(Number(d.pendingAmount))
@@ -164,8 +168,13 @@ router.get('/', async (req, res) => {
     const unitIds = [...new Set(demands.map((d) => String(d.unitId)))];
     const units = await Unit.find({ _id: { $in: unitIds } }).populate('customerId').lean();
     const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));
+    const demandIds = demands.map((d) => d._id);
+    const clpTasks = demandIds.length
+      ? await ClpLetterTask.find({ demandId: { $in: demandIds } }).lean()
+      : [];
+    const clpMap = Object.fromEntries(clpTasks.map((t) => [String(t.demandId), t]));
 
-    const enriched = sortDemandsByClpChronology(demands.map((d) => enrichDemand(d, unitMap)));
+    const enriched = sortDemandsByClpChronology(demands.map((d) => enrichDemand(d, unitMap, clpMap)));
 
     const totalDue = enriched.reduce((s, d) => s + (d.dueAmount || 0), 0);
     const totalReceived = enriched.reduce((s, d) => s + (d.receivedAmount || 0), 0);
@@ -274,7 +283,8 @@ router.patch('/:id', async (req, res) => {
     }
 
     const unit = await Unit.findById(demand.unitId).populate('customerId').lean();
-    res.json(enrichDemand(demand.toObject(), { [String(demand.unitId)]: unit }));
+    const clp = await ClpLetterTask.findOne({ demandId: demand._id }).lean();
+    res.json(enrichDemand(demand.toObject(), { [String(demand.unitId)]: unit }, { [String(demand._id)]: clp }));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

@@ -97,6 +97,19 @@ export const postSalesApi = {
   updateStep: (unitId, stepNumber, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   addStepComment: (unitId, stepNumber, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   toggleChecklist: (unitId, stepNumber, index, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/checklist/${index}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  getStepActivityLog: (unitId, stepNumber) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/log`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+
+  listClpLetterTasks: (params = {}) => {
+    const q = new URLSearchParams(params).toString();
+    return apiFetch(`${BASE}/clp-letter-tasks${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
+  },
+  listClpLetterTasksForUnit: (unitId) => apiFetch(`${BASE}/clp-letter-tasks/unit/${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  getClpLetterTask: (id) => apiFetch(`${BASE}/clp-letter-tasks/${id}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  getClpLetterTaskLog: (id) => apiFetch(`${BASE}/clp-letter-tasks/${id}/log`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  updateClpLetterTask: (id, body) => apiFetch(`${BASE}/clp-letter-tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  updateClpLetterTaskStatus: (id, body) => apiFetch(`${BASE}/clp-letter-tasks/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  toggleClpLetterChecklist: (id, index, body) => apiFetch(`${BASE}/clp-letter-tasks/${id}/checklist/${index}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  completeClpLetterTask: (id, body = {}) => apiFetch(`${BASE}/clp-letter-tasks/${id}/complete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
   listAssignees: () => apiFetch(`${BASE}/tasks/assignees`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   getMyTasks: (params = {}) => {

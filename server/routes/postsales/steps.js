@@ -11,6 +11,12 @@ import { checkBlockedSteps, computeDueDate, getStepDef, backfillStepTaskKinds } 
 import { getStepTaskKind, defaultAssigneeForKind } from '../../lib/postsales/taskKinds.js';
 
 import { attachPostSalesUser, actorLabel, pushActivity } from '../../lib/postsales/activity.js';
+import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
+import {
+  allClpDemandsSettled,
+  checklistComplete,
+  CLP_STEP,
+} from '../../lib/postsales/clpLetterTasks.js';
 
 
 
@@ -42,6 +48,20 @@ router.get('/', async (req, res) => {
 
   }
 
+});
+
+
+
+router.get('/:stepNumber/log', async (req, res) => {
+  try {
+    const unitId = req.params.unitId;
+    const stepNumber = Number(req.params.stepNumber);
+    const step = await PipelineStep.findOne({ unitId, stepNumber }).lean();
+    if (!step) return res.status(404).json({ error: 'Step not found' });
+    res.json({ log: step.activityLog || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 
@@ -153,6 +173,29 @@ router.patch('/:stepNumber', async (req, res) => {
 
 
     if (status) {
+      if (status === 'completed' && !checklistComplete(step.checklist)) {
+        return res.status(400).json({ error: 'Complete all checklist items before marking this step done.' });
+      }
+
+      if (status === 'completed' && stepNumber === CLP_STEP) {
+        const openClp = await ClpLetterTask.countDocuments({
+          unitId,
+          status: { $in: ['open', 'in_progress', 'delayed'] },
+        });
+        if (openClp > 0) {
+          return res.status(400).json({ error: `${openClp} CLP letter activity(ies) still open. Complete them first.` });
+        }
+        const settled = await allClpDemandsSettled(unitId);
+        if (!settled) {
+          return res.status(400).json({ error: 'Step 12 can only be completed when all CLP/installment demands are fully paid.' });
+        }
+      }
+
+      if (status === 'in_progress' && step.status === 'completed') {
+        step.completedDate = undefined;
+        step.completedBy = undefined;
+        pushActivity(step, 'reopened', by, notes || 'Step reopened for further work');
+      }
 
       step.status = status;
 
@@ -166,7 +209,10 @@ router.patch('/:stepNumber', async (req, res) => {
 
         pushActivity(step, 'completed', by, notes || 'Step marked complete');
 
-
+        if (stepNumber === CLP_STEP) {
+          await step.save();
+          return res.json(step);
+        }
 
         const nextDef = getStepDef(stepNumber + 1);
 
@@ -248,7 +294,9 @@ router.patch('/:stepNumber/checklist/:index', async (req, res) => {
 
     if (!step) return res.status(404).json({ error: 'Step not found' });
 
-    if (step.status === 'completed') return res.status(400).json({ error: 'Step already completed' });
+    if (step.status === 'completed' && req.body.done) {
+      return res.status(400).json({ error: 'Reopen the step before editing checklist.' });
+    }
 
 
 

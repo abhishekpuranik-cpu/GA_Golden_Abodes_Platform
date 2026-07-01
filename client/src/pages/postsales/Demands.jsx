@@ -28,6 +28,21 @@ function payBadge(status) {
   return `ps-badge ps-badge-${map[status] || 'grey'}`;
 }
 
+function letterBadge(status) {
+  if (status === 'complete') return 'green';
+  if (status === 'delayed') return 'red';
+  if (status === 'in_progress' || status === 'open') return 'blue';
+  return 'grey';
+}
+
+function letterLabel(d) {
+  if (d.clpLetterStatus === 'complete') return 'Complete';
+  if (d.clpLetterStatus === 'delayed') return 'Delayed';
+  if (d.clpLetterStatus === 'in_progress' || d.clpLetterStatus === 'open') return 'In progress';
+  if (d.actualDate) return 'Pending';
+  return '—';
+}
+
 const AS_OF_TODAY = new Date();
 
 const STATUS_FILTERS = [
@@ -359,6 +374,7 @@ export default function Demands() {
                                 <th className="ps-num">CLP %</th>
                                 <th>Target date</th>
                                 <th>Actual date</th>
+                                <th>Letter</th>
                                 <th className="ps-num">Agmt due</th>
                                 <th className="ps-num">Agmt rcvd</th>
                                 <th className="ps-num">Agmt pend</th>
@@ -398,6 +414,19 @@ export default function Demands() {
                                         title={d.clpLetterTaskAt ? `Letter task ${new Date(d.clpLetterTaskAt).toLocaleDateString('en-IN')}` : 'Set when construction milestone is achieved — triggers CLP letter task'}
                                       />
                                     </td>
+                                    <td>
+                                      {d.clpLetterTaskId ? (
+                                        <Link
+                                          to={`/app/post-sales/units/${g.unitId}?step=12&demandId=${d._id}`}
+                                          className={`ps-badge ps-badge-${letterBadge(d.clpLetterStatus)}`}
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          {letterLabel(d)}
+                                        </Link>
+                                      ) : (
+                                        <span className="ps-reports-muted">{letterLabel(d)}</span>
+                                      )}
+                                    </td>
                                     <td className="ps-num">{fmt(a.agreementDue)}</td>
                                     <td className="ps-num">{fmt(a.agreementReceived)}</td>
                                     <td className="ps-num">{fmt(a.agreementPending)}</td>
@@ -432,6 +461,7 @@ export default function Demands() {
                                     <td>
                                       <input type="date" className="ps-clp-date" value={toIsoDateInput(gst.targetDate || gst.dueDate)} disabled={dateBusy === `${gst._id}:targetDate`} onClick={(e) => e.stopPropagation()} onChange={(e) => handleMilestoneDate(gst, 'targetDate', e.target.value)} />
                                     </td>
+                                    <td>—</td>
                                     <td>—</td>
                                     <td className="ps-num">—</td>
                                     <td className="ps-num">—</td>
@@ -472,6 +502,7 @@ export default function Demands() {
                 <th className="ps-num">GST pend</th>
                 <th>Target</th>
                 <th>Actual</th>
+                <th>Letter</th>
                 <th>Status</th>
                 <th />
               </tr>
@@ -500,6 +531,15 @@ export default function Demands() {
                     </td>
                     <td>
                       <input type="date" className="ps-clp-date" value={toIsoDateInput(d.actualDate)} onChange={(e) => handleMilestoneDate(d, 'actualDate', e.target.value)} />
+                    </td>
+                    <td>
+                      {d.clpLetterTaskId ? (
+                        <Link to={`/app/post-sales/units/${d.unitId}?step=12&demandId=${d._id}`} className={`ps-badge ps-badge-${letterBadge(d.clpLetterStatus)}`}>
+                          {letterLabel(d)}
+                        </Link>
+                      ) : (
+                        <span className="ps-reports-muted">{letterLabel(d)}</span>
+                      )}
                     </td>
                     <td><span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span></td>
                     <td>

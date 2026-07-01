@@ -17,6 +17,7 @@ import allocationRouter from './allocation.js';
 import bootstrapRouter from './bootstrap.js';
 import reportsRouter from './reports.js';
 import clpScheduleRouter from './clpSchedule.js';
+import clpLetterTasksRouter from './clpLetterTasks.js';
 
 const router = Router();
 
@@ -40,5 +41,6 @@ router.use('/allocation', allocationRouter);
 router.use('/bootstrap', bootstrapRouter);
 router.use('/inventory', inventoryRouter);
 router.use('/reports', reportsRouter);
+router.use('/clp-letter-tasks', clpLetterTasksRouter);
 
 export default router;

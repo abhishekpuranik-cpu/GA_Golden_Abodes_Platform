@@ -3,7 +3,7 @@ import mongoose from 'mongoose';
 const ChecklistItemSchema = new mongoose.Schema({ item: String, done: { type: Boolean, default: false }, doneAt: Date, doneBy: String });
 const CommentSchema = new mongoose.Schema({ text: String, at: { type: Date, default: Date.now }, by: String });
 const ActivityLogSchema = new mongoose.Schema({
-  action: { type: String, enum: ['assigned', 'started', 'checklist', 'document_uploaded', 'completed', 'escalated', 'note'], required: true },
+  action: { type: String, enum: ['assigned', 'started', 'checklist', 'document_uploaded', 'completed', 'escalated', 'note', 'reopened', 'status_changed'], required: true },
   at: { type: Date, default: Date.now },
   by: String,
   detail: String,

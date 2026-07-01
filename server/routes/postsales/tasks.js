@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
+import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import Unit from '../../models/postsales/Unit.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { resolveSession } from '../auth.js';
 import { STEPS } from '../../lib/postsales/steps.js';
 import { backfillStepTaskKinds } from '../../lib/postsales/helpers.js';
 import { getStepTaskKind, TASK_KINDS } from '../../lib/postsales/taskKinds.js';
+import { CLP_STEP, mapClpLetterTaskToMyTask } from '../../lib/postsales/clpLetterTasks.js';
 
 const router = Router();
 
@@ -181,6 +183,7 @@ async function fetchOpenTasks(query, { assigneeNeedles: needles, taskKind, inclu
 
   let steps = await PipelineStep.find(stepFilter).lean();
   await backfillStepTaskKinds(steps, PipelineStep);
+  steps = steps.filter((s) => s.stepNumber !== CLP_STEP);
 
   const missingUnitIds = [...new Set(steps.map((s) => String(s.unitId)))].filter((id) => !unitMap[id]);
   if (missingUnitIds.length) {
@@ -218,7 +221,27 @@ async function fetchOpenTasks(query, { assigneeNeedles: needles, taskKind, inclu
   }
 
   steps = sortTasksByFollowUp(steps);
-  return { tasks: steps.map((s) => mapStepToTask(s, unitMap)), unitMap };
+  const stepTasks = steps.map((s) => mapStepToTask(s, unitMap));
+
+  const clpFilter = { status: { $in: ['open', 'in_progress', 'delayed'] } };
+  if (filteredUnitIds) clpFilter.unitId = { $in: filteredUnitIds };
+  if (needles?.length) {
+    clpFilter.assignee = { $in: needles.map((n) => new RegExp(`^${escapeRegex(n)}$`, 'i')) };
+  }
+  const clpRows = await ClpLetterTask.find(clpFilter).sort({ dueDate: 1 }).lean();
+  for (const row of clpRows) {
+    if (!unitMap[String(row.unitId)]) {
+      const u = await Unit.findById(row.unitId).populate('customerId').lean();
+      if (u) unitMap[String(u._id)] = u;
+    }
+  }
+  let clpTasks = clpRows.map((t) => mapClpLetterTaskToMyTask(t, unitMap[String(t.unitId)]));
+  if (taskKind === 'cx' || taskKind === 'backend') {
+    clpTasks = clpTasks.filter((t) => t.taskKind === taskKind);
+  }
+
+  const merged = sortTasksByFollowUp([...stepTasks, ...clpTasks]);
+  return { tasks: merged, unitMap };
 }
 
 router.get('/my', async (req, res) => {

@@ -16,6 +16,8 @@ import { TYPE_LABELS, docTypesForStep } from '../../data/postsales/stepDocs.js';
 import { formatDueDate, formatSlaTarget, slaCountdown } from '../../lib/postSalesSla.js';
 import { getStepTaskKind, defaultAssigneeForKind, TASK_KINDS } from '../../data/postsales/taskKinds.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
+import ClpLetterQueue from '../../components/postsales/ClpLetterQueue.jsx';
+import ActivityLogPanel from '../../components/postsales/ActivityLogPanel.jsx';
 
 function documentOpenUrl(doc) {
   if (doc?.fileId) return postSalesApi.documentFileUrl(doc.fileId);
@@ -49,13 +51,14 @@ function numClass(status) {
 
 
 
-const STEP_TABS = ['checklist', 'documents', 'details', 'escalation'];
+const STEP_TABS = ['checklist', 'documents', 'details', 'escalation', 'log'];
 
 const TAB_LABELS = {
   checklist: 'Checklist',
   documents: 'Documents',
   details: 'SOP details',
   escalation: 'Escalation',
+  log: 'Activity log',
 };
 
 export default function UnitPipeline() {
@@ -78,6 +81,8 @@ export default function UnitPipeline() {
   const { documents, uploadDocument } = useDocuments(id);
 
   const { cxTeam, backendTeam } = useAssignees();
+
+  const highlightDemandId = searchParams.get('demandId');
 
   const [selected, setSelected] = useState(1);
 
@@ -188,7 +193,25 @@ export default function UnitPipeline() {
 
       await refreshUnit({ silent: true });
 
-      if (selected < 20) setSelected(selected + 1);
+      if (selected < 20 && selected !== 12) setSelected(selected + 1);
+
+    } catch (e) {
+
+      setActionError(e.message);
+
+    }
+
+  };
+
+
+
+  const handleReopenStep = async () => {
+
+    setActionError(null);
+
+    try {
+
+      await updateStep(selected, { status: 'in_progress', notes: notes || 'Step reopened' });
 
     } catch (e) {
 
@@ -574,9 +597,25 @@ export default function UnitPipeline() {
 
           {tab === 'checklist' && (
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(280px, 360px)', gap: 24, alignItems: 'start' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: selected === 12 ? '1fr' : 'minmax(0, 1fr) minmax(280px, 360px)', gap: 24, alignItems: 'start' }}>
 
               <div>
+
+                {selected === 12 && (
+                  <ClpLetterQueue
+                    unitId={id}
+                    actor={actor}
+                    highlightDemandId={highlightDemandId}
+                    onRefresh={() => refreshUnit({ silent: true })}
+                  />
+                )}
+
+                {selected === 12 && (
+                  <div style={{ margin: '20px 0 12px', paddingTop: 16, borderTop: '1px solid var(--ps-border)' }}>
+                    <strong>Station checklist</strong>
+                    <div className="ps-reports-muted" style={{ marginBottom: 8 }}>Complete all letter activities and demands before closing step 12.</div>
+                  </div>
+                )}
 
                 {stepDef?.fundingTypeSplit && (
 
@@ -617,6 +656,8 @@ export default function UnitPipeline() {
               </div>
 
 
+
+              {selected !== 12 && (
 
               <div style={{ borderLeft: '1px solid var(--ps-border)', paddingLeft: 24 }}>
 
@@ -721,6 +762,8 @@ export default function UnitPipeline() {
                 </div>
 
               </div>
+
+              )}
 
             </div>
 
@@ -958,6 +1001,15 @@ export default function UnitPipeline() {
 
 
 
+          {tab === 'log' && (
+            <ActivityLogPanel
+              title="Step activity log"
+              fetchLog={() => postSalesApi.getStepActivityLog(id, selected).then((r) => r.log)}
+            />
+          )}
+
+
+
           {stepRecord?.status !== 'completed' && (
 
             <div style={{ display: 'flex', gap: 10, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--ps-border)', flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -976,6 +1028,12 @@ export default function UnitPipeline() {
 
             </div>
 
+          )}
+
+          {stepRecord?.status === 'completed' && (
+            <div style={{ display: 'flex', gap: 10, marginTop: 20, paddingTop: 16, borderTop: '1px solid var(--ps-border)', flexWrap: 'wrap' }}>
+              <button type="button" className="ps-btn" onClick={handleReopenStep}>Reopen step (In progress)</button>
+            </div>
           )}
 
         </div>

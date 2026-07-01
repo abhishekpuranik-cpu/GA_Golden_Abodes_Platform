@@ -33,6 +33,9 @@ const LEGEND = [
 ];
 
 function taskTitle(task) {
+  if (task.taskType === 'clp_letter') {
+    return `CLP · ${task.unitNumber} · ${task.milestoneName || task.stepName}`;
+  }
   return `Step ${task.stepNumber} · ${task.unitNumber} · ${task.stepName}`;
 }
 
@@ -92,9 +95,13 @@ export default function MyTasks() {
   const handleComplete = async (task) => {
     setBusyId(task._id);
     try {
-      await postSalesApi.updateStep(task.unitId, task.stepNumber, { status: 'completed', by: actor });
+      if (task.taskType === 'clp_letter') {
+        await postSalesApi.completeClpLetterTask(task.clpLetterTaskId, { by: actor });
+      } else {
+        await postSalesApi.updateStep(task.unitId, task.stepNumber, { status: 'completed', by: actor });
+      }
       setTasks((prev) => prev.filter((t) => t._id !== task._id));
-      showToast(`Step ${task.stepNumber} marked complete.`);
+      showToast(task.taskType === 'clp_letter' ? 'CLP letter activity complete.' : `Step ${task.stepNumber} marked complete.`);
     } catch (e) {
       showToast(e.message);
       await refresh();
@@ -122,9 +129,14 @@ export default function MyTasks() {
     if (!editTask) return;
     setDrawerBusy(true);
     try {
-      await postSalesApi.updateStep(editTask.unitId, editTask.stepNumber, { status: 'completed', by: actor });
+      if (editTask.taskType === 'clp_letter') {
+        await postSalesApi.completeClpLetterTask(editTask.clpLetterTaskId, { by: actor });
+      } else {
+        await postSalesApi.updateStep(editTask.unitId, editTask.stepNumber, { status: 'completed', by: actor });
+      }
       setTasks((prev) => prev.filter((t) => t._id !== editTask._id));
-      showToast(`Step ${editTask.stepNumber} marked complete.`);
+      showToast(editTask.taskType === 'clp_letter' ? 'CLP letter activity complete.' : `Step ${editTask.stepNumber} marked complete.`);
+      setEditTask(null);
     } catch (e) {
       showToast(e.message);
       await refresh();
@@ -266,9 +278,11 @@ export default function MyTasks() {
       <TaskEditDrawer
         task={editTask}
         assignees={assignees}
+        actor={actor}
         onClose={() => setEditTask(null)}
         onSave={handleSave}
         onComplete={handleDrawerComplete}
+        onRefresh={refresh}
         busy={drawerBusy}
       />
 

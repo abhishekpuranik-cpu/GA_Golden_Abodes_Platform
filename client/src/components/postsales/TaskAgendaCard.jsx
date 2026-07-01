@@ -15,10 +15,10 @@ export default function TaskAgendaCard({ task, compact = false, dateHint = '', o
   return (
     <article className={`ps-task-card ${overdue ? 'overdue' : ''} ${compact ? 'compact' : ''}`}>
       <div className="ps-task-card-top">
-        <span className="ps-task-card-step">Step {task.stepNumber}</span>
+        <span className="ps-task-card-step">{task.taskType === 'clp_letter' ? 'CLP letter' : `Step ${task.stepNumber}`}</span>
         <span className="ps-task-card-kind" style={kindStyle(task.taskKind)}>{TASK_KINDS[task.taskKind]?.shortLabel || task.taskKind}</span>
       </div>
-      <div className="ps-task-card-title">{task.stepName}</div>
+      <div className="ps-task-card-title">{task.taskType === 'clp_letter' ? (task.milestoneName || task.stepName) : task.stepName}</div>
       {!compact && (
         <div className="ps-task-card-unit">
           <strong>{task.unitNumber}</strong> · {task.project} · {task.customerName}
