@@ -103,6 +103,7 @@ export async function createOrReopenClpLetterTask({
   milestone = {},
   by = 'System',
   triggeredBy = 'milestone',
+  initialStatus,
 }) {
   const def = getStepDef(CLP_STEP);
   const taskKind = getStepTaskKind(CLP_STEP);
@@ -111,6 +112,7 @@ export async function createOrReopenClpLetterTask({
   const assignee = defaultAssigneeForKind(unit, taskKind);
   const label = formatMilestoneLabel(demand.milestoneName || milestone.milestoneName);
   const pct = demand.clpPercent ?? milestone.clpPercent;
+  const defaultOpen = demand.actualDate ? 'in_progress' : 'open';
 
   let task = await ClpLetterTask.findOne({ demandId: demand._id });
 
@@ -127,6 +129,7 @@ export async function createOrReopenClpLetterTask({
     task.dueDate = dueDate;
     task.triggeredBy = triggeredBy;
     if (!task.assignee && assignee) task.assignee = assignee;
+    if (demand.actualDate && task.status === 'open') task.status = 'in_progress';
     pushClpActivity(task, 'note', by, `Updated — ${label}`);
     await task.save();
   } else {
@@ -136,7 +139,7 @@ export async function createOrReopenClpLetterTask({
       milestoneName: label,
       clpPercent: pct,
       assignee,
-      status: 'in_progress',
+      status: initialStatus || defaultOpen,
       dueDate,
       triggeredBy,
       checklist: buildChecklist(def, unit.fundingType || unit.customer?.fundingType),
@@ -150,15 +153,56 @@ export async function createOrReopenClpLetterTask({
   }
 
   await ensureClpStationStep(unit, by);
-  await Demand.findByIdAndUpdate(demand._id, { clpLetterTaskAt: now });
+  if (demand.actualDate || triggeredBy !== 'auto_sync') {
+    await Demand.findByIdAndUpdate(demand._id, { clpLetterTaskAt: now });
+  }
 
   return task;
+}
+
+function taskSortKey(task, demandMap) {
+  const d = demandMap[String(task.demandId)];
+  if (d?.milestoneOrder != null) return d.milestoneOrder;
+  return task.createdAt ? new Date(task.createdAt).getTime() : 0;
+}
+
+export async function ensureClpLetterTasksForUnit(unitId, by = 'Pipeline') {
+  const unit = await Unit.findById(unitId).populate('customerId').lean();
+  if (!unit) throw new Error('Unit not found');
+
+  const demands = (await Demand.find({ unitId }).lean()).filter((d) => !isGstDemand(d));
+  let created = 0;
+
+  for (const demand of demands) {
+    let task = await ClpLetterTask.findOne({ demandId: demand._id });
+    if (!task) {
+      await createOrReopenClpLetterTask({ unit, demand, by, triggeredBy: 'auto_sync' });
+      created += 1;
+    } else if (demand.actualDate && task.status === 'open') {
+      task.status = 'in_progress';
+      pushClpActivity(task, 'started', by, 'Construction milestone achieved');
+      await task.save();
+    }
+  }
+
+  if (demands.length) await ensureClpStationStep(unit, by);
+
+  const tasks = await listClpLetterTasksForUnit(unitId);
+  return { tasks, created, total: demands.length };
 }
 
 export async function listClpLetterTasksForUnit(unitId, { status } = {}) {
   const filter = { unitId };
   if (status) filter.status = status;
-  return ClpLetterTask.find(filter).sort({ createdAt: -1 }).lean();
+  const tasks = await ClpLetterTask.find(filter).lean();
+  const demandIds = tasks.map((t) => t.demandId);
+  const demands = demandIds.length
+    ? await Demand.find({ _id: { $in: demandIds } }).lean()
+    : [];
+  const demandMap = Object.fromEntries(demands.map((d) => [String(d._id), d]));
+  tasks.sort((a, b) => taskSortKey(a, demandMap) - taskSortKey(b, demandMap)
+    || String(a.milestoneName || '').localeCompare(String(b.milestoneName || '')));
+  return tasks;
 }
 
 export async function getClpLetterTaskLog(taskId) {

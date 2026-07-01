@@ -613,26 +613,6 @@ export default function UnitPipeline() {
                   />
                 )}
 
-                {selected === 12 && (
-                  <details className="ps-clp-station-close" style={{ marginTop: 20 }}>
-                    <summary><strong>Step 12 closure checklist</strong> — use after all CLP letter activities are complete</summary>
-                    <div className="ps-reports-muted" style={{ margin: '8px 0' }}>This mirrors the SOP; daily work is tracked per milestone in CLP letter activities above.</div>
-                    <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>{doneCount}/{totalCheck} station items</div>
-                    <div className="ps-progress"><div className="ps-progress-fill" style={{ width: totalCheck ? `${(doneCount / totalCheck) * 100}%` : '0%' }} /></div>
-                    {(stepRecord?.checklist || []).map((item, i) => (
-                      <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 0', cursor: stepRecord?.status === 'completed' ? 'default' : 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={!!item.done}
-                          disabled={stepRecord?.status === 'completed'}
-                          onChange={(e) => toggleChecklist(selected, i, e.target.checked)}
-                        />
-                        <span style={{ textDecoration: item.done ? 'line-through' : 'none', color: item.done ? 'var(--ps-text-muted)' : 'inherit' }}>{item.item}</span>
-                      </label>
-                    ))}
-                  </details>
-                )}
-
                 {selected !== 12 && stepDef?.fundingTypeSplit && (
 
                   <div className="ps-card" style={{ background: 'var(--ps-accent-soft)', marginBottom: 12 }}>

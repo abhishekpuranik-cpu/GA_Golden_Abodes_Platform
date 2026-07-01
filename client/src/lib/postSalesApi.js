@@ -104,6 +104,7 @@ export const postSalesApi = {
     return apiFetch(`${BASE}/clp-letter-tasks${q ? `?${q}` : ''}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; });
   },
   listClpLetterTasksForUnit: (unitId) => apiFetch(`${BASE}/clp-letter-tasks/unit/${unitId}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  syncClpLetterTasksForUnit: (unitId, body = {}) => apiFetch(`${BASE}/clp-letter-tasks/unit/${unitId}/sync`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   getClpLetterTask: (id) => apiFetch(`${BASE}/clp-letter-tasks/${id}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   getClpLetterTaskLog: (id) => apiFetch(`${BASE}/clp-letter-tasks/${id}/log`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   updateClpLetterTask: (id, body) => apiFetch(`${BASE}/clp-letter-tasks/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),

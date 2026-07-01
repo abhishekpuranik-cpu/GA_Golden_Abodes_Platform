@@ -4,6 +4,7 @@ import Unit from '../../models/postsales/Unit.js';
 import { attachPostSalesUser, actorLabel } from '../../lib/postsales/activity.js';
 import {
   completeClpLetterTask,
+  ensureClpLetterTasksForUnit,
   getClpLetterTaskLog,
   listClpLetterTasksForUnit,
   toggleClpLetterChecklist,
@@ -34,6 +35,16 @@ router.get('/unit/:unitId', async (req, res) => {
     res.json({ tasks });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/unit/:unitId/sync', async (req, res) => {
+  try {
+    const by = actorLabel(req, req.body);
+    const result = await ensureClpLetterTasksForUnit(req.params.unitId, by);
+    res.json(result);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

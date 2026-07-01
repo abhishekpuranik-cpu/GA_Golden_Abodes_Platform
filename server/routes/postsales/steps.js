@@ -173,7 +173,7 @@ router.patch('/:stepNumber', async (req, res) => {
 
 
     if (status) {
-      if (status === 'completed' && !checklistComplete(step.checklist)) {
+      if (status === 'completed' && stepNumber !== CLP_STEP && !checklistComplete(step.checklist)) {
         return res.status(400).json({ error: 'Complete all checklist items before marking this step done.' });
       }
 

@@ -388,6 +388,34 @@
 }
 .ps-clp-queue-checklist label span.done { text-decoration: line-through; color: var(--ps-text-muted); }
 .ps-clp-station-close summary { cursor: pointer; font-size: 0.9rem; }
+
+.ps-clp-board-summary {
+  display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.ps-clp-board-stats { display: flex; gap: 8px; flex-wrap: wrap; }
+.ps-clp-board-progress { margin-bottom: 4px; }
+.ps-clp-installment-num {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; background: var(--ps-accent-soft);
+  font-size: 0.75rem; font-weight: 700; color: var(--ps-accent);
+}
+.ps-clp-queue-card.done { opacity: 0.92; }
+.ps-clp-mini-progress {
+  flex: 0 0 48px; height: 6px; background: var(--ps-border); border-radius: 3px; overflow: hidden;
+}
+.ps-clp-mini-progress span { display: block; height: 100%; background: var(--ps-success); }
+.ps-clp-checklist-block {
+  margin: 12px 0; padding: 12px; border: 1px solid var(--ps-border); border-radius: 8px; background: var(--ps-surface);
+}
+.ps-clp-checklist-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.ps-clp-checklist-row {
+  display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid var(--ps-border);
+  font-size: 0.88rem;
+}
+.ps-clp-checklist-row:last-of-type { border-bottom: none; }
+.ps-clp-checklist-row.done .ps-clp-checklist-text { text-decoration: line-through; color: var(--ps-text-muted); }
+.ps-clp-checklist-check { flex-shrink: 0; margin: 0; cursor: pointer; }
+.ps-clp-checklist-text { flex: 1; line-height: 1.4; }
 .ps-demand-milestone-cell {
   max-width: 240px;
   min-width: 160px;
