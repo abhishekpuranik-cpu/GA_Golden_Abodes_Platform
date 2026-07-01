@@ -58,9 +58,9 @@ export default function CrmUnitUpload({ scope, onComplete }) {
           <strong>Upload CRM data</strong>
           <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--ps-text-muted)' }}>
             Daily sold-units file scoped to filter: <strong>{scopeLabel}</strong>.
-            Supports the full CRM template or Cashflow <strong>collection_report_stage_wise</strong> dump (uses Amount Due rows only).
-            Sets pipeline step due dates from the CRM Due Date row (Token → Registration → CLP → Possession).
-            New units start at the inferred step; existing units keep progress. Empty columns do not overwrite saved phone, funding type, etc.
+            Supports the full CRM template or Cashflow <strong>collection_report_stage_wise</strong> dump.
+            <strong> Re-imports keep existing pipeline progress, step comments, checklists, documents, and CLP letter tasks</strong> — only master fields and collection amounts are refreshed.
+            New units still get pipeline + demands from the spreadsheet. Empty CRM columns do not overwrite saved phone, executives, etc.
           </p>
         </div>
         <button type="button" className="ps-btn" onClick={() => setOpen((v) => !v)}>
@@ -134,6 +134,7 @@ export default function CrmUnitUpload({ scope, onComplete }) {
                           ))}
                           {r.action === 'create' && `Pipeline at step ${r.pipelineStep || 1}${r.demands ? ` · ${r.demands} CLP demands with due dates` : ''}`}
                           {r.action === 'update' && r.demands ? `${r.demands} demand rows synced` : null}
+                          {r.preservedPipeline && 'Pipeline, comments & attachments preserved'}
                           {r.action === 'unchanged' && 'No changes'}
                         </td>
                       </tr>

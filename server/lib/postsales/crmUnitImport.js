@@ -202,6 +202,7 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
     }
 
     const agreementDue = num(m.dueAmount);
+    const crmTarget = m.targetDate || m.dueDate;
     const payload = {
       entity: unit.entity,
       milestoneName,
@@ -213,11 +214,22 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
       pendingAmount: m.pendingAmount,
       paymentStatus: paymentStatusFromAmounts(agreementDue, m.receivedAmount),
       issuedDate: existing?.issuedDate || new Date(),
-      targetDate: m.targetDate || m.dueDate || existing?.targetDate,
-      dueDate: m.targetDate || m.dueDate || existing?.dueDate,
-      paidDate: m.receivedAmount > 0 ? (existing?.paidDate || new Date()) : undefined,
       source,
     };
+
+    if (existing?.targetDate && ['milestone', 'payment', 'manual'].includes(existing.source)) {
+      payload.targetDate = existing.targetDate;
+      payload.dueDate = existing.dueDate || existing.targetDate;
+    } else {
+      payload.targetDate = crmTarget || existing?.targetDate;
+      payload.dueDate = crmTarget || existing?.dueDate;
+    }
+
+    if (m.receivedAmount > 0) {
+      payload.paidDate = existing?.paidDate || new Date();
+    } else if (existing?.paidDate) {
+      payload.paidDate = existing.paidDate;
+    }
 
     if (isGst) {
       payload.demandAmount = 0;
@@ -248,18 +260,30 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
 function buildUnitLookup(units) {
   const byCrmKey = new Map();
   const byProjectUnit = new Map();
+  const byV1Key = new Map();
+  const byBookingId = new Map();
   for (const u of units) {
     if (u.crmUnitKey) byCrmKey.set(u.crmUnitKey, u);
+    if (u.v1UnitKey && u.project) byV1Key.set(`${slug(u.project)}|${slug(u.v1UnitKey)}`, u);
+    if (u.crmBookingId) byBookingId.set(`${slug(u.project)}|${slug(u.crmBookingId)}`, u);
     const k = `${slug(u.project)}|${slug(u.unitNumber)}`;
     if (!byProjectUnit.has(k)) byProjectUnit.set(k, []);
     byProjectUnit.get(k).push(u);
   }
-  return { byCrmKey, byProjectUnit };
+  return { byCrmKey, byProjectUnit, byV1Key, byBookingId };
 }
 
-function resolveExistingUnit(row, lookup) {
+export function resolveExistingUnit(row, lookup) {
   let unit = lookup.byCrmKey.get(row.crmUnitKey);
   if (unit) return unit;
+  if (row.v1UnitKey && row.project) {
+    unit = lookup.byV1Key.get(`${slug(row.project)}|${slug(row.v1UnitKey)}`);
+    if (unit) return unit;
+  }
+  if (row.crmBookingId && row.project) {
+    unit = lookup.byBookingId.get(`${slug(row.project)}|${slug(row.crmBookingId)}`);
+    if (unit) return unit;
+  }
   const candidates = lookup.byProjectUnit.get(`${slug(row.project)}|${slug(row.unitNumber)}`) || [];
   if (!candidates.length) return null;
   if (candidates.length === 1) return candidates[0];
@@ -276,32 +300,15 @@ function resolveExistingUnit(row, lookup) {
 
 function registerUnitInLookup(unit, lookup) {
   if (unit.crmUnitKey) lookup.byCrmKey.set(unit.crmUnitKey, unit);
+  if (unit.v1UnitKey && unit.project) {
+    lookup.byV1Key.set(`${slug(unit.project)}|${slug(unit.v1UnitKey)}`, unit);
+  }
+  if (unit.crmBookingId && unit.project) {
+    lookup.byBookingId.set(`${slug(unit.project)}|${slug(unit.crmBookingId)}`, unit);
+  }
   const k = `${slug(unit.project)}|${slug(unit.unitNumber)}`;
   if (!lookup.byProjectUnit.has(k)) lookup.byProjectUnit.set(k, []);
   lookup.byProjectUnit.get(k).push(unit);
-}
-
-function collectPipelineBulkOps(unitId, targetStep, stepDueDates, stepsByUnit, importedBy) {
-  const steps = stepsByUnit.get(String(unitId)) || [];
-  const now = new Date();
-  const ops = [];
-  for (const s of steps) {
-    const crmDue = stepDueDates[s.stepNumber];
-    const patch = {};
-    if (crmDue) patch.dueDate = crmDue;
-    if (s.stepNumber < targetStep && s.status !== 'completed') {
-      patch.status = 'completed';
-      patch.completedDate = crmDue || now;
-      patch.completedBy = importedBy;
-    } else if (s.stepNumber === targetStep && s.status === 'pending') {
-      patch.status = 'in_progress';
-      patch.triggerDate = stepDueDates[s.stepNumber - 1] || crmDue || now;
-    }
-    if (Object.keys(patch).length) {
-      ops.push({ updateOne: { filter: { _id: s._id }, update: { $set: patch } } });
-    }
-  }
-  return ops;
 }
 
 async function loadImportCaches(scope) {
@@ -449,7 +456,6 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
   }
 
   const caches = await loadImportCaches(scope);
-  let pipelineBulkOps = [];
 
   for (const { row, milestones, startAtStep, stepDueDates } of normalized) {
     try {
@@ -503,6 +509,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
             currentStepNumber: startAtStep,
             crmUnitKey: row.crmUnitKey,
             v1UnitKey: row.v1UnitKey,
+            crmBookingId: row.crmBookingId || undefined,
             firstImportedAt: new Date(),
             lastImportBatchId: batchId,
           });
@@ -525,9 +532,8 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
 
       const customer = existing.customerId;
       const changes = masterChanges(existing, row, customer);
-      const targetStep = Math.max(existing.currentStepNumber || 1, startAtStep);
-      const stepAdvance = targetStep > (existing.currentStepNumber || 1);
-      const needsUpdate = changes.length > 0 || stepAdvance || demandCount > 0 || Object.keys(stepDueDates).length > 0;
+      const targetStep = existing.currentStepNumber || 1;
+      const needsUpdate = changes.length > 0 || demandCount > 0;
 
       if (!needsUpdate) {
         report.summary.unchanged += 1;
@@ -540,15 +546,13 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
           unitNumber: row.unitNumber,
           customerName: row.customerName,
           currentStep: existing.currentStepNumber,
+          preservedPipeline: true,
         });
         continue;
       }
 
       report.summary.update += 1;
-      if (dryRun) {
-        report.summary.demandsCreated += demandCount;
-        if (stepAdvance) report.summary.pipelineAdvanced += 1;
-      }
+      if (dryRun) report.summary.demandsCreated += demandCount;
 
       report.rows.push({
         action: 'update',
@@ -559,9 +563,10 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         unitNumber: row.unitNumber,
         customerName: row.customerName,
         currentStep: existing.currentStepNumber,
-        pipelineStep: targetStep,
+        crmInferredStep: startAtStep,
         demands: demandCount,
         changes,
+        preservedPipeline: true,
       });
 
       if (!dryRun) {
@@ -577,7 +582,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
           v1UnitKey: row.v1UnitKey,
           lastImportBatchId: batchId,
           overallStatus: row.overallStatus,
-          currentStepNumber: targetStep,
+          ...(row.crmBookingId ? { crmBookingId: row.crmBookingId } : {}),
           ...(row.phase ? { phase: row.phase } : {}),
           ...(row.building ? { building: row.building, tower: row.building } : {}),
           ...(row.bookingDate ? { bookingDate: row.bookingDate } : {}),
@@ -592,18 +597,10 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         const dr = await upsertUnitDemands(existing, milestones, caches.demandByKey, { source: 'upload' });
         report.summary.demandsUpdated += dr.updated;
         report.summary.demandsCreated += dr.created;
-        pipelineBulkOps.push(...collectPipelineBulkOps(existing._id, targetStep, stepDueDates, caches.stepsByUnit, importedBy));
-        if (stepAdvance) report.summary.pipelineAdvanced += 1;
       }
     } catch (e) {
       report.summary.errors += 1;
       report.rows.push({ action: 'error', project: row.project, unitNumber: row.unitNumber, error: e.message });
-    }
-  }
-
-  if (!dryRun && pipelineBulkOps.length) {
-    for (let i = 0; i < pipelineBulkOps.length; i += 500) {
-      await PipelineStep.bulkWrite(pipelineBulkOps.slice(i, i + 500), { ordered: false });
     }
   }
 
@@ -703,6 +700,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
             currentStepNumber: 1,
             crmUnitKey: row.crmUnitKey,
             v1UnitKey: row.v1UnitKey,
+            crmBookingId: row.crmBookingId || undefined,
             firstImportedAt: new Date(),
             lastImportBatchId: batchId,
           });
@@ -756,6 +754,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
           v1UnitKey: row.v1UnitKey,
           lastImportBatchId: batchId,
           overallStatus: row.overallStatus,
+          ...(row.crmBookingId ? { crmBookingId: row.crmBookingId } : {}),
           ...(row.phase ? { phase: row.phase } : {}),
           ...(row.building ? { building: row.building, tower: row.building } : {}),
           ...(row.bookingDate ? { bookingDate: row.bookingDate } : {}),

@@ -19,12 +19,14 @@ const UnitSchema = new mongoose.Schema({
   cxExecutive: String,
   backendExecutive: String,
   crmUnitKey: String,
+  crmBookingId: String,
   v1UnitKey: String,
   firstImportedAt: Date,
   lastImportBatchId: String,
 }, { timestamps: true });
 
 UnitSchema.index({ crmUnitKey: 1 });
+UnitSchema.index({ project: 1, crmBookingId: 1 }, { sparse: true });
 UnitSchema.index({ project: 1, unitNumber: 1 });
 UnitSchema.index({ lastImportBatchId: 1 });
 
