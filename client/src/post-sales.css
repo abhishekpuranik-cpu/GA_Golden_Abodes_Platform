@@ -137,6 +137,20 @@
   cursor: not-allowed;
   background: #f1f5f9;
 }
+.ps-sync-warnings {
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-color: #fcd34d;
+  background: #fffbeb;
+  font-size: 0.85rem;
+}
+.ps-sync-warn-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: #92400e;
+  max-height: 120px;
+  overflow: auto;
+}
 
 .ps-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .ps-grid-2 { grid-template-columns: 1fr; } }

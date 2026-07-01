@@ -1,8 +1,12 @@
 import CollectionForecast from '../../models/postsales/CollectionForecast.js';
+import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import Unit from '../../models/postsales/Unit.js';
-import { createOrReopenClpLetterTask } from './clpLetterTasks.js';
+import { buildChecklist, computeDueDate, getStepDef } from './helpers.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
 import { milestoneKey, slugMilestone } from './milestoneKey.js';
+import { defaultAssigneeForKind, getStepTaskKind } from './taskKinds.js';
+
+const CLP_STEP = 12;
 
 function num(v) {
   const n = Number(v);
@@ -15,6 +19,11 @@ function parseDate(v) {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+function dateKey(v) {
+  const d = parseDate(v);
+  return d ? d.toISOString().slice(0, 10) : '';
+}
+
 export function buildAchievedDateMap(rows = []) {
   const map = new Map();
   for (const row of rows || []) {
@@ -25,7 +34,6 @@ export function buildAchievedDateMap(rows = []) {
   return map;
 }
 
-/** Resolve achieved date from project CLP schedule for a milestone label. */
 export function achievedDateForMilestone(scheduleMap, milestoneName) {
   if (!scheduleMap?.size) return null;
   const s = slugMilestone(milestoneName);
@@ -34,6 +42,17 @@ export function achievedDateForMilestone(scheduleMap, milestoneName) {
     if (key.includes(s) || s.includes(key)) return date;
   }
   return null;
+}
+
+/** Rows whose achieved date changed (for incremental sync on save). */
+export function rowsWithChangedAchievedDates(prevRows = [], nextRows = []) {
+  const prev = new Map(
+    (prevRows || []).map((r) => [slugMilestone(r.milestone), dateKey(r.achievedDate)]),
+  );
+  return (nextRows || []).filter((r) => {
+    if (!r.milestone || !r.achievedDate) return false;
+    return prev.get(slugMilestone(r.milestone)) !== dateKey(r.achievedDate);
+  });
 }
 
 function buildUnitFilter(project, { phase, building } = {}) {
@@ -48,15 +67,17 @@ function buildUnitFilter(project, { phase, building } = {}) {
   return filter;
 }
 
-function buildStep12UnitFilter(project, { phase, building } = {}) {
-  return {
-    ...buildUnitFilter(project, { phase, building }),
-    currentStepNumber: { $gte: 12 },
-  };
+function findForecastMilestone(milestones, row) {
+  const label = formatMilestoneLabel(row.milestone);
+  const key = slugMilestone(label);
+  const rowKey = slugMilestone(row.milestone);
+  return milestones.find(
+    (m) => slugMilestone(m.milestoneName) === key || slugMilestone(m.milestoneName) === rowKey,
+  );
 }
 
-function pendingAmount(unit, row, forecastMs) {
-  const fromInst = (forecastMs?.installments || []).reduce(
+function pendingAmount(unit, row, ms) {
+  const fromInst = (ms?.installments || []).reduce(
     (s, i) => s + Math.max(0, num(i.amount) - num(i.receivedAmount)),
     0,
   );
@@ -64,19 +85,13 @@ function pendingAmount(unit, row, forecastMs) {
   return Math.max(0, (unit.totalCost || 0) * ((row.percentDue || 0) / 100));
 }
 
-async function syncForecastMilestone(unit, row, achievedDate) {
+function applyScheduleRowToForecastMilestones(milestones, unit, row) {
+  const achievedDate = parseDate(row.achievedDate);
+  if (!achievedDate || !row.milestone) return false;
+
   const label = formatMilestoneLabel(row.milestone);
-  const key = slugMilestone(label);
   const amount = Math.max(0, (unit.totalCost || 0) * ((row.percentDue || 0) / 100));
-
-  let forecast = await CollectionForecast.findOne({ unitId: unit._id });
-  if (!forecast) {
-    forecast = new CollectionForecast({ unitId: unit._id, milestones: [] });
-  }
-
-  let ms = forecast.milestones.find(
-    (m) => slugMilestone(m.milestoneName) === key || slugMilestone(row.milestone) === slugMilestone(m.milestoneName),
-  );
+  let ms = findForecastMilestone(milestones, row);
 
   if (!ms) {
     ms = {
@@ -86,8 +101,12 @@ async function syncForecastMilestone(unit, row, achievedDate) {
       achievedDate,
       installments: [],
     };
-    forecast.milestones.push(ms);
+    milestones.push(ms);
   } else {
+    const prev = dateKey(ms.achievedDate);
+    const next = dateKey(achievedDate);
+    const prevInst = dateKey(ms.installments?.[0]?.expectedDate);
+    if (prev === next && prevInst === next && ms.clpPercent != null) return false;
     ms.milestoneName = ms.milestoneName || label;
     ms.clpPercent = ms.clpPercent ?? row.percentDue ?? 0;
     ms.scheduleOrder = row.scheduleOrder ?? ms.scheduleOrder ?? 0;
@@ -113,7 +132,7 @@ async function syncForecastMilestone(unit, row, achievedDate) {
     ms.installments = ms.installments.map((inst, idx) => (
       idx === 0
         ? {
-          ...(inst.toObject?.() ?? inst),
+          ...inst,
           expectedDate: achievedDate,
           amount: num(inst.amount) || pending || amount,
           scheduleLinked: true,
@@ -121,73 +140,191 @@ async function syncForecastMilestone(unit, row, achievedDate) {
         : inst
     ));
   }
-
-  forecast.markModified('milestones');
-  await forecast.save();
   return true;
 }
 
-/**
- * Milestones Achieved Date → Reports forecast + Step 12 tasks (no Demand tab).
- */
-export async function syncScheduleRowToUnits(project, row, { phase, building, by = 'CLP Schedule' } = {}) {
-  const achievedDate = parseDate(row.achievedDate);
-  if (!achievedDate || !row.milestone) {
-    return { skipped: true, reason: 'Missing achieved date or milestone name' };
+function collectBulkErrors(err, errors) {
+  if (err?.writeErrors?.length) {
+    for (const w of err.writeErrors) {
+      errors.push(w.errmsg || w.err?.message || String(w));
+    }
+    return;
   }
+  if (err?.message) errors.push(err.message);
+}
 
-  const allUnits = await Unit.find(buildUnitFilter(project, { phase, building })).populate('customerId').lean();
-  const step12Units = await Unit.find(buildStep12UnitFilter(project, { phase, building })).populate('customerId').lean();
+async function bulkSyncForecasts(allUnits, rows) {
+  if (!allUnits.length || !rows.length) return { forecastsUpdated: 0, errors: [] };
 
+  const unitIds = allUnits.map((u) => u._id);
+  const forecasts = await CollectionForecast.find({ unitId: { $in: unitIds } }).lean();
+  const forecastMap = new Map(forecasts.map((f) => [String(f.unitId), f]));
+
+  const ops = [];
   let forecastsUpdated = 0;
-  let tasksCreated = 0;
 
   for (const unit of allUnits) {
-    if (await syncForecastMilestone(unit, row, achievedDate)) {
-      forecastsUpdated += 1;
+    const existing = forecastMap.get(String(unit._id));
+    const milestones = JSON.parse(JSON.stringify(existing?.milestones || []));
+    let changed = false;
+    for (const row of rows) {
+      if (applyScheduleRowToForecastMilestones(milestones, unit, row)) changed = true;
+    }
+    if (!changed) continue;
+    forecastsUpdated += 1;
+    ops.push({
+      updateOne: {
+        filter: { unitId: unit._id },
+        update: { $set: { milestones } },
+        upsert: true,
+      },
+    });
+  }
+
+  const errors = [];
+  if (ops.length) {
+    try {
+      await CollectionForecast.bulkWrite(ops, { ordered: false });
+    } catch (e) {
+      collectBulkErrors(e, errors);
+    }
+  }
+  return { forecastsUpdated, errors };
+}
+
+async function bulkSyncStep12Tasks(step12Units, rows, by) {
+  if (!step12Units.length || !rows.length) return { tasksCreated: 0, errors: [] };
+
+  const unitIds = step12Units.map((u) => u._id);
+  const existing = await ClpLetterTask.find({ unitId: { $in: unitIds } }).lean();
+  const existingByKey = new Map(
+    existing.map((t) => [`${String(t.unitId)}|${t.milestoneKey || milestoneKey(t.milestoneName)}`, t]),
+  );
+
+  const def = getStepDef(CLP_STEP);
+  const taskKind = getStepTaskKind(CLP_STEP);
+  const now = new Date();
+  const dueDate = computeDueDate(def, now);
+  const ops = [];
+  let tasksCreated = 0;
+
+  for (const unit of step12Units) {
+    const checklist = buildChecklist(def, unit.fundingType);
+    const assignee = defaultAssigneeForKind(unit, taskKind);
+
+    for (const row of rows) {
+      const achieved = parseDate(row.achievedDate);
+      if (!achieved || !row.milestone) continue;
+
+      const label = formatMilestoneLabel(row.milestone);
+      const key = milestoneKey(label);
+      const mapKey = `${String(unit._id)}|${key}`;
+      const prev = existingByKey.get(mapKey);
+      if (prev?.status === 'complete') continue;
+
+      const status = achieved ? 'in_progress' : 'open';
+      if (
+        prev
+        && dateKey(prev.achievedDate) === dateKey(achieved)
+        && prev.status === status
+      ) {
+        continue;
+      }
+
+      tasksCreated += 1;
+      ops.push({
+        updateOne: {
+          filter: { unitId: unit._id, milestoneKey: key },
+          update: {
+            $set: {
+              milestoneName: label,
+              clpPercent: row.percentDue ?? prev?.clpPercent,
+              scheduleOrder: row.scheduleOrder ?? prev?.scheduleOrder ?? 0,
+              achievedDate: achieved,
+              status: prev?.status === 'complete' ? prev.status : status,
+              dueDate,
+              assignee: prev?.assignee || assignee,
+              triggeredBy: 'clp_schedule',
+            },
+            $setOnInsert: {
+              unitId: unit._id,
+              milestoneKey: key,
+              checklist,
+              activityLog: [{
+                action: 'created',
+                at: now,
+                by,
+                detail: `CLP letter — ${label} · achieved ${achieved.toISOString().slice(0, 10)}`,
+              }],
+            },
+          },
+          upsert: true,
+        },
+      });
     }
   }
 
-  for (const unit of step12Units) {
-    const task = await createOrReopenClpLetterTask({
-      unit,
-      milestoneName: row.milestone,
-      clpPercent: row.percentDue,
-      achievedDate,
-      scheduleOrder: row.scheduleOrder,
-      by,
-      triggeredBy: 'clp_schedule',
-    });
-    if (task) tasksCreated += 1;
+  const errors = [];
+  if (ops.length) {
+    try {
+      await ClpLetterTask.bulkWrite(ops, { ordered: false });
+    } catch (e) {
+      collectBulkErrors(e, errors);
+    }
+  }
+  return { tasksCreated, errors };
+}
+
+/**
+ * Batch sync: one unit query, bulk forecast + task writes.
+ */
+export async function syncProjectScheduleAchievedDates(
+  project,
+  { phase, building, by = 'CLP Schedule', rowsOnly, syncTasks = true } = {},
+) {
+  const rows = (rowsOnly || []).filter((r) => r.achievedDate && r.milestone);
+  if (!rows.length) {
+    return { results: [], totals: { milestones: 0, forecastsUpdated: 0, tasksCreated: 0 }, errors: [], unitsAffected: 0 };
   }
 
+  const allUnits = await Unit.find(buildUnitFilter(project, { phase, building })).lean();
+  if (!allUnits.length) {
+    return {
+      results: rows.map((r) => ({ milestone: r.milestone, skipped: true, reason: 'No units in scope' })),
+      totals: { milestones: 0, forecastsUpdated: 0, tasksCreated: 0 },
+      errors: [],
+      unitsAffected: 0,
+    };
+  }
+
+  const forecastResult = await bulkSyncForecasts(allUnits, rows);
+  let taskErrors = [];
+  let tasksCreated = 0;
+
+  if (syncTasks) {
+    const step12Units = allUnits.filter((u) => (u.currentStepNumber || 0) >= 12);
+    const taskResult = await bulkSyncStep12Tasks(step12Units, rows, by);
+    tasksCreated = taskResult.tasksCreated;
+    taskErrors = taskResult.errors;
+  }
+
+  const errors = [...forecastResult.errors, ...taskErrors];
+
   return {
-    skipped: false,
-    milestone: row.milestone,
+    results: rows.map((r) => ({ milestone: r.milestone, skipped: false })),
+    totals: {
+      milestones: rows.length,
+      forecastsUpdated: forecastResult.forecastsUpdated,
+      tasksCreated,
+    },
+    errors,
     unitsAffected: allUnits.length,
-    forecastsUpdated,
-    tasksCreated,
   };
 }
 
-/** Sync all achieved rows for a project (idempotent). */
-export async function syncProjectScheduleAchievedDates(project, { phase, building, by = 'CLP Schedule', rowsOnly } = {}) {
-  const rows = (rowsOnly || []).filter((r) => r.achievedDate && r.milestone);
-  const results = [];
-  for (const row of rows) {
-    results.push(await syncScheduleRowToUnits(project, row, { phase, building, by }));
-  }
-
-  const totals = results.reduce(
-    (acc, r) => ({
-      milestones: acc.milestones + (r.skipped ? 0 : 1),
-      forecastsUpdated: acc.forecastsUpdated + (r.forecastsUpdated || 0),
-      tasksCreated: acc.tasksCreated + (r.tasksCreated || 0),
-    }),
-    { milestones: 0, forecastsUpdated: 0, tasksCreated: 0 },
-  );
-
-  return { results, totals };
+/** @deprecated use syncProjectScheduleAchievedDates — kept for trigger-demands route */
+export async function syncScheduleRowToUnits(project, row, options = {}) {
+  return syncProjectScheduleAchievedDates(project, { ...options, rowsOnly: [row] });
 }
 
 export { milestoneKey, slugMilestone };
