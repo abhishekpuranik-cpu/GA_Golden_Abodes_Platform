@@ -2,7 +2,9 @@ import { Router } from 'express';
 import multer from 'multer';
 import Document from '../../models/postsales/Document.js';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
+import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import { attachPostSalesUser, actorLabel, pushActivity } from '../../lib/postsales/activity.js';
+import { pushClpActivity } from '../../lib/postsales/clpLetterTasks.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import {
   MAX_UPLOAD_BYTES,
@@ -19,11 +21,21 @@ const upload = multer({
 router.use(attachPostSalesUser);
 
 async function recordDocumentUpload(req, doc) {
+  const by = actorLabel(req, req.body);
+  if (doc.clpLetterTaskId) {
+    const task = await ClpLetterTask.findById(doc.clpLetterTaskId);
+    if (task) {
+      const detail = doc.checklistItem
+        ? `Checklist: ${doc.checklistItem} — ${doc.fileName || doc.label || doc.docType}`
+        : (doc.label || doc.fileName || doc.docType);
+      pushClpActivity(task, 'document_uploaded', by, detail);
+      await task.save();
+    }
+  }
   if (doc.unitId && doc.stepNumber) {
     const step = await PipelineStep.findOne({ unitId: doc.unitId, stepNumber: doc.stepNumber });
     if (step) {
-      const by = actorLabel(req, req.body);
-      pushActivity(step, 'document_uploaded', by, doc.label || doc.docType);
+      pushActivity(step, 'document_uploaded', by, doc.label || doc.fileName || doc.docType);
       await step.save();
     }
   }
@@ -34,7 +46,8 @@ router.get('/', async (req, res) => {
     const filter = {};
     if (req.query.unitId) filter.unitId = req.query.unitId;
     if (req.query.stepNumber) filter.stepNumber = Number(req.query.stepNumber);
-    const docs = await Document.find(filter).sort({ stepNumber: 1, docType: 1 }).lean();
+    if (req.query.clpLetterTaskId) filter.clpLetterTaskId = req.query.clpLetterTaskId;
+    const docs = await Document.find(filter).sort({ stepNumber: 1, checklistIndex: 1, createdAt: -1 }).lean();
     const grouped = {};
     for (const d of docs) {
       const key = d.stepNumber || 0;
@@ -71,7 +84,7 @@ router.post('/upload', (req, res) => {
       return res.status(400).json({ error: multerErr.message || 'Upload failed' });
     }
     try {
-      const { unitId, docType, label, status } = req.body;
+      const { unitId, docType, label, status, clpLetterTaskId, checklistIndex, checklistItem } = req.body;
       const stepNumber = req.body.stepNumber ? Number(req.body.stepNumber) : undefined;
       if (!unitId || !docType) {
         return res.status(400).json({ error: 'unitId and docType are required' });
@@ -86,7 +99,10 @@ router.post('/upload', (req, res) => {
         docType,
         label: label || undefined,
         status: status || 'uploaded',
-        uploadedBy: actorLabel(req, req.body)
+        uploadedBy: actorLabel(req, req.body),
+        ...(clpLetterTaskId ? { clpLetterTaskId } : {}),
+        ...(checklistIndex != null && checklistIndex !== '' ? { checklistIndex: Number(checklistIndex) } : {}),
+        ...(checklistItem ? { checklistItem } : {}),
       };
 
       if (body.status === 'uploaded' && !body.receivedDate) body.receivedDate = new Date();

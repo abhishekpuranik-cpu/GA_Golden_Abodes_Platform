@@ -78,7 +78,7 @@ export default function UnitPipeline() {
     waitForSeed: unitLoading,
   });
 
-  const { documents, uploadDocument } = useDocuments(id);
+  const { documents, uploadDocument, refresh: refreshDocuments } = useDocuments(id);
 
   const { cxTeam, backendTeam } = useAssignees();
 
@@ -607,17 +607,33 @@ export default function UnitPipeline() {
                     actor={actor}
                     highlightDemandId={highlightDemandId}
                     onRefresh={() => refreshUnit({ silent: true })}
+                    documents={documents}
+                    uploadDocument={uploadDocument}
+                    onDocRefresh={() => refreshDocuments({ silent: true })}
                   />
                 )}
 
                 {selected === 12 && (
-                  <div style={{ margin: '20px 0 12px', paddingTop: 16, borderTop: '1px solid var(--ps-border)' }}>
-                    <strong>Station checklist</strong>
-                    <div className="ps-reports-muted" style={{ marginBottom: 8 }}>Complete all letter activities and demands before closing step 12.</div>
-                  </div>
+                  <details className="ps-clp-station-close" style={{ marginTop: 20 }}>
+                    <summary><strong>Step 12 closure checklist</strong> — use after all CLP letter activities are complete</summary>
+                    <div className="ps-reports-muted" style={{ margin: '8px 0' }}>This mirrors the SOP; daily work is tracked per milestone in CLP letter activities above.</div>
+                    <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>{doneCount}/{totalCheck} station items</div>
+                    <div className="ps-progress"><div className="ps-progress-fill" style={{ width: totalCheck ? `${(doneCount / totalCheck) * 100}%` : '0%' }} /></div>
+                    {(stepRecord?.checklist || []).map((item, i) => (
+                      <label key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '6px 0', cursor: stepRecord?.status === 'completed' ? 'default' : 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={!!item.done}
+                          disabled={stepRecord?.status === 'completed'}
+                          onChange={(e) => toggleChecklist(selected, i, e.target.checked)}
+                        />
+                        <span style={{ textDecoration: item.done ? 'line-through' : 'none', color: item.done ? 'var(--ps-text-muted)' : 'inherit' }}>{item.item}</span>
+                      </label>
+                    ))}
+                  </details>
                 )}
 
-                {stepDef?.fundingTypeSplit && (
+                {selected !== 12 && stepDef?.fundingTypeSplit && (
 
                   <div className="ps-card" style={{ background: 'var(--ps-accent-soft)', marginBottom: 12 }}>
 
@@ -627,6 +643,8 @@ export default function UnitPipeline() {
 
                 )}
 
+                {selected !== 12 && (
+                  <>
                 <div style={{ fontSize: '0.85rem', marginBottom: 8 }}>{doneCount}/{totalCheck} complete</div>
 
                 <div className="ps-progress"><div className="ps-progress-fill" style={{ width: totalCheck ? `${(doneCount / totalCheck) * 100}%` : '0%' }} /></div>
@@ -652,6 +670,9 @@ export default function UnitPipeline() {
                   </label>
 
                 ))}
+
+                  </>
+                )}
 
               </div>
 
@@ -775,6 +796,18 @@ export default function UnitPipeline() {
 
             <>
 
+              {selected === 12 ? (
+                <ClpLetterQueue
+                  unitId={id}
+                  actor={actor}
+                  highlightDemandId={highlightDemandId}
+                  documents={documents}
+                  uploadDocument={uploadDocument}
+                  onDocRefresh={() => refreshDocuments({ silent: true })}
+                  docsMode
+                />
+              ) : (
+                <>
               <p style={{ fontSize: '0.85rem', color: 'var(--ps-text-muted)' }}>
 
                 Uploads here are stored in the same document vault as the Documents tab (linked by unit + step).
@@ -868,6 +901,9 @@ export default function UnitPipeline() {
               )}
 
               <Link to="/app/post-sales/documents" className="ps-btn" style={{ marginTop: 12, display: 'inline-block' }}>View full document vault →</Link>
+
+                </>
+              )}
 
             </>
 

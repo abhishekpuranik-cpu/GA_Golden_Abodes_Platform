@@ -345,6 +345,49 @@
 .ps-activity-log-action { font-weight: 600; text-transform: capitalize; margin-right: 8px; }
 .ps-activity-log-detail { color: var(--ps-text); }
 .ps-activity-log-meta { display: block; color: var(--ps-text-muted); font-size: 0.75rem; margin-top: 2px; }
+
+.ps-clp-flow-guide {
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--ps-border);
+  border-radius: 8px;
+  background: var(--ps-accent-soft);
+  font-size: 0.85rem;
+}
+.ps-clp-flow-guide ol { margin: 8px 0 12px; padding-left: 20px; }
+.ps-clp-flow-guide li { margin-bottom: 6px; line-height: 1.45; }
+.ps-clp-flow-note { margin: 0 0 8px; color: var(--ps-warning, #b45309); }
+
+.ps-clp-upcoming-list { display: flex; flex-direction: column; gap: 8px; }
+.ps-clp-upcoming-row {
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 10px 12px; border: 1px solid var(--ps-border); border-radius: 8px;
+}
+
+.ps-checklist-docs { margin-top: 12px; }
+.ps-checklist-doc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 220px) auto;
+  gap: 10px;
+  align-items: start;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--ps-border);
+  font-size: 0.85rem;
+}
+.ps-checklist-doc-label { line-height: 1.35; }
+.ps-checklist-doc-num { color: var(--ps-text-muted); margin-right: 6px; }
+.ps-checklist-doc-files { display: flex; flex-direction: column; gap: 4px; }
+.ps-checklist-doc-chip {
+  font-size: 0.78rem;
+  padding: 2px 6px;
+  background: var(--ps-surface);
+  border: 1px solid var(--ps-border);
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ps-clp-queue-checklist label span.done { text-decoration: line-through; color: var(--ps-text-muted); }
+.ps-clp-station-close summary { cursor: pointer; font-size: 0.9rem; }
 .ps-demand-milestone-cell {
   max-width: 240px;
   min-width: 160px;

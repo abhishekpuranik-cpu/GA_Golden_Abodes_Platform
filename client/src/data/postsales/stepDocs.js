@@ -11,9 +11,12 @@ export const DOC_GROUPS = [
   { label: 'CHS (Steps 16–18)', step: 16, types: ['chs_application', 'chs_registration_cert', 'society_bank_account_details', 'maintenance_reconciliation_stmt'] },
 ];
 
-export const TYPE_LABELS = Object.fromEntries(
-  DOC_GROUPS.flatMap((g) => g.types.map((t) => [t, t.replace(/_/g, ' ')]))
-);
+export const TYPE_LABELS = {
+  ...Object.fromEntries(DOC_GROUPS.flatMap((g) => g.types.map((t) => [t, t.replace(/_/g, ' ')]))),
+  demand_letter_clp: 'Demand letter (CLP)',
+  architect_certificate: 'Architect certificate',
+  supporting_document: 'Supporting document',
+};
 
 /** Map step number → document types expected at that step (may span adjacent steps). */
 export const STEP_DOC_TYPES = DOC_GROUPS.reduce((acc, g) => {

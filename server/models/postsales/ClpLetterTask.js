@@ -10,7 +10,7 @@ const ChecklistItemSchema = new mongoose.Schema({
 const ActivityLogSchema = new mongoose.Schema({
   action: {
     type: String,
-    enum: ['created', 'assigned', 'started', 'checklist', 'completed', 'reopened', 'note', 'status_changed', 'delayed'],
+    enum: ['created', 'assigned', 'started', 'checklist', 'completed', 'reopened', 'note', 'status_changed', 'delayed', 'document_uploaded'],
     required: true,
   },
   at: { type: Date, default: Date.now },
