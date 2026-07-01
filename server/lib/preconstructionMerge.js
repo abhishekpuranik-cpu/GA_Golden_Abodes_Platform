@@ -1,26 +1,10 @@
 /** PreConstruction app_states merge — union projects by id; tombstones prevent deleted projects returning. */
 import { migrateAssigneeNamesState } from './preconAssigneeMigrate.js';
 import { repairAllTaskComments } from './preconCommentRepair.js';
+import { mergeActivityLogs, mergeProjectDeep } from './preconProjectMerge.js';
 
 function isPlainObject(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v);
-}
-
-function countTasks(proj) {
-  let n = 0;
-  for (const ph of proj?.phases || []) {
-    if (Array.isArray(ph?.tasks)) n += ph.tasks.length;
-  }
-  return n;
-}
-
-function mergeProjectRow(existing, incoming) {
-  if (!isPlainObject(existing)) return incoming;
-  if (!isPlainObject(incoming)) return existing;
-  const exTasks = countTasks(existing);
-  const inTasks = countTasks(incoming);
-  if (inTasks >= exTasks) return { ...existing, ...incoming };
-  return { ...incoming, ...existing };
 }
 
 function normalizeRemovedIds(...sources) {
@@ -52,8 +36,8 @@ export function repairPreconstructionForRead(data) {
       : {
           ...data,
           _removedProjectIds: removedIds,
-          projects: applyProjectTombstones(data.projects, removedIds)
-        }
+          projects: applyProjectTombstones(data.projects, removedIds),
+        },
   );
   repairAllTaskComments(repaired);
   return repaired;
@@ -88,7 +72,7 @@ export function mergePreconstructionState(existingRow, incoming, opts = {}) {
       if (p?.id == null) continue;
       const id = String(p.id);
       const exRow = exProjects.find((x) => String(x?.id) === id);
-      byId.set(id, exRow ? mergeProjectRow(exRow, p) : p);
+      byId.set(id, exRow ? mergeProjectDeep(exRow, p) : p);
     }
   } else {
     for (const p of exProjects) {
@@ -97,7 +81,7 @@ export function mergePreconstructionState(existingRow, incoming, opts = {}) {
     for (const p of inProjects) {
       if (p?.id == null) continue;
       const id = String(p.id);
-      byId.set(id, byId.has(id) ? mergeProjectRow(byId.get(id), p) : p);
+      byId.set(id, byId.has(id) ? mergeProjectDeep(byId.get(id), p) : p);
     }
   }
 
@@ -113,7 +97,8 @@ export function mergePreconstructionState(existingRow, incoming, opts = {}) {
   return {
     cloudUrl: inc.cloudUrl != null && String(inc.cloudUrl).trim() ? inc.cloudUrl : ex.cloudUrl || '',
     departments,
+    activityLog: mergeActivityLogs(ex.activityLog, inc.activityLog),
     _removedProjectIds: removedIds,
-    projects: [...byId.values()]
+    projects: [...byId.values()],
   };
 }
