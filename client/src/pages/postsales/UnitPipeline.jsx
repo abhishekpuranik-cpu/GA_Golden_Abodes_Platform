@@ -82,7 +82,7 @@ export default function UnitPipeline() {
 
   const { cxTeam, backendTeam } = useAssignees();
 
-  const highlightDemandId = searchParams.get('demandId');
+  const highlightMilestone = searchParams.get('milestone') || searchParams.get('milestoneName') || '';
 
   const [selected, setSelected] = useState(1);
 
@@ -605,7 +605,7 @@ export default function UnitPipeline() {
                   <ClpLetterQueue
                     unitId={id}
                     actor={actor}
-                    highlightDemandId={highlightDemandId}
+                    highlightMilestone={highlightMilestone}
                     onRefresh={() => refreshUnit({ silent: true })}
                     documents={documents}
                     uploadDocument={uploadDocument}
@@ -780,7 +780,7 @@ export default function UnitPipeline() {
                 <ClpLetterQueue
                   unitId={id}
                   actor={actor}
-                  highlightDemandId={highlightDemandId}
+                  highlightMilestone={highlightMilestone}
                   documents={documents}
                   uploadDocument={uploadDocument}
                   onDocRefresh={() => refreshDocuments({ silent: true })}

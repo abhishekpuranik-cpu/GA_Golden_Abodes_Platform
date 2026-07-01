@@ -165,9 +165,7 @@ export default function Demands() {
     try {
       const body = { [field]: value || null, source: 'milestone' };
       const updated = await updateDemand(demand._id, body, { silent: true });
-      if (field === 'actualDate' && value && !demand.actualDate) {
-        setActionMsg(`Milestone achieved — CLP letter task created for ${updated.unitNumber || demand.unitNumber} (My Tasks · step 12).`);
-      }
+      void updated;
     } catch (err) {
       setActionMsg(err.message);
     } finally {
@@ -373,8 +371,6 @@ export default function Demands() {
                                 <th>Milestone</th>
                                 <th className="ps-num">CLP %</th>
                                 <th>Target date</th>
-                                <th>Actual date</th>
-                                <th>Letter</th>
                                 <th className="ps-num">Agmt due</th>
                                 <th className="ps-num">Agmt rcvd</th>
                                 <th className="ps-num">Agmt pend</th>
@@ -402,30 +398,6 @@ export default function Demands() {
                                         onClick={(e) => e.stopPropagation()}
                                         onChange={(e) => handleMilestoneDate(d, 'targetDate', e.target.value)}
                                       />
-                                    </td>
-                                    <td>
-                                      <input
-                                        type="date"
-                                        className="ps-clp-date"
-                                        value={toIsoDateInput(d.actualDate)}
-                                        disabled={dateBusy === `${d._id}:actualDate`}
-                                        onClick={(e) => e.stopPropagation()}
-                                        onChange={(e) => handleMilestoneDate(d, 'actualDate', e.target.value)}
-                                        title={d.clpLetterTaskAt ? `Letter task ${new Date(d.clpLetterTaskAt).toLocaleDateString('en-IN')}` : 'Set when construction milestone is achieved — triggers CLP letter task'}
-                                      />
-                                    </td>
-                                    <td>
-                                      {d.clpLetterTaskId ? (
-                                        <Link
-                                          to={`/app/post-sales/units/${g.unitId}?step=12&demandId=${d._id}`}
-                                          className={`ps-badge ps-badge-${letterBadge(d.clpLetterStatus)}`}
-                                          onClick={(e) => e.stopPropagation()}
-                                        >
-                                          {letterLabel(d)}
-                                        </Link>
-                                      ) : (
-                                        <span className="ps-reports-muted">{letterLabel(d)}</span>
-                                      )}
                                     </td>
                                     <td className="ps-num">{fmt(a.agreementDue)}</td>
                                     <td className="ps-num">{fmt(a.agreementReceived)}</td>
@@ -501,8 +473,6 @@ export default function Demands() {
                 <th className="ps-num">GST rcvd</th>
                 <th className="ps-num">GST pend</th>
                 <th>Target</th>
-                <th>Actual</th>
-                <th>Letter</th>
                 <th>Status</th>
                 <th />
               </tr>
@@ -528,18 +498,6 @@ export default function Demands() {
                     <td className="ps-num" style={{ color: a.gstPending > 0 ? 'var(--ps-danger)' : undefined }}>{fmt(a.gstPending)}</td>
                     <td>
                       <input type="date" className="ps-clp-date" value={toIsoDateInput(d.targetDate || d.dueDate)} onChange={(e) => handleMilestoneDate(d, 'targetDate', e.target.value)} />
-                    </td>
-                    <td>
-                      <input type="date" className="ps-clp-date" value={toIsoDateInput(d.actualDate)} onChange={(e) => handleMilestoneDate(d, 'actualDate', e.target.value)} />
-                    </td>
-                    <td>
-                      {d.clpLetterTaskId ? (
-                        <Link to={`/app/post-sales/units/${d.unitId}?step=12&demandId=${d._id}`} className={`ps-badge ps-badge-${letterBadge(d.clpLetterStatus)}`}>
-                          {letterLabel(d)}
-                        </Link>
-                      ) : (
-                        <span className="ps-reports-muted">{letterLabel(d)}</span>
-                      )}
                     </td>
                     <td><span className={payBadge(d.paymentStatus)}>{d.paymentStatus}</span></td>
                     <td>

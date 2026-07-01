@@ -61,18 +61,22 @@ export async function loadCollectionRegister(query = {}) {
 
   const forecastByUnit = new Map(forecasts.map((f) => [String(f.unitId), f]));
   const scheduleByProject = Object.fromEntries(
-    schedules.map((s) => [s.project, buildAchievedDateMap(s.rows)]),
+    schedules.map((s) => [s.project, s]),
   );
   const q = String(query.search || '').trim().toLowerCase();
 
-  let rows = units.map((unit) => buildCollectionRegisterRow(
-    unit,
-    unit.customerId,
-    demandsByUnit.get(String(unit._id)) || [],
-    forecastByUnit.get(String(unit._id)),
-    new Date(),
-    scheduleByProject[unit.project] || null,
-  ));
+  let rows = units.map((unit) => {
+    const sched = scheduleByProject[unit.project];
+    return buildCollectionRegisterRow(
+      unit,
+      unit.customerId,
+      demandsByUnit.get(String(unit._id)) || [],
+      forecastByUnit.get(String(unit._id)),
+      new Date(),
+      sched ? buildAchievedDateMap(sched.rows) : null,
+      sched?.rows || null,
+    );
+  });
 
   if (q) {
     rows = rows.filter((r) => [r.unitNumber, r.clientName, r.project, r.phase, r.building, r.collectionRemarks]

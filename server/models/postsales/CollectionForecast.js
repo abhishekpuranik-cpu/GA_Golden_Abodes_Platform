@@ -16,6 +16,9 @@ const InstallmentSchema = new mongoose.Schema({
 const MilestoneForecastSchema = new mongoose.Schema({
   demandId: { type: mongoose.Schema.Types.ObjectId, ref: 'Demand' },
   milestoneName: { type: String, required: true },
+  clpPercent: Number,
+  scheduleOrder: { type: Number, default: 0 },
+  achievedDate: Date,
   installments: { type: [InstallmentSchema], default: [] },
 }, { _id: true });
 

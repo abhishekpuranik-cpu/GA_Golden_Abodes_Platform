@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const rootDir = path.join(__dirname, '..', '..');
 
-export const VERSION = '0.5.41';
+export const VERSION = '0.5.42';
 
 export const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017';
 export const DB_NAME = process.env.MONGODB_DB_NAME || 'golden_abodes';

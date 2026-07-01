@@ -5,8 +5,8 @@ import Demand from '../../models/postsales/Demand.js';
 import Unit from '../../models/postsales/Unit.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { normalizeImportRow, paymentStatusFromAmounts } from '../../lib/postsales/collectionsLib.js';
-import { activateClpLetterTaskFromDemand } from '../../lib/postsales/clpDemandTrigger.js';
 import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
+import { milestoneKey } from '../../lib/postsales/milestoneKey.js';
 import { isGstDemand, readGstDue, readGstReceived } from '../../lib/postsales/demandAmounts.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { sortDemandsByClpChronology } from '../../lib/postsales/clpMilestoneOrder.js';
@@ -230,17 +230,6 @@ router.post('/import', async (req, res) => {
   }
 });
 
-router.post('/:id/clp-letter-task', async (req, res) => {
-  try {
-    const demand = await Demand.findById(req.params.id).lean();
-    if (!demand) return res.status(404).json({ error: 'Demand not found' });
-    const result = await activateClpLetterTaskFromDemand(demand, { by: req.body.by || 'Demands panel' });
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    res.status(400).json({ error: err.message });
-  }
-});
-
 router.patch('/:id', async (req, res) => {
   try {
     const prev = await Demand.findById(req.params.id);
@@ -276,14 +265,11 @@ router.patch('/:id', async (req, res) => {
       await demand.save();
     }
 
-    if (actualDate && !prev.actualDate) {
-      await activateClpLetterTaskFromDemand(demand.toObject(), { by: by || 'Demands panel' });
-      demand.clpLetterTaskAt = new Date();
-      await demand.save();
-    }
-
     const unit = await Unit.findById(demand.unitId).populate('customerId').lean();
-    const clp = await ClpLetterTask.findOne({ demandId: demand._id }).lean();
+    const key = demand.milestoneName ? milestoneKey(demand.milestoneName) : null;
+    const clp = key
+      ? await ClpLetterTask.findOne({ unitId: demand.unitId, milestoneKey: key }).lean()
+      : await ClpLetterTask.findOne({ demandId: demand._id }).lean();
     res.json(enrichDemand(demand.toObject(), { [String(demand.unitId)]: unit }, { [String(demand._id)]: clp }));
   } catch (err) {
     res.status(400).json({ error: err.message });

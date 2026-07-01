@@ -13,7 +13,6 @@ import { getStepTaskKind, defaultAssigneeForKind } from '../../lib/postsales/tas
 import { attachPostSalesUser, actorLabel, pushActivity } from '../../lib/postsales/activity.js';
 import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import {
-  allClpDemandsSettled,
   checklistComplete,
   CLP_STEP,
 } from '../../lib/postsales/clpLetterTasks.js';
@@ -184,10 +183,6 @@ router.patch('/:stepNumber', async (req, res) => {
         });
         if (openClp > 0) {
           return res.status(400).json({ error: `${openClp} CLP letter activity(ies) still open. Complete them first.` });
-        }
-        const settled = await allClpDemandsSettled(unitId);
-        if (!settled) {
-          return res.status(400).json({ error: 'Step 12 can only be completed when all CLP/installment demands are fully paid.' });
         }
       }
 

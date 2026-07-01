@@ -2,12 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import { formatDueDate } from '../../lib/postSalesSla.js';
-import { compareMilestoneChronology } from '../../lib/postsales/clpMilestoneOrder.js';
 import ActivityLogPanel from './ActivityLogPanel.jsx';
 import ChecklistLineDocs from './ChecklistLineDocs.jsx';
 
 const STATUS_LABELS = {
-  open: 'Not started',
+  open: 'Waiting for achieved date',
   in_progress: 'In progress',
   complete: 'Complete',
   delayed: 'Delayed',
@@ -20,10 +19,24 @@ function statusBadge(status) {
   return 'grey';
 }
 
+function taskSort(a, b) {
+  const oA = a.scheduleOrder ?? 999;
+  const oB = b.scheduleOrder ?? 999;
+  if (oA !== oB) return oA - oB;
+  return String(a.milestoneName || '').localeCompare(String(b.milestoneName || ''));
+}
+
+function fmtAchieved(d) {
+  if (!d) return null;
+  const x = new Date(d);
+  if (Number.isNaN(x.getTime())) return null;
+  return x.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
 export default function ClpLetterQueue({
   unitId,
   actor,
-  highlightDemandId,
+  highlightMilestone,
   onRefresh,
   documents = [],
   uploadDocument,
@@ -31,7 +44,8 @@ export default function ClpLetterQueue({
   docsMode = false,
 }) {
   const [tasks, setTasks] = useState([]);
-  const [demandCount, setDemandCount] = useState(0);
+  const [installmentCount, setInstallmentCount] = useState(0);
+  const [loadNote, setLoadNote] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('todo');
@@ -45,7 +59,8 @@ export default function ClpLetterQueue({
     try {
       const synced = await postSalesApi.syncClpLetterTasksForUnit(unitId, { by: actor || 'Pipeline' });
       setTasks(synced.tasks || []);
-      setDemandCount(synced.total || 0);
+      setInstallmentCount(synced.total || 0);
+      setLoadNote(synced.message || '');
     } catch (e) {
       setError(e.message);
     } finally {
@@ -55,10 +70,7 @@ export default function ClpLetterQueue({
 
   useEffect(() => { load(); }, [load]);
 
-  const sorted = useMemo(
-    () => [...tasks].sort(compareMilestoneChronology),
-    [tasks],
-  );
+  const sorted = useMemo(() => [...tasks].sort(taskSort), [tasks]);
 
   const stats = useMemo(() => {
     const complete = tasks.filter((t) => t.status === 'complete').length;
@@ -74,18 +86,20 @@ export default function ClpLetterQueue({
   useEffect(() => {
     if (!tasks.length) return;
     setExpanded((prev) => {
-      if (prev.size && !highlightDemandId) return prev;
+      if (prev.size && !highlightMilestone) return prev;
       const next = new Set();
-      if (highlightDemandId) {
-        const match = tasks.find((t) => String(t.demandId) === String(highlightDemandId));
+      if (highlightMilestone) {
+        const slug = String(highlightMilestone).trim().toLowerCase();
+        const match = tasks.find((t) => String(t.milestoneName || '').trim().toLowerCase().includes(slug)
+          || String(t._id) === slug);
         if (match) next.add(String(match._id));
       } else {
-        const firstTodo = [...tasks].sort(compareMilestoneChronology).find((t) => t.status !== 'complete');
+        const firstTodo = [...tasks].sort(taskSort).find((t) => t.status !== 'complete');
         if (firstTodo) next.add(String(firstTodo._id));
       }
       return next;
     });
-  }, [tasks, highlightDemandId]);
+  }, [tasks, highlightMilestone]);
 
   const toggleExpand = (id) => {
     setExpanded((prev) => {
@@ -129,7 +143,6 @@ export default function ClpLetterQueue({
 
   const checklistDone = (task) => (task.checklist || []).filter((c) => c.done).length;
   const checklistTotal = (task) => (task.checklist || []).length;
-
   const overallPct = stats.total ? Math.round((stats.complete / stats.total) * 100) : 0;
 
   return (
@@ -138,11 +151,12 @@ export default function ClpLetterQueue({
         <div>
           <strong>{docsMode ? 'Documents by installment' : 'CLP / installment checklists'}</strong>
           <div className="ps-reports-muted">
-            Same 10-item checklist repeats for every milestone — work through each installment in order.
+            Milestones from the project schedule — set achieved dates on the{' '}
+            <Link to="/app/post-sales/milestones">Milestones</Link> tab; dates appear in Reports per unit.
           </div>
         </div>
         <div className="ps-clp-board-stats">
-          <span className="ps-badge ps-badge-blue">{stats.complete}/{stats.total} installments done</span>
+          <span className="ps-badge ps-badge-blue">{stats.complete}/{stats.total} done</span>
           {stats.todo > 0 && <span className="ps-badge ps-badge-amber">{stats.todo} to do</span>}
         </div>
       </div>
@@ -150,7 +164,7 @@ export default function ClpLetterQueue({
       <div className="ps-progress ps-clp-board-progress">
         <div className="ps-progress-fill" style={{ width: `${overallPct}%` }} />
       </div>
-      <div className="ps-reports-muted" style={{ fontSize: '0.8rem', marginBottom: 12 }}>{overallPct}% of installments complete</div>
+      <div className="ps-reports-muted" style={{ fontSize: '0.8rem', marginBottom: 12 }}>{overallPct}% complete</div>
 
       <div className="ps-clp-queue-head">
         <div className="ps-clp-queue-tabs">
@@ -174,14 +188,16 @@ export default function ClpLetterQueue({
       {error && <div className="ps-error">{error}</div>}
       {msg && <div className="ps-card" style={{ padding: '8px 12px', fontSize: '0.85rem', background: 'var(--ps-accent-soft)' }}>{msg}</div>}
 
-      {!loading && !demandCount && (
+      {!loading && !installmentCount && (
         <div className="ps-card ps-empty">
-          <p>No CLP milestone rows for this unit.</p>
-          <p style={{ fontSize: '0.85rem' }}>Import collections in <Link to="/app/post-sales/demands">Demands</Link> first — each row becomes an installment checklist here.</p>
+          <p>{loadNote || 'No CLP schedule for this project yet.'}</p>
+          <p style={{ fontSize: '0.85rem' }}>
+            Add milestones on the <Link to="/app/post-sales/milestones">Milestones</Link> tab, enter achieved dates, and Save &amp; sync.
+          </p>
         </div>
       )}
 
-      {!loading && demandCount > 0 && !visible.length && (
+      {!loading && installmentCount > 0 && !visible.length && (
         <div className="ps-reports-muted">No installments in this filter — try All or Done.</div>
       )}
 
@@ -193,13 +209,17 @@ export default function ClpLetterQueue({
         const canComplete = totalCount === 0 || doneCount === totalCount;
         const frozen = task.status === 'complete';
         const linePct = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+        const achievedLabel = fmtAchieved(task.achievedDate);
 
         return (
           <div key={task._id} className={`ps-clp-queue-card ${open ? 'open' : ''} ${frozen ? 'done' : ''}`}>
             <button type="button" className="ps-clp-queue-card-head" onClick={() => toggleExpand(id)}>
               <span className="ps-clp-installment-num">{idx + 1}</span>
               <span>{open ? '▼' : '▶'}</span>
-              <span className="ps-clp-queue-title">{task.milestoneName}{task.clpPercent != null ? ` · ${task.clpPercent}%` : ''}</span>
+              <span className="ps-clp-queue-title">
+                {task.milestoneName}{task.clpPercent != null ? ` · ${task.clpPercent}%` : ''}
+                {achievedLabel && <span className="ps-reports-muted"> · achieved {achievedLabel}</span>}
+              </span>
               <span className={`ps-badge ps-badge-${statusBadge(task.status)}`}>{STATUS_LABELS[task.status] || task.status}</span>
               <span className={`ps-badge ${doneCount === totalCount && totalCount ? 'ps-badge-green' : 'ps-badge-amber'}`}>
                 {doneCount}/{totalCount} items
@@ -217,20 +237,26 @@ export default function ClpLetterQueue({
                       Status
                       <select
                         value={task.status === 'complete' ? 'complete' : 'in_progress'}
-                        disabled={busyId === task._id}
+                        disabled={busyId === task._id || !task.achievedDate}
                         onChange={(e) => {
                           const v = e.target.value;
                           if (v === 'complete') patchStatus(task, 'complete');
                           else if (task.status === 'complete') patchStatus(task, 'in_progress', 'Reopened');
-                          else patchStatus(task, task.status === 'open' ? 'in_progress' : 'in_progress');
+                          else patchStatus(task, 'in_progress');
                         }}
                       >
-                        <option value="in_progress">{task.status === 'open' ? 'Not started / In progress' : 'In progress'}</option>
-                        <option value="complete" disabled={!canComplete}>Complete{!canComplete ? ' — finish checklist' : ''}</option>
+                        <option value="in_progress">{task.achievedDate ? 'In progress' : 'Waiting for Milestones achieved date'}</option>
+                        <option value="complete" disabled={!canComplete || !task.achievedDate}>Complete{!canComplete ? ' — finish checklist' : ''}</option>
                       </select>
                     </label>
                     <span className="ps-reports-muted">Due {formatDueDate(task.dueDate)}</span>
                   </div>
+                )}
+
+                {!task.achievedDate && !docsMode && (
+                  <p className="ps-reports-muted" style={{ fontSize: '0.82rem' }}>
+                    Set achieved date for this milestone on the <Link to="/app/post-sales/milestones">Milestones</Link> tab, then Save &amp; sync.
+                  </p>
                 )}
 
                 <div className="ps-clp-checklist-block">
@@ -247,7 +273,7 @@ export default function ClpLetterQueue({
                           <input
                             type="checkbox"
                             checked={!!item.done}
-                            disabled={frozen || busyId === task._id}
+                            disabled={frozen || busyId === task._id || !task.achievedDate}
                             onChange={(e) => toggleCheck(task, i, e.target.checked)}
                           />
                         </label>
@@ -265,13 +291,13 @@ export default function ClpLetterQueue({
                       actor={actor}
                       uploadDocument={uploadDocument}
                       onRefresh={onDocRefresh}
-                      disabled={frozen}
+                      disabled={frozen || !task.achievedDate}
                       compact={docsMode}
                     />
                   )}
                 </div>
 
-                {!docsMode && !frozen && (
+                {!docsMode && !frozen && task.achievedDate && (
                   <button
                     type="button"
                     className="ps-btn ps-btn-primary"
@@ -293,13 +319,6 @@ export default function ClpLetterQueue({
           </div>
         );
       })}
-
-      {!docsMode && demandCount > 0 && (
-        <p className="ps-reports-muted" style={{ marginTop: 12, fontSize: '0.8rem' }}>
-          When construction confirms a milestone, set <strong>Actual date</strong> on that row in{' '}
-          <Link to="/app/post-sales/demands">Demands</Link> — the installment moves to In progress automatically.
-        </p>
-      )}
     </div>
   );
 }

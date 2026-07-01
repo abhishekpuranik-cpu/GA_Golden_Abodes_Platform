@@ -34,15 +34,9 @@ function formatSyncSummary(sync) {
 
   if (t.milestones) parts.push(`${t.milestones} milestone(s)`);
 
-  if (t.forecastsUpdated) parts.push(`${t.forecastsUpdated} report date(s)`);
+  if (t.forecastsUpdated) parts.push(`${t.forecastsUpdated} unit date(s) in Reports`);
 
-  if (t.tasksCreated) parts.push(`${t.tasksCreated} Step 12 task(s)`);
-
-  if (t.demandsUpdated || t.demandsCreated) {
-
-    parts.push(`${(t.demandsUpdated || 0) + (t.demandsCreated || 0)} demand row(s)`);
-
-  }
+  if (t.tasksCreated) parts.push(`${t.tasksCreated} Step 12 checklist(s)`);
 
   return parts.length ? parts.join(' · ') : 'No achieved dates to sync yet.';
 
@@ -295,13 +289,9 @@ export default function Milestones() {
 
           <p className="ps-reports-sub">
 
-            Set <strong>Achieved Date</strong> here — it flows automatically to{' '}
-
-            <Link to="/app/post-sales/reports">Reports</Link> (expected payment date per unit) and{' '}
-
-            <strong>Step 12</strong> CLP letter tasks for matching installments.
-
-            Optional phase/building filters limit which units receive the sync.
+            Enter <strong>Achieved Date</strong>, then <strong>Save &amp; sync</strong> — dates update every unit in{' '}
+            <Link to="/app/post-sales/reports">Reports</Link>; Step 12 shows one checklist per milestone.
+            Payments stay on the Demands tab (separate).
 
           </p>
 

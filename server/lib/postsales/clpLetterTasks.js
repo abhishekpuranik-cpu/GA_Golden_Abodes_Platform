@@ -1,12 +1,12 @@
 import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
-import Demand from '../../models/postsales/Demand.js';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
+import ProjectClpSchedule from '../../models/postsales/ProjectClpSchedule.js';
 import Unit from '../../models/postsales/Unit.js';
 import { pushActivity } from './activity.js';
 import { buildChecklist, computeDueDate, getStepDef } from './helpers.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
+import { milestoneKey } from './milestoneKey.js';
 import { defaultAssigneeForKind, getStepTaskKind } from './taskKinds.js';
-import { isGstDemand } from './demandAmounts.js';
 
 export const CLP_STEP = 12;
 
@@ -18,13 +18,6 @@ export function pushClpActivity(task, action, by, detail) {
 export function checklistComplete(list = []) {
   if (!list.length) return true;
   return list.every((c) => c.done);
-}
-
-export async function allClpDemandsSettled(unitId) {
-  const demands = await Demand.find({ unitId }).lean();
-  const clpRows = demands.filter((d) => !isGstDemand(d));
-  if (!clpRows.length) return true;
-  return clpRows.every((d) => d.paymentStatus === 'paid' || (Number(d.paidAmount) || 0) >= (Number(d.totalAmount) || 0));
 }
 
 export async function ensureClpStationStep(unit, by = 'System') {
@@ -44,7 +37,7 @@ export async function ensureClpStationStep(unit, by = 'System') {
       assignedTo: defaultAssigneeForKind(unit, taskKind),
       triggerDate: new Date(),
       dueDate: computeDueDate(def, new Date()),
-      notes: 'CLP recurring station — complete each letter task per milestone',
+      notes: 'CLP recurring station — one checklist per project milestone',
       checklist: buildChecklist(def, unit.fundingType || unit.customer?.fundingType),
       activityLog: [{ action: 'started', at: new Date(), by, detail: 'CLP station activated' }],
     });
@@ -86,12 +79,12 @@ export async function syncClpStationStatus(unitId, by = 'System') {
     return step;
   }
 
-  const settled = await allClpDemandsSettled(unitId);
-  if (settled && step.status !== 'completed') {
+  const total = await ClpLetterTask.countDocuments({ unitId });
+  if (total > 0 && step.status !== 'completed') {
     step.status = 'completed';
     step.completedDate = new Date();
     step.completedBy = by;
-    pushActivity(step, 'completed', by, 'All CLP demands settled — station complete');
+    pushActivity(step, 'completed', by, 'All CLP installment checklists complete');
     await step.save();
   }
   return step;
@@ -99,6 +92,10 @@ export async function syncClpStationStatus(unitId, by = 'System') {
 
 export async function createOrReopenClpLetterTask({
   unit,
+  milestoneName,
+  clpPercent,
+  achievedDate,
+  scheduleOrder,
   demand,
   milestone = {},
   by = 'System',
@@ -110,11 +107,20 @@ export async function createOrReopenClpLetterTask({
   const now = new Date();
   const dueDate = computeDueDate(def, now);
   const assignee = defaultAssigneeForKind(unit, taskKind);
-  const label = formatMilestoneLabel(demand.milestoneName || milestone.milestoneName);
-  const pct = demand.clpPercent ?? milestone.clpPercent;
-  const defaultOpen = demand.actualDate ? 'in_progress' : 'open';
+  const label = formatMilestoneLabel(milestoneName || milestone.milestoneName || demand?.milestoneName);
+  const key = milestoneKey(label);
+  const pct = clpPercent ?? milestone.clpPercent ?? demand?.clpPercent;
+  const achieved = parseAchieved(achievedDate || milestone.achievedDate || demand?.actualDate);
+  const order = scheduleOrder ?? milestone.scheduleOrder ?? 0;
+  const defaultOpen = achieved ? 'in_progress' : 'open';
 
-  let task = await ClpLetterTask.findOne({ demandId: demand._id });
+  let task = await ClpLetterTask.findOne({
+    unitId: unit._id,
+    $or: [
+      { milestoneKey: key },
+      ...(demand?._id ? [{ demandId: demand._id }] : []),
+    ],
+  });
 
   if (task?.status === 'complete') {
     task.status = 'in_progress';
@@ -122,22 +128,33 @@ export async function createOrReopenClpLetterTask({
     task.completedBy = undefined;
     task.dueDate = dueDate;
     task.triggeredBy = triggeredBy;
+    if (achieved) task.achievedDate = achieved;
     pushClpActivity(task, 'reopened', by, `Reopened for ${label}`);
     await task.save();
   } else if (task) {
+    task.milestoneKey = task.milestoneKey || key;
+    task.milestoneName = label;
+    task.clpPercent = pct ?? task.clpPercent;
+    task.scheduleOrder = order;
+    if (achieved) {
+      task.achievedDate = achieved;
+      if (task.status === 'open') task.status = 'in_progress';
+    }
     task.status = task.status === 'delayed' ? 'in_progress' : (task.status || 'in_progress');
     task.dueDate = dueDate;
     task.triggeredBy = triggeredBy;
     if (!task.assignee && assignee) task.assignee = assignee;
-    if (demand.actualDate && task.status === 'open') task.status = 'in_progress';
-    pushClpActivity(task, 'note', by, `Updated — ${label}`);
+    pushClpActivity(task, 'note', by, achieved ? `Milestone achieved — ${label}` : `Updated — ${label}`);
     await task.save();
   } else {
     task = await ClpLetterTask.create({
       unitId: unit._id,
-      demandId: demand._id,
+      demandId: demand?._id,
+      milestoneKey: key,
       milestoneName: label,
       clpPercent: pct,
+      scheduleOrder: order,
+      achievedDate: achieved || undefined,
       assignee,
       status: initialStatus || defaultOpen,
       dueDate,
@@ -147,60 +164,87 @@ export async function createOrReopenClpLetterTask({
         action: 'created',
         at: now,
         by,
-        detail: `CLP letter — ${label}${pct != null ? ` (${pct}%)` : ''}`,
+        detail: achieved
+          ? `CLP letter — ${label}${pct != null ? ` (${pct}%)` : ''} · achieved ${achieved.toISOString().slice(0, 10)}`
+          : `CLP letter — ${label}${pct != null ? ` (${pct}%)` : ''}`,
       }],
     });
   }
 
   await ensureClpStationStep(unit, by);
-  if (demand.actualDate || triggeredBy !== 'auto_sync') {
-    await Demand.findByIdAndUpdate(demand._id, { clpLetterTaskAt: now });
-  }
-
   return task;
 }
 
-function taskSortKey(task, demandMap) {
-  const d = demandMap[String(task.demandId)];
-  if (d?.milestoneOrder != null) return d.milestoneOrder;
+function parseAchieved(v) {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function taskSortKey(task) {
+  if (task.scheduleOrder != null) return task.scheduleOrder;
   return task.createdAt ? new Date(task.createdAt).getTime() : 0;
 }
 
+/** Build Step 12 installment cards from project CLP schedule (Milestones tab). */
 export async function ensureClpLetterTasksForUnit(unitId, by = 'Pipeline') {
   const unit = await Unit.findById(unitId).populate('customerId').lean();
   if (!unit) throw new Error('Unit not found');
 
-  const demands = (await Demand.find({ unitId }).lean()).filter((d) => !isGstDemand(d));
-  let created = 0;
-
-  for (const demand of demands) {
-    let task = await ClpLetterTask.findOne({ demandId: demand._id });
-    if (!task) {
-      await createOrReopenClpLetterTask({ unit, demand, by, triggeredBy: 'auto_sync' });
-      created += 1;
-    } else if (demand.actualDate && task.status === 'open') {
-      task.status = 'in_progress';
-      pushClpActivity(task, 'started', by, 'Construction milestone achieved');
-      await task.save();
+  const legacy = await ClpLetterTask.find({
+    unitId,
+    $or: [{ milestoneKey: { $exists: false } }, { milestoneKey: null }, { milestoneKey: '' }],
+  });
+  for (const t of legacy) {
+    if (!t.milestoneName) continue;
+    t.milestoneKey = milestoneKey(t.milestoneName);
+    try {
+      await t.save();
+    } catch {
+      /* duplicate key — leave for manual cleanup */
     }
   }
 
-  if (demands.length) await ensureClpStationStep(unit, by);
+  const schedule = await ProjectClpSchedule.findOne({ project: unit.project }).lean();
+  const rows = (schedule?.rows || []).filter(
+    (r) => r.milestone && !/^gst$/i.test(String(r.milestone).trim()),
+  );
 
+  if (!rows.length) {
+    return {
+      tasks: [],
+      created: 0,
+      total: 0,
+      message: 'Add the project CLP schedule on the Milestones tab first.',
+    };
+  }
+
+  let created = 0;
+  for (const row of rows) {
+    const key = milestoneKey(row.milestone);
+    const existing = await ClpLetterTask.findOne({ unitId, milestoneKey: key });
+    if (!existing) created += 1;
+    await createOrReopenClpLetterTask({
+      unit,
+      milestoneName: row.milestone,
+      clpPercent: row.percentDue,
+      achievedDate: row.achievedDate,
+      scheduleOrder: row.scheduleOrder,
+      by,
+      triggeredBy: 'auto_sync',
+    });
+  }
+
+  await ensureClpStationStep(unit, by);
   const tasks = await listClpLetterTasksForUnit(unitId);
-  return { tasks, created, total: demands.length };
+  return { tasks, created, total: rows.length };
 }
 
 export async function listClpLetterTasksForUnit(unitId, { status } = {}) {
   const filter = { unitId };
   if (status) filter.status = status;
   const tasks = await ClpLetterTask.find(filter).lean();
-  const demandIds = tasks.map((t) => t.demandId);
-  const demands = demandIds.length
-    ? await Demand.find({ _id: { $in: demandIds } }).lean()
-    : [];
-  const demandMap = Object.fromEntries(demands.map((d) => [String(d._id), d]));
-  tasks.sort((a, b) => taskSortKey(a, demandMap) - taskSortKey(b, demandMap)
+  tasks.sort((a, b) => taskSortKey(a) - taskSortKey(b)
     || String(a.milestoneName || '').localeCompare(String(b.milestoneName || '')));
   return tasks;
 }
@@ -297,4 +341,9 @@ export function mapClpLetterTaskToMyTask(task, unit) {
     checklistTotal: (task.checklist || []).length,
     slaTarget: def?.slaDays ? `${def.slaDays} ${def.slaUnit || 'days'}` : null,
   };
+}
+
+/** @deprecated Step 12 no longer gated on Demand payments */
+export async function allClpDemandsSettled() {
+  return true;
 }
