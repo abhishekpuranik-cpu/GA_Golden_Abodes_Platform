@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useUnits } from '../../hooks/postsales/useUnits.js';
+import { useUnitsLite } from '../../hooks/postsales/useUnits.js';
 import { useLoans } from '../../hooks/postsales/useLoans.js';
 
 function fmt(n) {
@@ -10,7 +10,7 @@ function fmt(n) {
 const STAGES = ['applied', 'processing', 'valuation', 'sanctioned'];
 
 export default function Loans() {
-  const { units, loading: unitsLoading } = useUnits({});
+  const { units, loading: unitsLoading } = useUnitsLite({});
   const [selectedUnit, setSelectedUnit] = useState('');
   const unitId = selectedUnit || units[0]?._id;
   const { loan, loading, error, upsertLoan } = useLoans(unitId);

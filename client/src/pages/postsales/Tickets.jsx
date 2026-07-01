@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useTickets } from '../../hooks/postsales/useTickets.js';
-import { useUnits } from '../../hooks/postsales/useUnits.js';
+import { useUnitsLite } from '../../hooks/postsales/useUnits.js';
 import { ESCALATION_MATRIX } from '../../data/postsales/steps.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 
@@ -14,7 +14,7 @@ export default function Tickets() {
   }, [filter]);
 
   const { tickets, ackBreachCount, resBreachCount, loading, error, createTicket, updateTicket, refresh } = useTickets(params);
-  const { units } = useUnits({});
+  const { units } = useUnitsLite({});
   const [selected, setSelected] = useState(null);
   const [detail, setDetail] = useState(null);
   const [showNew, setShowNew] = useState(false);

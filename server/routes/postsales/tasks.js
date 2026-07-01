@@ -230,25 +230,13 @@ router.get('/my', async (req, res) => {
     if (!needles.length) return res.status(401).json({ error: 'Authentication required' });
 
     const taskKind = String(req.query.taskKind || '').trim();
-    const { tasks } = await fetchOpenTasks(req.query, {
+    const { tasks: allTasks } = await fetchOpenTasks(req.query, {
       assigneeNeedles: needles,
-      taskKind: taskKind || undefined,
       includeExecutiveSteps: true,
     });
-
-    let cxCount;
-    let backendCount;
-    if (taskKind) {
-      const { tasks: allTasks } = await fetchOpenTasks(req.query, {
-        assigneeNeedles: needles,
-        includeExecutiveSteps: true,
-      });
-      cxCount = allTasks.filter((t) => t.taskKind === 'cx').length;
-      backendCount = allTasks.filter((t) => t.taskKind === 'backend').length;
-    } else {
-      cxCount = tasks.filter((t) => t.taskKind === 'cx').length;
-      backendCount = tasks.filter((t) => t.taskKind === 'backend').length;
-    }
+    const tasks = taskKind ? allTasks.filter((t) => t.taskKind === taskKind) : allTasks;
+    const cxCount = allTasks.filter((t) => t.taskKind === 'cx').length;
+    const backendCount = allTasks.filter((t) => t.taskKind === 'backend').length;
 
     res.json({
       tasks,

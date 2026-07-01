@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
+import { cachedFetch } from '../../lib/postsales/postSalesCache.js';
 
 export function useMyTasks(filters = {}) {
   const [tasks, setTasks] = useState([]);
@@ -8,6 +9,8 @@ export function useMyTasks(filters = {}) {
   const [backendCount, setBackendCount] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const filterKey = JSON.stringify(filters);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -23,7 +26,7 @@ export function useMyTasks(filters = {}) {
     } finally {
       setLoading(false);
     }
-  }, [JSON.stringify(filters)]);
+  }, [filterKey]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -38,7 +41,7 @@ export function useAssignees() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    postSalesApi.listAssignees()
+    cachedFetch('assignees', () => postSalesApi.listAssignees(), 10 * 60 * 1000)
       .then((data) => {
         setAssignees(data.assignees || []);
         setCxTeam(data.cxTeam || data.assignees || []);

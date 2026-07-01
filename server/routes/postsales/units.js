@@ -84,8 +84,8 @@ router.get('/list', async (req, res) => {
       filter.$or = [{ building: req.query.building }, { tower: req.query.building }];
     }
     const units = await Unit.find(filter)
-      .populate('customerId', 'name')
-      .select('project unitNumber phase building tower entity')
+      .populate('customerId', 'name fundingType')
+      .select('project unitNumber phase building tower entity fundingType')
       .sort({ project: 1, unitNumber: 1 })
       .lean();
     res.json(units.map((u) => ({
@@ -96,6 +96,7 @@ router.get('/list', async (req, res) => {
       building: u.building || u.tower,
       entity: u.entity,
       customerName: u.customerId?.name,
+      fundingType: u.fundingType || u.customerId?.fundingType,
     })));
   } catch (err) {
     res.status(500).json({ error: err.message });

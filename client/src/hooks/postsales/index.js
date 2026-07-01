@@ -1,4 +1,4 @@
-export { useUnits, useUnit } from './useUnits.js';
+export { useUnits, useUnitsLite, useUnit } from './useUnits.js';
 export { useSteps } from './useSteps.js';
 export { useDocuments } from './useDocuments.js';
 export { useDemands } from './useDemands.js';

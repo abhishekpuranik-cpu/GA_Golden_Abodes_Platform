@@ -174,7 +174,10 @@ export default function Reports() {
   }), [query, dateFrom, dateTo, category]);
 
   const { rows, summary, asOf, loading, error, refresh, saveForecast } = useCollectionRegister(registerFilters);
-  const { data: disbData, loading: disbLoading, error: disbError, refresh: refreshDisb } = useDisbursementForecast(disbFilters);
+  const { data: disbData, loading: disbLoading, error: disbError, refresh: refreshDisb } = useDisbursementForecast(
+    disbFilters,
+    { enabled: view === 'disbursement' },
+  );
 
   const toggleEdit = (unitId) => setEditing((prev) => (prev === unitId ? null : unitId));
 

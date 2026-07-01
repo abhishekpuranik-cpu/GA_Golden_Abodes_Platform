@@ -537,6 +537,22 @@
 /* My Tasks agenda */
 .ps-body:has(.ps-tasks-page) { max-width: 100%; }
 .ps-tasks-page { max-width: 100%; }
+.ps-sync-banner {
+  margin: 0 0 12px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  background: var(--ps-accent-soft);
+  border: 1px solid #bfdbfe;
+  font-size: 0.82rem;
+  color: var(--ps-text-muted);
+}
+.ps-sync-note {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  background: var(--ps-accent-soft);
+  border-color: #bfdbfe;
+  font-size: 0.85rem;
+}
 .ps-task-horizon-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
 .ps-task-toolbar {
   display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center;

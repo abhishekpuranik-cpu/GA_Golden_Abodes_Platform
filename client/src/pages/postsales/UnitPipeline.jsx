@@ -70,7 +70,10 @@ export default function UnitPipeline() {
 
   const { unit, loading: unitLoading, error: unitError, refresh: refreshUnit } = useUnit(id);
 
-  const { steps, loading: stepsLoading, error: stepsError, updateStep, toggleChecklist, addStepComment } = useSteps(id, actor);
+  const { steps, loading: stepsLoading, error: stepsError, updateStep, toggleChecklist, addStepComment } = useSteps(id, actor, {
+    seedSteps: unit?.steps,
+    waitForSeed: unitLoading,
+  });
 
   const { documents, uploadDocument } = useDocuments(id);
 

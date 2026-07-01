@@ -8,7 +8,7 @@ function mergeStep(prev, stepNumber, patch) {
   return prev.map((s) => (s.stepNumber === stepNumber ? { ...s, ...patch } : s));
 }
 
-export function useSteps(unitId, actor = '') {
+export function useSteps(unitId, actor = '', { seedSteps = null, waitForSeed = false } = {}) {
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -26,7 +26,17 @@ export function useSteps(unitId, actor = '') {
     }
   }, [unitId]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!unitId) return;
+    if (waitForSeed) return;
+    if (Array.isArray(seedSteps) && seedSteps.length) {
+      setSteps(seedSteps);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    refresh();
+  }, [unitId, seedSteps, waitForSeed, refresh]);
 
   const updateStep = async (stepNumber, body) => {
     const step = await postSalesApi.updateStep(unitId, stepNumber, { ...body, by: actor });
