@@ -126,6 +126,17 @@
   border-radius: 6px;
   font-size: 0.875rem;
 }
+.ps-filter-select {
+  min-width: 140px;
+  max-width: 220px;
+  background: #fff;
+  cursor: pointer;
+}
+.ps-filter-select:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: #f1f5f9;
+}
 
 .ps-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 @media (max-width: 900px) { .ps-grid-2 { grid-template-columns: 1fr; } }

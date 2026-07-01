@@ -57,6 +57,22 @@ export function useInventoryFilters(initial = {}) {
 
   useEffect(() => { loadOptions(); }, [loadOptions]);
 
+  // Phase/building require a project; drop stale values when options change.
+  useEffect(() => {
+    if (!project) {
+      if (phase) setPhase('');
+      if (building) setBuilding('');
+      return;
+    }
+    if (loadingOptions) return;
+    if (phase && (!options.phases?.length || !options.phases.includes(phase))) {
+      setPhase('');
+    }
+    if (building && (!options.buildings?.length || !options.buildings.includes(building))) {
+      setBuilding('');
+    }
+  }, [project, phase, building, options.phases, options.buildings, loadingOptions]);
+
   const setProjectFilter = (value) => {
     setProject(value);
     setPhase('');
