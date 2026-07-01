@@ -1,5 +1,6 @@
 import CollectionForecast from '../../models/postsales/CollectionForecast.js';
 import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
+import { repairClpLetterTaskIndexes } from './clpLetterTaskIndexes.js';
 import Unit from '../../models/postsales/Unit.js';
 import { buildChecklist, computeDueDate, getStepDef } from './helpers.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
@@ -146,11 +147,22 @@ function applyScheduleRowToForecastMilestones(milestones, unit, row) {
 function collectBulkErrors(err, errors) {
   if (err?.writeErrors?.length) {
     for (const w of err.writeErrors) {
-      errors.push(w.errmsg || w.err?.message || String(w));
+      const raw = w.errmsg || w.err?.message || String(w);
+      errors.push(friendlyBulkError(raw));
     }
     return;
   }
-  if (err?.message) errors.push(err.message);
+  if (err?.message) errors.push(friendlyBulkError(err.message));
+}
+
+function friendlyBulkError(msg) {
+  if (/demandId.*null|E11000.*demandId/i.test(msg)) {
+    return 'Step 12 task index conflict (fixed on retry) — click Sync to units again.';
+  }
+  if (/E11000.*milestoneKey/i.test(msg)) {
+    return 'Duplicate milestone checklist for a unit — open that unit’s Step 12 once, then retry sync.';
+  }
+  return msg;
 }
 
 async function bulkSyncForecasts(allUnits, rows) {
@@ -286,6 +298,8 @@ export async function syncProjectScheduleAchievedDates(
   if (!rows.length) {
     return { results: [], totals: { milestones: 0, forecastsUpdated: 0, tasksCreated: 0 }, errors: [], unitsAffected: 0 };
   }
+
+  await repairClpLetterTaskIndexes();
 
   const allUnits = await Unit.find(buildUnitFilter(project, { phase, building })).lean();
   if (!allUnits.length) {

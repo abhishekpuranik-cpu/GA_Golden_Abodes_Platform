@@ -79,11 +79,14 @@ const ClpLetterTaskSchema = new mongoose.Schema({
 
 
 ClpLetterTaskSchema.index({ unitId: 1, status: 1 });
-
-ClpLetterTaskSchema.index({ unitId: 1, milestoneKey: 1 }, { unique: true });
-
-ClpLetterTaskSchema.index({ demandId: 1 }, { unique: true, sparse: true });
-
+ClpLetterTaskSchema.index(
+  { unitId: 1, milestoneKey: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { milestoneKey: { $exists: true, $type: 'string', $ne: '' } },
+  },
+);
+ClpLetterTaskSchema.index({ demandId: 1 }, { sparse: true });
 ClpLetterTaskSchema.index({ assignee: 1, status: 1 });
 
 

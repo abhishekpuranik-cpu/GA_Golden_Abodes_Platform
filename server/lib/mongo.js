@@ -11,6 +11,9 @@ export async function ensureMongo() {
       await client.connect();
       dbInstance = client.db(DB_NAME);
       console.log(`MongoDB connected (${DB_NAME})`);
+      import('./postsales/clpLetterTaskIndexes.js')
+        .then(({ repairClpLetterTaskIndexes }) => repairClpLetterTaskIndexes())
+        .catch((e) => console.warn('[clp-letter-task-indexes]', e?.message || e));
       if (V1_AUTO_RESTORE_BEFORE) {
         import('./v1CashflowAutoRestore.js')
           .then(({ runV1AutoRestoreOnBoot, persistParadiseWorkbookMerge }) =>

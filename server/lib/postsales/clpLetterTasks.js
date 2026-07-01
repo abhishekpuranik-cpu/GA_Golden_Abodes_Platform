@@ -149,7 +149,7 @@ export async function createOrReopenClpLetterTask({
   } else {
     task = await ClpLetterTask.create({
       unitId: unit._id,
-      demandId: demand?._id,
+      ...(demand?._id ? { demandId: demand._id } : {}),
       milestoneKey: key,
       milestoneName: label,
       clpPercent: pct,
