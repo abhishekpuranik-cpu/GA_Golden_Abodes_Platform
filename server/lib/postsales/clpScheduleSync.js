@@ -1,6 +1,10 @@
 import CollectionForecast from '../../models/postsales/CollectionForecast.js';
 import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import { repairClpLetterTaskIndexes } from './clpLetterTaskIndexes.js';
+import {
+  resolveAchievedDateForUnitRow,
+  sortScheduleRows,
+} from './clpBookingMilestones.js';
 import Unit from '../../models/postsales/Unit.js';
 import { buildChecklist, computeDueDate, getStepDef } from './helpers.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
@@ -86,8 +90,8 @@ function pendingAmount(unit, row, ms) {
   return Math.max(0, (unit.totalCost || 0) * ((row.percentDue || 0) / 100));
 }
 
-function applyScheduleRowToForecastMilestones(milestones, unit, row) {
-  const achievedDate = parseDate(row.achievedDate);
+function applyScheduleRowToForecastMilestones(milestones, unit, row, sortedRows) {
+  const achievedDate = resolveAchievedDateForUnitRow(row, unit, sortedRows || [row]);
   if (!achievedDate || !row.milestone) return false;
 
   const label = formatMilestoneLabel(row.milestone);
@@ -168,6 +172,7 @@ function friendlyBulkError(msg) {
 async function bulkSyncForecasts(allUnits, rows) {
   if (!allUnits.length || !rows.length) return { forecastsUpdated: 0, errors: [] };
 
+  const sortedRows = sortScheduleRows(rows);
   const unitIds = allUnits.map((u) => u._id);
   const forecasts = await CollectionForecast.find({ unitId: { $in: unitIds } }).lean();
   const forecastMap = new Map(forecasts.map((f) => [String(f.unitId), f]));
@@ -179,8 +184,8 @@ async function bulkSyncForecasts(allUnits, rows) {
     const existing = forecastMap.get(String(unit._id));
     const milestones = JSON.parse(JSON.stringify(existing?.milestones || []));
     let changed = false;
-    for (const row of rows) {
-      if (applyScheduleRowToForecastMilestones(milestones, unit, row)) changed = true;
+    for (const row of sortedRows) {
+      if (applyScheduleRowToForecastMilestones(milestones, unit, row, sortedRows)) changed = true;
     }
     if (!changed) continue;
     forecastsUpdated += 1;
@@ -204,6 +209,25 @@ async function bulkSyncForecasts(allUnits, rows) {
   return { forecastsUpdated, errors };
 }
 
+/** Push schedule rows (incl. booking-anchored first 4) into one unit's collection forecast. */
+export async function upsertUnitForecastMilestones(unit, scheduleRows) {
+  const sortedRows = sortScheduleRows(scheduleRows);
+  if (!sortedRows.length || !unit?._id) return;
+
+  const existing = await CollectionForecast.findOne({ unitId: unit._id }).lean();
+  const milestones = JSON.parse(JSON.stringify(existing?.milestones || []));
+  let changed = false;
+  for (const row of sortedRows) {
+    if (applyScheduleRowToForecastMilestones(milestones, unit, row, sortedRows)) changed = true;
+  }
+  if (!changed) return;
+  await CollectionForecast.updateOne(
+    { unitId: unit._id },
+    { $set: { milestones } },
+    { upsert: true },
+  );
+}
+
 async function bulkSyncStep12Tasks(step12Units, rows, by) {
   if (!step12Units.length || !rows.length) return { tasksCreated: 0, errors: [] };
 
@@ -219,13 +243,14 @@ async function bulkSyncStep12Tasks(step12Units, rows, by) {
   const dueDate = computeDueDate(def, now);
   const ops = [];
   let tasksCreated = 0;
+  const sortedRows = sortScheduleRows(rows);
 
   for (const unit of step12Units) {
     const checklist = buildChecklist(def, unit.fundingType);
     const assignee = defaultAssigneeForKind(unit, taskKind);
 
-    for (const row of rows) {
-      const achieved = parseDate(row.achievedDate);
+    for (const row of sortedRows) {
+      const achieved = resolveAchievedDateForUnitRow(row, unit, sortedRows);
       if (!achieved || !row.milestone) continue;
 
       const label = formatMilestoneLabel(row.milestone);

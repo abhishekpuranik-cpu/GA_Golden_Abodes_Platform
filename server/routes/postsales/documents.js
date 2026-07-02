@@ -26,7 +26,7 @@ async function recordDocumentUpload(req, doc) {
     const task = await ClpLetterTask.findById(doc.clpLetterTaskId);
     if (task) {
       const detail = doc.checklistItem
-        ? `Checklist: ${doc.checklistItem} — ${doc.fileName || doc.label || doc.docType}`
+        ? `${doc.milestoneName ? `${doc.milestoneName} · ` : ''}Checklist: ${doc.checklistItem} — ${doc.fileName || doc.label || doc.docType}`
         : (doc.label || doc.fileName || doc.docType);
       pushClpActivity(task, 'document_uploaded', by, detail);
       await task.save();
@@ -84,7 +84,7 @@ router.post('/upload', (req, res) => {
       return res.status(400).json({ error: multerErr.message || 'Upload failed' });
     }
     try {
-      const { unitId, docType, label, status, clpLetterTaskId, checklistIndex, checklistItem } = req.body;
+      const { unitId, docType, label, status, clpLetterTaskId, checklistIndex, checklistItem, milestoneName } = req.body;
       const stepNumber = req.body.stepNumber ? Number(req.body.stepNumber) : undefined;
       if (!unitId || !docType) {
         return res.status(400).json({ error: 'unitId and docType are required' });
@@ -103,6 +103,7 @@ router.post('/upload', (req, res) => {
         ...(clpLetterTaskId ? { clpLetterTaskId } : {}),
         ...(checklistIndex != null && checklistIndex !== '' ? { checklistIndex: Number(checklistIndex) } : {}),
         ...(checklistItem ? { checklistItem } : {}),
+        ...(milestoneName ? { milestoneName } : {}),
       };
 
       if (body.status === 'uploaded' && !body.receivedDate) body.receivedDate = new Date();

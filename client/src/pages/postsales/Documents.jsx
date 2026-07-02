@@ -68,14 +68,20 @@ export default function Documents() {
 
 
 
+  const clpChecklistDocs = useMemo(() => (
+    documents.filter((d) => (d.stepNumber === 12 || d.docType === 'demand_letter_clp' || d.docType === 'architect_certificate' || d.docType === 'supporting_document')
+      && (d.clpLetterTaskId || d.checklistIndex != null))
+      .sort((a, b) => (a.milestoneName || '').localeCompare(b.milestoneName || '')
+        || (a.checklistIndex ?? 0) - (b.checklistIndex ?? 0))
+  ), [documents]);
+
   const docByType = useMemo(() => {
-
     const m = {};
-
-    for (const d of documents) m[d.docType] = d;
-
+    for (const d of documents) {
+      if (d.clpLetterTaskId || d.checklistIndex != null) continue;
+      m[d.docType] = d;
+    }
     return m;
-
   }, [documents]);
 
 
@@ -250,6 +256,32 @@ export default function Documents() {
               </div>
 
 
+
+              {clpChecklistDocs.length > 0 && (
+                <div className="ps-card" style={{ marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <strong>Step 12 — CLP checklist attachments</strong>
+                    <Link to={`/app/post-sales/units/${unitId}?step=12`} className="ps-btn" style={{ fontSize: '0.75rem' }}>Step 12 →</Link>
+                  </div>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)', marginTop: 0 }}>
+                    Files uploaded from installment checklists — tagged by milestone and checklist line.
+                  </p>
+                  {clpChecklistDocs.map((doc) => (
+                    <div key={doc._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500 }}>{doc.milestoneName || 'CLP milestone'}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)' }}>
+                          Line {(doc.checklistIndex ?? 0) + 1}: {doc.checklistItem || TYPE_LABELS[doc.docType] || doc.docType}
+                        </div>
+                        <span className={statusBadge(doc.status)}>{doc.status}</span>
+                      </div>
+                      {documentOpenUrl(doc) ? (
+                        <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {visibleGroups.map((group) => (
 

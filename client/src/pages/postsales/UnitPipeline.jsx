@@ -604,12 +604,12 @@ export default function UnitPipeline() {
                 {selected === 12 && (
                   <ClpLetterQueue
                     unitId={id}
+                    bookingDate={unit?.bookingDate}
                     actor={actor}
                     highlightMilestone={highlightMilestone}
                     onRefresh={() => refreshUnit({ silent: true })}
                     documents={documents}
                     uploadDocument={uploadDocument}
-                    onDocRefresh={() => refreshDocuments({ silent: true })}
                   />
                 )}
 
@@ -779,11 +779,11 @@ export default function UnitPipeline() {
               {selected === 12 ? (
                 <ClpLetterQueue
                   unitId={id}
+                  bookingDate={unit?.bookingDate}
                   actor={actor}
                   highlightMilestone={highlightMilestone}
                   documents={documents}
                   uploadDocument={uploadDocument}
-                  onDocRefresh={() => refreshDocuments({ silent: true })}
                   docsMode
                 />
               ) : (

@@ -7,12 +7,13 @@ function fmtAt(at) {
   return d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' });
 }
 
-export default function ActivityLogPanel({ fetchLog, title = 'Activity log' }) {
+export default function ActivityLogPanel({ fetchLog, fetchKey, title = 'Activity log' }) {
   const [log, setLog] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    if (!fetchLog) return undefined;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -21,7 +22,8 @@ export default function ActivityLogPanel({ fetchLog, title = 'Activity log' }) {
       .catch((e) => { if (!cancelled) setError(e.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [fetchLog]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when fetchKey (task id) changes only
+  }, [fetchKey]);
 
   return (
     <div className="ps-activity-log">

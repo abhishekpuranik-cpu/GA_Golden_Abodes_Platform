@@ -8,6 +8,7 @@ const DocumentSchema = new mongoose.Schema({
   clpLetterTaskId: { type: mongoose.Schema.Types.ObjectId, ref: 'ClpLetterTask' },
   checklistIndex: Number,
   checklistItem: String,
+  milestoneName: String,
   label: String,
   status: { type: String, enum: ['pending','received','verified','uploaded','rejected'], default: 'pending' },
   receivedDate: Date, verifiedDate: Date, verifiedBy: String,

@@ -12,11 +12,11 @@ export default function ChecklistLineDocs({
   unitId,
   stepNumber = 12,
   clpLetterTaskId,
+  milestoneName = '',
   checklist = [],
   documents = [],
   actor = '',
   uploadDocument,
-  onRefresh,
   disabled = false,
   compact = false,
 }) {
@@ -41,20 +41,18 @@ export default function ChecklistLineDocs({
     setErr(null);
     setBusyKey(`${index}`);
     try {
-      for (const file of files) {
-        await uploadDocument(file, {
-          unitId,
-          stepNumber,
-          clpLetterTaskId: clpLetterTaskId || undefined,
-          checklistIndex: index,
-          checklistItem: itemText,
-          docType: docTypeForChecklistItem(itemText, index),
-          label: file.name,
-          status: 'uploaded',
-          uploadedBy: actor,
-        });
-      }
-      onRefresh?.({ silent: true });
+      await Promise.all(files.map((file) => uploadDocument(file, {
+        unitId,
+        stepNumber,
+        clpLetterTaskId: clpLetterTaskId || undefined,
+        checklistIndex: index,
+        checklistItem: itemText,
+        milestoneName: milestoneName || undefined,
+        docType: docTypeForChecklistItem(itemText, index),
+        label: file.name,
+        status: 'uploaded',
+        uploadedBy: actor,
+      })));
     } catch (e) {
       setErr(e.message);
     } finally {

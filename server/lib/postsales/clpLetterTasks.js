@@ -3,6 +3,12 @@ import PipelineStep from '../../models/postsales/PipelineStep.js';
 import ProjectClpSchedule from '../../models/postsales/ProjectClpSchedule.js';
 import Unit from '../../models/postsales/Unit.js';
 import { pushActivity } from './activity.js';
+import {
+  parseAchievedDate,
+  resolveAchievedDateForUnitRow,
+  sortScheduleRows,
+} from './clpBookingMilestones.js';
+import { upsertUnitForecastMilestones } from './clpScheduleSync.js';
 import { buildChecklist, computeDueDate, getStepDef } from './helpers.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
 import { milestoneKey } from './milestoneKey.js';
@@ -101,6 +107,7 @@ export async function createOrReopenClpLetterTask({
   by = 'System',
   triggeredBy = 'milestone',
   initialStatus,
+  skipStationEnsure = false,
 }) {
   const def = getStepDef(CLP_STEP);
   const taskKind = getStepTaskKind(CLP_STEP);
@@ -110,8 +117,8 @@ export async function createOrReopenClpLetterTask({
   const label = formatMilestoneLabel(milestoneName || milestone.milestoneName || demand?.milestoneName);
   const key = milestoneKey(label);
   const pct = clpPercent ?? milestone.clpPercent ?? demand?.clpPercent;
-  const achieved = parseAchieved(achievedDate || milestone.achievedDate || demand?.actualDate);
   const order = scheduleOrder ?? milestone.scheduleOrder ?? 0;
+  const achieved = parseAchieved(achievedDate || milestone.achievedDate || demand?.actualDate);
   const defaultOpen = achieved ? 'in_progress' : 'open';
 
   let task = await ClpLetterTask.findOne({
@@ -171,14 +178,15 @@ export async function createOrReopenClpLetterTask({
     });
   }
 
-  await ensureClpStationStep(unit, by);
+  if (!skipStationEnsure) {
+    await ensureClpStationStep(unit, by);
+  }
   return task;
 }
 
-function parseAchieved(v) {
-  if (!v) return null;
-  const d = new Date(v);
-  return Number.isNaN(d.getTime()) ? null : d;
+function dateKey(v) {
+  const d = parseAchieved(v);
+  return d ? d.toISOString().slice(0, 10) : '';
 }
 
 function taskSortKey(task) {
@@ -206,11 +214,9 @@ export async function ensureClpLetterTasksForUnit(unitId, by = 'Pipeline') {
   }
 
   const schedule = await ProjectClpSchedule.findOne({ project: unit.project }).lean();
-  const rows = (schedule?.rows || []).filter(
-    (r) => r.milestone && !/^gst$/i.test(String(r.milestone).trim()),
-  );
+  const sortedRows = sortScheduleRows(schedule?.rows || []);
 
-  if (!rows.length) {
+  if (!sortedRows.length) {
     return {
       tasks: [],
       created: 0,
@@ -219,25 +225,79 @@ export async function ensureClpLetterTasksForUnit(unitId, by = 'Pipeline') {
     };
   }
 
+  const existing = await ClpLetterTask.find({ unitId }).lean();
+  const existingByKey = new Map(
+    existing.map((t) => [t.milestoneKey || milestoneKey(t.milestoneName), t]),
+  );
+
+  const def = getStepDef(CLP_STEP);
+  const taskKind = getStepTaskKind(CLP_STEP);
+  const now = new Date();
+  const dueDate = computeDueDate(def, now);
+  const checklist = buildChecklist(def, unit.fundingType || unit.customer?.fundingType);
+  const assignee = defaultAssigneeForKind(unit, taskKind);
+  const ops = [];
   let created = 0;
-  for (const row of rows) {
-    const key = milestoneKey(row.milestone);
-    const existing = await ClpLetterTask.findOne({ unitId, milestoneKey: key });
-    if (!existing) created += 1;
-    await createOrReopenClpLetterTask({
-      unit,
-      milestoneName: row.milestone,
-      clpPercent: row.percentDue,
-      achievedDate: row.achievedDate,
-      scheduleOrder: row.scheduleOrder,
-      by,
-      triggeredBy: 'auto_sync',
+
+  for (const row of sortedRows) {
+    const label = formatMilestoneLabel(row.milestone);
+    const key = milestoneKey(label);
+    const achieved = resolveAchievedDateForUnitRow(row, unit, sortedRows);
+    const order = row.scheduleOrder ?? sortedRows.indexOf(row);
+    const prev = existingByKey.get(key);
+    const status = achieved ? 'in_progress' : 'open';
+
+    if (!prev) created += 1;
+    else if (prev.status === 'complete') continue;
+    else if (
+      dateKey(prev.achievedDate) === dateKey(achieved)
+      && prev.status === status
+      && prev.scheduleOrder === order
+    ) {
+      continue;
+    }
+
+    ops.push({
+      updateOne: {
+        filter: { unitId: unit._id, milestoneKey: key },
+        update: {
+          $set: {
+            milestoneName: label,
+            clpPercent: row.percentDue ?? prev?.clpPercent,
+            scheduleOrder: order,
+            achievedDate: achieved || undefined,
+            status: prev?.status === 'complete' ? prev.status : status,
+            dueDate: prev?.dueDate || dueDate,
+            assignee: prev?.assignee || assignee,
+            triggeredBy: 'auto_sync',
+          },
+          $setOnInsert: {
+            unitId: unit._id,
+            milestoneKey: key,
+            checklist,
+            activityLog: [{
+              action: 'created',
+              at: now,
+              by,
+              detail: achieved
+                ? `CLP letter — ${label} · ${achieved.toISOString().slice(0, 10)}`
+                : `CLP letter — ${label}`,
+            }],
+          },
+        },
+        upsert: true,
+      },
     });
   }
 
+  if (ops.length) {
+    await ClpLetterTask.bulkWrite(ops, { ordered: false });
+  }
+
+  await upsertUnitForecastMilestones(unit, sortedRows);
   await ensureClpStationStep(unit, by);
   const tasks = await listClpLetterTasksForUnit(unitId);
-  return { tasks, created, total: rows.length };
+  return { tasks, created, total: sortedRows.length };
 }
 
 export async function listClpLetterTasksForUnit(unitId, { status } = {}) {
@@ -301,10 +361,9 @@ export async function toggleClpLetterChecklist(taskId, index, done, by) {
   item.doneAt = item.done ? new Date() : undefined;
   item.doneBy = item.done ? by : '';
   if (task.status === 'open') task.status = 'in_progress';
-  pushClpActivity(task, 'checklist', by, item.item);
   task.markModified('checklist');
   await task.save();
-  return task;
+  return task.toObject();
 }
 
 export async function completeClpLetterTask(taskId, by, note) {
