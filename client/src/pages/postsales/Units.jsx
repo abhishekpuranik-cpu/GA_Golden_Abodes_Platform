@@ -4,7 +4,9 @@ import { useUnits } from '../../hooks/postsales/useUnits.js';
 import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
 import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import NewUnitModal from '../../components/postsales/NewUnitModal.jsx';
+import DeleteUnitModal from '../../components/postsales/DeleteUnitModal.jsx';
 import CrmUnitUpload from '../../components/postsales/CrmUnitUpload.jsx';
+import { sortUnitsChronologically } from '../../lib/postsales/unitSort.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 
 function fmt(n) {
@@ -27,6 +29,7 @@ export default function Units() {
   const [purging, setPurging] = useState(false);
   const [v1Status, setV1Status] = useState(null);
   const [lastBatchId, setLastBatchId] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState(null);
 
   const filtersApi = useInventoryFilters();
   const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear, loadOptions } = filtersApi;
@@ -39,7 +42,8 @@ export default function Units() {
   }, [query, status, lastBatchId]);
 
   const { units, loading, error, refresh, createUnit } = useUnits(filters);
-  const breachCount = units.filter((u) => u.slaBreachCount > 0).length;
+  const sortedUnits = useMemo(() => sortUnitsChronologically(units), [units]);
+  const breachCount = sortedUnits.filter((u) => u.slaBreachCount > 0).length;
 
   const loadV1Status = async () => {
     try {
@@ -152,7 +156,7 @@ export default function Units() {
             <button type="button" className="ps-btn ps-btn-danger" disabled={purging || syncing} onClick={handlePurgeAll}>
               {purging ? 'Clearing…' : 'Clear all units'}
             </button>
-            <span style={{ fontSize: '0.85rem' }}>{units.length} units · {breachCount} with breaches</span>
+            <span style={{ fontSize: '0.85rem' }}>{sortedUnits.length} units · {breachCount} with breaches</span>
           </>
         )}
       />
@@ -168,38 +172,63 @@ export default function Units() {
       {error && <div className="ps-error">{error}</div>}
       {loading && <div className="ps-empty">Loading units…</div>}
 
-      {!loading && !units.length && (
+      {!loading && !sortedUnits.length && (
         <div className="ps-empty">
           No units match these filters. Use <strong>Upload CRM data</strong> above (daily) or sync from Cashflow V1.
         </div>
       )}
 
       <div className="ps-unit-grid">
-        {units.map((u) => (
-          <Link key={u._id} to={`/app/post-sales/units/${u._id}`} className="ps-unit-card">
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <strong>{u.project} · {u.unitNumber}</strong>
-              {u.slaBreachCount > 0 && <span className="ps-badge ps-badge-red">{u.slaBreachCount} breach</span>}
-              {u.lastImportBatchId && lastBatchId === u.lastImportBatchId && (
-                <span className="ps-badge ps-badge-green">New import</span>
-              )}
-            </div>
-            <div style={{ fontSize: '0.85rem', marginTop: 4 }}>{u.customerName || u.customer?.name}</div>
-            <div style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)', marginTop: 4 }}>
-              {[u.phase, u.building || u.tower].filter(Boolean).join(' · ') || '—'}
-              {' · '}{u.entity} · Step {u.currentStepNumber}/20
-            </div>
-            <div className="ps-pipeline-dots">
-              {(u.steps || []).map((s) => (
-                <span key={s.stepNumber} className={`ps-dot ${dotClass(s.status)}`} title={`Step ${s.stepNumber}: ${s.status}`} />
-              ))}
-            </div>
-            <div style={{ fontSize: '0.75rem', marginTop: 8, color: 'var(--ps-text-muted)' }}>
-              Booked {u.bookingDate ? new Date(u.bookingDate).toLocaleDateString('en-IN') : '—'} · {fmt(u.totalCost)}
-            </div>
-          </Link>
+        {sortedUnits.map((u) => (
+          <div key={u._id} className="ps-unit-card" style={{ position: 'relative' }}>
+            <Link to={`/app/post-sales/units/${u._id}`} className="ps-unit-card-link" style={{ display: 'block', textDecoration: 'none', color: 'inherit' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <strong>{u.project} · {u.unitNumber}</strong>
+                <span style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                  {u.slaBreachCount > 0 && <span className="ps-badge ps-badge-red">{u.slaBreachCount} breach</span>}
+                  {u.lastImportBatchId && lastBatchId === u.lastImportBatchId && (
+                    <span className="ps-badge ps-badge-green">New import</span>
+                  )}
+                </span>
+              </div>
+              <div style={{ fontSize: '0.85rem', marginTop: 4 }}>{u.customerName || u.customer?.name}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)', marginTop: 4 }}>
+                {[u.phase, u.building || u.tower].filter(Boolean).join(' · ') || '—'}
+                {' · '}{u.entity} · Step {u.currentStepNumber}/20
+              </div>
+              <div className="ps-pipeline-dots">
+                {(u.steps || []).map((s) => (
+                  <span key={s.stepNumber} className={`ps-dot ${dotClass(s.status)}`} title={`Step ${s.stepNumber}: ${s.status}`} />
+                ))}
+              </div>
+              <div style={{ fontSize: '0.75rem', marginTop: 8, color: 'var(--ps-text-muted)' }}>
+                Booked {u.bookingDate ? new Date(u.bookingDate).toLocaleDateString('en-IN') : '—'} · {fmt(u.totalCost)}
+              </div>
+            </Link>
+            <button
+              type="button"
+              className="ps-btn ps-btn-danger"
+              title="Delete duplicate unit"
+              style={{ position: 'absolute', top: 8, right: 8, fontSize: '0.65rem', padding: '2px 6px', zIndex: 1 }}
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteTarget(u); }}
+            >
+              Delete
+            </button>
+          </div>
         ))}
       </div>
+
+      {deleteTarget && (
+        <DeleteUnitModal
+          unit={deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onDeleted={(r) => {
+            setSyncMsg(`Deleted ${r.project} · ${r.unitNumber} (pipeline, demands, documents removed).`);
+            refresh();
+            loadOptions();
+          }}
+        />
+      )}
 
       {showModal && (
         <NewUnitModal

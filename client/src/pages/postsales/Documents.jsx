@@ -5,6 +5,8 @@ import { Link } from 'react-router-dom';
 import { useDocuments } from '../../hooks/postsales/useDocuments.js';
 
 import { DOC_GROUPS, TYPE_LABELS, primaryStepForDocType } from '../../data/postsales/stepDocs.js';
+import { docMatchesQuery, searchVaultDocuments } from '../../lib/postsales/docVaultSearch.js';
+import { sortUnitsChronologically } from '../../lib/postsales/unitSort.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 
 function documentOpenUrl(doc) {
@@ -45,9 +47,10 @@ export default function Documents() {
   }, []);
 
   const filteredUnits = useMemo(() => {
+    const sorted = sortUnitsChronologically(units);
     const q = unitSearch.trim().toLowerCase();
-    if (!q) return units;
-    return units.filter((u) => [u.unitNumber, u.project, u.customerName, u.phase, u.building].filter(Boolean).join(' ').toLowerCase().includes(q));
+    if (!q) return sorted;
+    return sorted.filter((u) => [u.unitNumber, u.project, u.customerName, u.phase, u.building].filter(Boolean).join(' ').toLowerCase().includes(q));
   }, [units, unitSearch]);
 
   const unitId = selectedUnit || filteredUnits[0]?._id;
@@ -71,9 +74,30 @@ export default function Documents() {
   const clpChecklistDocs = useMemo(() => (
     documents.filter((d) => (d.stepNumber === 12 || d.docType === 'demand_letter_clp' || d.docType === 'architect_certificate' || d.docType === 'supporting_document')
       && (d.clpLetterTaskId || d.checklistIndex != null))
+      .filter((d) => docMatchesQuery(d, docSearch, 'Step 12 CLP checklist'))
       .sort((a, b) => (a.milestoneName || '').localeCompare(b.milestoneName || '')
         || (a.checklistIndex ?? 0) - (b.checklistIndex ?? 0))
-  ), [documents]);
+  ), [documents, docSearch]);
+
+  const searchHits = useMemo(
+    () => searchVaultDocuments(documents, docSearch),
+    [documents, docSearch],
+  );
+
+  const visibleGroups = useMemo(() => {
+    const q = docSearch.trim().toLowerCase();
+    if (!q) return DOC_GROUPS;
+    return DOC_GROUPS.map((group) => ({
+      ...group,
+      types: group.types.filter((type) => {
+        const label = TYPE_LABELS[type] || type;
+        const doc = documents.find((d) => d.docType === type && !d.clpLetterTaskId && d.checklistIndex == null);
+        if (label.toLowerCase().includes(q) || type.includes(q) || group.label.toLowerCase().includes(q)) return true;
+        if (doc && docMatchesQuery(doc, q, group.label)) return true;
+        return false;
+      }),
+    })).filter((g) => g.types.length > 0);
+  }, [docSearch, documents]);
 
   const docByType = useMemo(() => {
     const m = {};
@@ -84,19 +108,7 @@ export default function Documents() {
     return m;
   }, [documents]);
 
-
-
-  const visibleGroups = useMemo(() => {
-    const q = docSearch.trim().toLowerCase();
-    if (!q) return DOC_GROUPS;
-    return DOC_GROUPS.map((group) => ({
-      ...group,
-      types: group.types.filter((type) => {
-        const label = TYPE_LABELS[type] || type;
-        return label.toLowerCase().includes(q) || type.includes(q) || group.label.toLowerCase().includes(q);
-      }),
-    })).filter((g) => g.types.length > 0);
-  }, [docSearch]);
+  const smartSearchActive = docSearch.trim().length > 0;
 
 
 
@@ -236,13 +248,42 @@ export default function Documents() {
 
               <input
                 type="search"
-                placeholder="Search document type…"
+                className="ps-smart-search"
+                placeholder="Smart search — file name, doc type, step, milestone, checklist line, status…"
                 value={docSearch}
                 onChange={(e) => setDocSearch(e.target.value)}
-                style={{ width: '100%', maxWidth: 360, marginBottom: 12 }}
-                aria-label="Search documents"
+                style={{ width: '100%', marginBottom: 8, padding: '10px 12px', fontSize: '0.95rem' }}
+                aria-label="Smart search documents"
               />
+              {smartSearchActive && (
+                <div style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)', marginBottom: 12 }}>
+                  {searchHits.length
+                    ? `${searchHits.length} match${searchHits.length === 1 ? '' : 'es'}`
+                    : `No matches for "${docSearch.trim()}"`}
+                </div>
+              )}
 
+              {smartSearchActive && searchHits.length > 0 && (
+                <div className="ps-card" style={{ marginBottom: 16, maxHeight: 280, overflow: 'auto' }}>
+                  <strong style={{ display: 'block', marginBottom: 8 }}>Search results</strong>
+                  {searchHits.map(({ doc, title, subtitle, typeLabel, step }) => (
+                    <div key={doc._id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500 }}>{title}</div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--ps-text-muted)' }}>{subtitle || typeLabel}</div>
+                        <span className={statusBadge(doc.status)}>{doc.status}</span>
+                        {step != null && <span className="ps-badge ps-badge-grey" style={{ marginLeft: 6 }}>Step {step}</span>}
+                      </div>
+                      {documentOpenUrl(doc) ? (
+                        <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {!smartSearchActive && (
+              <>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
 
                 {Object.entries(statusCounts).map(([s, n]) => (
@@ -353,8 +394,10 @@ export default function Documents() {
 
               ))}
 
-            </>
+              </>
+              )}
 
+            </>
           )}
 
         </div>

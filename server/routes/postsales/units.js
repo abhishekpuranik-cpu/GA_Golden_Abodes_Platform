@@ -6,6 +6,9 @@ import PipelineStep from '../../models/postsales/PipelineStep.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { buildPipelineStepDocs } from '../../lib/postsales/helpers.js';
 import { purgeAndDisableAutoSync } from '../../lib/postsales/purgeUnitData.js';
+import { deleteSingleUnit } from '../../lib/postsales/deleteUnit.js';
+import { verifyAllocationPassword } from '../../lib/postsales/allocationAdmin.js';
+import { sortUnitsChronologically } from '../../lib/postsales/unitSort.js';
 import {
   buildTemplateWorkbook,
   listImportBatches,
@@ -83,11 +86,10 @@ router.get('/list', async (req, res) => {
     if (req.query.building) {
       filter.$or = [{ building: req.query.building }, { tower: req.query.building }];
     }
-    const units = await Unit.find(filter)
+    const units = sortUnitsChronologically(await Unit.find(filter)
       .populate('customerId', 'name fundingType')
-      .select('project unitNumber phase building tower entity fundingType')
-      .sort({ project: 1, unitNumber: 1 })
-      .lean();
+      .select('project unitNumber phase building tower entity fundingType bookingDate')
+      .lean());
     res.json(units.map((u) => ({
       _id: u._id,
       project: u.project,
@@ -116,7 +118,7 @@ router.get('/', async (req, res) => {
     if (req.query.status) filter.overallStatus = req.query.status;
     if (req.query.importBatchId) filter.lastImportBatchId = req.query.importBatchId;
 
-    const units = await Unit.find(filter).populate('customerId').sort({ updatedAt: -1 }).lean();
+    const units = sortUnitsChronologically(await Unit.find(filter).populate('customerId').lean());
     const unitIds = units.map((u) => u._id);
     const steps = unitIds.length
       ? await PipelineStep.find(
@@ -183,14 +185,27 @@ router.patch('/:id', async (req, res) => {
   }
 });
 
+router.post('/:id/delete', async (req, res) => {
+  try {
+    if (!verifyAllocationPassword(req.body?.password)) {
+      return res.status(403).json({ error: 'Invalid admin password' });
+    }
+    res.json(await deleteSingleUnit(req.params.id));
+  } catch (err) {
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
 router.delete('/:id', async (req, res) => {
   try {
-    const unit = await Unit.findByIdAndDelete(req.params.id);
-    if (!unit) return res.status(404).json({ error: 'Unit not found' });
-    await PipelineStep.deleteMany({ unitId: unit._id });
-    res.json({ ok: true });
+    if (!verifyAllocationPassword(req.body?.password)) {
+      return res.status(403).json({ error: 'Invalid admin password required in body' });
+    }
+    res.json(await deleteSingleUnit(req.params.id));
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
   }
 });
 
