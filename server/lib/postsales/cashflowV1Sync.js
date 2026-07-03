@@ -112,15 +112,15 @@ export async function syncSoldUnitsFromCashflowV1(db, { project, dryRun = false 
 
       if (unit) {
         const patch = {
-          building: row.building || unit.building,
-          phase: row.phase || unit.phase,
-          tower: row.tower || unit.tower,
           v1ProjectId: row.v1ProjectId,
           v1UnitKey: row.v1UnitKey,
-          totalCost: row.totalCost || unit.totalCost,
-          bookingAmount: row.bookingAmount || unit.bookingAmount,
-          bookingDate: row.bookingDate || unit.bookingDate,
         };
+        if (row.building && !unit.building) patch.building = row.building;
+        if (row.phase && !unit.phase) patch.phase = row.phase;
+        if (row.tower && !unit.tower) patch.tower = row.tower;
+        if (row.bookingDate && !unit.bookingDate) patch.bookingDate = row.bookingDate;
+        if (row.totalCost) patch.totalCost = row.totalCost;
+        if (row.bookingAmount) patch.bookingAmount = row.bookingAmount;
         if (dryRun) {
           report.preview.push({ action: 'update', unitNumber: row.unitNumber, project: row.project });
           report.updated += 1;

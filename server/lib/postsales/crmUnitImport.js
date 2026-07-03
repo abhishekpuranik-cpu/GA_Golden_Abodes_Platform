@@ -68,7 +68,7 @@ function inferPaymentPlan(raw) {
 }
 
 function inferOverallStatus(raw) {
-  const s = String(raw || 'active').toLowerCase();
+  const s = String(raw || '').toLowerCase();
   if (s.includes('cancel')) return 'cancelled';
   if (s.includes('hold')) return 'on_hold';
   if (s.includes('possession')) return 'possession_given';
@@ -100,7 +100,8 @@ export function normalizeCrmRow(raw) {
   const salesExecutive = norm(pick(raw, ['salesExecutive', 'Sales Executive', 'Sales Exec']));
   const crmExecutive = norm(pick(raw, ['crmExecutive', 'CRM Executive', 'CRM Exec']));
   const paymentPlan = inferPaymentPlan(pick(raw, ['paymentPlan', 'Payment Plan', 'Pay Plan']));
-  const overallStatus = inferOverallStatus(pick(raw, ['status', 'Status', 'Unit Status']));
+  const rawStatus = pick(raw, ['status', 'Status', 'Unit Status']);
+  const overallStatus = rawStatus ? inferOverallStatus(rawStatus) : undefined;
   const crmBookingId = norm(pick(raw, ['crmBookingId', 'Booking ID', 'bookingId', 'CRM ID']));
 
   return {
@@ -182,6 +183,48 @@ function validateRow(row, catalog, scope) {
   return null;
 }
 
+/** Demand rows edited in-app — only refresh payment figures from CRM, not structure/dates. */
+const APP_LOCKED_DEMAND_SOURCES = new Set(['manual', 'payment']);
+
+function buildExistingCustomerPatch(customer, row) {
+  const patch = {};
+  if (row.customerName && !customer?.name) patch.name = row.customerName;
+  if (row.phone && !customer?.phone) patch.phone = row.phone;
+  if (row.email && !customer?.email) patch.email = row.email;
+  if (row.pan && !customer?.pan) patch.pan = row.pan;
+  if (row.fundingType && !customer?.fundingType) patch.fundingType = row.fundingType;
+  return patch;
+}
+
+/** Master fields on re-import — never touch pipeline step, comments, or filled-in app data. */
+function buildExistingUnitPatch(existing, row, batchId) {
+  const patch = {
+    crmUnitKey: row.crmUnitKey,
+    v1UnitKey: row.v1UnitKey,
+    lastImportBatchId: batchId,
+  };
+  if (row.crmBookingId && !existing.crmBookingId) patch.crmBookingId = row.crmBookingId;
+  if (row.phase && !existing.phase) patch.phase = row.phase;
+  if (row.building && !existing.building) {
+    patch.building = row.building;
+    patch.tower = row.building;
+  }
+  if (row.bookingDate && !existing.bookingDate) patch.bookingDate = row.bookingDate;
+  if (row.registrationDate && !existing.registrationDate) patch.registrationDate = row.registrationDate;
+  if (row.totalCost) patch.totalCost = row.totalCost;
+  if (row.bookingAmount) patch.bookingAmount = row.bookingAmount;
+  if (row.saleableArea && !existing.saleableArea) patch.saleableArea = row.saleableArea;
+  if (row.paymentPlan && !existing.paymentPlan) patch.paymentPlan = row.paymentPlan;
+  if (row.salesExecutive && !existing.salesExecutive) patch.salesExecutive = row.salesExecutive;
+  if (row.crmExecutive && !existing.crmExecutive) {
+    patch.crmExecutive = row.crmExecutive;
+    patch.cxExecutive = row.crmExecutive;
+    patch.backendExecutive = row.crmExecutive;
+  }
+  if (row.overallStatus) patch.overallStatus = row.overallStatus;
+  return patch;
+}
+
 async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'upload' } = {}) {
   const report = { created: 0, updated: 0 };
   const ops = [];
@@ -203,6 +246,31 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
 
     const agreementDue = num(m.dueAmount);
     const crmTarget = m.targetDate || m.dueDate;
+
+    if (existing?._id && APP_LOCKED_DEMAND_SOURCES.has(existing.source)) {
+      const paymentStatus = paymentStatusFromAmounts(agreementDue || existing.totalAmount, m.receivedAmount);
+      const pendingAmount = m.pendingAmount ?? Math.max(0, (existing.totalAmount || agreementDue) - num(m.receivedAmount));
+      const paidSame = num(existing.paidAmount) === num(m.receivedAmount);
+      const pendingSame = num(existing.pendingAmount) === num(pendingAmount);
+      const statusSame = existing.paymentStatus === paymentStatus;
+      if (paidSame && pendingSame && statusSame) continue;
+      ops.push({
+        updateOne: {
+          filter: { _id: existing._id },
+          update: {
+            $set: {
+              paidAmount: num(m.receivedAmount),
+              pendingAmount,
+              paymentStatus,
+              ...(m.receivedAmount > 0 && !existing.paidDate ? { paidDate: new Date() } : {}),
+            },
+          },
+        },
+      });
+      report.updated += 1;
+      continue;
+    }
+
     const payload = {
       entity: unit.entity,
       milestoneName,
@@ -214,10 +282,10 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
       pendingAmount: m.pendingAmount,
       paymentStatus: paymentStatusFromAmounts(agreementDue, m.receivedAmount),
       issuedDate: existing?.issuedDate || new Date(),
-      source,
+      source: existing?.source || source,
     };
 
-    if (existing?.targetDate && ['milestone', 'payment', 'manual'].includes(existing.source)) {
+    if (existing?.targetDate && ['manual', 'payment'].includes(existing.source)) {
       payload.targetDate = existing.targetDate;
       payload.dueDate = existing.dueDate || existing.targetDate;
     } else {
@@ -238,6 +306,12 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
     }
 
     if (existing?._id) {
+      if (existing.receiptNumber) payload.receiptNumber = existing.receiptNumber;
+      if (existing.sentMode) payload.sentMode = existing.sentMode;
+      if (existing.driveLink) payload.driveLink = existing.driveLink;
+      if (existing.architectCertLink) payload.architectCertLink = existing.architectCertLink;
+      if (existing.clpLetterTaskAt) payload.clpLetterTaskAt = existing.clpLetterTaskAt;
+      if (existing.actualDate) payload.actualDate = existing.actualDate;
       ops.push({ updateOne: { filter: { _id: existing._id }, update: { $set: payload } } });
       report.updated += 1;
     } else {
@@ -340,22 +414,15 @@ function masterChanges(existing, row, customer) {
     if (String(from ?? '') !== String(to ?? '')) changes.push({ field, from: from ?? '—', to: to ?? '—' });
   };
 
-  add('customerName', customer?.name, row.customerName);
-  add('bookingDate', existing.bookingDate?.toISOString?.().slice(0, 10), row.bookingDate?.toISOString?.().slice(0, 10));
-  add('registrationDate', existing.registrationDate?.toISOString?.().slice(0, 10), row.registrationDate?.toISOString?.().slice(0, 10));
-  add('totalCost', existing.totalCost, row.totalCost || existing.totalCost);
-  add('bookingAmount', existing.bookingAmount, row.bookingAmount || existing.bookingAmount);
-  add('saleableArea', existing.saleableArea, row.saleableArea || existing.saleableArea);
-  add('phase', existing.phase, row.phase || existing.phase);
-  add('building', existing.building || existing.tower, row.building || existing.building);
-  add('overallStatus', existing.overallStatus, row.overallStatus);
-  if (row.phone) add('phone', customer?.phone, row.phone);
-  if (row.email) add('email', customer?.email, row.email);
-  if (row.pan) add('pan', customer?.pan, row.pan);
-  if (row.fundingType) add('fundingType', customer?.fundingType, row.fundingType);
-  if (row.paymentPlan) add('paymentPlan', existing.paymentPlan, row.paymentPlan);
-  if (row.salesExecutive) add('salesExecutive', existing.salesExecutive, row.salesExecutive);
-  if (row.crmExecutive && !existing.crmExecutive) add('crmExecutive', existing.crmExecutive, row.crmExecutive);
+  const unitPatch = buildExistingUnitPatch(existing, row, 'preview');
+  const customerPatch = buildExistingCustomerPatch(customer, row);
+  for (const [field, to] of Object.entries(unitPatch)) {
+    if (field === 'lastImportBatchId' || field === 'crmUnitKey' || field === 'v1UnitKey') continue;
+    add(field, existing[field], to);
+  }
+  for (const [field, to] of Object.entries(customerPatch)) {
+    add(field, customer?.[field], to);
+  }
 
   return changes.filter((c) => c.from !== c.to);
 }
@@ -505,7 +572,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
             crmExecutive: row.crmExecutive || undefined,
             cxExecutive: row.crmExecutive || undefined,
             backendExecutive: row.crmExecutive || undefined,
-            overallStatus: row.overallStatus,
+            overallStatus: row.overallStatus || 'active',
             currentStepNumber: startAtStep,
             crmUnitKey: row.crmUnitKey,
             v1UnitKey: row.v1UnitKey,
@@ -532,7 +599,6 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
 
       const customer = existing.customerId;
       const changes = masterChanges(existing, row, customer);
-      const targetStep = existing.currentStepNumber || 1;
       const needsUpdate = changes.length > 0 || demandCount > 0;
 
       if (!needsUpdate) {
@@ -570,30 +636,11 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
       });
 
       if (!dryRun) {
-        await Customer.findByIdAndUpdate(customer._id, {
-          name: row.customerName || customer.name,
-          ...(row.phone ? { phone: row.phone } : {}),
-          ...(row.email ? { email: row.email } : {}),
-          ...(row.pan ? { pan: row.pan } : {}),
-          ...(row.fundingType ? { fundingType: row.fundingType } : {}),
-        });
-        await Unit.findByIdAndUpdate(existing._id, {
-          crmUnitKey: row.crmUnitKey,
-          v1UnitKey: row.v1UnitKey,
-          lastImportBatchId: batchId,
-          overallStatus: row.overallStatus,
-          ...(row.crmBookingId ? { crmBookingId: row.crmBookingId } : {}),
-          ...(row.phase ? { phase: row.phase } : {}),
-          ...(row.building ? { building: row.building, tower: row.building } : {}),
-          ...(row.bookingDate ? { bookingDate: row.bookingDate } : {}),
-          ...(row.registrationDate ? { registrationDate: row.registrationDate } : {}),
-          ...(row.totalCost ? { totalCost: row.totalCost } : {}),
-          ...(row.bookingAmount ? { bookingAmount: row.bookingAmount } : {}),
-          ...(row.saleableArea ? { saleableArea: row.saleableArea } : {}),
-          ...(row.paymentPlan ? { paymentPlan: row.paymentPlan } : {}),
-          ...(row.salesExecutive ? { salesExecutive: row.salesExecutive } : {}),
-          ...(row.crmExecutive && !existing.crmExecutive ? { crmExecutive: row.crmExecutive, cxExecutive: row.crmExecutive, backendExecutive: row.crmExecutive } : {}),
-        });
+        const customerPatch = buildExistingCustomerPatch(customer, row);
+        if (Object.keys(customerPatch).length) {
+          await Customer.findByIdAndUpdate(customer._id, customerPatch);
+        }
+        await Unit.findByIdAndUpdate(existing._id, buildExistingUnitPatch(existing, row, batchId));
         const dr = await upsertUnitDemands(existing, milestones, caches.demandByKey, { source: 'upload' });
         report.summary.demandsUpdated += dr.updated;
         report.summary.demandsCreated += dr.created;
@@ -696,7 +743,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
             crmExecutive: row.crmExecutive || undefined,
             cxExecutive: row.crmExecutive || undefined,
             backendExecutive: row.crmExecutive || undefined,
-            overallStatus: row.overallStatus,
+            overallStatus: row.overallStatus || 'active',
             currentStepNumber: 1,
             crmUnitKey: row.crmUnitKey,
             v1UnitKey: row.v1UnitKey,
@@ -724,6 +771,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
           unitNumber: row.unitNumber,
           customerName: row.customerName,
           currentStep: existing.currentStepNumber,
+          preservedPipeline: true,
         });
         continue;
       }
@@ -739,34 +787,15 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
         customerName: row.customerName,
         currentStep: existing.currentStepNumber,
         changes,
+        preservedPipeline: true,
       });
 
       if (!dryRun) {
-        await Customer.findByIdAndUpdate(customer._id, {
-          name: row.customerName || customer.name,
-          ...(row.phone ? { phone: row.phone } : {}),
-          ...(row.email ? { email: row.email } : {}),
-          ...(row.pan ? { pan: row.pan } : {}),
-          ...(row.fundingType ? { fundingType: row.fundingType } : {}),
-        });
-        const unitPatch = {
-          crmUnitKey: row.crmUnitKey,
-          v1UnitKey: row.v1UnitKey,
-          lastImportBatchId: batchId,
-          overallStatus: row.overallStatus,
-          ...(row.crmBookingId ? { crmBookingId: row.crmBookingId } : {}),
-          ...(row.phase ? { phase: row.phase } : {}),
-          ...(row.building ? { building: row.building, tower: row.building } : {}),
-          ...(row.bookingDate ? { bookingDate: row.bookingDate } : {}),
-          ...(row.registrationDate ? { registrationDate: row.registrationDate } : {}),
-          ...(row.totalCost ? { totalCost: row.totalCost } : {}),
-          ...(row.bookingAmount ? { bookingAmount: row.bookingAmount } : {}),
-          ...(row.saleableArea ? { saleableArea: row.saleableArea } : {}),
-          ...(row.paymentPlan ? { paymentPlan: row.paymentPlan } : {}),
-          ...(row.salesExecutive ? { salesExecutive: row.salesExecutive } : {}),
-          ...(row.crmExecutive && !existing.crmExecutive ? { crmExecutive: row.crmExecutive, cxExecutive: row.crmExecutive, backendExecutive: row.crmExecutive } : {}),
-        };
-        await Unit.findByIdAndUpdate(existing._id, unitPatch);
+        const customerPatch = buildExistingCustomerPatch(customer, row);
+        if (Object.keys(customerPatch).length) {
+          await Customer.findByIdAndUpdate(customer._id, customerPatch);
+        }
+        await Unit.findByIdAndUpdate(existing._id, buildExistingUnitPatch(existing, row, batchId));
       }
     } catch (e) {
       report.summary.errors += 1;
