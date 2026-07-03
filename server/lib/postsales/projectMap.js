@@ -1,4 +1,6 @@
 /** Map Cashflow V1 project ids / names → Post Sales project + entity. */
+import { normalizeUnitNumber } from './unitNumberNormalize.js';
+
 export const POST_SALES_PROJECTS = [
   { name: 'Golden HQ', entity: 'GAPL', location: 'PCMC, Pune' },
   { name: 'NKG Wakad', entity: 'PAD', location: 'Wakad, Pune' },
@@ -75,7 +77,8 @@ export function normUnitKey(unitNo) {
     .replace(/\s+/g, '');
 }
 
-export function parseUnitNumber(unitNo, building) {
+export function parseUnitNumber(unitNo, building, project) {
+  if (project) return normalizeUnitNumber(project, unitNo, building);
   const raw = String(unitNo || '').trim();
   const b = String(building || '').trim();
   if (!raw) return b || '—';

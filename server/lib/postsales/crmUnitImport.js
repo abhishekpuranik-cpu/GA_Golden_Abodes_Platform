@@ -16,6 +16,7 @@ import {
 } from './collectionReportParse.js';
 import { deriveStepDueDates } from './pipelineDueFromCrm.js';
 import { isGstDemand } from './demandAmounts.js';
+import { normalizeUnitNumber } from './unitNumberNormalize.js';
 
 function num(v) {
   const n = Number(v);
@@ -104,11 +105,13 @@ export function normalizeCrmRow(raw) {
   const overallStatus = rawStatus ? inferOverallStatus(rawStatus) : undefined;
   const crmBookingId = norm(pick(raw, ['crmBookingId', 'Booking ID', 'bookingId', 'CRM ID']));
 
+  const normalizedUnit = normalizeUnitNumber(project, unitNumber, building);
+
   return {
     project,
     phase,
     building,
-    unitNumber,
+    unitNumber: normalizedUnit,
     customerName,
     bookingDate,
     registrationDate,
@@ -124,8 +127,8 @@ export function normalizeCrmRow(raw) {
     paymentPlan,
     overallStatus,
     crmBookingId,
-    crmUnitKey: buildCrmUnitKey({ project, phase, building, unitNumber }),
-    v1UnitKey: normUnitKey(unitNumber),
+    crmUnitKey: buildCrmUnitKey({ project, phase, building, unitNumber: normalizedUnit }),
+    v1UnitKey: normUnitKey(normalizedUnit),
   };
 }
 
@@ -350,6 +353,18 @@ function buildUnitLookup(units) {
 export function resolveExistingUnit(row, lookup) {
   let unit = lookup.byCrmKey.get(row.crmUnitKey);
   if (unit) return unit;
+
+  const altKey = buildCrmUnitKey({
+    project: row.project,
+    phase: row.phase,
+    building: row.building,
+    unitNumber: normalizeUnitNumber(row.project, row.unitNumber, row.building),
+  });
+  if (altKey !== row.crmUnitKey) {
+    unit = lookup.byCrmKey.get(altKey);
+    if (unit) return unit;
+  }
+
   if (row.v1UnitKey && row.project) {
     unit = lookup.byV1Key.get(`${slug(row.project)}|${slug(row.v1UnitKey)}`);
     if (unit) return unit;
@@ -359,17 +374,22 @@ export function resolveExistingUnit(row, lookup) {
     if (unit) return unit;
   }
   const candidates = lookup.byProjectUnit.get(`${slug(row.project)}|${slug(row.unitNumber)}`) || [];
-  if (!candidates.length) return null;
-  if (candidates.length === 1) return candidates[0];
+  const canonical = normalizeUnitNumber(row.project, row.unitNumber, row.building);
+  const altCandidates = canonical !== row.unitNumber
+    ? (lookup.byProjectUnit.get(`${slug(row.project)}|${slug(canonical)}`) || [])
+    : [];
+  const merged = [...candidates, ...altCandidates.filter((u) => !candidates.some((c) => String(c._id) === String(u._id)))];
+  if (!merged.length) return null;
+  if (merged.length === 1) return merged[0];
   if (row.phase || row.building) {
-    const match = candidates.find((u) => {
+    const match = merged.find((u) => {
       if (row.phase && slug(u.phase) !== slug(row.phase)) return false;
       if (row.building && slug(u.building || u.tower) !== slug(row.building)) return false;
       return true;
     });
     if (match) return match;
   }
-  return candidates[0];
+  return merged[0];
 }
 
 function registerUnitInLookup(unit, lookup) {

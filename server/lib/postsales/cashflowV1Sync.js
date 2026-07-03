@@ -43,7 +43,7 @@ export function extractV1SoldInventory(envelope) {
         v1UnitKey: normUnitKey(u.unitNo),
         project: mapped.name,
         entity: mapped.entity,
-        unitNumber: parseUnitNumber(u.unitNo, building),
+        unitNumber: parseUnitNumber(u.unitNo, building, mapped.name),
         building: building || undefined,
         phase: phase || undefined,
         tower: building || undefined,

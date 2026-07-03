@@ -9,6 +9,7 @@ import { purgeAndDisableAutoSync } from '../../lib/postsales/purgeUnitData.js';
 import { deleteSingleUnit } from '../../lib/postsales/deleteUnit.js';
 import { verifyAllocationPassword } from '../../lib/postsales/allocationAdmin.js';
 import { sortUnitsChronologically } from '../../lib/postsales/unitSort.js';
+import { cleanupPrefixedUnitNumbers } from '../../lib/postsales/unitNumberCleanup.js';
 import {
   buildTemplateWorkbook,
   listImportBatches,
@@ -75,6 +76,17 @@ router.post('/crm-upload', upload.single('file'), async (req, res) => {
     res.json(report);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/cleanup-unit-numbers', async (req, res) => {
+  try {
+    if (!verifyAllocationPassword(req.body?.password)) {
+      return res.status(403).json({ error: 'Invalid admin password' });
+    }
+    res.json(await cleanupPrefixedUnitNumbers());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

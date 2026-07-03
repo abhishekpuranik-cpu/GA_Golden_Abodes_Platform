@@ -14,6 +14,9 @@ export async function ensureMongo() {
       import('./postsales/clpLetterTaskIndexes.js')
         .then(({ repairClpLetterTaskIndexes }) => repairClpLetterTaskIndexes())
         .catch((e) => console.warn('[clp-letter-task-indexes]', e?.message || e));
+      import('./postsales/unitNumberCleanup.js')
+        .then(({ maybeCleanupPrefixedUnitNumbersOnStart }) => maybeCleanupPrefixedUnitNumbersOnStart())
+        .catch((e) => console.warn('[unit-number-cleanup]', e?.message || e));
       if (V1_AUTO_RESTORE_BEFORE) {
         import('./v1CashflowAutoRestore.js')
           .then(({ runV1AutoRestoreOnBoot, persistParadiseWorkbookMerge }) =>
