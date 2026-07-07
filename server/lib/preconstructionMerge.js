@@ -1,7 +1,7 @@
 /** PreConstruction app_states merge — union projects by id; tombstones prevent deleted projects returning. */
 import { migrateAssigneeNamesState } from './preconAssigneeMigrate.js';
 import { repairAllTaskComments } from './preconCommentRepair.js';
-import { mergeActivityLogs, mergeProjectDeep } from './preconProjectMerge.js';
+import { mergeActivityLogs, mergeProjectDeep, applyTaskTombstonesToProject } from './preconProjectMerge.js';
 
 function isPlainObject(v) {
   return v != null && typeof v === 'object' && !Array.isArray(v);
@@ -39,6 +39,9 @@ export function repairPreconstructionForRead(data) {
           projects: applyProjectTombstones(data.projects, removedIds),
         },
   );
+  for (const proj of repaired.projects || []) {
+    applyTaskTombstonesToProject(proj);
+  }
   repairAllTaskComments(repaired);
   return repaired;
 }
