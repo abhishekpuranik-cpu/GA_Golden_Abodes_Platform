@@ -65,7 +65,10 @@ export default function AccessPage() {
 
   useEffect(() => {
     void checkBootstrap();
-  }, []);
+    authApi.session().then((s) => {
+      if (s?.authenticated) navigate(next, { replace: true });
+    }).catch(() => {});
+  }, [navigate, next]);
 
   return (
     <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0f172a', color: '#e2e8f0', padding: 20 }}>

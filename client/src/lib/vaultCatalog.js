@@ -10,6 +10,16 @@ export const VAULT_PLATFORM_APPS = [
     title: 'Post Sales Operations',
     description:
       '20-step post-booking pipeline — booking handoff, agreement, CLP demands, possession, CHS formation, and defects liability across all GA projects.',
+    featured: false
+  },
+  {
+    appId: APP_IDS.HIRING,
+    path: '/app/hiring',
+    badge: 'HR · React · Metaview',
+    badgeColor: '#B08D3E',
+    title: 'Hiring & Sourcing',
+    description:
+      'System of record for requisitions → Metaview sourcing → interview → offer. Linked from Resource Planner V2 Hiring tab; managed from this vault.',
     featured: true
   },
   {

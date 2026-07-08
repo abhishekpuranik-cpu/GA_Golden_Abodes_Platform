@@ -1,5 +1,6 @@
 import { ensureMongo } from './mongo.js';
 import { resolveSession, userHasApp, userHasPermission } from '../routes/auth.js';
+import { isDevAuthBypass, devBypassUser } from './devAuthBypass.js';
 
 /** RBAC app id may differ from Mongo app_states id (e.g. v3). */
 export const APP_ID_ALIASES = {
@@ -23,6 +24,7 @@ const ROUTE_APP_RULES = [
   { prefix: '/app/org-planner', appId: 'v3_project_acquisition' },
   { prefix: '/app/dm-governance', appId: 'dm_spv_governance' },
   { prefix: '/app/post-sales', appId: 'post_sales' },
+  { prefix: '/app/hiring', appId: 'hiring' },
   { prefix: '/preconstruction', appId: 'preconstruction' },
   { prefix: '/legacy/GA_Cashflow_V1.html', appId: 'v1_cashflow' },
   { prefix: '/legacy/GA_ResourcePlanner_V2.html', appId: 'v2_resource_planner' },
@@ -75,6 +77,9 @@ function resolveApiRule(pathname) {
   if (pathname === '/api/postsales' || pathname.startsWith('/api/postsales/')) {
     return { appId: 'post_sales' };
   }
+  if (pathname === '/api/hiring' || pathname.startsWith('/api/hiring/')) {
+    return { appId: 'hiring' };
+  }
   return null;
 }
 
@@ -107,6 +112,18 @@ export function createRbacMiddleware() {
     const rule = apiRule || routeRule;
 
     if (!rule) return next();
+
+    if (isDevAuthBypass()) {
+      req.authUser = devBypassUser();
+      if (rule.authOnly) return next();
+      if (rule.permission && !userHasPermission(req.authUser, rule.permission)) {
+        return deny(req, res);
+      }
+      if (rule.appId && !userHasApp(req.authUser, rule.appId)) {
+        return deny(req, res);
+      }
+      return next();
+    }
 
     const db = await ensureMongo();
     if (!db) {

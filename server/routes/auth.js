@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { Router } from 'express';
 import { ObjectId } from 'mongodb';
 import { withDb } from '../lib/mongo.js';
+import { isDevAuthBypass, devBypassUser } from '../lib/devAuthBypass.js';
 import {
   assignableProjectNames,
   computeBandwidthReport,
@@ -22,7 +23,7 @@ const DEFAULT_ROLE = {
   name: 'Viewer',
   description: 'Read-only vault access',
   permissions: [],
-  allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'dm_spv_governance'],
+  allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'dm_spv_governance', 'hiring'],
   allowedProjects: [],
   allowedTabs: []
 };
@@ -99,11 +100,26 @@ async function ensureDefaults(db) {
   // Keep existing deployments in sync when new vault apps ship.
   await roles.updateMany(
     { _id: { $in: ['admin', 'viewer'] } },
-    { $addToSet: { allowedApps: 'dm_spv_governance' } }
+    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'hiring'] } } }
+  );
+  await roles.updateOne(
+    { _id: 'hiring_manager' },
+    {
+      $setOnInsert: {
+        _id: 'hiring_manager',
+        name: 'Hiring Manager',
+        description: 'Full access to GA Hiring & Sourcing module',
+        permissions: [],
+        allowedApps: ['hiring'],
+        allowedProjects: [],
+        allowedTabs: []
+      }
+    },
+    { upsert: true }
   );
   await db.collection('auth_users').updateMany(
     { roleIds: 'admin' },
-    { $addToSet: { allowedApps: 'dm_spv_governance' } }
+    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'hiring'] } } }
   );
 }
 
@@ -174,7 +190,7 @@ authRouter.post(
       status: 'active',
       roleIds: ['admin'],
       permissions: [PERM_ADMIN],
-      allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'admin_security'],
+      allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_security'],
       allowedProjects: [],
       allowedTabs: [],
       passwordSalt: salt,
@@ -190,7 +206,7 @@ authRouter.post(
           name: 'Admin',
           description: 'Full access',
           permissions: [PERM_ADMIN],
-          allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'admin_security'],
+          allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_security'],
           allowedProjects: [],
           allowedTabs: []
         }
@@ -243,15 +259,17 @@ authRouter.post(
   })
 );
 
-authRouter.get(
-  '/session',
-  withDb(async (req, res, db) => {
+authRouter.get('/session', async (req, res) => {
+  if (isDevAuthBypass()) {
+    return res.json({ authenticated: true, user: devBypassUser(), devBypass: true });
+  }
+  return withDb(async (_req, res, db) => {
     await ensureDefaults(db);
     const sess = await resolveSession(db, req);
     if (!sess) return res.status(401).json({ authenticated: false });
     res.json({ authenticated: true, user: sess.user });
-  })
-);
+  })(req, res);
+});
 
 authRouter.get(
   '/admin/roles',

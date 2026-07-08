@@ -2942,8 +2942,27 @@ function renderHire(){
   var D=calcEngine();
   var hm=calcHireMetrics();
   var html='';
+
+  // System-of-record link: Hiring & Sourcing React app (vault /app/hiring)
+  var hiringAppHref='/app/hiring';
+  try{
+    if(window.top&&window.top.location&&window.top.location.origin){
+      hiringAppHref=window.top.location.origin+'/app/hiring';
+    }else if(window.location&&window.location.origin){
+      hiringAppHref=window.location.origin+'/app/hiring';
+    }
+  }catch(e){ /* cross-frame — keep relative */ }
+  html+='<div style="background:linear-gradient(135deg,#1B2A4A,#B08D3E);border-radius:14px;padding:18px 22px;color:#fff;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between">';
+  html+='<div style="flex:1;min-width:220px"><div style="font-size:11px;opacity:.9;text-transform:uppercase;letter-spacing:.06em;font-weight:700">Hiring &amp; Sourcing (platform)</div>';
+  html+='<div style="font-size:16px;font-weight:700;margin-top:4px">Metaview-powered pipeline is the system of record</div>';
+  html+='<div style="font-size:12px;opacity:.9;margin-top:6px;line-height:1.45">Use this V2 tab for lightweight HC tracking. Open the Hiring app from the App Vault to launch Metaview, sync candidates, interview, and offer.</div></div>';
+  html+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
+  html+='<a href="'+hiringAppHref+'" target="_top" style="display:inline-block;padding:10px 16px;border-radius:10px;background:#fff;color:#1B2A4A;font-weight:800;font-size:13px;text-decoration:none">Open Hiring app →</a>';
+  html+='<a href="'+hiringAppHref+'" target="_blank" rel="noopener" style="display:inline-block;padding:10px 16px;border-radius:10px;background:rgba(255,255,255,.15);color:#fff;font-weight:700;font-size:13px;text-decoration:none;border:1px solid rgba(255,255,255,.35)">New tab ↗</a>';
+  html+='</div></div>';
+
   html+='<div style="background:linear-gradient(135deg,#0A3266,#1558A0);border-radius:14px;padding:20px 24px;color:#fff;margin-bottom:18px;display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:space-between">';
-  html+='<div><div style="font-size:11px;opacity:.85;text-transform:uppercase;letter-spacing:.06em;font-weight:700">Hiring process health</div>';
+  html+='<div><div style="font-size:11px;opacity:.85;text-transform:uppercase;letter-spacing:.06em;font-weight:700">Hiring process health (local V2 tracker)</div>';
   html+='<div style="font-size:36px;font-weight:800">'+hm.health+'<span style="font-size:16px;opacity:.7">/100</span></div></div>';
   html+='<div style="display:flex;gap:20px;flex-wrap:wrap">';
   [{l:'Active reqs',v:hm.active},{l:'Joined',v:hm.joined},{l:'Avg days to fill',v:hm.avgFill!==null?hm.avgFill:'—'},{l:'Stale (>45d)',v:hm.stale,c:hm.stale>0?'#FCA5A5':'#fff'}].forEach(function(k){
@@ -2952,8 +2971,9 @@ function renderHire(){
   html+='</div></div>';
 
   html+='<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;align-items:center">';
-  html+='<button class="org-btn org-btn-primary" data-hire-add="1">+ New requisition</button>';
-  html+='<span style="font-size:11px;color:var(--muted)">Track each role through the hiring cycle — effectiveness updates automatically.</span>';
+  html+='<button class="org-btn org-btn-primary" data-hire-add="1">+ New local tracker</button>';
+  html+='<a href="'+hiringAppHref+'" target="_top" class="org-btn" style="text-decoration:none;display:inline-flex;align-items:center">+ New requisition in Hiring app</a>';
+  html+='<span style="font-size:11px;color:var(--muted)">Local tracker below is for V2 HC visibility only — candidates &amp; Metaview live in the Hiring app.</span>';
   html+='</div>';
 
   var gaps=D.hp.filter(function(h){return h.action==='Hire';});

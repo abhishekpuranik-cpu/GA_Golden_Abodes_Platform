@@ -4,7 +4,8 @@ export const APP_IDS = {
   V3_ORG_PLANNER: 'v3_org_planner',
   PRECONSTRUCTION: 'preconstruction',
   DM_SPV_GOVERNANCE: 'dm_spv_governance',
-  POST_SALES: 'post_sales'
+  POST_SALES: 'post_sales',
+  HIRING: 'hiring'
 };
 
 export const APP_LOCAL_STORAGE_KEYS = {

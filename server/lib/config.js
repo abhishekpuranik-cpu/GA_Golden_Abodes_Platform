@@ -66,6 +66,14 @@ export const V1_AUTO_RESTORE_PRIORITIZE_PROJECTS = (
   .map((s) => s.trim())
   .filter(Boolean);
 
+/** Local dev only: skip login (ignored when NODE_ENV=production). Set DEV_BYPASS_AUTH=1 in .env */
+export const DEV_BYPASS_AUTH = trimEnv('DEV_BYPASS_AUTH');
+
+/** Optional — legacy; Metaview sync uses METAVIEW_OAUTH_TOKEN + MCP directly. */
+export const ANTHROPIC_API_KEY = trimEnv('ANTHROPIC_API_KEY');
+export const METAVIEW_MCP_URL = trimEnv('METAVIEW_MCP_URL') || 'https://mcp.metaview.ai/mcp';
+export const METAVIEW_OAUTH_TOKEN = trimEnv('METAVIEW_OAUTH_TOKEN');
+
 /** Max string entries in one workspace PUT (planner localStorage keys). */
 export const WORKSPACE_MAX_KEYS = 250;
 /** Per-key value max length (chars) — keeps documents under MongoDB limits. */

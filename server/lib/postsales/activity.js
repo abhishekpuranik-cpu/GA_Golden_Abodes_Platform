@@ -1,7 +1,12 @@
 import { ensureMongo } from '../../lib/mongo.js';
 import { resolveSession } from '../../routes/auth.js';
+import { isDevAuthBypass, devBypassUser } from '../devAuthBypass.js';
 
 export async function attachPostSalesUser(req, _res, next) {
+  if (isDevAuthBypass()) {
+    req.psUser = devBypassUser();
+    return next();
+  }
   try {
     const db = await ensureMongo();
     const sess = await resolveSession(db, req);

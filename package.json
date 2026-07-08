@@ -19,7 +19,9 @@
     "build:render": "node scripts/build-preconstruction.mjs && vite build --config client/vite.config.js",
     "start": "node server/index.js",
     "seed:postsales": "node server/seeds/postsales.js",
-    "purge:postsales": "node server/scripts/purgePostSalesUnits.js"
+    "purge:postsales": "node server/scripts/purgePostSalesUnits.js",
+    "test:hiring-access": "node scripts/hiring-viewer-403-test.mjs",
+    "test:hiring-import": "node scripts/hiring-import-demo.mjs"
   },
   "dependencies": {
     "bson": "^6.10.0",

@@ -1,0 +1,11 @@
+Name,Email,Mobile,Current Company,Annual Salary,Expected CTC,Notice Period,Current Location,Total Experience
+Priya Sharma,priya.sharma@example.com,9876543210,ABC Realty,12 LPA,15 LPA,30 days,Mumbai,8 years
+Rahul Verma,rahul.verma@example.com,9876543210,XYZ Homes,10 LPA,13 LPA,60 days,Pune,6 years
+Amit Patel,amit.p@example.com,9123456780,BuildCo,invalid-ctc,14 LPA,Immediate,Ahmedabad,5 years
+Sneha Reddy,sneha.reddy@example.com,9988776655,Landmark,9 LPA,11 LPA,45 days,Hyderabad,4 years
+Vikram Singh,,9112233445,Metro Developers,11 LPA,14 LPA,1 month,Delhi,7 years
+Anita Desai,anita.desai@example.com,9001122334,Sunrise Estates,8 LPA,10 LPA,Serving Notice,Bangalore,3 years
+Karan Mehta,karan.mehta@example.com,9887766554,Golden Build,13 LPA,16 LPA,15 days,Chennai,9 years
+Divya Nair,divya.nair@example.com,9776655443,Coastal Projects,7 LPA,9 LPA,2 months,Kochi,2 years
+Rohan Kapoor,rohan.k@example.com,9665544332,Urban Spaces,14 LPA,17 LPA,30 days,Gurgaon,10 years
+Meera Joshi,meera.j@example.com,9554433221,Prime Realty,6 LPA,8 LPA,0,Mumbai,1 year

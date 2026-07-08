@@ -40,6 +40,12 @@ const PsTickets = lazy(() => import('./pages/postsales/Tickets.jsx'));
 const PsMilestones = lazy(() => import('./pages/postsales/Milestones.jsx'));
 const PsReports = lazy(() => import('./pages/postsales/Reports.jsx'));
 const PsInventorySetup = lazy(() => import('./pages/postsales/InventorySetup.jsx'));
+const HiringLayout = lazy(() => import('./pages/hiring/HiringLayout.jsx'));
+const HrRequisitionBoard = lazy(() => import('./pages/hiring/RequisitionBoard.jsx'));
+const HrRequisitionDetail = lazy(() => import('./pages/hiring/RequisitionDetail.jsx'));
+const HrCandidateProfile = lazy(() => import('./pages/hiring/CandidateProfile.jsx'));
+const HrInterviewCalendar = lazy(() => import('./pages/hiring/InterviewCalendar.jsx'));
+const HrDashboard = lazy(() => import('./pages/hiring/HiringDashboard.jsx'));
 
 function Fall() {
   return (
@@ -62,6 +68,12 @@ function PostSalesRedirect() {
   const location = useLocation();
   const tail = location.pathname.replace(/^\/post-sales/, '') || '';
   return <Navigate to={`/app/post-sales${tail}${location.search}${location.hash}`} replace />;
+}
+
+function HiringRedirect() {
+  const location = useLocation();
+  const tail = location.pathname.replace(/^\/hiring/, '') || '';
+  return <Navigate to={`/app/hiring${tail}${location.search}${location.hash}`} replace />;
 }
 
 export default function App() {
@@ -167,6 +179,21 @@ export default function App() {
           <Route path="reports" element={<PsReports />} />
         </Route>
         <Route path="/post-sales/*" element={<PostSalesRedirect />} />
+        <Route
+          path="/app/hiring"
+          element={
+            <RequireAuth appId={APP_IDS.HIRING}>
+              <HiringLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<HrRequisitionBoard />} />
+          <Route path="req/:id" element={<HrRequisitionDetail />} />
+          <Route path="req/:id/candidate/:cid" element={<HrCandidateProfile />} />
+          <Route path="interviews" element={<HrInterviewCalendar />} />
+          <Route path="dashboard" element={<HrDashboard />} />
+        </Route>
+        <Route path="/hiring/*" element={<HiringRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

@@ -37,3 +37,8 @@ services:
         sync: false
       - key: VITE_PRECONSTRUCTION_URL
         sync: false
+      # Hiring module — Metaview MCP (set in Render dashboard; do not commit tokens)
+      - key: METAVIEW_OAUTH_TOKEN
+        sync: false
+      - key: METAVIEW_MCP_URL
+        value: https://mcp.metaview.ai/mcp

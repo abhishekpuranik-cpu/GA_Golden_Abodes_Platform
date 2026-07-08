@@ -1,6 +1,7 @@
 /**
  * Golden Abodes Platform — API gateway, MongoDB persistence, legacy static (API_Tool).
  */
+import './lib/loadEnv.js';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
@@ -16,8 +17,13 @@ import { appStatesRouter } from './routes/appStates.js';
 import { authRouter } from './routes/auth.js';
 import { dmGovernanceRouter } from './routes/dmGovernance.js';
 import postSalesRouter from './routes/postsales/index.js';
+import hiringRouter from './routes/hiring/index.js';
 import { startSlaMonitor } from './jobs/slaMonitor.js';
+import { startHiringMetaviewRetry } from './jobs/hiringMetaviewRetry.js';
 import { seedPostSalesIfEmpty } from './lib/postsales/seedIfEmpty.js';
+import { seedHiringIfEmpty } from './lib/hiring/seedIfEmpty.js';
+import { ensureHiringIndexes } from './lib/hiring/ensureIndexes.js';
+import { isDevAuthBypass } from './lib/devAuthBypass.js';
 import { maybePurgePostSalesOnStart } from './lib/postsales/purgeUnitData.js';
 import { createRbacMiddleware } from './lib/rbac.js';
 
@@ -123,6 +129,7 @@ app.use('/api', preconstructionRouter);
 app.use('/api', appStatesRouter);
 app.use('/api/dm-governance', dmGovernanceRouter);
 app.use('/api/postsales', postSalesRouter);
+app.use('/api/hiring', hiringRouter);
 app.use('/api/auth', authRouter);
 
 const clientDist = path.join(rootDir, 'client', 'dist');
@@ -151,13 +158,19 @@ app.use((req, res) => {
 });
 
 startSlaMonitor();
+startHiringMetaviewRetry();
 
 async function boot() {
   await maybePurgePostSalesOnStart();
   if (process.env.NODE_ENV !== 'production') await seedPostSalesIfEmpty();
+  await seedHiringIfEmpty();
+  await ensureHiringIndexes();
 
   const server = app.listen(PORT, () => {
     console.log(`GA Golden Abodes Platform v${VERSION} — http://127.0.0.1:${PORT}`);
+    if (isDevAuthBypass()) {
+      console.warn('[DEV] Auth bypass ON — login not required (DEV_BYPASS_AUTH). Disabled in production.');
+    }
   });
 
   function shutdown(signal) {
