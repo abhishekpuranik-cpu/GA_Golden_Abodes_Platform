@@ -91,6 +91,21 @@ router.get('/', async (req, res) => {
     const totalHired = funnelByReq.reduce((s, r) => s + r.hired, 0);
     const activeCandidates = candidates.filter((c) => c.currentStageNumber >= 1 && c.currentStageNumber <= 7).length;
 
+    const shortlistedEver = await HiringCandidate.countDocuments({
+      ...candFilter,
+      $or: [
+        { currentStageNumber: { $gte: 3 } },
+        { 'stageHistory.stage': { $gte: 3 } }
+      ]
+    });
+    const hiredFromShortlist = await HiringCandidate.countDocuments({
+      ...candFilter,
+      currentStageNumber: 7
+    });
+    const shortlistedToHiredRate = shortlistedEver
+      ? Math.round((hiredFromShortlist / shortlistedEver) * 1000) / 10
+      : 0;
+
     const upcomingInterviews = await HiringInterview.countDocuments({
       ...notDeletedFilter(),
       scheduledAt: { $gte: new Date() },
@@ -122,7 +137,10 @@ router.get('/', async (req, res) => {
         activeCandidates,
         upcomingInterviews,
         offersAccepted: offerStats.accepted,
-        offerConversionRate: offerStats.conversionRate
+        offerConversionRate: offerStats.conversionRate,
+        shortlistedEver,
+        hiredFromShortlist,
+        shortlistedToHiredRate
       },
       funnelByRequisition: funnelByReq,
       timeInStage,

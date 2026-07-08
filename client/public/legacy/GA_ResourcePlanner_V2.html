@@ -1048,6 +1048,9 @@ function showTab(t){
     }
   }catch(e){}
   renderAll();
+  if(t==='kpi'){
+    fetchHiringKpisLive(false).then(function(){ if(curTab==='kpi') renderTab('kpi'); });
+  }
 }
 function setScen(s){
   scen=s; _D=null;
@@ -1257,6 +1260,10 @@ document.addEventListener('click',function(e){
   if(hd){ deleteHireReq(hd.dataset.hireDel); return; }
   if(a.kpiset!==undefined)     { kpiSetSel=a.kpiset; kpiSlotSel=0; renderTab('kpi'); return; }
   if(a.kpislot!==undefined)    { kpiSlotSel=+a.kpislot; renderTab('kpi'); return; }
+  var hKpiSync=findEl('hiringKpiSync');
+  if(hKpiSync){ syncHiringKpisToHrScorecard(); return; }
+  var hKpiRef=findEl('hiringKpiRefresh');
+  if(hKpiRef){ fetchHiringKpisLive(true).then(function(){ renderTab('kpi'); }); return; }
   if(a.kpimode!==undefined)    { if(a.kpimode==='edit'&&!ADMIN){ alert('Editing KPIs is restricted \u2014 admin login required ('+ADMIN_NAME+').'); return; } kpiMode=a.kpimode; renderTab('kpi'); return; }
   if(a.kpiadd!==undefined)     { kpiAddDef(kpiSetSel); return; }
   if(a.kpidel!==undefined)     { kpiDelDef(kpiSetSel, +a.kpidel); return; }
@@ -2307,15 +2314,16 @@ var KPI_SETS={
   {c:'Payroll & Statutory Compliance',n:'Payroll accuracy \u2014 salary errors',f:'M',w:10,t:'Zero errors per run',r:['eq',0,1,2],h:'errors'},
   {c:'Payroll & Statutory Compliance',n:'Payroll timeliness \u2014 salary credit',f:'M',w:8,t:'By the 7th',r:['le',5,7,10],h:'day of month'},
   {c:'Payroll & Statutory Compliance',n:'PF / ESIC / PT filing timeliness',f:'M',w:12,t:'100% on-time',r:['ge',100,95,90],h:'%'},
-  {c:'Recruitment & Onboarding',n:'Time-to-fill open positions',f:'M',w:10,t:'\u2264 45 days',r:['le',30,45,60],h:'avg days'},
-  {c:'Recruitment & Onboarding',n:'Offer-to-joining conversion',f:'Q',w:5,t:'\u2265 85%',r:['ge',95,85,70],h:'%'},
-  {c:'Recruitment & Onboarding',n:'Onboarding completion within 7 days',f:'M',w:10,t:'100% of joiners',r:['ge',100,90,75],h:'%'},
+  {c:'Recruitment & Onboarding',n:'Time-to-fill open positions',f:'M',w:8,t:'\u2264 45 days',r:['le',30,45,60],h:'avg days'},
+  {c:'Recruitment & Onboarding',n:'Shortlisted to hired conversion',f:'M',w:8,t:'\u2265 40%',r:['ge',55,40,25],h:'%'},
+  {c:'Recruitment & Onboarding',n:'Offer-to-joining conversion',f:'Q',w:3,t:'\u2265 85%',r:['ge',95,85,70],h:'%'},
+  {c:'Recruitment & Onboarding',n:'Onboarding completion within 7 days',f:'M',w:8,t:'100% of joiners',r:['ge',100,90,75],h:'%'},
   {c:'Attendance, Records & HR MIS',n:'Attendance & payroll inputs lock',f:'M',w:7,t:'By the 26th',r:['le',24,26,28],h:'day of month'},
   {c:'Attendance, Records & HR MIS',n:'HR MIS delivery to MP/COO',f:'M',w:7,t:'By the 7th',r:['le',5,7,10],h:'day of month'},
   {c:'Attendance, Records & HR MIS',n:'Personnel file completeness',f:'Q',w:6,t:'100% per spot-check',r:['ge',100,95,85],h:'%'},
   {c:'Engagement & Discipline',n:'Regrettable attrition',f:'Q',w:5,t:'Zero per quarter',r:['eq',0,1,2],h:'exits'},
   {c:'Engagement & Discipline',n:'Query / grievance resolution TAT',f:'M',w:6,t:'\u2265 90% in 3 days',r:['ge',95,90,80],h:'%'},
-  {c:'Engagement & Discipline',n:'Training calendar execution',f:'Q',w:4,t:'\u2265 90% delivered',r:['ge',100,90,75],h:'%'},
+  {c:'Engagement & Discipline',n:'Training calendar execution',f:'Q',w:2,t:'\u2265 90% delivered',r:['ge',100,90,75],h:'%'},
   {c:'Admin Oversight',n:'Admin request closure within SLA',f:'M',w:6,t:'\u2265 90% in SLA',r:['ge',95,90,80],h:'%'},
   {c:'Admin Oversight',n:'Admin & office cost vs budget',f:'M',w:4,t:'Within \u00b15%',r:['abs',3,5,10],h:'abs %'}]},
  'FD':{dept:'HR & Admin',title:'Front Desk Executive (A1)',link:'ADM-02',defSlots:['Front Desk Executive'],src:'GA_HR_Admin_KPI.xlsx',kpis:[
@@ -2436,6 +2444,88 @@ function exportKpiXlsx(){
   XLSX.utils.book_append_sheet(wbx,XLSX.utils.aoa_to_sheet(rows),'KPI Scores');
   XLSX.writeFile(wbx,'GA_KPI_'+kpiSetSel+'_'+kpiSlotName(kpiSetSel,slot).replace(/[^A-Za-z0-9]+/g,'_')+'.xlsx');
 }
+
+// Live hiring KPIs from GA Hiring app (Mongo) — shown on Team KPIs tab
+var _hiringKpiLive=null;
+var _hiringKpiLiveTs=0;
+var _hiringKpiLiveErr='';
+
+function kpiCurrentMonthIdx(){
+  var mon=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var d=new Date();
+  var lab=mon[d.getMonth()]+'-'+String(d.getFullYear()).slice(-2);
+  var i=KPI_MONTHS.indexOf(lab);
+  return i>=0?i:KPI_MONTHS.length-1;
+}
+
+function fetchHiringKpisLive(force){
+  if(!force&&_hiringKpiLive&&Date.now()-_hiringKpiLiveTs<60000) return Promise.resolve(_hiringKpiLive);
+  return fetch('/api/hiring/dashboard',{credentials:'include'}).then(function(r){
+    if(!r.ok) throw new Error('Hiring KPIs unavailable ('+r.status+')');
+    return r.json();
+  }).then(function(d){
+    _hiringKpiLive=d; _hiringKpiLiveTs=Date.now(); _hiringKpiLiveErr='';
+    return d;
+  }).catch(function(err){
+    _hiringKpiLive=null; _hiringKpiLiveErr=err&&err.message?err.message:'Could not load hiring KPIs';
+    return null;
+  });
+}
+
+function syncHiringKpisToHrScorecard(){
+  if(kpiSetSel!=='HR'){ alert('Select the HR Executive KPI set to sync hiring metrics into the scorecard.'); return; }
+  if(!_hiringKpiLive){ alert('No live hiring data yet — wait for refresh or click Refresh.'); return; }
+  var k=_hiringKpiLive.kpis||{};
+  var mi=kpiCurrentMonthIdx();
+  var list=kpiList('HR');
+  list.forEach(function(def,ki){
+    var key=kpiKey('HR',kpiSlotSel,ki,mi);
+    if(def.n.indexOf('Shortlisted to hired')>=0) setKpiAct(key,k.shortlistedToHiredRate);
+    if(def.n.indexOf('Offer-to-joining')>=0) setKpiAct(key,k.offerConversionRate);
+  });
+  alert('Synced hiring KPIs into '+KPI_MONTHS[mi]+' for '+kpiSlotName('HR',kpiSlotSel)+'.');
+  renderTab('kpi');
+}
+
+function buildLiveHiringKpisHtml(){
+  var d=_hiringKpiLive;
+  var k=d&&d.kpis?d.kpis:{};
+  var oc=d&&d.offerConversion?d.offerConversion:{};
+  var html='<div class="card" style="padding:16px 18px;margin-bottom:16px;border:1px solid #B08D3E55;background:linear-gradient(135deg,#FFFBF0 0%,#fff 100%)">';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px">';
+  html+='<div style="flex:1;min-width:220px"><div style="font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#1B2A4A">&#128188; Live hiring KPIs (GA Hiring app)</div>';
+  html+='<div style="font-size:11px;color:var(--muted);margin-top:3px">Mongo-backed pipeline metrics · refreshes every 60s on this tab</div></div>';
+  if(kpiSetSel==='HR') html+='<button type="button" class="org-btn org-btn-primary" data-hiring-kpi-sync="1">Sync to HR scorecard ('+KPI_MONTHS[kpiCurrentMonthIdx()]+')</button>';
+  html+='<button type="button" class="org-btn" data-hiring-kpi-refresh="1">Refresh</button>';
+  html+='<a href="/app/hiring/dashboard" target="_top" class="org-btn" style="text-decoration:none">Open Hiring dashboard</a>';
+  html+='</div>';
+  if(_hiringKpiLiveErr&&!d){
+    html+='<div style="font-size:12px;color:#A8301E;padding:10px;background:#FDECEA;border-radius:8px">'+_hiringKpiLiveErr+'</div></div>';
+    return html;
+  }
+  if(!d){
+    html+='<div style="font-size:12px;color:var(--muted)">Loading hiring KPIs…</div></div>';
+    return html;
+  }
+  var slRate=k.shortlistedToHiredRate!=null?k.shortlistedToHiredRate:0;
+  var slCol=slRate>=40?'#1A7244':slRate>=25?'#A07800':'#A8301E';
+  var cards=[
+    {l:'Open requisitions',v:k.openRequisitions!=null?k.openRequisitions:'—',s:'active pipeline',c:'#1558A0'},
+    {l:'Hiring fulfilled',v:k.fulfilledRequisitions!=null?k.fulfilledRequisitions:'—',s:'positions closed',c:'#1A7244'},
+    {l:'Hired / headcount',v:(k.totalHired!=null?k.totalHired:'—')+' / '+(k.totalHeadcount!=null?k.totalHeadcount:'—'),s:'fill '+((k.fillRate!=null?k.fillRate:'—')+'%'),c:'#542B8A'},
+    {l:'Shortlisted → Hired',v:slRate+'%',s:(k.hiredFromShortlist!=null?k.hiredFromShortlist:'0')+' hired of '+(k.shortlistedEver!=null?k.shortlistedEver:'0')+' shortlisted · HR screening effectiveness',c:slCol},
+    {l:'Offer conversion',v:(oc.conversionRate!=null?oc.conversionRate:'—')+'%',s:(oc.accepted!=null?oc.accepted:'0')+' accepted / '+(oc.total!=null?oc.total:'0')+' offers',c:'#0B7070'},
+    {l:'Active candidates',v:k.activeCandidates!=null?k.activeCandidates:'—',s:'in pipeline (stages 1–7)',c:'#534AB7'},
+    {l:'Upcoming interviews',v:k.upcomingInterviews!=null?k.upcomingInterviews:'—',s:'scheduled',c:'#A07800'}
+  ];
+  html+='<div class="org-kpi-row" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))">';
+  cards.forEach(function(c){
+    html+='<div class="org-kpi" style="border-top:3px solid '+c.c+'"><div class="org-kpi-num" style="color:'+c.c+'">'+c.v+'</div><div class="org-kpi-lbl">'+c.l+'</div><div style="font-size:9px;color:var(--muted);margin-top:4px;line-height:1.3">'+c.s+'</div></div>';
+  });
+  html+='</div></div>';
+  return html;
+}
+
 function renderKpi(){
   var el=document.getElementById('page-kpi'); if(!el) return;
   if(kpiMode==='edit'&&!ADMIN) kpiMode='score';
@@ -2446,6 +2536,8 @@ function renderKpi(){
   html+='<div class="info">KPI governance for the GA teams \u2014 same KPIs, weights and 4/3/2/1 rating thresholds as the signed Excel handbooks ';
   html+='(<strong>GA_Accounting_KPI.xlsx</strong>, <strong>GA_HR_Admin_KPI.xlsx</strong>). Enter monthly actuals here; scores, weighted score and performance band auto-calculate ';
   html+='and save to the planner state. Quarterly KPIs (Q) are scored only at quarter-end (Jun / Sep / Dec / Mar). The Excel handbook remains the appraisal sign-off record.</div>';
+
+  html+=buildLiveHiringKpisHtml();
 
   // ── Department / role-set pills ──
   var depts=[];

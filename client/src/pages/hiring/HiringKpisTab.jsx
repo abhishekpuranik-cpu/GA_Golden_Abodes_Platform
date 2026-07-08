@@ -107,6 +107,14 @@ export default function HiringKpisTab() {
           <span className="hr-muted">Upcoming interviews</span>
         </div>
         <div className="hr-stat">
+          <strong>{k.shortlistedToHiredRate ?? 0}%</strong>
+          <span className="hr-muted">Shortlisted → Hired</span>
+        </div>
+        <div className="hr-stat">
+          <strong>{k.hiredFromShortlist ?? 0}/{k.shortlistedEver ?? 0}</strong>
+          <span className="hr-muted">Hired of shortlisted (screening)</span>
+        </div>
+        <div className="hr-stat">
           <strong>{data.offerConversion?.accepted || 0}</strong>
           <span className="hr-muted">Offers accepted</span>
         </div>
