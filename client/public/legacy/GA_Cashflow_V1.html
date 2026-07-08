@@ -26,6 +26,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .tab-btn{background:none;border:none;color:rgba(255,255,255,.7);padding:12px 11px;cursor:pointer;font-size:11px;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
 .tab-btn.on{color:#fff;border-bottom-color:#62C5FF}
 .tab-btn:hover{color:#fff}
+.planning-wrap{position:relative;display:inline-flex;align-self:stretch;align-items:stretch}
+.planning-wrap .tab-btn{padding-right:8px}
+.planning-menu{position:absolute;top:100%;left:0;min-width:200px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);z-index:300;padding:6px 0;margin-top:2px}
+.planning-menu button{display:block;width:100%;text-align:left;border:none;background:none;padding:10px 14px;font-size:11px;font-weight:600;color:var(--blue-b);cursor:pointer}
+.planning-menu button:hover{background:var(--blue-l)}
+.planning-menu button.on{background:var(--blue-l);color:var(--blue);border-left:3px solid var(--blue)}
+.planning-menu .planning-menu-hdr{font-size:9px;font-weight:700;color:var(--muted);padding:6px 14px 4px;letter-spacing:.06em;text-transform:uppercase}
 /* Sync bar */
 #sync-bar{background:var(--blue-l);border-bottom:1.5px solid var(--border);padding:8px 14px;display:flex;flex-direction:column;align-items:stretch;gap:8px;font-size:10px}
 #sync-bar-row1{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
@@ -105,12 +112,18 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
   <button class="tab-btn"     id="tab-cashflow"  onclick="showTab('cashflow')">&#128200; Cashflow</button>
   <button class="tab-btn"     id="tab-pl"        onclick="showTab('pl')">&#128202; P&amp;L</button>
   <span style="opacity:.45;font-size:10px;padding:0 4px;align-self:center">|</span>
-  <span style="font-size:9px;font-weight:700;opacity:.75;align-self:center;letter-spacing:.04em">PLANNING</span>
-  <button class="tab-btn on"  id="tab-sales"     onclick="showTab('sales')">&#127968; Sales</button>
-  <button class="tab-btn"     id="tab-capital"   onclick="showTab('capital')">&#128176; Capital</button>
-  <button class="tab-btn"     id="tab-expenses"  onclick="showTab('expenses')">&#128196; Expenses</button>
-  <button class="tab-btn"     id="tab-debt"      onclick="showTab('debt')">&#127970; Debt</button>
-  <button class="tab-btn"     id="tab-ga"        onclick="showTab('ga')">&#127760; GA Rollup</button>
+  <div class="planning-wrap" id="planning-wrap">
+    <button type="button" class="tab-btn" id="tab-planning" onclick="togglePlanningMenu(event)" aria-haspopup="true" aria-expanded="false" title="Sales, capital, schedules, debt, portfolio rollup">&#128203; Planning &#9662;</button>
+    <div id="planning-menu" class="planning-menu hidden" role="menu" onclick="event.stopPropagation()">
+      <div class="planning-menu-hdr">Inputs &amp; schedules</div>
+      <button type="button" role="menuitem" id="plan-menu-sales" onclick="showTabFromPlanning('sales')">&#127968; Sales &amp; collections</button>
+      <button type="button" role="menuitem" id="plan-menu-capital" onclick="showTabFromPlanning('capital')">&#128176; Capital structure</button>
+      <button type="button" role="menuitem" id="plan-menu-expenses" onclick="showTabFromPlanning('expenses')">&#128196; Expense schedules</button>
+      <div class="planning-menu-hdr" style="margin-top:4px;border-top:1px solid var(--border);padding-top:8px">Finance (password)</div>
+      <button type="button" role="menuitem" id="plan-menu-debt" onclick="showTabFromPlanning('debt')">&#127970; Debt service</button>
+      <button type="button" role="menuitem" id="plan-menu-ga" onclick="showTabFromPlanning('ga')">&#127760; GA consolidated rollup</button>
+    </div>
+  </div>
   <div style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 0">
     <select id="proj-select" onchange="selectProj(this.value)"
       style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:160px">
@@ -203,7 +216,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 48;
+var CF_VERSION = 49;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -5546,16 +5559,55 @@ function getConstScheduleShifted(unit,cfg,shiftMonths){
 // ══════════════════════════════════════════════════════════════
 // NAVIGATION & ROUTING
 // ══════════════════════════════════════════════════════════════
+var PLANNING_TABS=['sales','capital','expenses','debt','ga'];
+function isPlanningTab(t){ return PLANNING_TABS.indexOf(t)>=0; }
+function closePlanningMenu(){
+  var m=document.getElementById('planning-menu');
+  var b=document.getElementById('tab-planning');
+  if(m) m.classList.add('hidden');
+  if(b) b.setAttribute('aria-expanded','false');
+}
+function togglePlanningMenu(ev){
+  if(ev) ev.stopPropagation();
+  var m=document.getElementById('planning-menu');
+  var b=document.getElementById('tab-planning');
+  if(!m||!b) return;
+  var open=m.classList.contains('hidden');
+  if(open){ m.classList.remove('hidden'); b.setAttribute('aria-expanded','true'); }
+  else closePlanningMenu();
+}
+function showTabFromPlanning(t){
+  closePlanningMenu();
+  showTab(t);
+}
+function syncPlanningMenuHighlight(t){
+  PLANNING_TABS.forEach(function(x){
+    var el=document.getElementById('plan-menu-'+x);
+    if(el) el.classList.toggle('on',x===t);
+  });
+}
+function updateTopTabHighlights(t){
+  var tbCash=document.getElementById('tab-cashflow');
+  var tbPl=document.getElementById('tab-pl');
+  var tbPlan=document.getElementById('tab-planning');
+  if(tbCash) tbCash.classList.toggle('on',t==='cashflow');
+  if(tbPl) tbPl.classList.toggle('on',t==='pl');
+  if(tbPlan) tbPlan.classList.toggle('on',isPlanningTab(t));
+  syncPlanningMenuHighlight(t);
+}
+if(!window.__gaPlanningMenuCloseBound){
+  window.__gaPlanningMenuCloseBound=true;
+  document.addEventListener('click',function(){ closePlanningMenu(); });
+}
 function showTab(t){
   if(cfTabRequiresFinanceUnlock(t) && !isCfFinanceTabsUnlocked()){
     if(!promptCfFinanceTabsUnlock()) return;
   }
-  ['cashflow','pl','sales','capital','expenses','debt','ga'].forEach(function(x){
+  ['cashflow','pl'].concat(PLANNING_TABS).forEach(function(x){
     var pg=document.getElementById('page-'+x);
-    var tb=document.getElementById('tab-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
-    if(tb) tb.classList.toggle('on',x===t);
   });
+  updateTopTabHighlights(t);
   _curTab=t; renderTab(t);
 }
 function renderTab(t){
