@@ -7,6 +7,8 @@ import { attachHiringUser, actorId, logHiringActivity } from '../../lib/hiring/a
 import { requireHiringWrite } from '../../lib/hiring/access.js';
 import { assertPaise, notDeletedFilter } from '../../lib/hiring/validate.js';
 import { isValidStageTransition } from '../../lib/hiring/stages.js';
+import { maybeAutoFulfillRequisition } from '../../lib/hiring/fulfillment.js';
+import { pushStageHistory } from '../../lib/hiring/stageHistory.js';
 
 const router = Router();
 
@@ -19,6 +21,7 @@ async function onOfferAccepted(offer, by) {
     const from = candidate.currentStageNumber;
     candidate.currentStageNumber = 7;
     candidate.stageEnteredAt = new Date();
+    pushStageHistory(candidate, 7, by);
     await candidate.save();
     await logHiringActivity({
       refType: 'candidate',
@@ -35,7 +38,7 @@ async function onOfferAccepted(offer, by) {
     isDeleted: false,
     currentStageNumber: 7
   });
-  if (hired >= (requisition.headcount || 1) && requisition.status !== 'Closed') {
+  if (hired >= (requisition.headcount || 1)) {
     await logHiringActivity({
       refType: 'requisition',
       refId: requisition._id,
@@ -43,6 +46,7 @@ async function onOfferAccepted(offer, by) {
       detail: `${hired}/${requisition.headcount}`,
       by
     });
+    await maybeAutoFulfillRequisition(requisition._id, by);
   }
 }
 
@@ -79,6 +83,7 @@ router.post('/', requireHiringWrite, async (req, res) => {
     if (isValidStageTransition(candidate.currentStageNumber, 6)) {
       candidate.currentStageNumber = 6;
       candidate.stageEnteredAt = new Date();
+      pushStageHistory(candidate, 6, createdBy);
       await candidate.save();
     }
     await logHiringActivity({

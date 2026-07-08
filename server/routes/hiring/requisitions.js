@@ -14,9 +14,53 @@ import {
   metaviewWebSearchUrl, sourcingModeAvailable, metaviewConfigured
 } from '../../lib/hiring/metaviewService.js';
 import { validateBody } from '../../lib/hiring/validateBody.js';
-import { metaviewSourceLimiter, metaviewSyncLimiter } from '../../lib/hiring/rateLimit.js';
+import { reqAttachmentUpload } from '../../lib/hiring/reqUpload.js';
+import { markRequisitionFulfilled, maybeAutoFulfillRequisition } from '../../lib/hiring/fulfillment.js';
 
 const router = Router();
+
+function stripAttachments(doc) {
+  if (!doc) return doc;
+  const o = { ...doc };
+  if (Array.isArray(o.attachments)) {
+    o.attachmentsMeta = o.attachments.map((a) => ({
+      kind: a.kind,
+      filename: a.filename,
+      mimeType: a.mimeType,
+      sizeBytes: a.sizeBytes,
+      uploadedAt: a.uploadedAt
+    }));
+    delete o.attachments;
+  }
+  return o;
+}
+
+function parseAttachmentsFromBody(body, files) {
+  const attachments = [];
+  const add = (kind, file) => {
+    if (!file?.buffer?.length) return;
+    attachments.push({
+      kind,
+      filename: file.originalname,
+      mimeType: file.mimetype,
+      sizeBytes: file.size,
+      data: file.buffer,
+      uploadedAt: new Date()
+    });
+  };
+  if (files?.jd?.[0]) add('jd', files.jd[0]);
+  if (files?.email?.[0]) add('email', files.email[0]);
+  return attachments;
+}
+
+function parseJsonFields(body) {
+  const out = { ...body };
+  ['bandMinPaise', 'bandMaxPaise', 'experienceMinYears', 'experienceMaxYears', 'headcount'].forEach((k) => {
+    if (out[k] !== undefined && out[k] !== '') out[k] = Number(out[k]);
+  });
+  if (out.headcount === undefined || Number.isNaN(out.headcount)) out.headcount = 1;
+  return out;
+}
 
 router.use(attachHiringUser);
 
@@ -62,7 +106,23 @@ router.get('/', async (req, res) => {
       HiringRequisition.find(filter).sort({ createdAt: -1 }).skip(skip).limit(limit).lean(),
       HiringRequisition.countDocuments(filter)
     ]);
-    res.json({ requisitions: items, page, limit, total });
+    res.json({ requisitions: items.map(stripAttachments), page, limit, total });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/attachments/:kind', async (req, res) => {
+  try {
+    const kind = req.params.kind;
+    if (!['jd', 'email'].includes(kind)) return res.status(400).json({ error: 'kind must be jd or email' });
+    const doc = await HiringRequisition.findOne(notDeletedFilter({ _id: req.params.id }));
+    if (!doc) return res.status(404).json({ error: 'Requisition not found' });
+    const att = (doc.attachments || []).find((a) => a.kind === kind);
+    if (!att) return res.status(404).json({ error: 'Attachment not found' });
+    res.setHeader('Content-Type', att.mimeType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `attachment; filename="${att.filename}"`);
+    res.send(att.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -75,11 +135,12 @@ router.get('/:id', async (req, res) => {
     const pipeline = await pipelineCounts(reqDoc._id);
     const hired = pipeline[7] || 0;
     res.json({
-      ...reqDoc,
+      ...stripAttachments(reqDoc),
       pipeline,
       filledHeadcount: hired,
       headcountRemaining: Math.max(0, (reqDoc.headcount || 1) - hired),
-      promptClosure: hired >= (reqDoc.headcount || 1),
+      promptClosure: hired >= (reqDoc.headcount || 1) && reqDoc.status !== 'Hiring Fulfilled',
+      canMarkFulfilled: !['Hiring Fulfilled', 'Cancelled', 'Closed'].includes(reqDoc.status),
       metaviewUrl: metaviewWebSearchUrl(reqDoc.metaviewSearchId)
     });
   } catch (err) {
@@ -87,41 +148,47 @@ router.get('/:id', async (req, res) => {
   }
 });
 
-router.post('/', requireHiringWrite, validateBody([
-  'entityTag', 'role', 'department', 'projectName', 'location', 'bandMinPaise', 'bandMaxPaise',
-  'experienceMinYears', 'experienceMaxYears', 'brief', 'headcount', 'status', 'sourcingMode'
+router.post('/', requireHiringWrite, reqAttachmentUpload.fields([
+  { name: 'jd', maxCount: 1 },
+  { name: 'email', maxCount: 1 }
 ]), async (req, res) => {
   try {
-    const entityTag = requireEntityTag(req.body, res);
+    const body = parseJsonFields(req.body);
+    const entityTag = requireEntityTag(body, res);
     if (!entityTag) return;
+    if (!body.role?.trim()) return res.status(400).json({ error: 'role is required' });
+    if (!body.location?.trim()) return res.status(400).json({ error: 'location is required' });
+    if (!body.brief?.trim()) return res.status(400).json({ error: 'brief is required' });
     const reqCode = await nextReqCode();
     const createdBy = actorId(req);
     if (!createdBy) return res.status(401).json({ error: 'Authentication required' });
+    const attachments = parseAttachmentsFromBody(body, req.files);
     const doc = await HiringRequisition.create({
       reqCode,
       entityTag,
-      role: req.body.role,
-      department: req.body.department,
-      projectName: req.body.projectName,
-      location: req.body.location,
-      bandMinPaise: assertPaise(req.body.bandMinPaise, 'bandMinPaise'),
-      bandMaxPaise: assertPaise(req.body.bandMaxPaise, 'bandMaxPaise'),
-      experienceMinYears: req.body.experienceMinYears,
-      experienceMaxYears: req.body.experienceMaxYears,
-      brief: req.body.brief,
-      headcount: req.body.headcount ?? 1,
-      status: req.body.status || 'Draft',
-      sourcingMode: metaviewConfigured() ? (req.body.sourcingMode || 'manual') : 'manual',
+      role: body.role,
+      department: body.department,
+      projectName: body.projectName,
+      location: body.location,
+      bandMinPaise: assertPaise(body.bandMinPaise, 'bandMinPaise'),
+      bandMaxPaise: assertPaise(body.bandMaxPaise, 'bandMaxPaise'),
+      experienceMinYears: body.experienceMinYears,
+      experienceMaxYears: body.experienceMaxYears,
+      brief: body.brief,
+      headcount: body.headcount ?? 1,
+      status: body.status || 'Draft',
+      sourcingMode: metaviewConfigured() ? (body.sourcingMode || 'manual') : 'manual',
+      attachments,
       createdBy: new mongoose.Types.ObjectId(createdBy)
     });
     await logHiringActivity({
       refType: 'requisition',
       refId: doc._id,
       action: 'created',
-      detail: reqCode,
+      detail: `${reqCode}${attachments.length ? ` · ${attachments.map((a) => a.kind).join(', ')} attached` : ''}`,
       by: createdBy
     });
-    res.status(201).json(doc);
+    res.status(201).json(stripAttachments(doc.toObject()));
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
@@ -178,6 +245,32 @@ router.patch('/:id', requireHiringWrite, validateBody([
       ...doc.toObject(),
       metaviewUpdated,
       metaviewUrl: metaviewWebSearchUrl(doc.metaviewSearchId)
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/:id/fulfill', requireHiringWrite, async (req, res) => {
+  try {
+    const doc = await HiringRequisition.findOne(notDeletedFilter({ _id: req.params.id }));
+    if (!doc) return res.status(404).json({ error: 'Requisition not found' });
+    if (doc.status === 'Hiring Fulfilled') {
+      return res.json(stripAttachments(doc.toObject()));
+    }
+    if (doc.status === 'Cancelled') {
+      return res.status(422).json({ error: 'Cannot fulfill a cancelled requisition' });
+    }
+    const updated = await markRequisitionFulfilled(doc, { by: actorId(req), reason: 'manual' });
+    const pipeline = await pipelineCounts(updated._id);
+    const hired = pipeline[7] || 0;
+    res.json({
+      ...stripAttachments(updated.toObject()),
+      pipeline,
+      filledHeadcount: hired,
+      headcountRemaining: Math.max(0, (updated.headcount || 1) - hired),
+      promptClosure: false,
+      canMarkFulfilled: false
     });
   } catch (err) {
     res.status(400).json({ error: err.message });

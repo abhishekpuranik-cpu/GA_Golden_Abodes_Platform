@@ -32,7 +32,12 @@ const CandidateSchema = new mongoose.Schema({
   profileFetchedAt: { type: Date, default: null },
   currentStageNumber: { type: Number, default: 1 },
   feedbackHistory: [FeedbackSchema],
-  stageEnteredAt: { type: Date, default: Date.now }
+  stageEnteredAt: { type: Date, default: Date.now },
+  stageHistory: [{
+    stage: Number,
+    at: { type: Date, default: Date.now },
+    by: { type: mongoose.Schema.Types.ObjectId, ref: 'users', default: null }
+  }]
 }, { timestamps: true });
 
 CandidateSchema.index({ requisitionId: 1, currentStageNumber: 1, isDeleted: 1 });

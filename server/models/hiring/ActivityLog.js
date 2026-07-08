@@ -10,6 +10,8 @@ const ActivityLogSchema = new mongoose.Schema({
 }, { timestamps: false });
 
 ActivityLogSchema.index({ refType: 1, refId: 1, at: -1 });
+ActivityLogSchema.index({ at: -1 });
+ActivityLogSchema.index({ action: 1, at: -1 });
 
 export default mongoose.models.HiringActivityLog
   || mongoose.model('HiringActivityLog', ActivityLogSchema, 'hiring_activity_log');

@@ -7,21 +7,24 @@ import { attachHiringUser, actorId, logHiringActivity } from '../../lib/hiring/a
 import { requireHiringWrite } from '../../lib/hiring/access.js';
 import { notDeletedFilter } from '../../lib/hiring/validate.js';
 import { isValidStageTransition } from '../../lib/hiring/stages.js';
+import { pushStageHistory } from '../../lib/hiring/stageHistory.js';
 
 const router = Router();
 
 router.use(attachHiringUser);
 
-async function applyInterviewOutcome(candidate, outcome) {
+async function applyInterviewOutcome(candidate, outcome, by) {
   if (outcome === 'Advance') {
     const next = candidate.currentStageNumber < 4 ? 4 : Math.min(candidate.currentStageNumber + 1, 5);
     if (isValidStageTransition(candidate.currentStageNumber, next)) {
       candidate.currentStageNumber = next;
       candidate.stageEnteredAt = new Date();
+      pushStageHistory(candidate, next, by);
     }
   } else if (outcome === 'Reject' && isValidStageTransition(candidate.currentStageNumber, 8)) {
     candidate.currentStageNumber = 8;
     candidate.stageEnteredAt = new Date();
+    pushStageHistory(candidate, 8, by);
   }
   await candidate.save();
 }
@@ -92,7 +95,7 @@ router.patch('/:id', requireHiringWrite, async (req, res) => {
     if (req.body.outcome && req.body.outcome !== prevOutcome && ['Advance', 'Reject'].includes(req.body.outcome)) {
       const candidate = await HiringCandidate.findById(doc.candidateId);
       if (candidate) {
-        await applyInterviewOutcome(candidate, req.body.outcome);
+        await applyInterviewOutcome(candidate, req.body.outcome, actorId(req));
         await logHiringActivity({
           refType: 'candidate',
           refId: candidate._id,

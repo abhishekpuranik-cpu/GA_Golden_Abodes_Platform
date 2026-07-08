@@ -512,3 +512,92 @@ a.hr-btn {
   display: inline-flex;
   align-items: center;
 }
+
+.hr-subnav {
+  display: flex;
+  gap: 0.35rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.hr-subnav a {
+  text-decoration: none;
+  color: var(--hr-muted);
+  padding: 0.4rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--hr-border);
+  font-size: 0.875rem;
+  background: #fff;
+}
+
+.hr-subnav a.active,
+.hr-subnav a:hover {
+  color: var(--hr-navy);
+  border-color: var(--hr-gold);
+  background: #fffbeb;
+}
+
+.hr-filter-bar {
+  margin-bottom: 1rem;
+}
+
+.hr-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.hr-filter-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--hr-muted);
+}
+
+.hr-filter-grid input,
+.hr-filter-grid select {
+  padding: 0.4rem 0.5rem;
+  border: 1px solid var(--hr-border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.hr-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--hr-border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.hr-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.hr-table th,
+.hr-table td {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  border-bottom: 1px solid var(--hr-border);
+  vertical-align: top;
+}
+
+.hr-table th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: var(--hr-navy);
+  white-space: nowrap;
+}
+
+.hr-movement-cell {
+  max-width: 280px;
+  font-size: 0.8rem;
+  color: var(--hr-muted);
+}
+
+.hr-link {
+  color: var(--hr-gold);
+}

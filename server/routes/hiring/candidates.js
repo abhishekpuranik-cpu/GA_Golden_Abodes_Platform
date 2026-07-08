@@ -11,6 +11,8 @@ import {
 } from '../../lib/hiring/validate.js';
 import { validateBody } from '../../lib/hiring/validateBody.js';
 import { isValidStageTransition, stageLabel } from '../../lib/hiring/stages.js';
+import { pushStageHistory } from '../../lib/hiring/stageHistory.js';
+import { maybeAutoFulfillRequisition } from '../../lib/hiring/fulfillment.js';
 import { pushFeedback, fetchCandidateProfile, metaviewConfigured } from '../../lib/hiring/metaviewService.js';
 import { CANDIDATE_SOURCES } from '../../lib/hiring/constants.js';
 import { parseSpreadsheetBuffer } from '../../lib/hiring/importParsers.js';
@@ -271,6 +273,7 @@ router.patch('/:id/stage', requireHiringWrite, validateBody(['toStage', 'note'])
     const from = doc.currentStageNumber;
     doc.currentStageNumber = toStage;
     doc.stageEnteredAt = new Date();
+    pushStageHistory(doc, toStage, actorId(req));
     await doc.save();
     await logHiringActivity({
       refType: 'candidate',
@@ -279,6 +282,9 @@ router.patch('/:id/stage', requireHiringWrite, validateBody(['toStage', 'note'])
       detail: `${from} → ${toStage} (${stageLabel(toStage)})`,
       by: actorId(req)
     });
+    if (toStage === 7) {
+      await maybeAutoFulfillRequisition(doc.requisitionId, actorId(req));
+    }
     res.json(doc);
   } catch (err) {
     res.status(400).json({ error: err.message });

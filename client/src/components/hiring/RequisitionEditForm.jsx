@@ -2,7 +2,7 @@ import { useState } from 'react';
 import EntityTagSelect from './EntityTagSelect.jsx';
 import MoneyInput from './MoneyInput.jsx';
 
-const STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Closed', 'Cancelled'];
+const STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Hiring Fulfilled', 'Closed', 'Cancelled'];
 
 export default function RequisitionEditForm({ initial, onSave, onCancel, busy }) {
   const [form, setForm] = useState({

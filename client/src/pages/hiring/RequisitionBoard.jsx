@@ -6,7 +6,7 @@ import EntityTagSelect from '../../components/hiring/EntityTagSelect.jsx';
 import MoneyInput from '../../components/hiring/MoneyInput.jsx';
 import EmptyState from '../../components/hiring/EmptyState.jsx';
 
-const STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Closed', 'Cancelled'];
+const STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Hiring Fulfilled', 'Closed', 'Cancelled'];
 
 export default function RequisitionBoard() {
   const { canWrite } = useOutletContext();
@@ -27,6 +27,8 @@ export default function RequisitionBoard() {
     experienceMaxYears: null,
     headcount: 1
   });
+  const [jdFile, setJdFile] = useState(null);
+  const [emailFile, setEmailFile] = useState(null);
   const [err, setErr] = useState('');
 
   function load() {
@@ -40,8 +42,10 @@ export default function RequisitionBoard() {
     e.preventDefault();
     setErr('');
     try {
-      const doc = await hiringApi.createRequisition(form);
+      const doc = await hiringApi.createRequisition(form, { jd: jdFile, email: emailFile });
       setShowNew(false);
+      setJdFile(null);
+      setEmailFile(null);
       navigate(`/app/hiring/req/${doc._id}`);
     } catch (e) {
       setErr(e.message);
@@ -158,6 +162,33 @@ export default function RequisitionBoard() {
                   value={form.experienceMaxYears ?? ''}
                   onChange={(e) => setForm({ ...form, experienceMaxYears: e.target.value ? Number(e.target.value) : null })}
                 />
+              </div>
+              <div className="hr-form-row">
+                <label>Headcount</label>
+                <input
+                  type="number"
+                  min="1"
+                  value={form.headcount}
+                  onChange={(e) => setForm({ ...form, headcount: Number(e.target.value) || 1 })}
+                />
+              </div>
+              <div className="hr-form-row">
+                <label>Job description file (PDF, DOC, DOCX)</label>
+                <input
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt"
+                  onChange={(e) => setJdFile(e.target.files?.[0] || null)}
+                />
+                {jdFile && <span className="hr-muted">{jdFile.name}</span>}
+              </div>
+              <div className="hr-form-row">
+                <label>Hiring request email (.eml, .msg, .txt)</label>
+                <input
+                  type="file"
+                  accept=".eml,.msg,.txt,.html,.htm"
+                  onChange={(e) => setEmailFile(e.target.files?.[0] || null)}
+                />
+                {emailFile && <span className="hr-muted">{emailFile.name}</span>}
               </div>
               <div className="hr-form-row">
                 <label>Job brief (sent to Metaview)</label>

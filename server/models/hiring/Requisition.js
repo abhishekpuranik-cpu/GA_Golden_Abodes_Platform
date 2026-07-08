@@ -23,12 +23,21 @@ const RequisitionSchema = new mongoose.Schema({
   headcount: { type: Number, default: 1 },
   status: {
     type: String,
-    enum: ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Closed', 'Cancelled'],
+    enum: ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Hiring Fulfilled', 'Closed', 'Cancelled'],
     default: 'Draft'
   },
   metaviewSearchId: { type: String, default: null },
   sourcingMode: { type: String, enum: ['auto', 'manual'], default: 'manual' },
-  closedReason: String
+  closedReason: String,
+  fulfilledAt: { type: Date, default: null },
+  attachments: [{
+    kind: { type: String, enum: ['jd', 'email'], required: true },
+    filename: { type: String, required: true },
+    mimeType: String,
+    sizeBytes: Number,
+    data: { type: Buffer, required: true },
+    uploadedAt: { type: Date, default: Date.now }
+  }]
 }, { timestamps: true });
 
 RequisitionSchema.index({ status: 1, entityTag: 1, isDeleted: 1 });

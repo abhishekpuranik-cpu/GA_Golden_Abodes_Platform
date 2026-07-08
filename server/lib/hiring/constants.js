@@ -12,7 +12,7 @@ export const STAGE_LABELS = {
   9: 'Dropped'
 };
 
-export const REQUISITION_STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Closed', 'Cancelled'];
+export const REQUISITION_STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Hiring Fulfilled', 'Closed', 'Cancelled'];
 
 export const CANDIDATE_SOURCES = ['metaview', 'naukri', 'linkedin', 'referral', 'walk-in', 'other'];
 

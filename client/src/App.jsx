@@ -45,7 +45,10 @@ const HrRequisitionBoard = lazy(() => import('./pages/hiring/RequisitionBoard.js
 const HrRequisitionDetail = lazy(() => import('./pages/hiring/RequisitionDetail.jsx'));
 const HrCandidateProfile = lazy(() => import('./pages/hiring/CandidateProfile.jsx'));
 const HrInterviewCalendar = lazy(() => import('./pages/hiring/InterviewCalendar.jsx'));
-const HrDashboard = lazy(() => import('./pages/hiring/HiringDashboard.jsx'));
+const HrDashboardLayout = lazy(() => import('./pages/hiring/HiringDashboardLayout.jsx'));
+const HrKpisTab = lazy(() => import('./pages/hiring/HiringKpisTab.jsx'));
+const HrRequirementsTab = lazy(() => import('./pages/hiring/HiringRequirementsTab.jsx'));
+const HrActivityLogTab = lazy(() => import('./pages/hiring/HiringActivityLogTab.jsx'));
 
 function Fall() {
   return (
@@ -191,7 +194,11 @@ export default function App() {
           <Route path="req/:id" element={<HrRequisitionDetail />} />
           <Route path="req/:id/candidate/:cid" element={<HrCandidateProfile />} />
           <Route path="interviews" element={<HrInterviewCalendar />} />
-          <Route path="dashboard" element={<HrDashboard />} />
+          <Route path="dashboard" element={<HrDashboardLayout />}>
+            <Route index element={<HrKpisTab />} />
+            <Route path="requirements" element={<HrRequirementsTab />} />
+            <Route path="activity" element={<HrActivityLogTab />} />
+          </Route>
         </Route>
         <Route path="/hiring/*" element={<HiringRedirect />} />
         <Route path="*" element={<Navigate to="/" replace />} />

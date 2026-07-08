@@ -135,6 +135,24 @@ export default function RequisitionDetail() {
     }
   }
 
+  async function handleFulfill() {
+    if (!window.confirm('Mark this position as Hiring Fulfilled?')) return;
+    setBusy('fulfill');
+    setMsg('');
+    try {
+      const updated = await hiringApi.fulfillRequisition(id);
+      setReq(updated);
+      setMsg('Position marked as Hiring Fulfilled.');
+      setMsgTone('success');
+      load();
+    } catch (e) {
+      setMsg(e.message);
+      setMsgTone('error');
+    } finally {
+      setBusy('');
+    }
+  }
+
   async function handleDelete() {
     if (!window.confirm('Delete this position from the board? It will be soft-deleted (recoverable in DB).')) return;
     setBusy('delete');
@@ -194,7 +212,12 @@ export default function RequisitionDetail() {
         <div className="hr-toolbar">
           <span className="hr-badge">{req.reqCode}</span>
           <span className="hr-badge hr-badge-gold">{req.status}</span>
-          {req.promptClosure && <span className="hr-badge" style={{ background: '#fef3c7' }}>Headcount filled — consider closing</span>}
+          {req.promptClosure && req.status !== 'Hiring Fulfilled' && (
+            <span className="hr-badge" style={{ background: '#fef3c7' }}>Headcount filled — mark as fulfilled</span>
+          )}
+          {req.status === 'Hiring Fulfilled' && (
+            <span className="hr-badge hr-badge-gold">Hiring Fulfilled</span>
+          )}
         </div>
         <h2>{req.role}</h2>
         <p className="hr-muted">{req.location} · {req.entityTag} · {formatLpaBand(req.bandMinPaise, req.bandMaxPaise)}</p>
@@ -203,6 +226,21 @@ export default function RequisitionDetail() {
         )}
         <p style={{ whiteSpace: 'pre-wrap' }}>{req.brief}</p>
         <p className="hr-muted">Hired {req.filledHeadcount || 0} / {req.headcount}</p>
+        {(req.attachmentsMeta || []).length > 0 && (
+          <p className="hr-muted">
+            Attachments:{' '}
+            {(req.attachmentsMeta || []).map((a) => (
+              <a
+                key={a.kind}
+                href={hiringApi.attachmentUrl(id, a.kind)}
+                className="hr-link"
+                style={{ marginRight: '0.75rem' }}
+              >
+                {a.kind === 'jd' ? 'JD' : 'Email'} — {a.filename}
+              </a>
+            ))}
+          </p>
+        )}
         {req.metaviewSearchId && (
           <p className="hr-metaview-banner">
             Metaview search active · Sync pulls candidates matched to this job description
@@ -227,7 +265,12 @@ export default function RequisitionDetail() {
                 {busy === 'sync' ? 'Syncing…' : 'Sync Metaview'}
               </button>
             )}
-            {req.status !== 'Cancelled' && req.status !== 'Closed' && (
+            {req.canMarkFulfilled && req.status !== 'Cancelled' && (
+              <button type="button" className="hr-btn hr-btn-gold" disabled={!!busy} onClick={handleFulfill}>
+                {busy === 'fulfill' ? 'Updating…' : 'Mark Hiring Fulfilled'}
+              </button>
+            )}
+            {req.status !== 'Cancelled' && req.status !== 'Closed' && req.status !== 'Hiring Fulfilled' && (
               <button type="button" className="hr-btn hr-btn-outline" style={{ borderColor: '#b91c1c', color: '#b91c1c' }} disabled={!!busy} onClick={handleScrap}>
                 {busy === 'scrap' ? 'Scrapping…' : 'Scrap position'}
               </button>
