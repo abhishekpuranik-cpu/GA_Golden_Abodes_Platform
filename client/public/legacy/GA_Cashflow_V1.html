@@ -103,11 +103,14 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 <div id="topbar">
   <div class="logo">&#127968; GA Cashflow</div>
   <button class="tab-btn"     id="tab-cashflow"  onclick="showTab('cashflow')">&#128200; Cashflow</button>
-  <button class="tab-btn on"  id="tab-sales"     onclick="showTab('sales')">&#127968; Sales &amp; Revenue</button>
-  <button class="tab-btn"     id="tab-capital"   onclick="showTab('capital')">&#128176; Capital Structure</button>
-  <button class="tab-btn"     id="tab-expenses"  onclick="showTab('expenses')">&#128196; Expense Schedule</button>
-  <button class="tab-btn"     id="tab-debt"      onclick="showTab('debt')">&#127970; Debt Service</button>
-  <button class="tab-btn"     id="tab-ga"        onclick="showTab('ga')">&#127760; GA Consolidated</button>
+  <button class="tab-btn"     id="tab-pl"        onclick="showTab('pl')">&#128202; P&amp;L</button>
+  <span style="opacity:.45;font-size:10px;padding:0 4px;align-self:center">|</span>
+  <span style="font-size:9px;font-weight:700;opacity:.75;align-self:center;letter-spacing:.04em">PLANNING</span>
+  <button class="tab-btn on"  id="tab-sales"     onclick="showTab('sales')">&#127968; Sales</button>
+  <button class="tab-btn"     id="tab-capital"   onclick="showTab('capital')">&#128176; Capital</button>
+  <button class="tab-btn"     id="tab-expenses"  onclick="showTab('expenses')">&#128196; Expenses</button>
+  <button class="tab-btn"     id="tab-debt"      onclick="showTab('debt')">&#127970; Debt</button>
+  <button class="tab-btn"     id="tab-ga"        onclick="showTab('ga')">&#127760; GA Rollup</button>
   <div style="margin-left:auto;display:flex;align-items:center;gap:6px;padding:6px 0">
     <select id="proj-select" onchange="selectProj(this.value)"
       style="padding:5px 8px;border-radius:5px;border:1px solid #fff;background:#fff;color:var(--blue-b);font-size:11px;font-weight:600;min-width:160px">
@@ -175,6 +178,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 
 <!-- Pages -->
 <div id="page-cashflow"  class="page hidden"></div>
+<div id="page-pl"        class="page hidden"></div>
 <div id="page-sales"     class="page"></div>
 <div id="page-capital"   class="page hidden"></div>
 <div id="page-expenses"  class="page hidden"></div>
@@ -199,7 +203,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 46;
+var CF_VERSION = 48;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -209,8 +213,31 @@ var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
  */
 var CF_INFLOW_L1_COLS = null;
 var CF_OUTFLOW_L1_COLS = null;
+var PL_L1_COLS_BUILDING = null;
+var PL_L1_COLS_COMMON = null;
+function gaAcctIsV3(){
+  return typeof GA_ACCT_SCHEMA!=='undefined' && GA_ACCT_SCHEMA==='v3';
+}
 function ensureGaL1CashflowCols(){
   if(CF_INFLOW_L1_COLS && CF_OUTFLOW_L1_COLS) return;
+  if(gaAcctIsV3()){
+    var inf=[], ouf=[];
+    (GA_ACCT_CF_L1_BUILDING||[]).forEach(function(x){
+      if(!x||!x.label) return;
+      if(x.flow==='in') inf.push(x.label);
+      else if(x.flow!=='cash') ouf.push(x.label);
+    });
+    (GA_ACCT_CF_L1_COMMON||[]).forEach(function(x){
+      if(!x||!x.label) return;
+      if(x.flow==='in') inf.push(x.label);
+      else if(x.flow!=='cash') ouf.push(x.label);
+    });
+    CF_INFLOW_L1_COLS = inf.length ? inf : INFLOW_CATS.slice();
+    CF_OUTFLOW_L1_COLS = ouf.length ? ouf : OUTFLOW_CATS.slice();
+    PL_L1_COLS_BUILDING = (GA_ACCT_PL_L1_BUILDING||[]).map(function(x){ return x.label; });
+    PL_L1_COLS_COMMON = (GA_ACCT_PL_L1_COMMON||[]).map(function(x){ return x.label; });
+    return;
+  }
   if(typeof GA_ACCT_L3_BY_CODE==='undefined'){
     CF_INFLOW_L1_COLS = INFLOW_CATS.slice();
     CF_OUTFLOW_L1_COLS = OUTFLOW_CATS.slice();
@@ -219,13 +246,172 @@ function ensureGaL1CashflowCols(){
   var inf={}, ouf={};
   Object.keys(GA_ACCT_L3_BY_CODE).forEach(function(k){
     var g=GA_ACCT_L3_BY_CODE[k];
-    if(g.flow==='in' && g.l1) inf[g.l1] = g.l1Name;
-    if(g.flow==='out' && g.l1) ouf[g.l1] = g.l1Name;
+    if(!g||!g.cfApplicable) return;
+    var lbl=String(g.cfL1Label||g.l1Name||'').trim();
+    if(!lbl) return;
+    if(g.flow==='in') inf[lbl]=lbl;
+    else if(g.flow!=='cash') ouf[lbl]=lbl;
   });
-  CF_INFLOW_L1_COLS = Object.keys(inf).sort().map(function(c){ return inf[c]; });
-  CF_OUTFLOW_L1_COLS = Object.keys(ouf).sort().map(function(c){ return ouf[c]; });
+  CF_INFLOW_L1_COLS = Object.keys(inf).sort();
+  CF_OUTFLOW_L1_COLS = Object.keys(ouf).sort();
   if(!CF_INFLOW_L1_COLS.length) CF_INFLOW_L1_COLS = INFLOW_CATS.slice();
   if(!CF_OUTFLOW_L1_COLS.length) CF_OUTFLOW_L1_COLS = OUTFLOW_CATS.slice();
+}
+function cfColNameMatches(col, needles){
+  var c=String(col||'').toLowerCase();
+  for(var i=0;i<needles.length;i++) if(c.indexOf(String(needles[i]).toLowerCase())>=0) return true;
+  return false;
+}
+function resolveMasterKeyFromShortCode(shortCode, scopeHint, buildingPrefix){
+  if(!shortCode) return '';
+  var bPref=String(buildingPrefix||'A').trim().toUpperCase();
+  if(scopeHint==='common'){
+    var cmKey='CM|'+shortCode;
+    if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[cmKey]) return cmKey;
+    if(typeof GA_ACCT_L3_BY_SHORT!=='undefined' && GA_ACCT_L3_BY_SHORT[shortCode]){
+      var cmScoped=GA_ACCT_L3_BY_SHORT[shortCode].filter(function(k){ return k.indexOf('CM|')===0; });
+      if(cmScoped.length===1) return cmScoped[0];
+    }
+  }
+  var bKey=bPref+'|'+shortCode;
+  if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[bKey]) return bKey;
+  if(typeof GA_ACCT_L3_BY_SHORT!=='undefined' && GA_ACCT_L3_BY_SHORT[shortCode]){
+    var keys=GA_ACCT_L3_BY_SHORT[shortCode];
+    var scoped=keys.filter(function(k){ return k.indexOf(bPref+'|')===0; });
+    if(scoped.length===1) return scoped[0];
+    var tmpl=keys.find(function(k){ return k.indexOf('A|')===0; });
+    if(tmpl) return tmpl;
+    if(keys.length===1) return keys[0];
+    return keys[0];
+  }
+  if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[shortCode]) return shortCode;
+  return '';
+}
+function gaAcctCloneForPrefix(entry, buildingPrefix){
+  if(!entry||entry.scope==='common') return entry;
+  var p=String(buildingPrefix||'A').trim().toUpperCase();
+  if(!p||p==='A'||p===(entry.prefix||'A')) return entry;
+  var c=JSON.parse(JSON.stringify(entry));
+  c.prefix=p;
+  c.masterKey=p+'|'+entry.shortCode;
+  c.cfL1Label='Building '+p+' · '+(entry.l1Name||'');
+  c.plL1Label='Building '+p+' · '+(entry.l1Name||'');
+  return c;
+}
+function gaAcctEntryByShortCode(shortCode, scopeHint, buildingPrefix){
+  var mk=resolveMasterKeyFromShortCode(shortCode, scopeHint, buildingPrefix);
+  if(mk && typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[mk]){
+    var e=GA_ACCT_L3_BY_CODE[mk];
+    if(scopeHint!=='common' && buildingPrefix && e.scope==='building') return gaAcctCloneForPrefix(e, buildingPrefix);
+    return e;
+  }
+  return null;
+}
+var GA_BUILDING_PREFIX_MAP_KEY='ga_v1_building_prefix_map';
+function loadBuildingPrefixMap(){
+  try{ return JSON.parse(localStorage.getItem(GA_BUILDING_PREFIX_MAP_KEY)||'{}'); }catch(e){ return {}; }
+}
+function saveBuildingPrefixMap(map){
+  try{ localStorage.setItem(GA_BUILDING_PREFIX_MAP_KEY, JSON.stringify(map||{})); }catch(e){}
+}
+function availableBuildingPrefixes(){
+  if(typeof GA_ACCT_BUILDING_PREFIXES!=='undefined' && GA_ACCT_BUILDING_PREFIXES && GA_ACCT_BUILDING_PREFIXES.length)
+    return GA_ACCT_BUILDING_PREFIXES.filter(function(p){ return p!=='CM'; });
+  return 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+}
+function inferAcctPrefixFromBuildingName(buildingName){
+  var n=String(buildingName||'').trim();
+  if(!n||n==='Unassigned') return '';
+  var m=n.match(/\b(?:tower|wing|block|building)\s*([A-Z])\b/i)||n.match(/^([A-Z])$/i)||n.match(/\b([A-Z])\s*$/);
+  if(m&&m[1]) return String(m[1]).toUpperCase();
+  return '';
+}
+function assignBuildingPrefix(buildingName){
+  var b=String(buildingName||'').trim();
+  if(!b||b==='Unassigned') return 'A';
+  var map=loadBuildingPrefixMap();
+  if(map[b]) return String(map[b]).toUpperCase();
+  var inferred=inferAcctPrefixFromBuildingName(b);
+  if(inferred){ map[b]=inferred; saveBuildingPrefixMap(map); return inferred; }
+  var pool=availableBuildingPrefixes();
+  var used={};
+  Object.keys(map).forEach(function(k){ if(map[k]) used[map[k]]=1; });
+  (PROJS||[]).forEach(function(p){
+    if(p&&p.acctPrefix) used[String(p.acctPrefix).toUpperCase()]=1;
+    var cfg=getCF(p.id)||{};
+    if(cfg.acctPrefix) used[String(cfg.acctPrefix).toUpperCase()]=1;
+  });
+  for(var i=0;i<pool.length;i++){
+    if(!used[pool[i]]){ map[b]=pool[i]; saveBuildingPrefixMap(map); return pool[i]; }
+  }
+  return 'A';
+}
+function getAcctPrefixForPid(pid){
+  var p=(PROJS||[]).find(function(x){ return x&&x.id===pid; })||null;
+  var cfg=pid?getCF(pid):{};
+  if(cfg&&cfg.acctPrefix) return String(cfg.acctPrefix).trim().toUpperCase();
+  if(p&&p.acctPrefix) return String(p.acctPrefix).trim().toUpperCase();
+  var h=getProjectHierarchy(pid);
+  return assignBuildingPrefix(h.building);
+}
+function inferAcctScopeFromText(fullText, costCentre){
+  var t=(String(fullText||'')+' '+String(costCentre||'')).toUpperCase();
+  if(/\bCM\b|COMMON COST|SHOW FLAT|SALES OFFICE|SITE OFFICE|MARKETING COST/.test(t)) return 'common';
+  return 'building';
+}
+function hierarchyBreadcrumbHtml(pid){
+  var h=getProjectHierarchy(pid);
+  var pref=getAcctPrefixForPid(pid);
+  var parts=[h.projectGroup,h.phase,h.building].filter(function(x){ return x&&x!=='Unassigned'; });
+  if(!parts.length) return '';
+  var s=parts.map(function(x){ return escHtml(x); }).join(' <span style="opacity:.45">›</span> ');
+  if(pref) s+=' <span style="font-size:9px;background:#e0e7ff;color:#3730a3;padding:1px 6px;border-radius:999px;font-weight:700">Chart '+escHtml(pref)+'</span>';
+  return s;
+}
+function lookupCommonMasterByKeywords(text){
+  var l=String(text||'').toLowerCase();
+  if(/salary retention/.test(l)) return gaAcctEntryByShortCode('R3-1','common');
+  if(/vendor retention|retention money|retention payable/.test(l)) return gaAcctEntryByShortCode('R3-2','common');
+  if(/creditor payable|sundry creditor|creditors payable/.test(l)) return gaAcctEntryByShortCode('W1-1','common');
+  if(/salary payable/.test(l)) return gaAcctEntryByShortCode('W2-2','common');
+  if(/gst payable/.test(l)) return gaAcctEntryByShortCode('W4-1','common');
+  if(/tds payable/.test(l)) return gaAcctEntryByShortCode('W4-2','common');
+  return null;
+}
+function isPayablesOrRetentionLine(a){
+  if(!a) return false;
+  var lbl=String(a.gaL1||a.plL1||'').toLowerCase();
+  if(lbl.indexOf('payable')>=0||lbl.indexOf('retention')>=0||lbl.indexOf('creditor')>=0) return true;
+  if(a.masterKey && typeof GA_ACCT_L3_BY_CODE!=='undefined'){
+    var g=GA_ACCT_L3_BY_CODE[a.masterKey];
+    if(g&&(g.l1==='R'||g.l1==='W'||String(g.l1Name||'').toLowerCase().indexOf('payable')>=0)) return true;
+  }
+  var blob=((a.party||'')+' '+(a.note||'')).toLowerCase();
+  return /retention|creditor|payable/.test(blob);
+}
+function indianFYStartYear(forDate){
+  var d=forDate?new Date(forDate):new Date();
+  if(isNaN(d.getTime())) d=new Date();
+  var y=d.getFullYear(), m=d.getMonth()+1;
+  return m>=4?y:y-1;
+}
+function indianFYStartMonthKey(forDate){
+  return indianFYStartYear(forDate)+'-04';
+}
+function indianFYEndMonthKey(forDate){
+  return (indianFYStartYear(forDate)+1)+'-03';
+}
+function plPeriodBounds(mode){
+  var now=new Date();
+  var y=now.getFullYear(), m=String(now.getMonth()+1).padStart(2,'0');
+  var curMo=y+'-'+m;
+  if(mode==='month') return {from:curMo, to:curMo, label:'This month ('+curMo+')'};
+  if(mode==='fy'){
+    var fy0=indianFYStartMonthKey(now), fy1=indianFYEndMonthKey(now);
+    return {from:fy0, to:fy1, label:'Full FY '+indianFYStartYear(now)+'–'+(indianFYStartYear(now)+1)+' (Apr–Mar)'};
+  }
+  var fytd0=indianFYStartMonthKey(now);
+  return {from:fytd0, to:curMo, label:'FY YTD (from '+fytd0+')'};
 }
 function l1MapEmpty(cols){
   var o={}; (cols||[]).forEach(function(n){ o[n] = 0; }); return o;
@@ -253,7 +439,15 @@ function l1InflowFromRowVals(r){
   var cols = CF_INFLOW_L1_COLS, m = l1MapEmpty(cols);
   cols.forEach(function(n){
     var v=0;
-    if(n==='Sales Revenue') v=r.salesRev||0;
+    if(cfColNameMatches(n,['Sales Revenue'])) v=r.salesRev||0;
+    else if(cfColNameMatches(n,['Equity Infusion','Promoter Funding'])) v=r.equityInf||0;
+    else if(cfColNameMatches(n,['Investor Funding'])) v=r.invFunding||0;
+    else if(cfColNameMatches(n,['Unsecured Loan'])) v=r.ulInflow||0;
+    else if(cfColNameMatches(n,['Customer UL'])) v=r.custUL||0;
+    else if(cfColNameMatches(n,['Customer Collections'])) v=(r.custColl||0) + (cols.indexOf('Customer UL') >= 0 ? 0 : (r.custUL||0));
+    else if(cfColNameMatches(n,['Other Inflow','Other Income'])) v=r.otherIn||0;
+    else if(cfColNameMatches(n,['Financial Institution Funding'])) v=0;
+    else if(n==='Sales Revenue') v=r.salesRev||0;
     else if(n==='Equity Infusion' || n==='Promoter Funding') v=r.equityInf||0;
     else if(n==='Investor Funding') v=r.invFunding||0;
     else if(n==='Unsecured Loan') v=r.ulInflow||0;
@@ -274,7 +468,18 @@ function l1OutflowFromRowVals(r){
   var debtSvc = (r.intPaid||0) + (r.principalPaid||0);
   cols.forEach(function(n){
     var v=0;
-    if(n==='Project Acquisition') v= usePaRollupOnly ? pa : 0;
+    if(cfColNameMatches(n,['Project Acquisition'])) v= usePaRollupOnly ? pa : 0;
+    else if(cfColNameMatches(n,['Land'])) v= usePaRollupOnly ? 0 : (r.land||0);
+    else if(cfColNameMatches(n,['NOC'])) v= usePaRollupOnly ? 0 : (r.noc||0);
+    else if(cfColNameMatches(n,['Consultant'])) v= usePaRollupOnly ? 0 : (r.consultant||0);
+    else if(cfColNameMatches(n,['Regulatory & Consulting'])) v= r.regulatoryConsulting||0;
+    else if(cfColNameMatches(n,['Construction Cost','Construction','Show Flat','Sales Office'])) v= (r.construction||0) + (cfColNameMatches(n,['Contingency']) ? 0 : (n.indexOf('Contingency')<0 ? (r.contingency||0) : 0));
+    else if(cfColNameMatches(n,['Contingency'])) v= r.contingency||0;
+    else if(cfColNameMatches(n,['Marketing'])) v=r.marketing||0;
+    else if(cfColNameMatches(n,['G&A','GA DM','G&A Cost'])) v= r.ga||0;
+    else if(cfColNameMatches(n,['Interest Paid','Interest & Panelty'])) v= n.indexOf('Principal')>=0 ? 0 : (r.intPaid||0);
+    else if(cfColNameMatches(n,['Principal Repaid'])) v= r.principalPaid||0;
+    else if(n==='Project Acquisition') v= usePaRollupOnly ? pa : 0;
     else if(n==='Land' || n==='NOC' || n==='Consultant') v= n==='Land' ? (r.land||0) : (n==='NOC' ? (r.noc||0) : (r.consultant||0));
     else if(n==='Regulatory & Consulting') v= r.regulatoryConsulting||0;
     else if(n==='Construction Cost' || n==='Construction') v= n==='Construction' ? (r.construction||0) : (r.construction||0) + (r.contingency||0);
@@ -305,8 +510,8 @@ function legacyCashflowCat1ToDisplayGaL1(cat1){
   if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE){
     Object.keys(GA_ACCT_L3_BY_CODE).forEach(function(k){
       var g=GA_ACCT_L3_BY_CODE[k];
-      if(!g||String(g.flow||'')!=='out'||String(g.legacyCat1||'')!==leg) return;
-      var nm=String(g.l1Name||'').trim();
+      if(!g||!g.cfApplicable||String(g.flow||'')!=='out'||String(g.legacyCat1||'')!==leg) return;
+      var nm=String(g.cfL1Label||g.l1Name||'').trim();
       if(!nm) return;
       if(!fb) fb=nm;
       if(cols.indexOf(nm)>=0) inCol=nm;
@@ -1156,7 +1361,7 @@ var TALLY_MAP = {
   'consultant':'Consultant','consultancy':'Consultant','professional fees':'Consultant','design fee':'Consultant','peer review':'Consultant',
   'legal opinion':'Consultant','due diligence':'Consultant','legal':'Consultant','landscape':'Consultant',
   // ── Construction & contractors (H/M/N/O) — long phrases before short tokens ──
-  'payment to contractor':'Construction','work order':'Construction','running account':'Construction','ra bill':'Construction','retention money':'Construction',
+  'payment to contractor':'Construction','work order':'Construction','running account':'Construction','ra bill':'Construction',
   'civil contractor':'Construction','labour contractor':'Construction','sub contractor':'Construction','subcontractor':'Construction',
   'steel reinforcement':'Construction','reinforcement steel':'Construction','rebar':'Construction','rmc':'Construction','ready mix concrete':'Construction',
   'shuttering':'Construction','formwork':'Construction','concrete pump':'Construction','tower crane':'Construction','crane hire':'Construction','crane rent':'Construction',
@@ -1199,13 +1404,15 @@ var TALLY_MAP = {
   'customer ul':'Customer UL','customer advance':'Customer UL','security deposit customer':'Customer UL',
   'other income':'Other Inflow','income tax refund':'Other Inflow','interest received':'Other Inflow','fd interest':'Other Inflow','miscellaneous income':'Other Inflow',
   'refund':'Other Inflow',
+  'salary retention':'Payables','vendor retention':'Payables','retention payable':'Payables',
+  'creditor payable':'Payables','sundry creditor':'Payables','creditors payable':'Payables',
 };
 
 /**
  * Tally ledgers that follow the GA chart often prefix the voucher line with the L3 code (e.g. "I3-2 Cement").
  * "C1-1-3 C302" → resolve by trimming trailing "-segments" until a workbook L3 key matches.
  */
-function lookupGAAccountingByLedgerName(ledgerName){
+function lookupGAAccountingByLedgerName(ledgerName, scopeHint, buildingPrefix){
   if(typeof GA_ACCT_L3_BY_CODE==='undefined'||!GA_ACCT_L3_BY_CODE) return null;
   var t=String(ledgerName||'').trim();
   if(!t) return null;
@@ -1213,6 +1420,12 @@ function lookupGAAccountingByLedgerName(ledgerName){
   var first=sp<0?t:t.slice(0,sp);
   var c=first;
   while(c){
+    var mk=resolveMasterKeyFromShortCode(c, scopeHint, buildingPrefix);
+    if(mk && GA_ACCT_L3_BY_CODE[mk]){
+      var e=GA_ACCT_L3_BY_CODE[mk];
+      if(scopeHint!=='common'&&buildingPrefix&&e.scope==='building') return gaAcctCloneForPrefix(e, buildingPrefix);
+      return e;
+    }
     if(GA_ACCT_L3_BY_CODE[c]) return GA_ACCT_L3_BY_CODE[c];
     var p=c.lastIndexOf('-');
     if(p<0) break;
@@ -1221,7 +1434,7 @@ function lookupGAAccountingByLedgerName(ledgerName){
   return null;
 }
 /** Try to read an L3 code at the start of a string (e.g. "K3-2 Reimbursement …") and walk parent codes. */
-function lookupGAAccountingByLeadingCodeToken(s){
+function lookupGAAccountingByLeadingCodeToken(s, scopeHint, buildingPrefix){
   if(typeof GA_ACCT_L3_BY_CODE==='undefined'||!GA_ACCT_L3_BY_CODE) return null;
   var t=String(s||'').trim();
   if(!t) return null;
@@ -1229,6 +1442,12 @@ function lookupGAAccountingByLeadingCodeToken(s){
   var first=(m&&m[1])?m[1]:(t.replace(/^[|\s/:]+/,'').split(/[\s|/:]+/)[0]||'');
   var c=first;
   while(c){
+    var mk=resolveMasterKeyFromShortCode(c, scopeHint, buildingPrefix);
+    if(mk && GA_ACCT_L3_BY_CODE[mk]){
+      var e=GA_ACCT_L3_BY_CODE[mk];
+      if(scopeHint!=='common'&&buildingPrefix&&e.scope==='building') return gaAcctCloneForPrefix(e, buildingPrefix);
+      return e;
+    }
     if(GA_ACCT_L3_BY_CODE[c]) return GA_ACCT_L3_BY_CODE[c];
     var p=c.lastIndexOf('-');
     if(p<0) break;
@@ -1237,17 +1456,23 @@ function lookupGAAccountingByLeadingCodeToken(s){
   return null;
 }
 /** Resolve GA chart row from party and/or full line text (party, narration, voucher text). */
-function resolveGAAccountingChartRow(fullText, party){
-  var g=lookupGAAccountingByLedgerName(party); if(g) return g;
-  g=lookupGAAccountingByLedgerName(String(party||'').trim().split(/[\s|:/]+/)[0]); if(g) return g;
-  g=lookupGAAccountingByLeadingCodeToken(String(party||'')); if(g) return g;
-  g=lookupGAAccountingByLeadingCodeToken(String(fullText||'')); if(g) return g;
+function resolveGAAccountingChartRow(fullText, party, scopeHint, buildingPrefix){
+  var g=lookupGAAccountingByLedgerName(party, scopeHint, buildingPrefix); if(g) return g;
+  g=lookupGAAccountingByLedgerName(String(party||'').trim().split(/[\s|:/]+/)[0], scopeHint, buildingPrefix); if(g) return g;
+  g=lookupGAAccountingByLeadingCodeToken(String(party||''), scopeHint, buildingPrefix); if(g) return g;
+  g=lookupGAAccountingByLeadingCodeToken(String(fullText||''), scopeHint, buildingPrefix); if(g) return g;
   var blob=String(party||'')+' '+String(fullText||'');
   var found=blob.match(/\b([A-Za-z]\d+(?:-\d+)*)\b/g);
   if(found){
     for(var i=0;i<found.length;i++){
       var tok=found[i], w=tok;
       while(w){
+        var mk=resolveMasterKeyFromShortCode(w, scopeHint, buildingPrefix);
+        if(mk && GA_ACCT_L3_BY_CODE[mk]){
+          var e=GA_ACCT_L3_BY_CODE[mk];
+          if(scopeHint!=='common'&&buildingPrefix&&e.scope==='building') return gaAcctCloneForPrefix(e, buildingPrefix);
+          return e;
+        }
         if(GA_ACCT_L3_BY_CODE[w]) return GA_ACCT_L3_BY_CODE[w];
         var p=w.lastIndexOf('-');
         if(p<0) break;
@@ -1258,25 +1483,49 @@ function resolveGAAccountingChartRow(fullText, party){
   return null;
 }
 /**
- * @returns {{cat1:string,gaL1:string,gaL2:string,gaL3:string,gaL3Name:string,flow?:string,tallyMapSrc:string}}
+ * @returns {{cat1:string,gaL1:string,gaL2:string,gaL3:string,gaL3Name:string,flow?:string,tallyMapSrc:string,masterKey?:string,gaScope?:string,plL1?:string}}
  */
-function classifyTallyLineFromText(fullText, party, rawAmount){
+function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildingPrefix){
   var text=String(fullText||'').toLowerCase();
-  var g=resolveGAAccountingChartRow(fullText, party);
+  var scope=scopeHint||inferAcctScopeFromText(fullText, '');
+  var bPref=buildingPrefix||'A';
+  var g=lookupCommonMasterByKeywords(text+' '+String(party||''));
+  if(!g) g=resolveGAAccountingChartRow(fullText, party, scope, bPref);
   if(g){
+    var gaL1=g.cfApplicable ? String(g.cfL1Label||g.l1Name||'') : String(g.plL1Label||g.l1Name||'');
+    var leg=g.legacyCat1;
+    if((g.l1==='R'||g.l1==='W'||String(g.l1Name||'').toLowerCase().indexOf('payable')>=0) && leg==='Construction') leg='Payables';
     return {
-      cat1:g.legacyCat1,
-      gaL1:g.l1Name||'',
+      cat1:leg,
+      gaL1:gaL1,
       gaL2:(g.l2Name||'')+' ('+(g.l2||'')+')',
-      gaL3:g.l3||'',
+      gaL3:g.shortCode||g.l3||'',
       gaL3Name:g.l3Name||'',
       flow:g.flow,
       tallyMapSrc:'l3-book',
+      masterKey:g.masterKey||'',
+      gaScope:g.scope||scope,
+      plL1:String(g.plL1Label||g.l1Name||''),
     };
   }
   var kw=guessTallyCategoryKey(fullText);
   if(!kw) kw=guessTallyCategoryKey(String(party||''));
   if(kw){
+    if(kw==='Payables'){
+      var pg=lookupCommonMasterByKeywords(text+' '+String(party||''));
+      if(pg) return {
+        cat1:'Payables',
+        gaL1:pg.cfL1Label||'Common · Payables',
+        gaL2:(pg.l2Name||'')+' ('+(pg.l2||'')+')',
+        gaL3:pg.shortCode||'',
+        gaL3Name:pg.l3Name||'',
+        flow:pg.flow,
+        tallyMapSrc:'keyword-v3',
+        masterKey:pg.masterKey||'',
+        gaScope:'common',
+        plL1:pg.plL1Label||'',
+      };
+    }
     return {cat1:kw,gaL1:legacyCashflowCat1ToDisplayGaL1(kw),gaL2:'',gaL3:'',gaL3Name:'',tallyMapSrc:'keyword'};
   }
   if(/customer|collection|booking|milestone|possession|receipt|sale|unit|flat|parking|amenity|demand|installment|allotment/i.test(text)){
@@ -1596,7 +1845,9 @@ function parseTallyXmlToLedgerLines(xmlText){
 function ledgerLineToActual(row){
   var party=row.party, note=row.note||'', cc=row.costCentre||'';
   var raw=parseFloat(row.rawAmount)||0;
-  var cl=classifyTallyLineFromText(party+' '+note, party, raw);
+  var scope=inferAcctScopeFromText(party+' '+note, cc);
+  var bPrefix=_curPid?getAcctPrefixForPid(_curPid):'A';
+  var cl=classifyTallyLineFromText(party+' '+note, party, raw, scope, bPrefix);
   var cat1=cl.cat1;
   var isInflow=INFLOW_CATS.indexOf(cat1)>=0;
   if(cl.flow==='in' && !isInflow) isInflow=true;
@@ -1606,6 +1857,7 @@ function ledgerLineToActual(row){
   return {
     id:uid(),date:row.date,party:party,cat1:cat1,note:note,amount:amt,costCentre:cc,source:'tally',tallyKey:row.tallyKey,
     gaL1:cl.gaL1,gaL2:cl.gaL2,gaL3:cl.gaL3,gaL3Name:cl.gaL3Name,tallyMapSrc:cl.tallyMapSrc,
+    masterKey:cl.masterKey||'',gaScope:cl.gaScope||'building',plL1:cl.plL1||'',
   };
 }
 function mergeTallyLinesIntoActuals(rows, opts){
@@ -1782,6 +2034,8 @@ var _gaTimeScale = 'month';
 var _debtLenderFilter = '__all__';
 var _postSalesDelayMo = 0; // scenario months (UI only, not persisted)
 var _cfForecastCollapsed = true;
+var _cfSubview = 'monthly'; // 'monthly' | 'payables'
+var _plPeriod = 'fytd'; // 'month' | 'fytd' | 'fy'
 var _expenseUIPanel = 'dashboard'; // 'dashboard' | 'insights' | 'narration' | 'gst-vendor' | 'schedule'
 var _expenseTreeCollapsedL1 = {}; // { l1Key: true }
 var _expenseTreeCollapsedL2 = {}; // { l1Key+'|'+l2Key: true }
@@ -2228,7 +2482,7 @@ function setCfFinanceTabsUnlocked(on){
 function cfTabIsPublicCashflow(t){ return t==='sales'||t==='capital'||t==='expenses'; }
 function cfTabRequiresFinanceUnlock(t){ return !cfTabIsPublicCashflow(t); }
 function promptCfFinanceTabsUnlock(){
-  var msg='Enter password to open Monthly Cashflow, Debt Service, and GA Consolidated.';
+  var msg='Enter password to open Monthly Cashflow, P&L, Debt Service, and GA Rollup.';
   var entered=window.prompt(msg,'');
   if(entered===null) return false;
   if(String(entered)!==String(getRemoveProjectPassword())){
@@ -5296,7 +5550,7 @@ function showTab(t){
   if(cfTabRequiresFinanceUnlock(t) && !isCfFinanceTabsUnlocked()){
     if(!promptCfFinanceTabsUnlock()) return;
   }
-  ['cashflow','sales','capital','expenses','debt','ga'].forEach(function(x){
+  ['cashflow','pl','sales','capital','expenses','debt','ga'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
@@ -5310,6 +5564,7 @@ function renderTab(t){
     return;
   }
   if(t==='cashflow') renderCashflow();
+  else if(t==='pl') renderPL();
   else if(t==='sales') renderSales();
   else if(t==='capital') renderCapital();
   else if(t==='expenses') renderExpenses();
@@ -5374,14 +5629,149 @@ function selectProj(pid){
 }
 
 // ══════════════════════════════════════════════════════════════
+// P&L TAB — Statement scaffold (V3 master PL L1)
+// ══════════════════════════════════════════════════════════════
+function plL1LabelForActualLine(a){
+  if(a.plL1) return a.plL1;
+  if(a.masterKey && typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[a.masterKey]){
+    var g=GA_ACCT_L3_BY_CODE[a.masterKey];
+    if(g.plApplicable) return g.plL1Label||g.l1Name||'';
+  }
+  var g2=gaAcctEntryByShortCode(a.gaL3||'', a.gaScope||'building', getAcctPrefixForPid(_curPid));
+  if(g2&&g2.plApplicable) return g2.plL1Label||g2.l1Name||'';
+  var cl=classifyTallyLineFromText((a.party||'')+' '+(a.note||''), a.party||'', a.amount||0, a.gaScope||'building');
+  return cl.plL1||cl.gaL1||'Unmapped';
+}
+function buildPLRollupFromActuals(actuals, opts){
+  opts=opts||{};
+  var fromMo=opts.fromMonth||'';
+  var toMo=opts.toMonth||'';
+  var byL1={}, byL3={}, unmapped=0, revenue=0, expense=0;
+  (actuals||[]).forEach(function(a){
+    if(!a||!a.date) return;
+    var mo=String(a.date).slice(0,7);
+    if(fromMo && mo<fromMo) return;
+    if(toMo && mo>toMo) return;
+    var lbl=plL1LabelForActualLine(a);
+    if(!lbl||lbl==='Unmapped'){ unmapped+=Math.abs(a.amount||0); return; }
+    var amt=a.amount||0;
+    if(!byL1[lbl]) byL1[lbl]=0;
+    byL1[lbl]+=amt;
+    var l3k=(a.gaL3||'')+'|'+(a.gaL3Name||a.party||'');
+    if(!byL3[l3k]) byL3[l3k]={label:a.gaL3Name||a.party||a.gaL3||'—', l1:lbl, amt:0};
+    byL3[l3k].amt+=amt;
+    if(amt>=0) revenue+=amt; else expense+=Math.abs(amt);
+  });
+  return {byL1:byL1, byL3:byL3, revenue:revenue, expense:expense, net:revenue-expense, unmapped:unmapped};
+}
+function renderPL(){
+  var el=document.getElementById('page-pl'); if(!el) return;
+  ensureGaL1CashflowCols();
+  var vis=getVisibleProjects();
+  if(!vis.length){ el.innerHTML=noProjectMsg(); return; }
+  if(!_curPid || !vis.some(function(p){return p.id===_curPid;})) _curPid=vis[0].id;
+  var cfg=getCF(_curPid);
+  var pb=plPeriodBounds(_plPeriod);
+  var rollup=buildPLRollupFromActuals(cfg.actuals||[], {fromMonth:pb.from, toMonth:pb.to});
+  var plBuilding=PL_L1_COLS_BUILDING||[];
+  var plCommon=PL_L1_COLS_COMMON||[];
+  var h='';
+  h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">&#128202; Profit &amp; Loss — '+escHtml(cfg.projName||'Project')+'</div>';
+  if(gaAcctIsV3()) h+='<span style="font-size:10px;background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:999px;font-weight:700">V3 master</span>';
+  h+='<div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
+  h+='<span style="font-size:10px;color:var(--muted);font-weight:700">PERIOD:</span>';
+  ['month','fytd','fy'].forEach(function(m){
+    var lbl=m==='month'?'This month':(m==='fytd'?'FY YTD':'Full FY');
+    h+='<button type="button" class="btn '+(_plPeriod===m?'btn-primary':'btn-outline')+'" data-action="pl-set-period" data-period="'+m+'" style="font-size:10px;padding:4px 10px">'+lbl+'</button>';
+  });
+  h+='</div></div>';
+  var crumb=hierarchyBreadcrumbHtml(_curPid);
+  if(crumb) h+='<div style="font-size:10px;color:var(--muted);margin:-4px 0 10px">'+crumb+'</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">'+escHtml(pb.label)+' · Indian FY Apr–Mar · actuals from Tally / manual</div>';
+  h+='<div class="kpi-row" style="margin-bottom:12px">';
+  h+='<div class="kpi"><div class="kpi-lbl">Revenue (inflows)</div><div class="kpi-val" style="color:var(--green)">'+crL(rollup.revenue,'₹0')+'</div></div>';
+  h+='<div class="kpi"><div class="kpi-lbl">Expenses (outflows)</div><div class="kpi-val" style="color:var(--red)">'+crL(rollup.expense,'₹0')+'</div></div>';
+  h+='<div class="kpi"><div class="kpi-lbl">Net (actuals)</div><div class="kpi-val">'+crL(rollup.net,'₹0')+'</div></div>';
+  if(rollup.unmapped>0) h+='<div class="kpi"><div class="kpi-lbl">Unmapped abs.</div><div class="kpi-val" style="color:var(--gold)">'+crL(rollup.unmapped,'₹0')+'</div></div>';
+  h+='</div>';
+  function plSection(title, labels){
+    h+='<div style="font-size:12px;font-weight:800;color:var(--purple-b);margin:14px 0 6px">'+escHtml(title)+'</div>';
+    h+='<table class="cf-table" style="margin-bottom:8px"><thead><tr><th>PL L1</th><th style="text-align:right">Amount</th></tr></thead><tbody>';
+    var any=false;
+    (labels||[]).forEach(function(lbl){
+      var v=rollup.byL1[lbl]||0;
+      if(!v) return;
+      any=true;
+      h+='<tr><td>'+escHtml(lbl)+'</td><td style="text-align:right;font-family:monospace">'+crL(v,'₹0')+'</td></tr>';
+    });
+    if(!any) h+='<tr><td colspan="2" style="color:var(--muted);font-size:11px">No mapped actuals in this section for the selected window.</td></tr>';
+    h+='</tbody></table>';
+  }
+  plSection('Building scope', plBuilding);
+  plSection('Common scope', plCommon);
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.45;margin-top:8px">P&amp;L uses <strong>PL-applicable</strong> rows from the V3 master. Cash-only lines (e.g. customer collections, tax paid) stay on the Cashflow tab. Journal vouchers without cash impact are excluded until a PL posting source is wired.</div>';
+  el.innerHTML=h;
+}
+
+// ══════════════════════════════════════════════════════════════
 // CASHFLOW TAB — The main monthly table
 // ══════════════════════════════════════════════════════════════
+function renderCashflowPayables(cfg){
+  var el=document.getElementById('page-cashflow'); if(!el||!cfg) return;
+  var lines=(cfg.actuals||[]).filter(isPayablesOrRetentionLine);
+  lines.sort(function(a,b){ return String(a.date||'').localeCompare(String(b.date||'')); });
+  var byCat={}, totalPaid=0, totalAbs=0;
+  lines.forEach(function(a){
+    var cat=String(a.gaL1||a.plL1||'Payables / Retention').trim();
+    if(!byCat[cat]) byCat[cat]={paid:0, count:0};
+    byCat[cat].paid+=(a.amount||0);
+    byCat[cat].count++;
+    totalPaid+=(a.amount||0);
+    totalAbs+=Math.abs(a.amount||0);
+  });
+  var h='';
+  h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">&#128203; Payables &amp; Retention — '+escHtml(cfg.projName||'Project')+'</div>';
+  h+='<span style="font-size:10px;background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:999px;font-weight:700">Timing view</span>';
+  h+='<div style="margin-left:auto;display:flex;gap:6px">';
+  h+='<button type="button" class="btn btn-outline" data-action="cf-set-subview" data-subview="monthly" style="font-size:10px;padding:4px 10px">&#8592; Monthly cashflow</button>';
+  h+='</div></div>';
+  var crumb=hierarchyBreadcrumbHtml(_curPid);
+  if(crumb) h+='<div style="font-size:10px;color:var(--muted);margin:-4px 0 10px">'+crumb+'</div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:10px">Separate from the monthly grid: <strong>Common · Payables</strong> (W — creditors, salary, statutory) and <strong>Retention</strong> (R3 — salary/vendor per V3 worksheet). Negative amounts = cash paid; positive = inflow/adjustment.</div>';
+  h+='<div class="kpi-row" style="margin-bottom:12px">';
+  h+='<div class="kpi"><div class="kpi-lbl">Lines</div><div class="kpi-val">'+lines.length+'</div></div>';
+  h+='<div class="kpi"><div class="kpi-lbl">Net cash (signed)</div><div class="kpi-val">'+crL(totalPaid,'₹0')+'</div></div>';
+  h+='<div class="kpi"><div class="kpi-lbl">Absolute movement</div><div class="kpi-val">'+crL(totalAbs,'₹0')+'</div></div>';
+  h+='</div>';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--purple-b);margin-bottom:6px">By category</div>';
+  h+='<table class="cf-table" style="margin-bottom:12px"><thead><tr><th>Category</th><th style="text-align:right">Lines</th><th style="text-align:right">Net paid</th></tr></thead><tbody>';
+  var cats=Object.keys(byCat).sort();
+  if(!cats.length) h+='<tr><td colspan="3" style="color:var(--muted);font-size:11px">No payables / retention lines in actuals yet. Map Tally ledgers to CM W (Payables) or CM R3 (Retention).</td></tr>';
+  cats.forEach(function(c){
+    h+='<tr><td>'+escHtml(c)+'</td><td style="text-align:right">'+byCat[c].count+'</td><td style="text-align:right;font-family:monospace">'+crL(byCat[c].paid,'₹0')+'</td></tr>';
+  });
+  h+='</tbody></table>';
+  h+='<div style="font-size:12px;font-weight:800;color:var(--purple-b);margin-bottom:6px">Detail ledger</div>';
+  h+='<div style="overflow:auto;max-height:52vh;border:1px solid var(--border);border-radius:8px"><table class="cf-table" style="margin:0"><thead><tr><th>Date</th><th>Party</th><th>Category</th><th>L3</th><th style="text-align:right">Amount</th></tr></thead><tbody>';
+  if(!lines.length) h+='<tr><td colspan="5" style="padding:12px;color:var(--muted);font-size:11px">—</td></tr>';
+  lines.forEach(function(a,i){
+    h+='<tr><td>'+escHtml(String(a.date||'').slice(0,10))+'</td><td>'+escHtml(a.party||'')+'</td><td>'+escHtml(a.gaL1||a.plL1||'')+'</td><td>'+escHtml(a.gaL3Name||a.gaL3||'')+'</td><td style="text-align:right;font-family:monospace">'+crL(a.amount||0,'₹0')+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  el.innerHTML=h;
+}
 function renderCashflow(){
   var el=document.getElementById('page-cashflow'); if(!el) return;
   var vis=getVisibleProjects();
   if(!vis.length){el.innerHTML=noProjectMsg();return;}
   if(!_curPid || (_curPid!=='__rollup__' && !vis.some(function(p){return p.id===_curPid;}))) _curPid=vis[0].id;
   var useRollup = vis.length>1;
+  if(_cfSubview==='payables' && !useRollup){
+    renderCashflowPayables(getCF(_curPid));
+    return;
+  }
   var cfg=useRollup?null:getCF(_curPid);
   var cfOnce=useRollup?buildGACashflow():buildCashflow(_curPid);
   var rawRows=filterCashflowRowsByVisibleYear(cfOnce);
@@ -5399,6 +5789,9 @@ function renderCashflow(){
   var cfTitle = useRollup?('📊 Monthly Cashflow — Rollup ('+vis.length+' selected projects)'):('📊 Monthly Cashflow — '+cfg.projName);
   h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">'+cfTitle+'</div>';
   h+='<div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">';
+  if(!useRollup){
+    h+='<button type="button" class="btn '+(_cfSubview==='payables'?'btn-primary':'btn-outline')+'" data-action="cf-set-subview" data-subview="payables" style="font-size:10px;padding:4px 10px">Payables &amp; timing</button>';
+  }
   h+='<button class="btn btn-green" data-action="add-trans">+ Add Transaction</button>';
   h+='<button class="btn btn-outline" data-action="import-tally" title="Tab-separated export from Tally, or voucher XML saved from Tally">⬆ Import Tally (CSV or XML)</button>';
   h+='<button class="btn btn-primary" data-action="tally-sync-modal" title="Requires Node bridge + Tally running">&#9889; Tally live</button>';
@@ -5406,6 +5799,10 @@ function renderCashflow(){
   h+='<button class="btn btn-outline" data-action="export-ppt">📊 Investor PPT</button>';
   h+='<button class="btn btn-outline" data-action="remove-proj-cf" style="color:var(--red-b);border-color:#fca5a5" title="Remove this project from the Cashflow workbook (and Mongo if server save is on)">Remove project</button>';
   h+='</div></div>';
+  if(!useRollup){
+    var crumb=hierarchyBreadcrumbHtml(_curPid);
+    if(crumb) h+='<div style="font-size:10px;color:var(--muted);margin:-4px 0 10px">'+crumb+'</div>';
+  }
   h+='<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:-4px 0 10px">';
   h+='<span style="font-size:10px;color:var(--muted);font-weight:700">TIME:</span>';
   h+='<button type="button" class="btn '+(_cfTimeScale==='month'?'btn-primary':'btn-outline')+'" data-action="cf-set-scale" data-scale="month" style="font-size:10px;padding:4px 10px">Monthly</button>';
@@ -8396,31 +8793,53 @@ function showAddProjModal(){
     +'</div></div></div>');
 }
 function showHierarchyModal(){
+  var prefixes=availableBuildingPrefixes();
   var rows=(PROJS||[]).map(function(p,i){
+    var pref=p.acctPrefix||getAcctPrefixForPid(p.id);
+    var opts=prefixes.map(function(pr){
+      return '<option value="'+escAttr(pr)+'"'+(pr===pref?' selected':'')+'>'+escHtml(pr)+'</option>';
+    }).join('');
     return '<tr style="border-bottom:1px solid var(--border)">'
       +'<td style="padding:6px 8px;font-size:10px">'+escHtml(p.name||p.id||('Project '+(i+1)))+'</td>'
       +'<td style="padding:4px 6px"><input type="text" class="cap-inp" data-hk="projectGroup" data-idx="'+i+'" value="'+escAttr(p.projectGroup||inferProjectGroupFromProject(p)||'')+'" placeholder="Project group"/></td>'
       +'<td style="padding:4px 6px"><input type="text" class="cap-inp" data-hk="phase" data-idx="'+i+'" value="'+escAttr(p.phase||inferPhaseFromProject(p)||'')+'" placeholder="Phase"/></td>'
-      +'<td style="padding:4px 6px"><input type="text" class="cap-inp" data-hk="building" data-idx="'+i+'" value="'+escAttr(p.building||inferBuildingFromProject(p)||'')+'" placeholder="Building/Tower"/></td>'
+      +'<td style="padding:4px 6px"><input type="text" class="cap-inp" data-hk="building" data-idx="'+i+'" value="'+escAttr(p.building||inferBuildingFromProject(p)||'')+'" placeholder="Building name"/></td>'
+      +'<td style="padding:4px 6px"><select class="cap-inp" data-hk="acctPrefix" data-idx="'+i+'" title="V3 chart prefix for this building">'+opts+'</select></td>'
       +'</tr>';
   }).join('');
-  openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:900px;max-width:96vw">'
+  openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:960px;max-width:96vw">'
     +'<h3>Project Hierarchy Mapping</h3>'
-    +'<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Edit <strong>Project Group</strong>, <strong>Phase</strong> and <strong>Building</strong> for existing projects. This immediately powers hierarchy filters and rollups in this app.</div>'
-    +'<div style="overflow:auto;border:1px solid var(--border);border-radius:8px;max-height:62vh"><table style="width:100%;border-collapse:collapse;font-size:10px;min-width:760px">'
-    +'<thead><tr style="background:var(--blue-l)"><th style="padding:6px 8px;text-align:left">Project</th><th style="padding:6px 8px;text-align:left">Project Group</th><th style="padding:6px 8px;text-align:left">Phase</th><th style="padding:6px 8px;text-align:left">Building</th></tr></thead>'
-    +'<tbody>'+(rows||'<tr><td colspan="4" style="padding:16px;text-align:center;color:var(--muted)">No projects available.</td></tr>')+'</tbody></table></div>'
+    +'<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Roll-up: <strong>Project Group</strong> → <strong>Phase</strong> → <strong>Building</strong>. Each building uses a V3 chart prefix (A–Z) for its own subset of the master; <strong>CM</strong> is shared common.</div>'
+    +'<div style="overflow:auto;border:1px solid var(--border);border-radius:8px;max-height:62vh"><table style="width:100%;border-collapse:collapse;font-size:10px;min-width:860px">'
+    +'<thead><tr style="background:var(--blue-l)"><th style="padding:6px 8px;text-align:left">Project</th><th style="padding:6px 8px;text-align:left">Project Group</th><th style="padding:6px 8px;text-align:left">Phase</th><th style="padding:6px 8px;text-align:left">Building</th><th style="padding:6px 8px;text-align:left">Chart prefix</th></tr></thead>'
+    +'<tbody>'+(rows||'<tr><td colspan="5" style="padding:16px;text-align:center;color:var(--muted)">No projects available.</td></tr>')+'</tbody></table></div>'
     +'<div style="display:flex;gap:8px;margin-top:12px"><button class="btn btn-primary" data-action="save-hierarchy">Save hierarchy</button><button class="btn btn-outline" data-action="close-modal">Cancel</button></div>'
     +'</div></div>');
 }
 function saveHierarchyFromModal(){
   var root=document.querySelector('#modal-root');
   if(!root) return;
-  root.querySelectorAll('input[data-hk]').forEach(function(inp){
+  var map=loadBuildingPrefixMap();
+  root.querySelectorAll('input[data-hk],select[data-hk]').forEach(function(inp){
     var i=parseInt(inp.dataset.idx,10), k=inp.dataset.hk||'';
     if(!PROJS[i]||!k) return;
-    PROJS[i][k]=String(inp.value||'').trim();
+    var val=String(inp.value||'').trim();
+    PROJS[i][k]=val;
+    if(k==='acctPrefix' && val){
+      var b=String(PROJS[i].building||inferBuildingFromProject(PROJS[i])||'').trim();
+      if(b&&b!=='Unassigned') map[b]=val.toUpperCase();
+      var cfg=getCF(PROJS[i].id);
+      if(cfg) cfg.acctPrefix=val.toUpperCase();
+    }
+    if(k==='building' && val){
+      var pref=PROJS[i].acctPrefix||assignBuildingPrefix(val);
+      PROJS[i].acctPrefix=pref;
+      map[val]=pref;
+      var cfg2=getCF(PROJS[i].id);
+      if(cfg2) cfg2.acctPrefix=pref;
+    }
   });
+  saveBuildingPrefixMap(map);
   saveAll();
   buildPhaseSelect();
   buildBuildingSelect();
@@ -8629,7 +9048,9 @@ function importExpenseSchedule(input){
         var g=null;
         if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE){
           var t3=catRaw.trim();
-          g=GA_ACCT_L3_BY_CODE[t3]||lookupGAAccountingByLedgerName(t3.split(/[\s|]+/)[0]);
+          var bPref=_curPid?getAcctPrefixForPid(_curPid):'A';
+          var mk=resolveMasterKeyFromShortCode(t3, 'building', bPref)||resolveMasterKeyFromShortCode(t3.split(/[\s|]+/)[0], 'building', bPref);
+          g=(mk&&GA_ACCT_L3_BY_CODE[mk])||lookupGAAccountingByLedgerName(t3, 'building', bPref)||lookupGAAccountingByLedgerName(t3.split(/[\s|]+/)[0], 'building', bPref);
         }
         if(g){
           var sk=legacyCat1ToExpenseScheduleKey(g.legacyCat1);
@@ -10081,6 +10502,8 @@ document.addEventListener('click',function(e){
   }
   if(a==='toggle-sales-q')        { var qk2=el.dataset.qk; if(qk2)_salesQCollapsed[qk2]=!_salesQCollapsed[qk2]; renderSales(); return; }
   if(a==='cf-set-scale')          { _cfTimeScale=el.dataset.scale||'month'; renderCashflow(); return; }
+  if(a==='cf-set-subview')        { _cfSubview=el.dataset.subview||'monthly'; renderCashflow(); return; }
+  if(a==='pl-set-period')         { _plPeriod=el.dataset.period||'fytd'; renderPL(); return; }
   if(a==='ga-set-scale')          { _gaTimeScale=el.dataset.scale||'month'; renderGA(); return; }
   if(a==='forecast-reset'){
     if(!cfg) return;
