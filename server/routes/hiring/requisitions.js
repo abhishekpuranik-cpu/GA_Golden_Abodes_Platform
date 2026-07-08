@@ -16,7 +16,7 @@ import {
 import { validateBody } from '../../lib/hiring/validateBody.js';
 import { metaviewSourceLimiter, metaviewSyncLimiter } from '../../lib/hiring/rateLimit.js';
 import { reqAttachmentUpload } from '../../lib/hiring/reqUpload.js';
-import { markRequisitionFulfilled } from '../../lib/hiring/fulfillment.js';
+import { markRequisitionFulfilled, maybeAutoFulfillRequisition } from '../../lib/hiring/fulfillment.js';
 
 const router = Router();
 
