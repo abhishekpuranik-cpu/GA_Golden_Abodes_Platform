@@ -207,7 +207,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 <div id="modal-root"></div>
 
 <!-- Static file inputs -->
-<input type="file" id="tally-file-input" accept=".csv,.tsv,.txt,.xml,.xlsx,.xls,text/xml" style="display:none" onchange="importTallyFile(this)"/>
+<input type="file" id="tally-file-input" accept=".csv,.tsv,.txt,.xml,.xlsx,.xls,text/xml" multiple style="display:none" onchange="importTallyFile(this)"/>
 <input type="file" id="cap-template-input" accept=".xlsx,.xls" style="display:none" onchange="importCapitalTemplate(this)"/>
 <input type="file" id="cf-import-input"   accept=".json" style="display:none"/>
 <input type="file" id="sales-milestones-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importMilestoneTemplate(this)"/>
@@ -224,7 +224,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 51;
+var CF_VERSION = 52;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
@@ -1764,6 +1764,69 @@ function getTallySyncForPull(){
   };
 }
 function tallyDd(iso){ return String(iso||'').replace(/\D/g,'').slice(0,8); }
+/** Tally exports on Windows are often UTF-16 LE — decode upload bytes reliably. */
+function decodeTallyUploadArrayBuffer(buf){
+  if(!buf) return '';
+  var u8=buf instanceof Uint8Array?buf:new Uint8Array(buf);
+  if(u8.length>=2 && u8[0]===0xFF && u8[1]===0xFE) return new TextDecoder('utf-16le').decode(u8);
+  if(u8.length>=2 && u8[0]===0xFE && u8[1]===0xFF) return new TextDecoder('utf-16be').decode(u8);
+  return new TextDecoder('utf-8').decode(u8);
+}
+function isTallyBankOrCashLedger(ledgerName){
+  var p=String(ledgerName||'').toLowerCase();
+  if(!p) return false;
+  if(/\bbank\b|a\/c[\s\-]|account\s*no|current\s*a\/c|savings\s*a\/c/i.test(p)) return true;
+  if(/\bicici\b|\bhdfc\b|\baxis\b|\bsbi\b|\bkotak\b|\byes bank\b|\bbob\b|\bidbi\b/i.test(p)) return true;
+  if(/^cash$|^petty cash$|^cash in hand$/i.test(p.trim())) return true;
+  return false;
+}
+function tallyCostCentreFromEntryStr(entInner){
+  if(!entInner) return '';
+  var cc=tallyXmlSimpleTag(entInner,'COSTCENTRENAME');
+  if(cc) return cc;
+  var cca=tallyXmlListInners(entInner,'COSTCENTREALLOCATIONS.LIST');
+  for(var i=0;i<cca.length;i++){
+    var nm=tallyXmlSimpleTag(cca[i],'NAME');
+    if(nm && !isTallyBankOrCashLedger(nm)) return nm;
+  }
+  var cat=tallyXmlListInners(entInner,'CATEGORYALLOCATIONS.LIST');
+  for(var j=0;j<cat.length;j++){
+    var sub=tallyXmlListInners(cat[j],'COSTCENTREALLOCATIONS.LIST');
+    for(var k=0;k<sub.length;k++){
+      nm=tallyXmlSimpleTag(sub[k],'NAME');
+      if(nm && !isTallyBankOrCashLedger(nm)) return nm;
+    }
+  }
+  var bills=tallyXmlListInners(entInner,'BILLALLOCATIONS.LIST');
+  if(bills.length) return tallyXmlSimpleTag(bills[0],'NAME')||tallyXmlSimpleTag(bills[0],'COSTCENTRENAME')||'';
+  return '';
+}
+function tallyCostCentreFromEntryDom(ent){
+  if(!ent) return '';
+  function txt(el, tag){
+    if(!el) return '';
+    var n=el.getElementsByTagName(tag)[0];
+    return n?String(n.textContent||'').trim():'';
+  }
+  var cc=txt(ent,'COSTCENTRENAME');
+  if(cc) return cc;
+  var cca=ent.getElementsByTagName('COSTCENTREALLOCATIONS.LIST');
+  for(var i=0;i<cca.length;i++){
+    var nm=txt(cca[i],'NAME');
+    if(nm && !isTallyBankOrCashLedger(nm)) return nm;
+  }
+  var cat=ent.getElementsByTagName('CATEGORYALLOCATIONS.LIST');
+  for(var j=0;j<cat.length;j++){
+    var sub=cat[j].getElementsByTagName('COSTCENTREALLOCATIONS.LIST');
+    for(var k=0;k<sub.length;k++){
+      nm=txt(sub[k],'NAME');
+      if(nm && !isTallyBankOrCashLedger(nm)) return nm;
+    }
+  }
+  var bill=ent.getElementsByTagName('BILLALLOCATIONS.LIST')[0];
+  if(bill) return txt(bill,'NAME')||txt(bill,'COSTCENTRENAME')||'';
+  return '';
+}
 /** XML 1.0 disallows most C0 controls; Tally data sometimes contains them and DOMParser fails. */
 function stripIllegalXmlCharacters(s){
   if(!s||typeof s!=='string') return '';
@@ -1774,6 +1837,19 @@ function sanitizeTallyXmlForDomParser(xmlText){
   if(!xmlText||typeof xmlText!=='string') return '';
   var s=stripIllegalXmlCharacters(xmlText.replace(/^\uFEFF/,''));
   return s.replace(/&(?!(?:amp|apos|quot|lt|gt);|#(?:[0-9]+|x[0-9A-Fa-f]+);|[a-zA-Z][a-zA-Z0-9]*;)/gi,'&amp;');
+}
+function normalizeTallyUploadText(text){
+  if(!text||typeof text!=='string') return '';
+  var s=text.replace(/^\uFEFF/,'');
+  if(s.indexOf('<')>=0 && s.indexOf('>')>=0) return s;
+  if(s.length>4 && s.charCodeAt(0)<32 && s.charCodeAt(1)===0 && s.charCodeAt(2)===60){
+    try{
+      var codes=[];
+      for(var i=0;i<s.length;i+=2) codes.push(s.charCodeAt(i));
+      return String.fromCharCode.apply(null, codes);
+    }catch(e){}
+  }
+  return s;
 }
 function tallyDecodeXmlText(s){
   return String(s||'')
@@ -1933,15 +2009,11 @@ function parseTallyXmlToLedgerLinesRegex(safeXml){
       var ent=ents[ei];
       var party=tallyXmlSimpleTag(ent,'LEDGERNAME');
       if(!party) continue;
+      if(isTallyBankOrCashLedger(party)) continue;
       var amtStr=tallyLedgerPrimaryAmountStr(ent);
       var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
-      var cc=tallyXmlSimpleTag(ent,'COSTCENTRENAME')||tallyXmlSimpleTag(vb,'COSTCENTRENAME');
-      if(!cc){
-        var bills=tallyXmlListInners(ent,'BILLALLOCATIONS.LIST');
-        if(bills.length){
-          cc=tallyXmlSimpleTag(bills[0],'NAME')||tallyXmlSimpleTag(bills[0],'COSTCENTRENAME');
-        }
-      }
+      if(!amt) continue;
+      var cc=tallyCostCentreFromEntryStr(ent)||tallyXmlSimpleTag(vb,'COSTCENTRENAME');
       var narr=tallyXmlSimpleTag(ent,'NARRATION')||tallyXmlSimpleTag(vb,'NARRATION');
       var tk='tally|'+date+'|'+vno+'|'+party+'|'+amtStr+'|'+(cc||'');
       rows.push({date:date,party:party,rawAmount:amt,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,tallyKey:tk});
@@ -1953,7 +2025,7 @@ function parseTallyXmlToLedgerLinesRegex(safeXml){
 function parseTallyXmlToLedgerLines(xmlText){
   var rows=[];
   if(!xmlText||typeof xmlText!=='string') return rows;
-  var trimmed=xmlText.trim();
+  var trimmed=normalizeTallyUploadText(String(xmlText||'').trim());
   if(trimmed.charAt(0)==='{'){
     try{
       var er=JSON.parse(trimmed);
@@ -1961,7 +2033,7 @@ function parseTallyXmlToLedgerLines(xmlText){
       if(er.ok===false) return {error:String(er.error||er.message||'Bridge returned JSON instead of XML.')};
     }catch(e){}
   }
-  var safe=sanitizeTallyXmlForDomParser(xmlText);
+  var safe=sanitizeTallyXmlForDomParser(trimmed);
   var lem=/<LINEERROR>([\s\S]*?)<\/LINEERROR>/i.exec(safe);
   if(lem){
     var rawL=lem[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1').replace(/<[^>]+>/g,'').trim();
@@ -2003,13 +2075,11 @@ function parseTallyXmlToLedgerLines(xmlText){
       var ent=ents[ei];
       var party=txt(ent,'LEDGERNAME');
       if(!party) continue;
+      if(isTallyBankOrCashLedger(party)) continue;
       var amtStr=tallyLedgerPrimaryAmountDom(ent)||txt(ent,'AMOUNT');
       var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
-      var cc=txt(ent,'COSTCENTRENAME')||txt(vch,'COSTCENTRENAME');
-      if(!cc){
-        var bill=ent.getElementsByTagName('BILLALLOCATIONS.LIST')[0];
-        if(bill) cc=txt(bill,'NAME')||txt(bill,'COSTCENTRENAME');
-      }
+      if(!amt) continue;
+      var cc=tallyCostCentreFromEntryDom(ent)||txt(vch,'COSTCENTRENAME');
       var narr=txt(ent,'NARRATION')||txt(vch,'NARRATION');
       var tk='tally|'+date+'|'+vno+'|'+party+'|'+amtStr+'|'+(cc||'');
       rows.push({date:date,party:party,rawAmount:amt,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,tallyKey:tk});
@@ -2079,7 +2149,7 @@ function showTallySyncModal(){
   openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
     +'<h3>Tally Prime — live sync (local)</h3>'
     +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> with XML access and the <strong>Node bridge</strong> (<code style="font-size:10px">node tally_bridge.mjs</code>). Voucher lines go into the selected project’s <strong>actuals</strong> (same mapping as Import Tally CSV / XML).</p>'
-    +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Live pull only one day?</strong> In Tally, export the report (e.g. Day Book after <strong>Alt+F2</strong> date range) to <strong>XML</strong>, then on Monthly Cashflow use <strong>Import Tally (CSV or XML)</strong> and choose that file — the bridge cannot change Tally’s on-screen period.</p>'
+    +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Live pull only one day?</strong> In Tally, export the report (e.g. Day Book after <strong>Alt+F2</strong> date range) to <strong>XML</strong>, then on Monthly Cashflow use <strong>Import Tally (CSV or XML)</strong> — you can select <strong>multiple XML files</strong> (e.g. Payment + Receipts) in one go.</p>'
     +perProjNote
     +'<div class="field"><label>Bridge URL (shared)</label><input id="tset-bridge" type="text" value="'+escAttr(s.bridgeUrl)+'" placeholder="http://127.0.0.1:34876"/></div>'
     +'<div class="field"><label>Tally report ID (export, shared)</label><input id="tset-report" type="text" value="'+escAttr(s.reportId)+'" placeholder="Voucher Register"/></div>'
@@ -6039,7 +6109,7 @@ function renderCashflow(){
     h+='<button type="button" class="btn '+(_cfSubview==='payables'?'btn-primary':'btn-outline')+'" data-action="cf-set-subview" data-subview="payables" style="font-size:10px;padding:4px 10px">Payables &amp; timing</button>';
   }
   h+='<button class="btn btn-green" data-action="add-trans">+ Add Transaction</button>';
-  h+='<button class="btn btn-outline" data-action="import-tally" title="Tab-separated export from Tally, or voucher XML saved from Tally">⬆ Import Tally (CSV or XML)</button>';
+  h+='<button class="btn btn-outline" data-action="import-tally" title="Tab-separated export from Tally, or one or more voucher XML files (Payment + Receipts together)">⬆ Import Tally (CSV or XML)</button>';
   h+='<button class="btn btn-primary" data-action="tally-sync-modal" title="Requires Node bridge + Tally running">&#9889; Tally live</button>';
   h+='<button class="btn btn-outline" data-action="export-cf">⬇ Export TSV</button>';
   h+='<button class="btn btn-outline" data-action="export-ppt">📊 Investor PPT</button>';
@@ -7892,7 +7962,7 @@ function renderExpenses(){
   h+='<div style="font-size:10px;color:var(--muted);margin-bottom:12px">Schedule all outflows here — they feed into Cashflow automatically. Use <strong>Import Tally (CSV or XML)</strong> or <strong>Tally live sync</strong> to populate actuals.</div>';
   h+='<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px">';
   h+='<button class="btn btn-primary" data-action="tally-sync-modal" style="font-size:11px">&#9889; Tally live sync</button>';
-  h+='<button class="btn btn-outline" data-action="import-tally" title="Tab-separated export from Tally, or voucher XML saved from Tally">⬆ Import Tally (CSV or XML)</button>';
+  h+='<button class="btn btn-outline" data-action="import-tally" title="Tab-separated export from Tally, or one or more voucher XML files (Payment + Receipts together)">⬆ Import Tally (CSV or XML)</button>';
   h+='<button class="btn btn-outline" data-action="dl-expense-template">⬇ Download Template</button>';
   h+='<button class="btn btn-outline" data-action="ul-expense-schedule">⬆ Upload expense XLSX</button>';
   h+='</div>';
@@ -9121,42 +9191,95 @@ function saveManualProj(){
 // TALLY IMPORT
 // ══════════════════════════════════════════════════════════════
 /** Merge voucher XML (file from Tally export) into actuals — same parser as live bridge. */
-function importTallyXmlFromFileText(xmlText){
+function importTallyXmlFromFileText(xmlText, fileName){
+  return importTallyXmlBatch([{name:fileName||'uploaded.xml', text:xmlText}]);
+}
+function importTallyXmlBatch(filePayloads){
   if(!_curPid){alert('Select a project first.');return;}
-  var parsed=parseTallyXmlToLedgerLines(xmlText);
-  if(parsed.error){alert(parsed.error);return;}
-  var rows=parsed.rows||[];
-  if(!rows.length){alert('No ledger lines found in this XML.');return;}
+  if(!filePayloads||!filePayloads.length){alert('No files to import.');return;}
+  var allRows=[], fileStats=[], errors=[], combinedRaw=[], cfStatement=false;
+  filePayloads.forEach(function(fp){
+    var text=normalizeTallyUploadText(String(fp.text||'').replace(/^\uFEFF/,''));
+    if(!text.trim()){ errors.push((fp.name||'file')+': empty'); return; }
+    if(!/<ENVELOPE[\s>]/i.test(text) && !/<VOUCHER[\s/>]/i.test(text) && !/<DSPDISPNAME>/i.test(text)){
+      errors.push((fp.name||'file')+': not Tally XML (expected voucher or Cash Flow statement export)');
+      return;
+    }
+    var parsed=parseTallyXmlToLedgerLines(text);
+    if(parsed.error){ errors.push((fp.name||'file')+': '+parsed.error); return; }
+    var rows=parsed.rows||[];
+    if(!rows.length){ errors.push((fp.name||'file')+': no importable ledger lines'); return; }
+    if(parsed.format==='cashflow-statement') cfStatement=true;
+    fileStats.push({name:fp.name||'file', count:rows.length, format:parsed.format||'voucher'});
+    allRows=allRows.concat(rows);
+    combinedRaw.push('<!-- '+String(fp.name||'file')+' -->\n'+text);
+  });
+  if(!allRows.length){
+    alert('No lines imported.'+(errors.length?'\n\n'+errors.join('\n'):''));
+    return;
+  }
   var s=getTallySyncForPull();
-  var res=mergeTallyLinesIntoActuals(rows,{
+  var res=mergeTallyLinesIntoActuals(allRows,{
     replaceTally:!!s.replaceTally,
     costCentreSubstr:s.costCentreSubstr||''
   });
-  window.__gaLastTallyExportRaw=xmlText;
+  window.__gaLastTallyExportRaw=combinedRaw.join('\n\n');
   window.__gaLastTallyExportMeta={
-    reportId:'uploaded-xml',
+    reportId:'uploaded-xml-batch',
     fromDate:'',
     toDate:'',
     sendCompanyToTally:false,
     currentCompany:'',
-    pulledAt:new Date().toISOString()
+    pulledAt:new Date().toISOString(),
+    files:fileStats
   };
-  window.__gaLastTallyParsedRows=rows.slice();
+  window.__gaLastTallyParsedRows=allRows.slice();
   renderTab(_curTab);
   refreshProjectCashflowViews();
-  alert('✓ From uploaded XML'+(parsed.format==='cashflow-statement'?' (Cash Flow statement — period totals, today\'s date on each line)':'')+': +'+res.added+' line(s) into actuals. Skipped '+res.skipped+' (duplicate or cost-centre filter).');
+  var summary='✓ Imported from '+fileStats.length+' file(s): +'+res.added+' line(s). Skipped '+res.skipped+' (duplicate, cost-centre filter, or bank line).';
+  fileStats.forEach(function(st){
+    summary+='\n • '+st.name+': '+st.count+' parsed ('+st.format+')';
+  });
+  if(cfStatement) summary+='\n\nNote: Cash Flow statement rows use period totals with today\'s date.';
+  if(errors.length) summary+='\n\nWarnings:\n'+errors.map(function(e){return ' • '+e;}).join('\n');
+  alert(summary);
 }
 function importTallyFile(input){
-  if(!input.files||!input.files[0]) return;
+  if(!input.files||!input.files.length) return;
+  var files=Array.prototype.slice.call(input.files);
+  if(files.length===1){
+    var only=files[0];
+    var nm=String(only.name||'').toLowerCase();
+    var isXml=/\.xml$/i.test(nm);
+    if(!isXml){
+      importTallyDelimitedFile(only, input);
+      return;
+    }
+  }
+  var pending=files.length, payloads=[], readErr=false;
+  files.forEach(function(file){
+    var reader=new FileReader();
+    reader.onload=function(e){
+      var buf=e.target.result;
+      var text=decodeTallyUploadArrayBuffer(buf);
+      payloads.push({name:file.name, text:text});
+      if(--pending===0 && !readErr){
+        importTallyXmlBatch(payloads);
+        input.value='';
+      }
+    };
+    reader.onerror=function(){
+      readErr=true;
+      alert('Could not read '+(file.name||'file')+'.');
+      input.value='';
+    };
+    reader.readAsArrayBuffer(file);
+  });
+}
+function importTallyDelimitedFile(file, input){
   var r=new FileReader();
   r.onload=function(e){
     var text=String(e.target.result||'').replace(/^\uFEFF/,'');
-    if(/<ENVELOPE[\s>]/i.test(text)||/<VOUCHER[\s/>]/i.test(text)){
-      importTallyXmlFromFileText(text);
-      input.value='';
-      return;
-    }
-    var lines=text.replace(/\r/g,'').split('\n').filter(function(l){return l.trim();});
     if(!lines.length){alert('File appears empty.');return;}
     var header=lines[0].split('\t').map(function(h){return h.toLowerCase().trim();});
     var iDate=header.indexOf('date'), iParty=-1, iAmt=-1, iCredit=-1, iNarr=-1, iCC=-1;
@@ -9203,7 +9326,8 @@ function importTallyFile(input){
     saveAll(); renderTab(_curTab); refreshProjectCashflowViews();
     alert('✓ Imported '+added+' transaction(s). Review categories in the transaction log — auto-mapping uses ledger name keywords. Correct any that need updating.');
   };
-  r.readAsText(input.files[0]); input.value='';
+  r.readAsText(file);
+  input.value='';
 }
 function guessTallyCategory(ledger){
   var k=guessTallyCategoryKey(ledger);
