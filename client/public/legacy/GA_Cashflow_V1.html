@@ -216,7 +216,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 49;
+var CF_VERSION = 50;
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
@@ -1747,8 +1747,46 @@ function tallyXmlListInners(parentXml, tag){
   return out;
 }
 /**
- * When DOMParser fails (unescaped < in narration, bad chars, etc.), extract the same fields Tally sends.
+ * Tally Cash Flow statement export (DSPACCNAME / DSPDISPNAME + DSPACCINFO debit/credit).
+ * Not voucher-level — one row per CF line for the exported period.
  */
+function isTallyCashFlowStatementRollupName(name){
+  var n=String(name||'').trim();
+  if(!n) return true;
+  if(/^cash\s*flows?$/i.test(n)) return true;
+  if(/^common\s*cf$/i.test(n)) return true;
+  if(/^building\s+[a-z]$/i.test(n)) return true;
+  if(/cash\s*&\s*cash/i.test(n)) return true;
+  return false;
+}
+function inferPrefixFromTallyPartyName(party){
+  var m=String(party||'').match(/^Building\s+([A-Z])\b/i);
+  if(m&&m[1]) return String(m[1]).toUpperCase();
+  return '';
+}
+function parseTallyCashFlowStatementLines(safeXml){
+  var rows=[], vi=0;
+  var re=/<DSPACCNAME>\s*<DSPDISPNAME>([\s\S]*?)<\/DSPDISPNAME>\s*<\/DSPACCNAME>\s*<DSPACCINFO>[\s\S]*?<DSPDRAMTA>([^<]*)<\/DSPDRAMTA>[\s\S]*?<DSPCRAMTA>([^<]*)<\/DSPCRAMTA>/gi;
+  var m;
+  while((m=re.exec(safeXml))!==null){
+    var party=tallyDecodeXmlText(m[1]).trim();
+    if(isTallyCashFlowStatementRollupName(party)) continue;
+    var dr=parseFloat(String(m[2]).replace(/,/g,''))||0;
+    var cr=parseFloat(String(m[3]).replace(/,/g,''))||0;
+    var net=dr+cr;
+    if(!net) continue;
+    vi++;
+    rows.push({
+      date:today(),
+      party:party,
+      rawAmount:net,
+      note:'[Tally Cash Flow statement] Period net movement (import date used; no voucher dates in this export)',
+      costCentre:'',
+      tallyKey:'tally-cfstmt|'+party+'|'+net
+    });
+  }
+  return rows;
+}
 function parseTallyXmlToLedgerLinesRegex(safeXml){
   var rows=[], vi=0;
   function normDate(s){
@@ -1810,6 +1848,10 @@ function parseTallyXmlToLedgerLines(xmlText){
   if(p.getElementsByTagName('parsererror').length){
     rows=parseTallyXmlToLedgerLinesRegex(safe);
     if(rows.length) return {rows:rows};
+    if(/<DSPDISPNAME>/i.test(safe)){
+      rows=parseTallyCashFlowStatementLines(safe);
+      if(rows.length) return {rows:rows, format:'cashflow-statement'};
+    }
     var one=String(safe).replace(/\s+/g,' ').slice(0,280);
     return {error:'Invalid XML (parser error). Try re-export from Tally or use Import Tally (CSV / XML). Preview: '+one+(safe.length>280?'…':'')};
   }
@@ -1851,15 +1893,20 @@ function parseTallyXmlToLedgerLines(xmlText){
   if(rows.length) return {rows:rows};
   rows=parseTallyXmlToLedgerLinesRegex(safe);
   if(rows.length) return {rows:rows};
+  if(/<DSPDISPNAME>/i.test(safe)){
+    rows=parseTallyCashFlowStatementLines(safe);
+    if(rows.length) return {rows:rows, format:'cashflow-statement'};
+  }
   var msgs=p.getElementsByTagName('LINEERROR');
   if(msgs.length) return {error:txt(msgs[0],'DESCRIPTION')||'Tally LINEERROR'};
-  return {error:'No voucher ledger lines in this XML (no VOUCHER / ALLLEDGERENTRIES). Export again from Tally with the full period (e.g. Day Book + Alt+F2 range), or use Import Tally (CSV / XML) with a voucher-style export. Live bridge pulls can be limited to one day by Tally.'};
+  return {error:'No importable lines in this XML. Use (1) Voucher Register / Day Book export with VOUCHER entries, or (2) Tally Cash Flow statement export (DSPDISPNAME rows). This file may be empty or an unsupported report.'};
 }
 function ledgerLineToActual(row){
   var party=row.party, note=row.note||'', cc=row.costCentre||'';
   var raw=parseFloat(row.rawAmount)||0;
   var scope=inferAcctScopeFromText(party+' '+note, cc);
-  var bPrefix=_curPid?getAcctPrefixForPid(_curPid):'A';
+  var partyPrefix=inferPrefixFromTallyPartyName(party);
+  var bPrefix=partyPrefix||(_curPid?getAcctPrefixForPid(_curPid):'A');
   var cl=classifyTallyLineFromText(party+' '+note, party, raw, scope, bPrefix);
   var cat1=cl.cat1;
   var isInflow=INFLOW_CATS.indexOf(cat1)>=0;
@@ -8950,7 +8997,7 @@ function importTallyXmlFromFileText(xmlText){
   window.__gaLastTallyParsedRows=rows.slice();
   renderTab(_curTab);
   refreshProjectCashflowViews();
-  alert('✓ From uploaded XML: +'+res.added+' line(s) into actuals. Skipped '+res.skipped+' (duplicate or cost-centre filter).');
+  alert('✓ From uploaded XML'+(parsed.format==='cashflow-statement'?' (Cash Flow statement — period totals, today\'s date on each line)':'')+': +'+res.added+' line(s) into actuals. Skipped '+res.skipped+' (duplicate or cost-centre filter).');
 }
 function importTallyFile(input){
   if(!input.files||!input.files[0]) return;
