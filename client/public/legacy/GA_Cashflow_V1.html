@@ -224,7 +224,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 52;
+var CF_VERSION = 53;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
@@ -493,9 +493,45 @@ function getAcctPrefixForPid(pid){
   return assignBuildingPrefix(h.building);
 }
 function inferAcctScopeFromText(fullText, costCentre){
-  var t=(String(fullText||'')+' '+String(costCentre||'')).toUpperCase();
+  var cc=String(costCentre||'').trim();
+  if(/^CM\s+CF\b/i.test(cc)) return 'common';
+  if(/^[A-Z]\s+CF\b/i.test(cc)) return 'building';
+  var t=(String(fullText||'')+' '+cc).toUpperCase();
   if(/\bCM\b|COMMON COST|SHOW FLAT|SALES OFFICE|SITE OFFICE|MARKETING COST/.test(t)) return 'common';
   return 'building';
+}
+/** Building chart letter from Tally cost centre e.g. "D CF C7-4 Electrical Labour" → D */
+function parseBuildingPrefixFromTallyCostCentre(costCentre){
+  var cc=String(costCentre||'').trim();
+  var m=cc.match(/^([A-Z])\s+CF\b/);
+  return m?m[1]:'';
+}
+function normTallyCostCentreLabel(s){
+  return tallyDecodeXmlText(String(s||'')).replace(/\s+/g,' ').trim().toLowerCase();
+}
+/** Match Tally COSTCENTREALLOCATIONS name to V3 master (cfL3 / plL3 / description). */
+function lookupGAAccountingByCostCentre(costCentre){
+  if(!costCentre||typeof GA_ACCT_L3_BY_CODE==='undefined'||!GA_ACCT_L3_BY_CODE) return null;
+  var ccNorm=normTallyCostCentreLabel(costCentre);
+  if(!ccNorm) return null;
+  var bPref=parseBuildingPrefixFromTallyCostCentre(costCentre);
+  var scope=bPref?'building':(/^cm\s+cf\b/.test(ccNorm)?'common':inferAcctScopeFromText(costCentre,costCentre));
+  var best=null, bestLen=0;
+  Object.keys(GA_ACCT_L3_BY_CODE).forEach(function(k){
+    var g=GA_ACCT_L3_BY_CODE[k];
+    if(!g) return;
+    ['cfL3','plL3','l3Name','desc'].forEach(function(fld){
+      var v=normTallyCostCentreLabel(g[fld]);
+      if(!v||v.length<4) return;
+      var hit=ccNorm===v||ccNorm.indexOf(v)>=0||v.indexOf(ccNorm)>=0;
+      if(hit && v.length>bestLen){ best=g; bestLen=v.length; }
+    });
+  });
+  if(best){
+    if(best.scope==='common') return best;
+    return gaAcctCloneForPrefix(best, bPref||(_curPid?getAcctPrefixForPid(_curPid):'A'));
+  }
+  return resolveGAAccountingChartRow(costCentre, costCentre, scope, bPref||(_curPid?getAcctPrefixForPid(_curPid):'A'));
 }
 function hierarchyBreadcrumbHtml(pid){
   var h=getProjectHierarchy(pid);
@@ -1623,12 +1659,15 @@ function resolveGAAccountingChartRow(fullText, party, scopeHint, buildingPrefix)
 /**
  * @returns {{cat1:string,gaL1:string,gaL2:string,gaL3:string,gaL3Name:string,flow?:string,tallyMapSrc:string,masterKey?:string,gaScope?:string,plL1?:string}}
  */
-function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildingPrefix){
-  var text=String(fullText||'').toLowerCase();
-  var scope=scopeHint||inferAcctScopeFromText(fullText, '');
-  var bPref=buildingPrefix||'A';
-  var g=lookupCommonMasterByKeywords(text+' '+String(party||''));
-  if(!g) g=resolveGAAccountingChartRow(fullText, party, scope, bPref);
+function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildingPrefix, costCentre){
+  var cc=String(costCentre||'').trim();
+  var text=(String(fullText||'')+(cc?(' '+cc):'')).toLowerCase();
+  var scope=scopeHint||inferAcctScopeFromText(String(fullText||'')+' '+cc, cc);
+  var bPref=buildingPrefix||parseBuildingPrefixFromTallyCostCentre(cc)||(_curPid?getAcctPrefixForPid(_curPid):'A');
+  var g=null;
+  if(cc) g=lookupGAAccountingByCostCentre(cc);
+  if(!g) g=lookupCommonMasterByKeywords(text+' '+String(party||''));
+  if(!g) g=resolveGAAccountingChartRow(String(fullText||'')+' '+cc, String(party||'')+(cc?(' '+cc):''), scope, bPref);
   if(g){
     var gaL1=g.cfApplicable ? String(g.cfL1Label||g.l1Name||'') : String(g.plL1Label||g.l1Name||'');
     var leg=g.legacyCat1;
@@ -2099,10 +2138,11 @@ function parseTallyXmlToLedgerLines(xmlText){
 function ledgerLineToActual(row){
   var party=row.party, note=row.note||'', cc=row.costCentre||'';
   var raw=parseFloat(row.rawAmount)||0;
-  var scope=inferAcctScopeFromText(party+' '+note, cc);
+  var scope=inferAcctScopeFromText(party+' '+note+' '+cc, cc);
   var partyPrefix=inferPrefixFromTallyPartyName(party);
-  var bPrefix=partyPrefix||(_curPid?getAcctPrefixForPid(_curPid):'A');
-  var cl=classifyTallyLineFromText(party+' '+note, party, raw, scope, bPrefix);
+  var ccPrefix=parseBuildingPrefixFromTallyCostCentre(cc);
+  var bPrefix=ccPrefix||partyPrefix||(_curPid?getAcctPrefixForPid(_curPid):'A');
+  var cl=classifyTallyLineFromText(party+' '+note+' '+cc, party, raw, scope, bPrefix, cc);
   var cat1=cl.cat1;
   var isInflow=INFLOW_CATS.indexOf(cat1)>=0;
   if(cl.flow==='in' && !isInflow) isInflow=true;
@@ -3535,7 +3575,7 @@ function loadAllFromMongo(){
       _curBuilding=(d.ui&&d.ui.building)||'__all__';
       _mongoStateVersion=Number(res.body.version)||0;
       bootstrapGaAcctMaster(d);
-      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()) scheduleMongoStateSave(200);
+      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||migrateReclassifyTallyActuals()) scheduleMongoStateSave(200);
       localSnapshotSave();
       var loadedUnits=countWorkbookSoldUnits(_cfData);
       mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion+' · '+loadedUnits+' sold units','green');
@@ -3675,6 +3715,32 @@ function scheduleCfCloudPush(){
     cfCloudPushImmediate();
   },2200);
 }
+function migrateReclassifyTallyActuals(){
+  var touched=false;
+  try{
+    Object.keys(_cfData||{}).forEach(function(pid){
+      var cfg=_cfData[pid];
+      if(!cfg||!cfg.actuals) return;
+      var bPrefix=getAcctPrefixForPid(pid)||'A';
+      cfg.actuals.forEach(function(a){
+        if(!a||a.source!=='tally') return;
+        var cc=a.costCentre||'';
+        var scope=inferAcctScopeFromText((a.party||'')+' '+(a.note||'')+' '+cc, cc);
+        var cl=classifyTallyLineFromText((a.party||'')+' '+(a.note||'')+' '+cc, a.party||'', a.amount||0, scope, bPrefix, cc);
+        if(a.cat1!==cl.cat1){ a.cat1=cl.cat1; touched=true; }
+        if((a.gaL1||'')!==(cl.gaL1||'')){ a.gaL1=cl.gaL1; touched=true; }
+        if((a.gaL2||'')!==(cl.gaL2||'')){ a.gaL2=cl.gaL2; touched=true; }
+        if((a.gaL3||'')!==(cl.gaL3||'')){ a.gaL3=cl.gaL3; touched=true; }
+        if((a.gaL3Name||'')!==(cl.gaL3Name||'')){ a.gaL3Name=cl.gaL3Name; touched=true; }
+        if((a.tallyMapSrc||'')!==(cl.tallyMapSrc||'')){ a.tallyMapSrc=cl.tallyMapSrc; touched=true; }
+        if((a.masterKey||'')!==(cl.masterKey||'')){ a.masterKey=cl.masterKey||''; touched=true; }
+        if((a.gaScope||'')!==(cl.gaScope||'')){ a.gaScope=cl.gaScope||scope; touched=true; }
+        if((a.plL1||'')!==(cl.plL1||'')){ a.plL1=cl.plL1||''; touched=true; }
+      });
+    });
+  }catch(e){}
+  return touched;
+}
 function migrateCfCategoryLabels(){
   var touched=false;
   try{
@@ -3742,7 +3808,7 @@ function loadAll(){
       if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
       bootstrapGaAcctMaster(d);
       var needVersionBump=!d.v||d.v<CF_VERSION;
-      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
+      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||migrateReclassifyTallyActuals()||needVersionBump) saveAll();
     }else bootstrapGaAcctMaster(null);
     _curProjectGroup='__all__';
     try{ localStorage.setItem('ga_v1_project_group_filter','__all__'); }catch(x){}
@@ -8025,7 +8091,7 @@ function renderExpenses(){
     h+='<button type="button" class="btn btn-outline" data-action="expense-tree-expand-all" style="font-size:10px;padding:4px 10px">Expand all</button>';
     h+='<button type="button" class="btn btn-outline" data-action="expense-tree-collapse-all" style="font-size:10px;padding:4px 10px">Collapse all</button>';
     h+='</div></div>';
-    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Matches <strong>GA Accounting Categories V1</strong> L3 codes as they appear on the <strong>ledger</strong> line in Tally (e.g. <code>I3-2 Cement</code>). Source: <code>l3-book</code> = L3 from chart, <code>keyword</code> = keyword map, <code>unmapped-out</code> = review; not auto-filed to GA DM.</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Matches <strong>GA Accounting Categories V3</strong> from Tally <strong>cost centre</strong> (e.g. <code>CM CF D13-3 …</code>, <code>D CF C7-4 …</code>) or ledger / narration L3 codes. Source: <code>l3-book</code> = chart match, <code>keyword</code> = keyword map, <code>unmapped-out</code> = review.</div>';
     h+='<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:10px">';
     h+='<thead><tr style="background:var(--blue-l)"><th style="padding:6px 8px;text-align:left">L1 → L2 → L3</th><th style="padding:6px 8px;text-align:right">Amount (₹)</th></tr></thead><tbody>';
     if(!l1Keys.length) h+='<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--muted)">No outflow lines yet. Import Tally XML or use live sync.</td></tr>';
