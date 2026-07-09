@@ -1751,7 +1751,7 @@ function tallyXmlListInners(parentXml, tag){
  * Not voucher-level — one row per CF line for the exported period.
  */
 function isTallyCashFlowStatementRollupName(name){
-  var n=String(name||'').trim();
+  var n=tallyDecodeXmlText(name).trim();
   if(!n) return true;
   if(/^cash\s*flows?$/i.test(n)) return true;
   if(/^common\s*cf$/i.test(n)) return true;
