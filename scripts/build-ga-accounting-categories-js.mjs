@@ -29,6 +29,7 @@ function candidateXlsxPaths() {
   if (fromEnv) return [path.resolve(fromEnv)];
   return [
     path.join(platformRoot, 'data', 'GA_Accounting_Categories_V3.xlsx'),
+    path.join('C:', 'Users', 'HP', 'Downloads', 'Coding (1) (1).xlsx'),
     path.join('C:', 'Users', 'HP', 'Downloads', 'Coding (1).xlsx'),
     path.join(platformRoot, '..', 'Golden Abodes', 'Accounting', 'GA Accounting Categories V3 Master.xlsx'),
     path.join(platformRoot, '..', 'Golden Abodes', 'Accounting', 'GA Accounting Categories V2.xlsx'),
