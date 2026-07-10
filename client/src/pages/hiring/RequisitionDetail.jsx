@@ -224,6 +224,13 @@ export default function RequisitionDetail() {
         {(req.department || req.projectName) && (
           <p className="hr-muted">{[req.department, req.projectName].filter(Boolean).join(' · ')}</p>
         )}
+        {(req.requestedBy || req.approvedBy) && (
+          <p className="hr-muted">
+            Requested by {req.requestedBy || '—'}
+            {' · '}
+            Approved by {req.approvedBy || '—'}
+          </p>
+        )}
         <p style={{ whiteSpace: 'pre-wrap' }}>{req.brief}</p>
         <p className="hr-muted">Hired {req.filledHeadcount || 0} / {req.headcount}</p>
         {(req.attachmentsMeta || []).length > 0 && (

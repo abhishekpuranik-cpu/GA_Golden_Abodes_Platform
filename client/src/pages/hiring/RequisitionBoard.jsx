@@ -25,7 +25,9 @@ export default function RequisitionBoard() {
     bandMaxPaise: null,
     experienceMinYears: null,
     experienceMaxYears: null,
-    headcount: 1
+    headcount: 1,
+    requestedBy: '',
+    approvedBy: ''
   });
   const [jdFile, setJdFile] = useState(null);
   const [emailFile, setEmailFile] = useState(null);
@@ -92,59 +94,72 @@ export default function RequisitionBoard() {
           )}
         />
       ) : (
-        <div className="hr-table-wrap">
-          <table className="hr-table">
-            <thead>
-              <tr>
-                <th>Position #</th>
-                <th>Role</th>
-                <th>Project</th>
-                <th>Location</th>
-                <th>Entity</th>
-                <th>Band</th>
-                <th>HC</th>
-                <th>Hired</th>
-                <th>Opened</th>
-                <th>Status</th>
-                <th>Days open</th>
-                <th>Days in current stage</th>
-                <th>Candidates</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={r.requisitionId}
-                  className="hr-table-row-click"
-                  onClick={() => navigate(`/app/hiring/req/${r.requisitionId}`)}
-                  onKeyDown={(e) => e.key === 'Enter' && navigate(`/app/hiring/req/${r.requisitionId}`)}
-                  role="link"
-                  tabIndex={0}
-                >
-                  <td>
-                    <Link to={`/app/hiring/req/${r.requisitionId}`} onClick={(e) => e.stopPropagation()}>
-                      {r.positionNumber}
-                    </Link>
-                  </td>
-                  <td>{r.role}</td>
-                  <td>{r.project || '—'}</td>
-                  <td>{r.location}</td>
-                  <td>{r.entityTag}</td>
-                  <td>{r.band || '—'}</td>
-                  <td>{r.headcount}</td>
-                  <td>{r.hired}</td>
-                  <td>{r.openedDisplay}</td>
-                  <td><span className="hr-badge">{r.status}</span></td>
-                  <td>{r.daysOpen ?? '—'}</td>
-                  <td>
-                    <strong>{r.daysInCurrentStage ?? '—'}</strong>
-                    <span className="hr-muted" style={{ display: 'block', fontSize: '0.75rem' }}>{r.status}</span>
-                  </td>
-                  <td>{r.totalCandidates ?? 0}</td>
+        <div className="hr-req-board">
+          <div className="hr-req-board-meta">
+            <span>{rows.length} position{rows.length === 1 ? '' : 's'}</span>
+          </div>
+          <div className="hr-table-wrap hr-req-table-wrap">
+            <table className="hr-table hr-req-table">
+              <thead>
+                <tr>
+                  <th>Position</th>
+                  <th>Where</th>
+                  <th>Fill</th>
+                  <th>Stage</th>
+                  <th>Requested by</th>
+                  <th>Approved by</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr
+                    key={r.requisitionId}
+                    className="hr-table-row-click"
+                    onClick={() => navigate(`/app/hiring/req/${r.requisitionId}`)}
+                    onKeyDown={(e) => e.key === 'Enter' && navigate(`/app/hiring/req/${r.requisitionId}`)}
+                    role="link"
+                    tabIndex={0}
+                  >
+                    <td>
+                      <Link
+                        className="hr-req-code"
+                        to={`/app/hiring/req/${r.requisitionId}`}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {r.positionNumber}
+                      </Link>
+                      <div className="hr-req-role">{r.role}</div>
+                      <div className="hr-req-sub">{r.entityTag}{r.band ? ` · ${r.band}` : ''}</div>
+                    </td>
+                    <td>
+                      <div className="hr-req-primary">{r.project || '—'}</div>
+                      <div className="hr-req-sub">{r.location}</div>
+                    </td>
+                    <td>
+                      <div className="hr-req-fill">
+                        <span className="hr-req-fill-num">{r.hired}/{r.headcount}</span>
+                        <span className="hr-req-sub">{r.totalCandidates ?? 0} candidates</span>
+                      </div>
+                    </td>
+                    <td>
+                      <span className={`hr-status-pill hr-status-${String(r.status).toLowerCase().replace(/\s+/g, '-')}`}>
+                        {r.status}
+                      </span>
+                      <div className="hr-req-sub">
+                        {r.daysInCurrentStage ?? '—'}d in stage · {r.daysOpen ?? '—'}d open
+                      </div>
+                    </td>
+                    <td>
+                      <span className="hr-person">{r.requestedBy || '—'}</span>
+                    </td>
+                    <td>
+                      <span className="hr-person">{r.approvedBy || '—'}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -210,6 +225,24 @@ export default function RequisitionBoard() {
                   value={form.headcount}
                   onChange={(e) => setForm({ ...form, headcount: Number(e.target.value) || 1 })}
                 />
+              </div>
+              <div className="hr-form-row hr-form-row-inline">
+                <div style={{ flex: 1 }}>
+                  <label>Requested by</label>
+                  <input
+                    value={form.requestedBy}
+                    onChange={(e) => setForm({ ...form, requestedBy: e.target.value })}
+                    placeholder="Hiring manager / requester"
+                  />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label>Approved by</label>
+                  <input
+                    value={form.approvedBy}
+                    onChange={(e) => setForm({ ...form, approvedBy: e.target.value })}
+                    placeholder="Approver name"
+                  />
+                </div>
               </div>
               <div className="hr-form-row">
                 <label>Job description file (PDF, DOC, DOCX)</label>

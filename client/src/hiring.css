@@ -609,3 +609,136 @@ a.hr-btn {
 .hr-table-row-click:hover td {
   background: #fffbeb;
 }
+
+/* Requisition board — calm, stacked columns */
+.hr-req-board {
+  margin-top: 0.25rem;
+}
+
+.hr-req-board-meta {
+  font-size: 0.8rem;
+  color: var(--hr-muted);
+  margin-bottom: 0.65rem;
+  letter-spacing: 0.02em;
+}
+
+.hr-req-table-wrap {
+  border: none;
+  border-radius: 14px;
+  box-shadow: 0 1px 2px rgba(27, 42, 74, 0.04), 0 8px 24px rgba(27, 42, 74, 0.06);
+  overflow: hidden;
+  background: #fff;
+}
+
+.hr-req-table {
+  font-size: 0.9rem;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.hr-req-table thead th {
+  background: #f7f5f1;
+  color: #64748b;
+  font-size: 0.72rem;
+  font-weight: 650;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 0.85rem 1.1rem;
+  border-bottom: 1px solid #ebe6dc;
+  white-space: nowrap;
+}
+
+.hr-req-table tbody td {
+  padding: 1rem 1.1rem;
+  border-bottom: 1px solid #f0ece4;
+  vertical-align: middle;
+}
+
+.hr-req-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.hr-req-table.hr-table-row-click:hover,
+.hr-req-table tbody tr.hr-table-row-click:hover td {
+  background: #fbfaf7;
+}
+
+.hr-req-code {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--hr-gold);
+  text-decoration: none;
+}
+
+.hr-req-code:hover {
+  text-decoration: underline;
+}
+
+.hr-req-role {
+  font-family: 'Cormorant Garamond', Georgia, serif;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: var(--hr-navy);
+  line-height: 1.25;
+  margin-top: 0.15rem;
+}
+
+.hr-req-primary {
+  color: var(--hr-text);
+  font-weight: 550;
+}
+
+.hr-req-sub {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+.hr-req-fill {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.hr-req-fill-num {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--hr-navy);
+  font-size: 0.95rem;
+}
+
+.hr-person {
+  color: #334155;
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
+.hr-status-pill {
+  display: inline-block;
+  padding: 0.22rem 0.65rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.hr-status-draft { background: #f1f5f9; color: #64748b; }
+.hr-status-sourcing { background: #eaf1fb; color: #1558a0; }
+.hr-status-shortlisting { background: #f2ecf9; color: #534ab7; }
+.hr-status-interviewing { background: #fdf8ec; color: #a07800; }
+.hr-status-offer { background: #e8f6ee; color: #1a7244; }
+.hr-status-hiring-fulfilled { background: #e8f6ee; color: #0f5c36; }
+.hr-status-closed { background: #f1f5f9; color: #64748b; }
+.hr-status-cancelled { background: #fdecea; color: #a8301e; }
+
+@media (max-width: 900px) {
+  .hr-req-table thead th:nth-child(2),
+  .hr-req-table tbody td:nth-child(2) {
+    display: none;
+  }
+}

@@ -18,6 +18,8 @@ export default function RequisitionEditForm({ initial, onSave, onCancel, busy })
     experienceMaxYears: initial.experienceMaxYears ?? null,
     headcount: initial.headcount ?? 1,
     status: initial.status || 'Draft',
+    requestedBy: initial.requestedBy || '',
+    approvedBy: initial.approvedBy || '',
     pushToMetaview: !!initial.metaviewSearchId
   });
   const [err, setErr] = useState('');
@@ -43,6 +45,8 @@ export default function RequisitionEditForm({ initial, onSave, onCancel, busy })
         experienceMaxYears: form.experienceMaxYears,
         headcount: Number(form.headcount) || 1,
         status: form.status,
+        requestedBy: form.requestedBy.trim(),
+        approvedBy: form.approvedBy.trim(),
         pushToMetaview: form.pushToMetaview
       });
     } catch (e2) {
@@ -113,6 +117,24 @@ export default function RequisitionEditForm({ initial, onSave, onCancel, busy })
               value={form.headcount}
               onChange={(e) => setForm({ ...form, headcount: Number(e.target.value) || 1 })}
             />
+          </div>
+          <div className="hr-form-row hr-form-row-inline">
+            <div style={{ flex: 1 }}>
+              <label>Requested by</label>
+              <input
+                value={form.requestedBy}
+                onChange={(e) => setForm({ ...form, requestedBy: e.target.value })}
+                placeholder="Hiring manager / requester"
+              />
+            </div>
+            <div style={{ flex: 1 }}>
+              <label>Approved by</label>
+              <input
+                value={form.approvedBy}
+                onChange={(e) => setForm({ ...form, approvedBy: e.target.value })}
+                placeholder="Approver name"
+              />
+            </div>
           </div>
           <div className="hr-form-row">
             <label>Status</label>

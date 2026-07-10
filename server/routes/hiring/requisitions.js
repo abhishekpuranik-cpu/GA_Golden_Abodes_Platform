@@ -179,6 +179,8 @@ router.post('/', requireHiringWrite, reqAttachmentUpload.fields([
       headcount: body.headcount ?? 1,
       status: body.status || 'Draft',
       sourcingMode: metaviewConfigured() ? (body.sourcingMode || 'manual') : 'manual',
+      requestedBy: String(body.requestedBy || '').trim(),
+      approvedBy: String(body.approvedBy || '').trim(),
       attachments,
       createdBy: new mongoose.Types.ObjectId(createdBy)
     });
@@ -198,19 +200,26 @@ router.post('/', requireHiringWrite, reqAttachmentUpload.fields([
 router.patch('/:id', requireHiringWrite, validateBody([
   'role', 'department', 'projectName', 'location', 'brief', 'headcount', 'status',
   'closedReason', 'sourcingMode', 'metaviewSearchId', 'bandMinPaise', 'bandMaxPaise',
-  'experienceMinYears', 'experienceMaxYears', 'entityTag', 'pushToMetaview'
+  'experienceMinYears', 'experienceMaxYears', 'entityTag', 'pushToMetaview',
+  'requestedBy', 'approvedBy'
 ]), async (req, res) => {
   try {
     const doc = await HiringRequisition.findOne(notDeletedFilter({ _id: req.params.id }));
     if (!doc) return res.status(404).json({ error: 'Requisition not found' });
     const prevStatus = doc.status;
-    const allowed = ['role', 'department', 'projectName', 'location', 'brief', 'headcount', 'status', 'closedReason', 'sourcingMode', 'metaviewSearchId'];
+    const allowed = [
+      'role', 'department', 'projectName', 'location', 'brief', 'headcount', 'status',
+      'closedReason', 'sourcingMode', 'metaviewSearchId', 'requestedBy', 'approvedBy'
+    ];
     if (req.body.status === 'Closed') {
       const check = await canCloseRequisition(doc._id);
       if (!check.ok) return res.status(422).json({ error: check.reason });
     }
     for (const key of allowed) {
-      if (req.body[key] !== undefined) doc[key] = req.body[key];
+      if (req.body[key] !== undefined) {
+        if (key === 'requestedBy' || key === 'approvedBy') doc[key] = String(req.body[key] || '').trim();
+        else doc[key] = req.body[key];
+      }
     }
     if (req.body.status !== undefined && req.body.status !== prevStatus) {
       doc.statusEnteredAt = new Date();
