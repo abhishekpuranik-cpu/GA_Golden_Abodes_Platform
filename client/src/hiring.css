@@ -363,13 +363,29 @@
 
 .hr-form-row-inline {
   display: flex;
-  align-items: center;
-  gap: 0.5rem;
+  align-items: flex-end;
+  gap: 0.75rem;
   flex-wrap: wrap;
 }
 
-.hr-form-row-inline input {
+.hr-form-row-inline > input[type="number"] {
   width: 5rem;
+}
+
+.hr-form-row-inline > div {
+  flex: 1;
+  min-width: 140px;
+}
+
+.hr-form-row-inline > div label {
+  display: block;
+  font-size: 0.8rem;
+  color: var(--hr-muted);
+  margin-bottom: 0.25rem;
+}
+
+.hr-form-row-inline > div input {
+  width: 100%;
 }
 
 .hr-profile-grid {
