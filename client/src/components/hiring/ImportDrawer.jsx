@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { hiringApi } from '../../lib/hiringApi.js';
 
 const CHANNELS = [
+  { id: 'agency', label: 'External agency' },
   { id: 'naukri', label: 'Naukri' },
   { id: 'linkedin', label: 'LinkedIn' },
   { id: 'apna', label: 'Apna' },
@@ -11,7 +12,7 @@ const CHANNELS = [
 const ENTITY_TAGS = ['PAD', 'NBD', 'NP', 'GV', 'GAPL', 'Suryakiran'];
 
 export default function ImportDrawer({ open, onClose, requisitionId, defaultEntityTag, onImported }) {
-  const [channel, setChannel] = useState('naukri');
+  const [channel, setChannel] = useState('agency');
   const [entityTag, setEntityTag] = useState(defaultEntityTag || 'PAD');
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
@@ -104,7 +105,10 @@ export default function ImportDrawer({ open, onClose, requisitionId, defaultEnti
     <div className="hr-modal-backdrop" onClick={handleClose}>
       <div className="hr-modal hr-import-drawer" onClick={(e) => e.stopPropagation()}>
         <h2>Import candidates</h2>
-        <p className="hr-muted">Upload Naukri, LinkedIn, Apna, or generic CSV/XLSX (max 5 MB).</p>
+        <p className="hr-muted">
+          Upload agency, Naukri, LinkedIn, Apna, or generic CSV/XLSX (max 5 MB).
+          {channel === 'agency' && ' Agency files need columns: Name, Agency (or Agency Name), plus optional Phone, Email, Company, CTC, Notice, City.'}
+        </p>
 
         <div className="hr-form-row">
           <label>Channel</label>
@@ -150,6 +154,7 @@ export default function ImportDrawer({ open, onClose, requisitionId, defaultEnti
                 <tr>
                   <th>Row</th>
                   <th>Name</th>
+                  <th>Agency</th>
                   <th>Phone</th>
                   <th>Company</th>
                 </tr>
@@ -159,6 +164,7 @@ export default function ImportDrawer({ open, onClose, requisitionId, defaultEnti
                   <tr key={row.row}>
                     <td>{row.row}</td>
                     <td>{row.name}</td>
+                    <td>{row.agencyName || row.source || '—'}</td>
                     <td>{row.phone || '—'}</td>
                     <td>{row.currentCompany || '—'}</td>
                   </tr>

@@ -752,6 +752,36 @@ a.hr-btn {
 .hr-status-closed { background: #f1f5f9; color: #64748b; }
 .hr-status-cancelled { background: #fdecea; color: #a8301e; }
 
+.hr-agency-panel {
+  margin-bottom: 1.25rem;
+}
+
+.hr-agency-list {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  color: var(--hr-text);
+}
+
+.hr-agency-list li {
+  margin-bottom: 0.35rem;
+}
+
+.hr-agency-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.hr-agency-add input {
+  flex: 1;
+  min-width: 140px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid var(--hr-border);
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
 @media (max-width: 900px) {
   .hr-req-table thead th:nth-child(2),
   .hr-req-table tbody td:nth-child(2) {

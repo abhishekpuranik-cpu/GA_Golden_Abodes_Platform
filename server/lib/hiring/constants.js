@@ -14,6 +14,6 @@ export const STAGE_LABELS = {
 
 export const REQUISITION_STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Hiring Fulfilled', 'Closed', 'Cancelled'];
 
-export const CANDIDATE_SOURCES = ['metaview', 'naukri', 'linkedin', 'referral', 'walk-in', 'other'];
+export const CANDIDATE_SOURCES = ['metaview', 'naukri', 'linkedin', 'agency', 'referral', 'walk-in', 'other'];
 
 export const OFFER_STATUSES = ['Draft', 'Sent', 'Accepted', 'Declined', 'Withdrawn'];

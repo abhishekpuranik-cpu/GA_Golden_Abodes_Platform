@@ -201,7 +201,7 @@ router.patch('/:id', requireHiringWrite, validateBody([
   'role', 'department', 'projectName', 'location', 'brief', 'headcount', 'status',
   'closedReason', 'sourcingMode', 'metaviewSearchId', 'bandMinPaise', 'bandMaxPaise',
   'experienceMinYears', 'experienceMaxYears', 'entityTag', 'pushToMetaview',
-  'requestedBy', 'approvedBy'
+  'requestedBy', 'approvedBy', 'agenciesShared'
 ]), async (req, res) => {
   try {
     const doc = await HiringRequisition.findOne(notDeletedFilter({ _id: req.params.id }));
@@ -228,6 +228,17 @@ router.patch('/:id', requireHiringWrite, validateBody([
     if (req.body.bandMaxPaise !== undefined) doc.bandMaxPaise = assertPaise(req.body.bandMaxPaise, 'bandMaxPaise');
     if (req.body.experienceMinYears !== undefined) doc.experienceMinYears = req.body.experienceMinYears;
     if (req.body.experienceMaxYears !== undefined) doc.experienceMaxYears = req.body.experienceMaxYears;
+    if (req.body.agenciesShared !== undefined) {
+      const list = Array.isArray(req.body.agenciesShared) ? req.body.agenciesShared : [];
+      doc.agenciesShared = list
+        .map((a) => ({
+          name: String(a?.name || '').trim(),
+          contact: String(a?.contact || '').trim(),
+          sharedAt: a?.sharedAt ? new Date(a.sharedAt) : new Date(),
+          notes: String(a?.notes || '').trim()
+        }))
+        .filter((a) => a.name);
+    }
     if (req.body.entityTag) {
       const tag = requireEntityTag(req.body, res);
       if (!tag) return;

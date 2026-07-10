@@ -30,7 +30,9 @@ export default function CandidateProfileView({ candidate, profile, requisition }
             <h2>{candidate.name || 'Candidate'}</h2>
             {p?.headline && <p className="hr-profile-headline">{p.headline}</p>}
             <p className="hr-muted">
-              {candidate.source || '—'}
+              {candidate.source === 'agency' && candidate.agencyName
+                ? `Agency · ${candidate.agencyName}`
+                : (candidate.source || '—')}
               {candidate.currentCompany ? ` · ${candidate.currentCompany}` : ''}
               {(candidate.cityCurrent || p?.location) ? ` · ${candidate.cityCurrent || p.location}` : ''}
             </p>
@@ -57,6 +59,18 @@ export default function CandidateProfileView({ candidate, profile, requisition }
           )}
           {candidate.noticePeriodDays != null && (
             <div><span className="hr-muted">Notice</span><strong>{candidate.noticePeriodDays} days</strong></div>
+          )}
+          {candidate.source === 'agency' && candidate.agencyName && (
+            <div><span className="hr-muted">Agency</span><strong>{candidate.agencyName}</strong></div>
+          )}
+          {candidate.agencyContact && (
+            <div><span className="hr-muted">Agency contact</span><strong>{candidate.agencyContact}</strong></div>
+          )}
+          {candidate.agencyEmail && (
+            <div><span className="hr-muted">Agency email</span><strong>{candidate.agencyEmail}</strong></div>
+          )}
+          {candidate.agencyNotes && (
+            <div><span className="hr-muted">Agency notes</span><strong>{candidate.agencyNotes}</strong></div>
           )}
           {p?.pack != null && <div><span className="hr-muted">Metaview pack</span><strong>#{p.pack}</strong></div>}
         </div>

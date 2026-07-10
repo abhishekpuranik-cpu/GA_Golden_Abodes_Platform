@@ -93,6 +93,10 @@ export async function runCandidateImport({
         noticePeriodDays: candidate.noticePeriodDays,
         cityCurrent: candidate.cityCurrent,
         highlights: candidate.highlights,
+        agencyName: candidate.agencyName || '',
+        agencyContact: candidate.agencyContact || '',
+        agencyEmail: candidate.agencyEmail || '',
+        agencyNotes: candidate.agencyNotes || '',
         currentStageNumber: 1,
         createdBy: new mongoose.Types.ObjectId(createdBy)
       }], { session });

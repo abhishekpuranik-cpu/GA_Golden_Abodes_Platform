@@ -17,6 +17,11 @@ const CandidateSchema = new mongoose.Schema({
   requisitionId: { type: mongoose.Schema.Types.ObjectId, ref: 'HiringRequisition', required: true },
   source: { type: String, enum: CANDIDATE_SOURCES, required: true },
   metaviewCandidateId: { type: String, default: null },
+  /** External recruitment agency that shared / submitted this candidate */
+  agencyName: { type: String, default: '' },
+  agencyContact: { type: String, default: '' },
+  agencyEmail: { type: String, default: '' },
+  agencyNotes: { type: String, default: '' },
   name: { type: String, required: true },
   phone: String,
   email: String,

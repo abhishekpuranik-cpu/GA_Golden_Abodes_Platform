@@ -33,6 +33,13 @@ const RequisitionSchema = new mongoose.Schema({
   statusEnteredAt: { type: Date, default: Date.now },
   requestedBy: { type: String, default: '' },
   approvedBy: { type: String, default: '' },
+  /** Agencies this JD / posting was shared with (governance) */
+  agenciesShared: [{
+    name: { type: String, required: true },
+    contact: { type: String, default: '' },
+    sharedAt: { type: Date, default: Date.now },
+    notes: { type: String, default: '' }
+  }],
   attachments: [{
     kind: { type: String, enum: ['jd', 'email'], required: true },
     filename: { type: String, required: true },

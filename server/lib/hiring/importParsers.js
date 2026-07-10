@@ -208,10 +208,53 @@ export function mapGenericRow(row, rowIndex, source = 'other') {
   };
 }
 
+export function mapAgencyRow(row, rowIndex) {
+  const m = mapRowHeaders(row);
+  const name = resolveField(m, COMMON_HEADERS.name);
+  if (!name) return { error: { row: rowIndex, reason: 'Missing name' } };
+  const agencyName = pick(m, 'agency', 'agency name', 'vendor', 'consultant', 'firm');
+  if (!agencyName) return { error: { row: rowIndex, reason: 'Missing agency name' } };
+
+  const currentCtcRaw = resolveField(m, COMMON_HEADERS.currentCtc);
+  const expectedCtcRaw = resolveField(m, COMMON_HEADERS.expectedCtc);
+  let currentCtcPaise = null;
+  let expectedCtcPaise = null;
+  if (currentCtcRaw) {
+    currentCtcPaise = parseCtcToPaise(currentCtcRaw);
+    if (currentCtcPaise == null) return { error: { row: rowIndex, reason: `Unparseable Current CTC: ${currentCtcRaw}` } };
+  }
+  if (expectedCtcRaw) {
+    expectedCtcPaise = parseCtcToPaise(expectedCtcRaw);
+    if (expectedCtcPaise == null) return { error: { row: rowIndex, reason: `Unparseable Expected CTC: ${expectedCtcRaw}` } };
+  }
+
+  return {
+    candidate: {
+      name,
+      phone: normalizePhone(resolveField(m, COMMON_HEADERS.phone)),
+      email: normalizeEmail(resolveField(m, COMMON_HEADERS.email)),
+      currentCompany: resolveField(m, COMMON_HEADERS.company),
+      currentCtcPaise,
+      expectedCtcPaise,
+      noticePeriodDays: parseNoticePeriodDays(resolveField(m, COMMON_HEADERS.notice)),
+      cityCurrent: resolveField(m, COMMON_HEADERS.city),
+      linkedinUrl: pick(m, 'linkedin', 'linkedin url', 'profile url'),
+      agencyName,
+      agencyContact: pick(m, 'agency contact', 'recruiter', 'consultant name', 'contact'),
+      agencyEmail: normalizeEmail(pick(m, 'agency email', 'vendor email')) || '',
+      agencyNotes: pick(m, 'notes', 'agency notes', 'remarks'),
+      highlights: pick(m, 'highlights', 'summary', 'skills') || undefined,
+      source: 'agency',
+      currentStageNumber: 1
+    }
+  };
+}
+
 export function mapRowByChannel(row, rowIndex, channel) {
   const ch = String(channel || 'other').toLowerCase();
   if (ch === 'naukri') return mapNaukriRow(row, rowIndex);
   if (ch === 'linkedin') return mapLinkedInRow(row, rowIndex);
+  if (ch === 'agency') return mapAgencyRow(row, rowIndex);
   if (ch === 'apna') {
     const r = mapGenericRow(row, rowIndex, 'other');
     if (r.candidate) r.candidate.source = 'other';

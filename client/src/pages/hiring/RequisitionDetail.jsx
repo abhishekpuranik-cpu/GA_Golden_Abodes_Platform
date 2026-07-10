@@ -20,7 +20,21 @@ export default function RequisitionDetail() {
   const [showImport, setShowImport] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
   const [showAdd, setShowAdd] = useState(false);
-  const [newCand, setNewCand] = useState({ name: '', source: 'referral', email: '', phone: '', entityTag: 'PAD' });
+  const [newCand, setNewCand] = useState({
+    name: '',
+    source: 'agency',
+    email: '',
+    phone: '',
+    entityTag: 'PAD',
+    agencyName: '',
+    agencyContact: '',
+    agencyEmail: '',
+    agencyNotes: '',
+    currentCompany: '',
+    cityCurrent: ''
+  });
+  const [agencyDraft, setAgencyDraft] = useState({ name: '', contact: '' });
+  const [showAgencies, setShowAgencies] = useState(false);
 
   function load() {
     setLoadError('');
@@ -176,17 +190,59 @@ export default function RequisitionDetail() {
   async function handleAddCandidate(e) {
     e.preventDefault();
     try {
+      if (newCand.source === 'agency' && !String(newCand.agencyName || '').trim()) {
+        setMsg('Agency name is required for agency candidates');
+        setMsgTone('error');
+        return;
+      }
       await hiringApi.createCandidate({
         ...newCand,
         requisitionId: id,
         entityTag: newCand.entityTag || req.entityTag
       });
       setShowAdd(false);
-      setNewCand({ name: '', source: 'referral', email: '', phone: '', entityTag: req?.entityTag || 'PAD' });
+      setNewCand({
+        name: '',
+        source: 'agency',
+        email: '',
+        phone: '',
+        entityTag: req?.entityTag || 'PAD',
+        agencyName: '',
+        agencyContact: '',
+        agencyEmail: '',
+        agencyNotes: '',
+        currentCompany: '',
+        cityCurrent: ''
+      });
+      setMsg('Candidate added to pipeline');
+      setMsgTone('success');
       load();
     } catch (err) {
       setMsg(err.message);
       setMsgTone('error');
+    }
+  }
+
+  async function handleAddAgency(e) {
+    e.preventDefault();
+    const name = String(agencyDraft.name || '').trim();
+    if (!name) return;
+    setBusy('agency');
+    try {
+      const list = [...(req.agenciesShared || [])];
+      if (!list.some((a) => String(a.name).toLowerCase() === name.toLowerCase())) {
+        list.push({ name, contact: agencyDraft.contact || '', sharedAt: new Date().toISOString(), notes: '' });
+      }
+      await hiringApi.updateRequisition(id, { agenciesShared: list });
+      setAgencyDraft({ name: '', contact: '' });
+      setMsg(`Agency "${name}" recorded for this posting`);
+      setMsgTone('success');
+      load();
+    } catch (err) {
+      setMsg(err.message);
+      setMsgTone('error');
+    } finally {
+      setBusy('');
     }
   }
 
@@ -262,6 +318,9 @@ export default function RequisitionDetail() {
             <button type="button" className="hr-btn" onClick={() => setShowEdit(true)}>Edit requirements</button>
             <button type="button" className="hr-btn" onClick={() => setShowAdd(true)}>+ Add candidate</button>
             <button type="button" className="hr-btn hr-btn-outline" onClick={() => setShowImport(true)}>Import CSV/XLSX</button>
+            <button type="button" className="hr-btn hr-btn-outline" onClick={() => setShowAgencies((v) => !v)}>
+              {showAgencies ? 'Hide agencies' : 'Agencies shared'}
+            </button>
             {sourcingAuto && !req.metaviewSearchId && (
               <button type="button" className="hr-btn hr-btn-gold" disabled={!!busy} onClick={handleSource}>
                 {busy === 'source' ? 'Launching…' : 'Launch Metaview'}
@@ -310,9 +369,53 @@ export default function RequisitionDetail() {
       </div>
       {msg && <p className={msgTone === 'error' ? 'hr-error' : 'hr-muted'}>{msg}</p>}
 
+      {showAgencies && (
+        <div className="hr-card hr-agency-panel">
+          <h3 style={{ marginTop: 0, fontFamily: 'Cormorant Garamond, serif', color: '#1B2A4A' }}>
+            Agencies this posting was shared with
+          </h3>
+          <p className="hr-muted" style={{ marginTop: 0 }}>
+            Track external agencies that received this JD. Candidates they submit join the same pipeline.
+          </p>
+          {(req.agenciesShared || []).length === 0 ? (
+            <p className="hr-muted">No agencies recorded yet.</p>
+          ) : (
+            <ul className="hr-agency-list">
+              {(req.agenciesShared || []).map((a, i) => (
+                <li key={`${a.name}-${i}`}>
+                  <strong>{a.name}</strong>
+                  {a.contact ? <span className="hr-muted"> · {a.contact}</span> : null}
+                  {a.sharedAt ? (
+                    <span className="hr-muted"> · shared {new Date(a.sharedAt).toLocaleDateString('en-IN')}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
+          {canWrite && (
+            <form className="hr-agency-add" onSubmit={handleAddAgency}>
+              <input
+                required
+                placeholder="Agency name"
+                value={agencyDraft.name}
+                onChange={(e) => setAgencyDraft({ ...agencyDraft, name: e.target.value })}
+              />
+              <input
+                placeholder="Contact (optional)"
+                value={agencyDraft.contact}
+                onChange={(e) => setAgencyDraft({ ...agencyDraft, contact: e.target.value })}
+              />
+              <button type="submit" className="hr-btn hr-btn-gold" disabled={busy === 'agency'}>
+                {busy === 'agency' ? 'Saving…' : 'Add agency'}
+              </button>
+            </form>
+          )}
+        </div>
+      )}
+
       <h3 style={{ fontFamily: 'Cormorant Garamond, serif', color: '#1B2A4A' }}>Pipeline</h3>
       {!candidates.length ? (
-        <EmptyState title="No candidates" hint="Add manually, import CSV, or Launch Metaview + Sync." />
+        <EmptyState title="No candidates" hint="Add agency / referral candidates, import CSV, or Launch Metaview + Sync." />
       ) : (
         <div className="hr-kanban">
           {stages.map((stageNum) => {
@@ -331,7 +434,11 @@ export default function RequisitionDetail() {
                   >
                     <strong>{c.name}</strong>
                     <br />
-                    <span className="hr-muted">{c.source}</span>
+                    <span className="hr-muted">
+                      {c.source === 'agency' && c.agencyName
+                        ? `Agency · ${c.agencyName}`
+                        : c.source}
+                    </span>
                   </div>
                 ))}
               </div>
@@ -361,6 +468,9 @@ export default function RequisitionDetail() {
         <div className="hr-modal-backdrop" onClick={() => setShowAdd(false)}>
           <div className="hr-modal" onClick={(e) => e.stopPropagation()}>
             <h2>Add candidate</h2>
+            <p className="hr-muted" style={{ marginTop: 0 }}>
+              Agency submissions enter the same sourcing → hire pipeline as Metaview / portal imports.
+            </p>
             <form onSubmit={handleAddCandidate}>
               <div className="hr-form-row">
                 <label>Name</label>
@@ -377,10 +487,58 @@ export default function RequisitionDetail() {
               <div className="hr-form-row">
                 <label>Source</label>
                 <select value={newCand.source} onChange={(e) => setNewCand({ ...newCand, source: e.target.value })}>
-                  {['referral', 'naukri', 'linkedin', 'walk-in', 'other'].map((s) => (
-                    <option key={s} value={s}>{s}</option>
+                  {['agency', 'referral', 'naukri', 'linkedin', 'walk-in', 'other'].map((s) => (
+                    <option key={s} value={s}>{s === 'agency' ? 'External agency' : s}</option>
                   ))}
                 </select>
+              </div>
+              {newCand.source === 'agency' && (
+                <>
+                  <div className="hr-form-row">
+                    <label>Agency name *</label>
+                    <input
+                      required
+                      list="hr-agency-list"
+                      value={newCand.agencyName}
+                      onChange={(e) => setNewCand({ ...newCand, agencyName: e.target.value })}
+                      placeholder="e.g. ABC Recruiters"
+                    />
+                    <datalist id="hr-agency-list">
+                      {(req.agenciesShared || []).map((a) => (
+                        <option key={a.name} value={a.name} />
+                      ))}
+                    </datalist>
+                  </div>
+                  <div className="hr-form-row hr-form-row-inline">
+                    <div style={{ flex: 1 }}>
+                      <label>Agency contact</label>
+                      <input
+                        value={newCand.agencyContact}
+                        onChange={(e) => setNewCand({ ...newCand, agencyContact: e.target.value })}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label>Agency email</label>
+                      <input
+                        type="email"
+                        value={newCand.agencyEmail}
+                        onChange={(e) => setNewCand({ ...newCand, agencyEmail: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className="hr-form-row">
+                    <label>Agency notes</label>
+                    <input
+                      value={newCand.agencyNotes}
+                      onChange={(e) => setNewCand({ ...newCand, agencyNotes: e.target.value })}
+                      placeholder="Fee terms, exclusivity, etc."
+                    />
+                  </div>
+                </>
+              )}
+              <div className="hr-form-row">
+                <label>Current company</label>
+                <input value={newCand.currentCompany} onChange={(e) => setNewCand({ ...newCand, currentCompany: e.target.value })} />
               </div>
               <div className="hr-form-row">
                 <label>Email</label>
@@ -390,7 +548,7 @@ export default function RequisitionDetail() {
                 <label>Phone</label>
                 <input value={newCand.phone} onChange={(e) => setNewCand({ ...newCand, phone: e.target.value })} />
               </div>
-              <button type="submit" className="hr-btn hr-btn-gold">Save</button>
+              <button type="submit" className="hr-btn hr-btn-gold">Save to pipeline</button>
             </form>
           </div>
         </div>

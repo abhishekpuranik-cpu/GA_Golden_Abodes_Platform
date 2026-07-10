@@ -21,7 +21,7 @@ import { importUpload } from '../../lib/hiring/importUpload.js';
 import { hiringImportLimiter } from '../../lib/hiring/rateLimit.js';
 
 const router = Router();
-const IMPORT_CHANNELS = ['naukri', 'linkedin', 'apna', 'other'];
+const IMPORT_CHANNELS = ['naukri', 'linkedin', 'agency', 'apna', 'other'];
 
 router.use(attachHiringUser);
 
@@ -195,7 +195,8 @@ router.post('/:id/refresh-profile', requireHiringWrite, async (req, res) => {
 router.post('/', requireHiringWrite, validateBody([
   'requisitionId', 'entityTag', 'source', 'name', 'phone', 'email', 'linkedinUrl',
   'currentCompany', 'currentCtcPaise', 'expectedCtcPaise', 'noticePeriodDays',
-  'cityCurrent', 'highlights', 'metaviewCandidateId'
+  'cityCurrent', 'highlights', 'metaviewCandidateId',
+  'agencyName', 'agencyContact', 'agencyEmail', 'agencyNotes'
 ]), async (req, res) => {
   try {
     const requisition = await HiringRequisition.findOne(notDeletedFilter({ _id: req.body.requisitionId }));
@@ -205,6 +206,10 @@ router.post('/', requireHiringWrite, validateBody([
     const source = req.body.source || 'other';
     if (!CANDIDATE_SOURCES.includes(source)) {
       return res.status(422).json({ error: 'Invalid source', allowed: CANDIDATE_SOURCES });
+    }
+    const agencyName = String(req.body.agencyName || '').trim();
+    if (source === 'agency' && !agencyName) {
+      return res.status(422).json({ error: 'agencyName is required when source is agency' });
     }
     const createdBy = actorId(req);
     const doc = await HiringCandidate.create({
@@ -222,13 +227,36 @@ router.post('/', requireHiringWrite, validateBody([
       cityCurrent: req.body.cityCurrent,
       highlights: req.body.highlights,
       metaviewCandidateId: req.body.metaviewCandidateId || null,
+      agencyName: agencyName || '',
+      agencyContact: String(req.body.agencyContact || '').trim(),
+      agencyEmail: String(req.body.agencyEmail || '').trim(),
+      agencyNotes: String(req.body.agencyNotes || '').trim(),
       createdBy: new mongoose.Types.ObjectId(createdBy)
     });
+
+    if (source === 'agency' && agencyName) {
+      const already = (requisition.agenciesShared || []).some(
+        (a) => String(a.name || '').toLowerCase() === agencyName.toLowerCase()
+      );
+      if (!already) {
+        requisition.agenciesShared = requisition.agenciesShared || [];
+        requisition.agenciesShared.push({
+          name: agencyName,
+          contact: String(req.body.agencyContact || '').trim(),
+          sharedAt: new Date(),
+          notes: 'Auto-added from candidate submission'
+        });
+        await requisition.save();
+      }
+    }
+
     await logHiringActivity({
       refType: 'candidate',
       refId: doc._id,
       action: 'created',
-      detail: `stage ${doc.currentStageNumber}`,
+      detail: source === 'agency'
+        ? `agency:${agencyName} · stage ${doc.currentStageNumber}`
+        : `stage ${doc.currentStageNumber}`,
       by: createdBy
     });
     res.status(201).json(doc);
@@ -239,14 +267,27 @@ router.post('/', requireHiringWrite, validateBody([
 
 router.patch('/:id', requireHiringWrite, validateBody([
   'name', 'phone', 'email', 'linkedinUrl', 'currentCompany', 'noticePeriodDays',
-  'cityCurrent', 'highlights', 'resumeDriveFileId', 'currentCtcPaise', 'expectedCtcPaise'
+  'cityCurrent', 'highlights', 'resumeDriveFileId', 'currentCtcPaise', 'expectedCtcPaise',
+  'source', 'agencyName', 'agencyContact', 'agencyEmail', 'agencyNotes'
 ]), async (req, res) => {
   try {
     const doc = await HiringCandidate.findOne(notDeletedFilter({ _id: req.params.id }));
     if (!doc) return res.status(404).json({ error: 'Candidate not found' });
-    const fields = ['name', 'phone', 'email', 'linkedinUrl', 'currentCompany', 'cityCurrent', 'highlights', 'resumeDriveFileId'];
+    const fields = [
+      'name', 'phone', 'email', 'linkedinUrl', 'currentCompany', 'cityCurrent',
+      'highlights', 'resumeDriveFileId', 'agencyName', 'agencyContact', 'agencyEmail', 'agencyNotes'
+    ];
     for (const key of fields) {
       if (req.body[key] !== undefined) doc[key] = req.body[key];
+    }
+    if (req.body.source !== undefined) {
+      if (!CANDIDATE_SOURCES.includes(req.body.source)) {
+        return res.status(422).json({ error: 'Invalid source', allowed: CANDIDATE_SOURCES });
+      }
+      doc.source = req.body.source;
+    }
+    if (doc.source === 'agency' && !String(doc.agencyName || '').trim()) {
+      return res.status(422).json({ error: 'agencyName is required when source is agency' });
     }
     if (req.body.currentCtcPaise !== undefined) doc.currentCtcPaise = assertPaise(req.body.currentCtcPaise, 'currentCtcPaise');
     if (req.body.expectedCtcPaise !== undefined) doc.expectedCtcPaise = assertPaise(req.body.expectedCtcPaise, 'expectedCtcPaise');
