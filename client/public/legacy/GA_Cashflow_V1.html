@@ -224,7 +224,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 54;
+var CF_VERSION = 55;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
@@ -8072,6 +8072,22 @@ function htmlExpenseInflowsSection(actsIn){
   h+='</tbody></table></div></div></div>';
   return h;
 }
+function payablePaidSourceMeta(bills){
+  var payableEv=0, paidEv=0, agstRef=0, newRef=0;
+  (bills||[]).forEach(function(b){
+    (b.events||[]).forEach(function(ev){
+      if(ev.side==='payable') payableEv++;
+      else paidEv++;
+      var bt=String(ev.billType||'').toLowerCase();
+      if(bt.indexOf('agst')>=0||bt.indexOf('against')>=0) agstRef++;
+      if(bt.indexOf('new ref')>=0||bt==='new') newRef++;
+    });
+  });
+  return {
+    payableEvents:payableEv, paidEvents:paidEv, agstRef:agstRef, newRef:newRef,
+    paymentOnly: paidEv>0 && payableEv===0
+  };
+}
 function htmlPayablePaidBillTable(bills, opts){
   opts=opts||{};
   var maxRows=opts.maxRows||300;
@@ -8092,21 +8108,23 @@ function htmlPayablePaidBillTable(bills, opts){
   if(!rows.length) h+='<tr><td colspan="'+(showVendor?7:6)+'" style="padding:12px;text-align:center;color:var(--muted)">No bill allocations in session XML. Import Purchase + Payment vouchers together for full payable vs paid.</td></tr>';
   rows.slice(0,maxRows).forEach(function(b){
     var lastEv=(b.events&&b.events.length)?b.events[b.events.length-1]:{};
-    var pct=b.payable>0?((b.paid/b.payable)*100): (b.paid>0?100:0);
+    var pct=b.payable>0?((b.paid/b.payable)*100):null;
     var balCol=(b.balance||0)>0?'var(--orange)':'var(--green-b)';
+    var payCell=(b.payable||0)>0?cr(b.payable):'<span style="color:var(--muted)" title="Bill creation not in this XML export">Not in export</span>';
+    var pctCell=pct!=null?pct.toFixed(0)+'%':'<span style="color:var(--muted)" title="Need Purchase / New Ref in XML">—</span>';
     h+='<tr style="border-bottom:1px solid var(--border)">';
     if(showVendor) h+='<td style="padding:5px 8px">'+escHtml(b.vendor||'')+'</td>';
     h+='<td style="padding:5px 8px;font-weight:700">'+escHtml(b.billName||'')+'</td>';
-    h+='<td style="padding:5px 8px;text-align:right">'+cr(b.payable||0)+'</td>';
+    h+='<td style="padding:5px 8px;text-align:right">'+payCell+'</td>';
     h+='<td style="padding:5px 8px;text-align:right">'+cr(b.paid||0)+'</td>';
-    h+='<td style="padding:5px 8px;text-align:right;color:'+balCol+';font-weight:700">'+cr(b.balance||0)+'</td>';
-    h+='<td style="padding:5px 8px;text-align:right">'+pct.toFixed(0)+'%</td>';
+    h+='<td style="padding:5px 8px;text-align:right;color:'+balCol+';font-weight:700">'+((b.balance||0)>0?cr(b.balance):'<span style="color:var(--muted)">—</span>')+'</td>';
+    h+='<td style="padding:5px 8px;text-align:right">'+pctCell+'</td>';
     h+='<td style="padding:5px 8px;font-size:9px;color:var(--muted)">'+escHtml(String(lastEv.date||'').slice(0,10))+(lastEv.voucherNo?' · '+escHtml(lastEv.voucherNo):'')+'</td></tr>';
   });
   if(rows.length){
     h+='<tr style="background:#FFFBEB;font-weight:800"><td colspan="'+(showVendor?2:1)+'" style="padding:6px 8px">Total ('+Math.min(rows.length,maxRows)+' bills)</td>';
-    h+='<td style="padding:6px 8px;text-align:right">'+cr(totP)+'</td><td style="padding:6px 8px;text-align:right">'+cr(totPaid)+'</td>';
-    h+='<td style="padding:6px 8px;text-align:right">'+cr(totBal)+'</td><td colspan="2"></td></tr>';
+    h+='<td style="padding:6px 8px;text-align:right">'+(totP>0?cr(totP):'<span style="color:var(--muted)">—</span>')+'</td><td style="padding:6px 8px;text-align:right">'+cr(totPaid)+'</td>';
+    h+='<td style="padding:6px 8px;text-align:right">'+(totBal>0?cr(totBal):'<span style="color:var(--muted)">—</span>')+'</td><td colspan="2"></td></tr>';
   }
   h+='</tbody></table></div>';
   if(rows.length>maxRows) h+='<div style="font-size:9px;color:var(--muted);margin-top:4px">Showing first '+maxRows+' of '+rows.length+' bills.</div>';
@@ -8140,8 +8158,17 @@ function htmlPayablePaidSection(rawXml, opts){
   }
   var totP=0, totPaid=0, totBal=0;
   bills.forEach(function(b){ totP+=b.payable||0; totPaid+=b.paid||0; totBal+=b.balance||0; });
+  var meta=payablePaidSourceMeta(bills);
+  if(meta.paymentOnly){
+    h+='<div style="margin-bottom:10px;padding:10px 12px;background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;font-size:10px;line-height:1.5;color:#92400E">';
+    h+='<strong>Payment-only export detected.</strong> Your XML has <strong>Paid</strong> lines (Agst Ref) but no <strong>Payable</strong> (New Ref / Purchase) bills. ';
+    h+='In Tally, payables are created when the <strong>Purchase</strong> (or vendor bill) voucher is booked; <strong>Payment</strong> vouchers only settle against those bills. ';
+    h+='Re-export <strong>Purchase + Payment</strong> for the same period and import both files together.';
+    if(meta.agstRef) h+=' <span style="color:#78716C">('+meta.agstRef+' payment allocation'+(meta.agstRef!==1?'s':'')+' found, 0 purchase allocations.)</span>';
+    h+='</div>';
+  }
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:10px">';
-  h+='<div class="kpi" style="border-top:3px solid #F59E0B"><div style="font-size:13px;font-weight:800">'+cr(totP)+'</div><div style="font-size:9px;color:var(--muted)">Total payable</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid #F59E0B"><div style="font-size:13px;font-weight:800">'+(totP>0?cr(totP):'<span style="color:var(--muted)">—</span>')+'</div><div style="font-size:9px;color:var(--muted)">Total payable</div></div>';
   h+='<div class="kpi" style="border-top:3px solid var(--green-b)"><div style="font-size:13px;font-weight:800">'+cr(totPaid)+'</div><div style="font-size:9px;color:var(--muted)">Total paid</div></div>';
   h+='<div class="kpi" style="border-top:3px solid var(--orange)"><div style="font-size:13px;font-weight:800">'+cr(totBal)+'</div><div style="font-size:9px;color:var(--muted)">Open balance</div></div>';
   h+='<div class="kpi" style="border-top:3px solid var(--blue)"><div style="font-size:13px;font-weight:800">'+bills.length+'</div><div style="font-size:9px;color:var(--muted)">Bills tracked</div></div>';
