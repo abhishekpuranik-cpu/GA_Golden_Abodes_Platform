@@ -203,6 +203,7 @@ router.patch('/:id', requireHiringWrite, validateBody([
   try {
     const doc = await HiringRequisition.findOne(notDeletedFilter({ _id: req.params.id }));
     if (!doc) return res.status(404).json({ error: 'Requisition not found' });
+    const prevStatus = doc.status;
     const allowed = ['role', 'department', 'projectName', 'location', 'brief', 'headcount', 'status', 'closedReason', 'sourcingMode', 'metaviewSearchId'];
     if (req.body.status === 'Closed') {
       const check = await canCloseRequisition(doc._id);
@@ -210,6 +211,9 @@ router.patch('/:id', requireHiringWrite, validateBody([
     }
     for (const key of allowed) {
       if (req.body[key] !== undefined) doc[key] = req.body[key];
+    }
+    if (req.body.status !== undefined && req.body.status !== prevStatus) {
+      doc.statusEnteredAt = new Date();
     }
     if (req.body.bandMinPaise !== undefined) doc.bandMinPaise = assertPaise(req.body.bandMinPaise, 'bandMinPaise');
     if (req.body.bandMaxPaise !== undefined) doc.bandMaxPaise = assertPaise(req.body.bandMaxPaise, 'bandMaxPaise');
@@ -296,6 +300,7 @@ router.delete('/:id', requireHiringWrite, async (req, res) => {
       }
       doc.status = 'Cancelled';
       doc.closedReason = closedReason;
+      doc.statusEnteredAt = new Date();
       await doc.save();
       await logHiringActivity({
         refType: 'requisition',
@@ -317,6 +322,7 @@ router.delete('/:id', requireHiringWrite, async (req, res) => {
     if (doc.status !== 'Cancelled' && doc.status !== 'Closed') {
       doc.status = 'Cancelled';
       doc.closedReason = doc.closedReason || 'Deleted from hiring board';
+      doc.statusEnteredAt = new Date();
     }
     await doc.save();
     await logHiringActivity({
@@ -358,7 +364,10 @@ router.post('/:id/source', requireHiringWrite, metaviewSourceLimiter, async (req
   if (!searchId) return res.status(502).json({ error: 'Metaview did not return search_id' });
   doc.metaviewSearchId = searchId;
   doc.sourcingMode = 'auto';
-  if (doc.status === 'Draft') doc.status = 'Sourcing';
+  if (doc.status === 'Draft') {
+    doc.status = 'Sourcing';
+    doc.statusEnteredAt = new Date();
+  }
   await doc.save();
   await logHiringActivity({
     refType: 'requisition',

@@ -30,6 +30,7 @@ const RequisitionSchema = new mongoose.Schema({
   sourcingMode: { type: String, enum: ['auto', 'manual'], default: 'manual' },
   closedReason: String,
   fulfilledAt: { type: Date, default: null },
+  statusEnteredAt: { type: Date, default: Date.now },
   attachments: [{
     kind: { type: String, enum: ['jd', 'email'], required: true },
     filename: { type: String, required: true },

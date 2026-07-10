@@ -601,3 +601,11 @@ a.hr-btn {
 .hr-link {
   color: var(--hr-gold);
 }
+
+.hr-table-row-click {
+  cursor: pointer;
+}
+
+.hr-table-row-click:hover td {
+  background: #fffbeb;
+}

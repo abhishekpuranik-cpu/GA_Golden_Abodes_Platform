@@ -45,7 +45,9 @@ async function stageMilestonesForReq(requisitionId, candidateIds) {
       if (l.action === 'created' && !milestones.opened) milestones.opened = l.at;
       if (l.action === 'metaview_search_started' && !milestones.sourcingStarted) milestones.sourcingStarted = l.at;
       if (l.action === 'hiring_fulfilled') milestones.fulfilled = l.at;
-      if (l.action === 'updated' && l.detail) reqStatusAt[l.detail] = l.at;
+      if ((l.action === 'updated' || l.action === 'scrapped' || l.action === 'hiring_fulfilled') && l.detail) {
+        reqStatusAt[l.detail] = l.at;
+      }
     }
     if (l.refType === 'candidate' && l.action === 'stage_change' && l.detail) {
       const m = l.detail.match(/→\s*(\d+)/);
@@ -58,6 +60,8 @@ async function stageMilestonesForReq(requisitionId, candidateIds) {
       milestones.firstHired = l.at;
     }
   });
+
+  milestones.statusAt = reqStatusAt;
 
   const cands = await HiringCandidate.find({ _id: { $in: candidateIds } }).select('stageHistory currentStageNumber stageEnteredAt createdAt').lean();
   cands.forEach((c) => {
@@ -94,6 +98,15 @@ function movementSummary(milestones) {
   return parts.join(' · ');
 }
 
+function reqStatusEnteredFromLogs(milestones, status) {
+  if (!status) return null;
+  if (status === 'Sourcing' && milestones.sourcingStarted) return milestones.sourcingStarted;
+  if (status === 'Hiring Fulfilled' && milestones.fulfilled) return milestones.fulfilled;
+  if (milestones.statusAt?.[status]) return milestones.statusAt[status];
+  if (status === 'Draft' && milestones.opened) return milestones.opened;
+  return null;
+}
+
 async function buildRequirementRows(filter) {
   const reqs = await HiringRequisition.find(filter).sort({ createdAt: -1 }).lean();
   const rows = await Promise.all(reqs.map(async (r) => {
@@ -107,6 +120,10 @@ async function buildRequirementRows(filter) {
     const milestones = await stageMilestonesForReq(r._id, candIds);
     const opened = r.createdAt;
     const end = r.fulfilledAt || (['Closed', 'Cancelled', 'Hiring Fulfilled'].includes(r.status) ? r.updatedAt : new Date());
+    const statusStart = r.statusEnteredAt
+      || (reqStatusEnteredFromLogs(milestones, r.status))
+      || opened;
+    const daysInCurrentStage = daysBetween(statusStart, end);
     return {
       requisitionId: String(r._id),
       positionNumber: r.reqCode,
@@ -130,6 +147,8 @@ async function buildRequirementRows(filter) {
         ? new Date(r.fulfilledAt || milestones.fulfilled).toLocaleDateString('en-IN')
         : '',
       daysOpen: daysBetween(opened, end),
+      daysInCurrentStage,
+      statusEnteredAt: statusStart,
       totalCandidates: candidates.length,
       pipelineSummary: Object.entries(pipeline).map(([s, n]) => `${STAGE_LABELS[s] || s}: ${n}`).join(', '),
       movementSummary: movementSummary(milestones),
@@ -172,6 +191,7 @@ router.get('/requirements/export', async (req, res) => {
       Opened: r.openedDisplay,
       Fulfilled: r.fulfilledDisplay,
       'Days open': r.daysOpen ?? '',
+      'Days in current stage': r.daysInCurrentStage ?? '',
       Candidates: r.totalCandidates,
       Pipeline: r.pipelineSummary,
       'Stage movements': r.movementSummary,

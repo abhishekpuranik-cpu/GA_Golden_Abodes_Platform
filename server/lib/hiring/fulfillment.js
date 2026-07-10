@@ -14,6 +14,7 @@ export async function markRequisitionFulfilled(requisition, { by, reason = 'head
   if (!requisition || requisition.status === 'Hiring Fulfilled') return requisition;
   requisition.status = 'Hiring Fulfilled';
   requisition.fulfilledAt = new Date();
+  requisition.statusEnteredAt = new Date();
   if (!requisition.closedReason) {
     requisition.closedReason = reason === 'manual' ? 'Marked hiring fulfilled' : 'Required headcount hired';
   }

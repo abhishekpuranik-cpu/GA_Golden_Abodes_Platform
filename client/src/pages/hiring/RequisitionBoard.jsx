@@ -1,18 +1,18 @@
-import { useEffect, useState } from 'react';
-import { useNavigate, useOutletContext } from 'react-router-dom';
+import { useCallback, useEffect, useState } from 'react';
+import { Link, useNavigate, useOutletContext } from 'react-router-dom';
 import { hiringApi } from '../../lib/hiringApi.js';
-import { formatLpaBand } from '../../lib/hiring/formatINR.js';
 import EntityTagSelect from '../../components/hiring/EntityTagSelect.jsx';
 import MoneyInput from '../../components/hiring/MoneyInput.jsx';
 import EmptyState from '../../components/hiring/EmptyState.jsx';
 
 const STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer', 'Hiring Fulfilled', 'Closed', 'Cancelled'];
+const OPEN_STATUSES = ['Draft', 'Sourcing', 'Shortlisting', 'Interviewing', 'Offer'];
 
 export default function RequisitionBoard() {
   const { canWrite } = useOutletContext();
   const navigate = useNavigate();
-  const [data, setData] = useState({ requisitions: [] });
-  const [filter, setFilter] = useState('');
+  const [rows, setRows] = useState([]);
+  const [filter, setFilter] = useState('open');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({
     entityTag: 'GAPL',
@@ -30,13 +30,25 @@ export default function RequisitionBoard() {
   const [jdFile, setJdFile] = useState(null);
   const [emailFile, setEmailFile] = useState(null);
   const [err, setErr] = useState('');
+  const [loading, setLoading] = useState(true);
 
-  function load() {
-    const params = filter ? { status: filter } : {};
-    hiringApi.listRequisitions(params).then(setData).catch((e) => setErr(e.message));
-  }
+  const load = useCallback(() => {
+    setLoading(true);
+    setErr('');
+    const params = filter && filter !== 'open' && filter !== 'all' ? { status: filter } : {};
+    hiringApi.requirementsReport(params)
+      .then((d) => {
+        let list = d.requirements || [];
+        if (filter === 'open') {
+          list = list.filter((r) => OPEN_STATUSES.includes(r.status));
+        }
+        setRows(list);
+      })
+      .catch((e) => setErr(e.message))
+      .finally(() => setLoading(false));
+  }, [filter]);
 
-  useEffect(() => { load(); }, [filter]);
+  useEffect(() => { load(); }, [load]);
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -52,16 +64,12 @@ export default function RequisitionBoard() {
     }
   }
 
-  const byStatus = STATUSES.reduce((acc, s) => {
-    acc[s] = data.requisitions.filter((r) => r.status === s);
-    return acc;
-  }, {});
-
   return (
     <>
       <div className="hr-toolbar">
         <select value={filter} onChange={(e) => setFilter(e.target.value)}>
-          <option value="">All statuses</option>
+          <option value="open">Open positions</option>
+          <option value="all">All statuses</option>
           {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         {canWrite && (
@@ -71,41 +79,72 @@ export default function RequisitionBoard() {
         )}
       </div>
 
-      {err && <p className="hr-muted" style={{ color: '#b91c1c' }}>{err}</p>}
+      {err && <p className="hr-error">{err}</p>}
 
-      {!data.requisitions.length ? (
+      {loading ? (
+        <p className="hr-muted">Loading positions…</p>
+      ) : !rows.length ? (
         <EmptyState
-          title="No requisitions yet"
+          title={filter === 'open' ? 'No open positions' : 'No requisitions yet'}
           hint="Create a requisition to start sourcing candidates."
           action={canWrite && (
             <button type="button" className="hr-btn" onClick={() => setShowNew(true)}>+ New requisition</button>
           )}
         />
       ) : (
-        <div className="hr-grid">
-          {data.requisitions.map((r) => (
-            <div
-              key={r._id}
-              className="hr-card hr-req-card"
-              role="button"
-              tabIndex={0}
-              onClick={() => navigate(`/app/hiring/req/${r._id}`)}
-              onKeyDown={(e) => e.key === 'Enter' && navigate(`/app/hiring/req/${r._id}`)}
-            >
-              <div className="hr-toolbar" style={{ marginBottom: '0.5rem' }}>
-                <span className="hr-badge">{r.reqCode}</span>
-                <span className="hr-badge hr-badge-gold">{r.status}</span>
-              </div>
-              <h2 style={{ fontSize: '1.1rem', margin: '0 0 0.35rem' }}>{r.role}</h2>
-              <p className="hr-muted">{r.location} · {r.entityTag}</p>
-              <p className="hr-muted">{formatLpaBand(r.bandMinPaise, r.bandMaxPaise)}</p>
-              {byStatus[r.status]?.length > 0 && (
-                <p className="hr-muted" style={{ marginTop: '0.5rem' }}>
-                  {STATUSES.indexOf(r.status) + 1} / {STATUSES.length} pipeline phase
-                </p>
-              )}
-            </div>
-          ))}
+        <div className="hr-table-wrap">
+          <table className="hr-table">
+            <thead>
+              <tr>
+                <th>Position #</th>
+                <th>Role</th>
+                <th>Project</th>
+                <th>Location</th>
+                <th>Entity</th>
+                <th>Band</th>
+                <th>HC</th>
+                <th>Hired</th>
+                <th>Opened</th>
+                <th>Status</th>
+                <th>Days open</th>
+                <th>Days in current stage</th>
+                <th>Candidates</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr
+                  key={r.requisitionId}
+                  className="hr-table-row-click"
+                  onClick={() => navigate(`/app/hiring/req/${r.requisitionId}`)}
+                  onKeyDown={(e) => e.key === 'Enter' && navigate(`/app/hiring/req/${r.requisitionId}`)}
+                  role="link"
+                  tabIndex={0}
+                >
+                  <td>
+                    <Link to={`/app/hiring/req/${r.requisitionId}`} onClick={(e) => e.stopPropagation()}>
+                      {r.positionNumber}
+                    </Link>
+                  </td>
+                  <td>{r.role}</td>
+                  <td>{r.project || '—'}</td>
+                  <td>{r.location}</td>
+                  <td>{r.entityTag}</td>
+                  <td>{r.band || '—'}</td>
+                  <td>{r.headcount}</td>
+                  <td>{r.hired}</td>
+                  <td>{r.openedDisplay}</td>
+                  <td><span className="hr-badge">{r.status}</span></td>
+                  <td>{r.daysOpen ?? '—'}</td>
+                  <td>
+                    <strong>{r.daysInCurrentStage ?? '—'}</strong>
+                    <span className="hr-muted" style={{ display: 'block', fontSize: '0.75rem' }}>{r.status}</span>
+                  </td>
+                  <td>{r.totalCandidates ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 

@@ -45,6 +45,7 @@ const HrRequisitionBoard = lazy(() => import('./pages/hiring/RequisitionBoard.js
 const HrRequisitionDetail = lazy(() => import('./pages/hiring/RequisitionDetail.jsx'));
 const HrCandidateProfile = lazy(() => import('./pages/hiring/CandidateProfile.jsx'));
 const HrInterviewCalendar = lazy(() => import('./pages/hiring/InterviewCalendar.jsx'));
+const HrCtcGenerator = lazy(() => import('./pages/hiring/CtcGenerator.jsx'));
 const HrDashboardLayout = lazy(() => import('./pages/hiring/HiringDashboardLayout.jsx'));
 const HrKpisTab = lazy(() => import('./pages/hiring/HiringKpisTab.jsx'));
 const HrRequirementsTab = lazy(() => import('./pages/hiring/HiringRequirementsTab.jsx'));
@@ -194,6 +195,7 @@ export default function App() {
           <Route path="req/:id" element={<HrRequisitionDetail />} />
           <Route path="req/:id/candidate/:cid" element={<HrCandidateProfile />} />
           <Route path="interviews" element={<HrInterviewCalendar />} />
+          <Route path="ctc" element={<HrCtcGenerator />} />
           <Route path="dashboard" element={<HrDashboardLayout />}>
             <Route index element={<HrKpisTab />} />
             <Route path="requirements" element={<HrRequirementsTab />} />

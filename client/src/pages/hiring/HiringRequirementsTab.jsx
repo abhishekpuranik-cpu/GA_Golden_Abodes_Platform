@@ -93,13 +93,14 @@ export default function HiringRequirementsTab() {
               <th>Opened</th>
               <th>Status</th>
               <th>Fulfilled</th>
-              <th>Days</th>
+              <th>Days open</th>
+              <th>Days in current stage</th>
               <th>Stage movements</th>
             </tr>
           </thead>
           <tbody>
             {!rows.length ? (
-              <tr><td colSpan={13} className="hr-muted">No requirements match filters.</td></tr>
+              <tr><td colSpan={14} className="hr-muted">No requirements match filters.</td></tr>
             ) : rows.map((r) => (
               <tr key={r.requisitionId}>
                 <td>
@@ -116,6 +117,7 @@ export default function HiringRequirementsTab() {
                 <td><span className="hr-badge">{r.status}</span></td>
                 <td>{r.fulfilledDisplay || '—'}</td>
                 <td>{r.daysOpen ?? '—'}</td>
+                <td>{r.daysInCurrentStage ?? '—'}</td>
                 <td className="hr-movement-cell">{r.movementSummary || '—'}</td>
               </tr>
             ))}
