@@ -224,12 +224,24 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 53;
+var CF_VERSION = 54;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
+function isCashflowInflowCat(cat1){ return INFLOW_CATS.indexOf(String(cat1||'').trim())>=0; }
+/** Expense dashboard: collections & other inflows stay out of outflow rollups. */
+function isExpenseDashboardInflow(a){
+  if(!a) return false;
+  if(isCashflowInflowCat(a.cat1)) return true;
+  return coerceMoney(a.amount)>0;
+}
+function isExpenseDashboardOutflow(a){
+  if(!a) return false;
+  if(isExpenseDashboardInflow(a)) return false;
+  return coerceMoney(a.amount)<0;
+}
 /**
  * Display column names from GA Accounting Categories (L1 inflow A–G, outflow H–O).
  * Engine still uses INFLOW/OUTFLOW legacy cat1 keys internally.
@@ -1081,7 +1093,7 @@ function htmlExpenseMetricsDashboard(cfg){
   var m=collectExpenseMetrics(cfg);
   var h='<div class="card" style="margin-bottom:12px;border-top:3px solid #1558A0">';
   h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:6px">Expense metrics — plan, burn &amp; horizon</div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Schedules drive <strong>planned</strong> totals and the forward horizon; <strong>actuals</strong> are dated outflows (autosweeps excluded, same as Monthly cashflow).</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Schedules drive <strong>planned</strong> totals and the forward horizon; <strong>actuals</strong> are dated outflows only (inflows and autosweeps excluded, same as Monthly cashflow expense view).</div>';
   if(!m.hasData){
     h+='<div style="font-size:10px;color:var(--muted);padding:8px 0">Add schedule rows or import Tally / manual outflows to populate metrics.</div></div>';
     return h;
@@ -2362,6 +2374,7 @@ function collectExpenseGATreeKeys(acts){
 }
 var _expenseVendorSearch = '';
 var _expenseVendorSearchTimer = null;
+var _expensePayableDrillVendor = '';
 var _narrationInsightQ = '';
 var _narrationQTimer = null;
 var _narrationCfOnly = true;
@@ -7920,6 +7933,223 @@ function getVendorGstFactsCached(rawXml){
   __gaVendorGstCachedFacts=parseVendorGstFactsFromXml(rawXml);
   return __gaVendorGstCachedFacts;
 }
+/** Tally bill allocation → payable (new bill) vs paid (against bill). */
+function classifyTallyBillAllocSide(billType, voucherType){
+  var bt=String(billType||'').toLowerCase().trim();
+  var vt=String(voucherType||'').toLowerCase();
+  if(bt.indexOf('new ref')>=0 || bt==='new') return 'payable';
+  if(bt.indexOf('agst')>=0 || bt.indexOf('against')>=0) return 'paid';
+  if(bt.indexOf('advance')>=0) return 'paid';
+  if(bt.indexOf('on account')>=0) return 'paid';
+  if(/payment/.test(vt)) return 'paid';
+  if(/purchase|debit\s*note/.test(vt)) return 'payable';
+  if(/receipt/.test(vt)) return 'paid';
+  return 'paid';
+}
+function tallyEntryIsPartyLedgerInner(entInner){
+  return /<ISPARTYLEDGER>\s*Yes\s*<\/ISPARTYLEDGER>/i.test(String(entInner||''));
+}
+function isTallyPayableCreationVoucherType(vtype){
+  return /purchase|debit\s*note|journal/i.test(String(vtype||''));
+}
+/**
+ * Parse Tally voucher XML for bill-level payable vs paid (BILLALLOCATIONS.LIST).
+ * Returns [{ vendor, billName, payable, paid, balance, events[] }].
+ */
+function parseTallyPayablePaidFromXml(xmlText){
+  if(!xmlText||typeof xmlText!=='string') return [];
+  var safe=sanitizeTallyXmlForDomParser(xmlText);
+  var vouchers=tallyXmlListInners(safe,'VOUCHER');
+  var billMap={};
+  function billKey(vendor, name){ return String(vendor||'').trim()+'\x00'+String(name||'').trim(); }
+  function addEvent(vendor, billName, side, amt, meta){
+    vendor=String(vendor||'').trim();
+    billName=String(billName||'').trim();
+    if(!vendor||!billName||!amt) return;
+    var k=billKey(vendor, billName);
+    if(!billMap[k]) billMap[k]={vendor:vendor, billName:billName, payable:0, paid:0, events:[]};
+    var rec=billMap[k];
+    if(side==='payable') rec.payable+=amt;
+    else rec.paid+=amt;
+    rec.events.push({
+      side:side, amount:amt,
+      date:meta.date||'', voucherNo:meta.voucherNo||'', voucherType:meta.voucherType||'',
+      billType:meta.billType||'', narration:meta.narration||''
+    });
+  }
+  vouchers.forEach(function(vb, idx){
+    var date=normalizeDate(tallyVoucherDateRawFromInner(vb))||today();
+    var vno=tallyXmlSimpleTag(vb,'VOUCHERNUMBER')||String(idx+1);
+    var vtype=tallyXmlSimpleTag(vb,'VOUCHERTYPENAME')||'';
+    var partyHint=String(tallyXmlSimpleTag(vb,'PARTYLEDGERNAME')||'').trim();
+    var narr=String(tallyXmlSimpleTag(vb,'NARRATION')||'').trim();
+    var ents=tallyXmlListInners(vb,'ALLLEDGERENTRIES.LIST');
+    if(!ents.length) return;
+    ents.forEach(function(ent){
+      var ledger=String(tallyXmlSimpleTag(ent,'LEDGERNAME')||'').trim();
+      if(!ledger||isTallyBankOrCashLedger(ledger)) return;
+      var vendor=partyHint;
+      if(tallyEntryIsPartyLedgerInner(ent)) vendor=ledger;
+      if(!vendor) vendor=ledger;
+      var bills=tallyXmlListInners(ent,'BILLALLOCATIONS.LIST');
+      if(bills.length){
+        bills.forEach(function(b){
+          var bname=tallyXmlSimpleTag(b,'NAME')||vno;
+          var btype=tallyXmlSimpleTag(b,'BILLTYPE')||'';
+          var bamt=Math.abs(parseFloat(String(tallyXmlSimpleTag(b,'AMOUNT')).replace(/,/g,''))||0);
+          if(!bamt) return;
+          addEvent(vendor, bname, classifyTallyBillAllocSide(btype, vtype), bamt, {
+            date:date, voucherNo:vno, voucherType:vtype, billType:btype, narration:narr
+          });
+        });
+      } else if(tallyEntryIsPartyLedgerInner(ent) && isTallyPayableCreationVoucherType(vtype)){
+        var pamt=Math.abs(parseFloat(String(tallyLedgerPrimaryAmountStr(ent)).replace(/,/g,''))||0);
+        if(pamt) addEvent(vendor, vno, 'payable', pamt, {date:date, voucherNo:vno, voucherType:vtype, billType:'(voucher)', narration:narr});
+      }
+    });
+  });
+  return Object.keys(billMap).map(function(k){
+    var r=billMap[k];
+    r.balance=Math.max(0, (r.payable||0)-(r.paid||0));
+    r.pctPaid=r.payable>0?Math.min(100,((r.paid||0)/r.payable)*100):(r.paid>0?100:0);
+    r.events.sort(function(a,b){ return String(a.date||'').localeCompare(String(b.date||'')); });
+    return r;
+  });
+}
+var __gaPayablePaidCacheKey = '';
+var __gaPayablePaidCachedBills = null;
+function getPayablePaidBillsCached(rawXml){
+  if(!rawXml){ __gaPayablePaidCachedBills=[]; return __gaPayablePaidCachedBills; }
+  if(rawXml===__gaPayablePaidCacheKey && __gaPayablePaidCachedBills) return __gaPayablePaidCachedBills;
+  __gaPayablePaidCacheKey=rawXml;
+  __gaPayablePaidCachedBills=parseTallyPayablePaidFromXml(rawXml);
+  return __gaPayablePaidCachedBills;
+}
+function aggregatePayablePaidByVendor(bills){
+  var by={};
+  (bills||[]).forEach(function(b){
+    var v=String(b.vendor||'Unknown Vendor');
+    if(!by[v]) by[v]={vendor:v, payable:0, paid:0, balance:0, bills:0};
+    by[v].payable+=(b.payable||0);
+    by[v].paid+=(b.paid||0);
+    by[v].balance+=(b.balance||0);
+    by[v].bills+=1;
+  });
+  return Object.keys(by).map(function(k){ return by[k]; }).sort(function(a,b){ return (b.payable+b.paid)-(a.payable+a.paid); });
+}
+function htmlExpenseInflowsSection(actsIn){
+  var byCat={}, byParty={}, tot=0;
+  (actsIn||[]).forEach(function(a){
+    if(!a) return;
+    var c=String(a.cat1||'Other Inflow').trim()||'Other Inflow';
+    var mag=Math.abs(coerceMoney(a.amount));
+    if(mag<=0) return;
+    tot+=mag;
+    byCat[c]=(byCat[c]||0)+mag;
+    var p=String(a.party||'—').trim()||'—';
+    byParty[p]=(byParty[p]||0)+mag;
+  });
+  var catRows=Object.keys(byCat).sort(function(a,b){ return byCat[b]-byCat[a]; });
+  var partyRows=Object.keys(byParty).sort(function(a,b){ return byParty[b]-byParty[a]; }).slice(0,15);
+  var h='<div class="card" style="border-top:3px solid var(--green-b);margin-top:12px">';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--green-b);margin-bottom:4px">Inflows (separate from expenses)</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Customer collections, sales receipts, equity, loans received, and other positive cash lines. These are <strong>not</strong> included in expense metrics or outflow trees above.</div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--green-b);max-width:200px;margin-bottom:10px"><div style="font-size:14px;font-weight:800">'+cr(tot)+'</div><div style="font-size:9px;color:var(--muted)">Total inflows</div></div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
+  h+='<div><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:6px">By cashflow category</div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:#ECFDF5"><th style="padding:5px 8px;text-align:left">Category</th><th style="padding:5px 8px;text-align:right">Amount</th></tr></thead><tbody>';
+  if(!catRows.length) h+='<tr><td colspan="2" style="padding:10px;color:var(--muted)">No inflows yet.</td></tr>';
+  catRows.forEach(function(c){
+    h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 8px">'+escHtml(c)+'</td><td style="padding:5px 8px;text-align:right">'+cr(byCat[c])+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  h+='<div><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:6px">Top parties (inflows)</div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:#ECFDF5"><th style="padding:5px 8px;text-align:left">Party</th><th style="padding:5px 8px;text-align:right">Amount</th></tr></thead><tbody>';
+  if(!partyRows.length) h+='<tr><td colspan="2" style="padding:10px;color:var(--muted)">—</td></tr>';
+  partyRows.forEach(function(p){
+    h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 8px">'+escHtml(p)+'</td><td style="padding:5px 8px;text-align:right">'+cr(byParty[p])+'</td></tr>';
+  });
+  h+='</tbody></table></div></div></div>';
+  return h;
+}
+function htmlPayablePaidBillTable(bills, opts){
+  opts=opts||{};
+  var maxRows=opts.maxRows||300;
+  var showVendor=opts.showVendor!==false;
+  var drillVendor=String(opts.drillVendor||'').trim();
+  var rows=(bills||[]).slice();
+  if(drillVendor) rows=rows.filter(function(b){ return String(b.vendor||'')===drillVendor; });
+  rows.sort(function(a,b){
+    var ba=(b.balance||0)-(a.balance||0);
+    if(ba) return ba;
+    return (b.payable||0)-(a.payable||0);
+  });
+  var totP=0, totPaid=0, totBal=0;
+  rows.forEach(function(b){ totP+=b.payable||0; totPaid+=b.paid||0; totBal+=b.balance||0; });
+  var h='<div style="overflow:auto;max-height:'+(opts.maxHeight||'48vh')+'"><table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:#FEF3C7">';
+  if(showVendor) h+='<th style="padding:6px 8px;text-align:left">Vendor</th>';
+  h+='<th style="padding:6px 8px;text-align:left">Bill / voucher ref</th><th style="padding:6px 8px;text-align:right">Payable</th><th style="padding:6px 8px;text-align:right">Paid</th><th style="padding:6px 8px;text-align:right">Balance</th><th style="padding:6px 8px;text-align:right">% paid</th><th style="padding:6px 8px;text-align:left">Last activity</th></tr></thead><tbody>';
+  if(!rows.length) h+='<tr><td colspan="'+(showVendor?7:6)+'" style="padding:12px;text-align:center;color:var(--muted)">No bill allocations in session XML. Import Purchase + Payment vouchers together for full payable vs paid.</td></tr>';
+  rows.slice(0,maxRows).forEach(function(b){
+    var lastEv=(b.events&&b.events.length)?b.events[b.events.length-1]:{};
+    var pct=b.payable>0?((b.paid/b.payable)*100): (b.paid>0?100:0);
+    var balCol=(b.balance||0)>0?'var(--orange)':'var(--green-b)';
+    h+='<tr style="border-bottom:1px solid var(--border)">';
+    if(showVendor) h+='<td style="padding:5px 8px">'+escHtml(b.vendor||'')+'</td>';
+    h+='<td style="padding:5px 8px;font-weight:700">'+escHtml(b.billName||'')+'</td>';
+    h+='<td style="padding:5px 8px;text-align:right">'+cr(b.payable||0)+'</td>';
+    h+='<td style="padding:5px 8px;text-align:right">'+cr(b.paid||0)+'</td>';
+    h+='<td style="padding:5px 8px;text-align:right;color:'+balCol+';font-weight:700">'+cr(b.balance||0)+'</td>';
+    h+='<td style="padding:5px 8px;text-align:right">'+pct.toFixed(0)+'%</td>';
+    h+='<td style="padding:5px 8px;font-size:9px;color:var(--muted)">'+escHtml(String(lastEv.date||'').slice(0,10))+(lastEv.voucherNo?' · '+escHtml(lastEv.voucherNo):'')+'</td></tr>';
+  });
+  if(rows.length){
+    h+='<tr style="background:#FFFBEB;font-weight:800"><td colspan="'+(showVendor?2:1)+'" style="padding:6px 8px">Total ('+Math.min(rows.length,maxRows)+' bills)</td>';
+    h+='<td style="padding:6px 8px;text-align:right">'+cr(totP)+'</td><td style="padding:6px 8px;text-align:right">'+cr(totPaid)+'</td>';
+    h+='<td style="padding:6px 8px;text-align:right">'+cr(totBal)+'</td><td colspan="2"></td></tr>';
+  }
+  h+='</tbody></table></div>';
+  if(rows.length>maxRows) h+='<div style="font-size:9px;color:var(--muted);margin-top:4px">Showing first '+maxRows+' of '+rows.length+' bills.</div>';
+  return h;
+}
+function htmlPayablePaidVoucherDetail(bills, billName){
+  billName=String(billName||'').trim();
+  var bill=(bills||[]).filter(function(b){ return String(b.billName||'')===billName; })[0];
+  if(!bill||!bill.events||!bill.events.length) return '';
+  var h='<div style="margin-top:8px;padding:10px;background:#FFFBEB;border-radius:8px;border:1px solid #FDE68A">';
+  h+='<div style="font-size:11px;font-weight:800;color:#92400E;margin-bottom:6px">Voucher trail — '+escHtml(bill.billName)+' ('+escHtml(bill.vendor||'')+')</div>';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:9px"><thead><tr style="background:#FEF3C7"><th style="padding:4px 6px">Date</th><th style="padding:4px 6px">Voucher</th><th style="padding:4px 6px">Type</th><th style="padding:4px 6px">Bill type</th><th style="padding:4px 6px">Side</th><th style="padding:4px 6px;text-align:right">Amount</th></tr></thead><tbody>';
+  bill.events.forEach(function(ev){
+    h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:3px 6px">'+escHtml(String(ev.date||'').slice(0,10))+'</td>';
+    h+='<td style="padding:3px 6px">'+escHtml(ev.voucherNo||'')+'</td><td style="padding:3px 6px">'+escHtml(ev.voucherType||'')+'</td>';
+    h+='<td style="padding:3px 6px">'+escHtml(ev.billType||'')+'</td><td style="padding:3px 6px">'+(ev.side==='payable'?'Payable':'Paid')+'</td>';
+    h+='<td style="padding:3px 6px;text-align:right">'+cr(ev.amount||0)+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  return h;
+}
+function htmlPayablePaidSection(rawXml, opts){
+  opts=opts||{};
+  var bills=getPayablePaidBillsCached(rawXml);
+  var h='<div class="card" style="border-top:3px solid #D97706;margin-top:12px">';
+  h+='<div style="font-size:12px;font-weight:700;color:#B45309;margin-bottom:4px">Payable vs paid (by bill / voucher ref)</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Parsed from Tally <strong>BILLALLOCATIONS</strong> on party ledgers. <strong>Payable</strong> = New Ref / Purchase; <strong>Paid</strong> = Payment against bill (Agst Ref). Import Purchase + Payment XML together for complete balances.</div>';
+  if(!rawXml){
+    h+='<div style="font-size:10px;color:var(--muted)">No Tally XML in session — use <strong>Tally live sync</strong> or <strong>Import Tally (XML)</strong>.</div></div>';
+    return h;
+  }
+  var totP=0, totPaid=0, totBal=0;
+  bills.forEach(function(b){ totP+=b.payable||0; totPaid+=b.paid||0; totBal+=b.balance||0; });
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:10px">';
+  h+='<div class="kpi" style="border-top:3px solid #F59E0B"><div style="font-size:13px;font-weight:800">'+cr(totP)+'</div><div style="font-size:9px;color:var(--muted)">Total payable</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--green-b)"><div style="font-size:13px;font-weight:800">'+cr(totPaid)+'</div><div style="font-size:9px;color:var(--muted)">Total paid</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--orange)"><div style="font-size:13px;font-weight:800">'+cr(totBal)+'</div><div style="font-size:9px;color:var(--muted)">Open balance</div></div>';
+  h+='<div class="kpi" style="border-top:3px solid var(--blue)"><div style="font-size:13px;font-weight:800">'+bills.length+'</div><div style="font-size:9px;color:var(--muted)">Bills tracked</div></div>';
+  h+='</div>';
+  h+=htmlPayablePaidBillTable(bills, {showVendor:true, maxRows:opts.maxRows||200, maxHeight:opts.maxHeight||'44vh', drillVendor:opts.drillVendor||''});
+  h+='</div>';
+  return h;
+}
 /** ₹ → lac (numeric) for Excel / math. */
 function rupeesToLacNum(v){
   var n=coerceMoney(v);
@@ -8060,26 +8290,26 @@ function renderExpenses(){
 
   if(_expenseUIPanel==='dashboard'){
     h+=htmlExpenseMetricsDashboard(cfg);
-    h+='<p style="font-size:9px;color:var(--muted);margin:-4px 0 10px 0">Sums and trees below exclude <strong>bank autosweeps</strong> (same as Monthly cashflow).</p>';
+    var actsOut=acts.filter(isExpenseDashboardOutflow);
+    var actsIn=acts.filter(isExpenseDashboardInflow);
+    h+='<p style="font-size:9px;color:var(--muted);margin:-4px 0 10px 0">Outflow sums and trees below exclude <strong>inflows</strong> (customer collections, receipts, etc.) and <strong>bank autosweeps</strong> (same as Monthly cashflow expense view).</p>';
     var byCat={}, byCC={}, treeOut={};
-    acts.forEach(function(a){
+    actsOut.forEach(function(a){
       if(!a) return;
       var c=String(a.cat1||'Unmapped').trim()||'Unmapped';
       var cc=String(a.costCentre||'Unassigned').trim()||'Unassigned';
       var mag=Math.abs(coerceMoney(a.amount));
       if(mag<=0) return;
       byCat[c]=(byCat[c]||0)+mag;
-      if(coerceMoney(a.amount)<0){
-        byCC[cc]=(byCC[cc]||0)+mag;
-        var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1)||String(a.cat1||'').trim()||'—';
-        var l2=String(a.gaL2||'').trim()||'—';
-        var l3k=(a.gaL3?String(a.gaL3).trim()+' — ':'')+String(a.gaL3Name||'').trim();
-        if(!l3k||l3k==='—') l3k='— (see party / note)';
-        if(!treeOut[l1]) treeOut[l1]={};
-        if(!treeOut[l1][l2]) treeOut[l1][l2]={};
-        if(!treeOut[l1][l2][l3k]) treeOut[l1][l2][l3k]=0;
-        treeOut[l1][l2][l3k]+=mag;
-      }
+      byCC[cc]=(byCC[cc]||0)+mag;
+      var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1)||String(a.cat1||'').trim()||'—';
+      var l2=String(a.gaL2||'').trim()||'—';
+      var l3k=(a.gaL3?String(a.gaL3).trim()+' — ':'')+String(a.gaL3Name||'').trim();
+      if(!l3k||l3k==='—') l3k='— (see party / note)';
+      if(!treeOut[l1]) treeOut[l1]={};
+      if(!treeOut[l1][l2]) treeOut[l1][l2]={};
+      if(!treeOut[l1][l2][l3k]) treeOut[l1][l2][l3k]=0;
+      treeOut[l1][l2][l3k]+=mag;
     });
     var catRows=Object.keys(byCat).sort(function(a,b){return byCat[b]-byCat[a];});
     var ccRows=Object.keys(byCC).sort(function(a,b){return byCC[b]-byCC[a];}).slice(0,20);
@@ -8121,9 +8351,9 @@ function renderExpenses(){
     });
     h+='</tbody></table></div></div>';
     h+='<div class="card">';
-    h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:8px">By cashflow column (in+out, excl. autosweeps)</div>';
-    h+='<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--blue-l)"><th style="padding:6px 8px;text-align:left">Category</th><th style="padding:6px 8px;text-align:right">Amount</th></tr></thead><tbody>';
-    if(!catRows.length) h+='<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--muted)">No actuals yet.</td></tr>';
+    h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:8px">By cashflow column (outflows only)</div>';
+    h+='<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--blue-l)"><th style="padding:6px 8px;text-align:left">Category</th><th style="padding:6px 8px;text-align:right">Outflow</th></tr></thead><tbody>';
+    if(!catRows.length) h+='<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--muted)">No outflow actuals yet.</td></tr>';
     catRows.forEach(function(c){
       h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 8px">'+escHtml(c)+'</td><td style="padding:5px 8px;text-align:right">'+cr(byCat[c])+'</td></tr>';
     });
@@ -8137,6 +8367,8 @@ function renderExpenses(){
       h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 8px">'+escHtml(c)+'</td><td style="padding:5px 8px;text-align:right">'+cr(byCC[c])+'</td></tr>';
     });
     h+='</tbody></table></div></div>';
+    h+=htmlPayablePaidSection(window.__gaLastTallyExportRaw||'', {maxRows:250});
+    h+=htmlExpenseInflowsSection(actsIn);
     el.innerHTML=h;
     return;
   }
@@ -8230,6 +8462,11 @@ function renderExpenses(){
   if(_expenseUIPanel==='gst-vendor'){
     var rawXml=window.__gaLastTallyExportRaw||'';
     var facts=getVendorGstFactsCached(rawXml);
+    var payableBills=getPayablePaidBillsCached(rawXml);
+    var payableByVendor={};
+    aggregatePayablePaidByVendor(payableBills).forEach(function(pv){
+      payableByVendor[pv.vendor]=pv;
+    });
     var q=String(_expenseVendorSearch||'').trim().toLowerCase();
     var byVendor={};
     facts.forEach(function(f){
@@ -8241,29 +8478,61 @@ function renderExpenses(){
       byVendor[v].total+=f.total;
       byVendor[v].vouchers+=1;
     });
-    var vendors=Object.keys(byVendor).map(function(k){return byVendor[k];}).sort(function(a,b){return b.total-a.total;});
+    Object.keys(payableByVendor).forEach(function(vn){
+      if(q && vn.toLowerCase().indexOf(q)<0) return;
+      if(!byVendor[vn]) byVendor[vn]={vendor:vn,taxable:0,gst:0,total:0,vouchers:0};
+    });
+    var vendors=Object.keys(byVendor).map(function(k){
+      var row=byVendor[k];
+      var pp=payableByVendor[k]||{payable:0,paid:0,balance:0,bills:0};
+      row.payable=pp.payable||0;
+      row.paid=pp.paid||0;
+      row.balance=pp.balance||0;
+      row.billCount=pp.bills||0;
+      return row;
+    }).sort(function(a,b){return b.total-a.total;});
     var totalTax=vendors.reduce(function(s,v){return s+v.taxable;},0);
     var totalGst=vendors.reduce(function(s,v){return s+v.gst;},0);
     var totalBill=vendors.reduce(function(s,v){return s+v.total;},0);
+    var totalPayable=vendors.reduce(function(s,v){return s+(v.payable||0);},0);
+    var totalPaid=vendors.reduce(function(s,v){return s+(v.paid||0);},0);
+    var totalBal=vendors.reduce(function(s,v){return s+(v.balance||0);},0);
     h+='<div class="card" style="border-top:3px solid var(--teal)">';
     h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">';
-    h+='<div style="font-size:12px;font-weight:700;color:var(--teal)">Vendor GST split (from latest Tally XML)</div>';
+    h+='<div style="font-size:12px;font-weight:700;color:var(--teal)">Vendor GST &amp; payable tracking (from latest Tally XML)</div>';
     h+='<input type="search" id="expense-gst-vendor-q" value="'+escAttr(_expenseVendorSearch||'')+'" placeholder="Search vendor..." data-action="expense-vendor-search" autocomplete="off" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:11px;min-width:220px"/>';
     h+='</div>';
     if(!rawXml){
       h+='<div style="font-size:10px;color:var(--muted)">No XML in session. Use <strong>Tally live sync</strong> or <strong>Import Tally (CSV or XML)</strong> with XML to populate this tab.</div>';
     }else{
-      h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px">';
-      h+='<div class="kpi" style="border-top:3px solid var(--blue)"><div style="font-size:15px;font-weight:800;color:var(--blue-b)">'+cr(totalTax)+'</div><div style="font-size:9px;color:var(--muted)">Taxable base</div></div>';
-      h+='<div class="kpi" style="border-top:3px solid var(--orange)"><div style="font-size:15px;font-weight:800;color:var(--orange)">'+cr(totalGst)+'</div><div style="font-size:9px;color:var(--muted)">GST amount</div></div>';
-      h+='<div class="kpi" style="border-top:3px solid var(--green)"><div style="font-size:15px;font-weight:800;color:var(--green-b)">'+cr(totalBill)+'</div><div style="font-size:9px;color:var(--muted)">Total bill amount</div></div>';
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-bottom:10px">';
+      h+='<div class="kpi" style="border-top:3px solid var(--blue)"><div style="font-size:14px;font-weight:800;color:var(--blue-b)">'+cr(totalTax)+'</div><div style="font-size:9px;color:var(--muted)">Taxable base</div></div>';
+      h+='<div class="kpi" style="border-top:3px solid var(--orange)"><div style="font-size:14px;font-weight:800;color:var(--orange)">'+cr(totalGst)+'</div><div style="font-size:9px;color:var(--muted)">GST amount</div></div>';
+      h+='<div class="kpi" style="border-top:3px solid var(--green)"><div style="font-size:14px;font-weight:800;color:var(--green-b)">'+cr(totalBill)+'</div><div style="font-size:9px;color:var(--muted)">Total bill (GST view)</div></div>';
+      h+='<div class="kpi" style="border-top:3px solid #F59E0B"><div style="font-size:14px;font-weight:800">'+cr(totalPayable)+'</div><div style="font-size:9px;color:var(--muted)">Payable (bills)</div></div>';
+      h+='<div class="kpi" style="border-top:3px solid var(--green-b)"><div style="font-size:14px;font-weight:800">'+cr(totalPaid)+'</div><div style="font-size:9px;color:var(--muted)">Paid</div></div>';
+      h+='<div class="kpi" style="border-top:3px solid var(--orange)"><div style="font-size:14px;font-weight:800">'+cr(totalBal)+'</div><div style="font-size:9px;color:var(--muted)">Open balance</div></div>';
       h+='</div>';
-      h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">GST share overall: <strong>'+(totalBill>0?((totalGst*100/totalBill).toFixed(2)):'0.00')+'%</strong> · Vendors shown: '+vendors.length+'</div>';
-      h+='<div style="overflow:auto;max-height:54vh"><table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--teal-l)"><th style="padding:6px 8px;text-align:left">Vendor</th><th style="padding:6px 8px;text-align:right">Taxable</th><th style="padding:6px 8px;text-align:right">GST</th><th style="padding:6px 8px;text-align:right">Total Bill</th><th style="padding:6px 8px;text-align:right">GST %</th><th style="padding:6px 8px;text-align:right">Vouchers</th></tr></thead><tbody>';
-      if(!vendors.length) h+='<tr><td colspan="6" style="padding:12px;text-align:center;color:var(--muted)">No matching vendors.</td></tr>';
+      h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">GST share: <strong>'+(totalBill>0?((totalGst*100/totalBill).toFixed(2)):'0.00')+'%</strong> · Vendors: '+vendors.length+' · Click a vendor row to drill into <strong>payable vs paid</strong> by bill ref.</div>';
+      if(_expensePayableDrillVendor){
+        h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap">';
+        h+='<button type="button" class="btn btn-outline" data-action="expense-payable-vendor-clear" style="font-size:10px;padding:4px 10px">&#8592; All vendors</button>';
+        h+='<span style="font-size:11px;font-weight:800;color:#B45309">Payable vs paid — '+escHtml(_expensePayableDrillVendor)+'</span>';
+        h+='</div>';
+        h+=htmlPayablePaidBillTable(payableBills, {showVendor:false, drillVendor:_expensePayableDrillVendor, maxRows:400, maxHeight:'40vh'});
+      }
+      h+='<div style="overflow:auto;max-height:54vh"><table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--teal-l)"><th style="padding:6px 8px;text-align:left">Vendor</th><th style="padding:6px 8px;text-align:right">Taxable</th><th style="padding:6px 8px;text-align:right">GST</th><th style="padding:6px 8px;text-align:right">Bill total</th><th style="padding:6px 8px;text-align:right">Payable</th><th style="padding:6px 8px;text-align:right">Paid</th><th style="padding:6px 8px;text-align:right">Balance</th><th style="padding:6px 8px;text-align:right">GST %</th><th style="padding:6px 8px;text-align:right">Vch</th></tr></thead><tbody>';
+      if(!vendors.length) h+='<tr><td colspan="9" style="padding:12px;text-align:center;color:var(--muted)">No matching vendors.</td></tr>';
       vendors.slice(0,200).forEach(function(v){
         var gp=v.total>0?((v.gst*100)/v.total):0;
-        h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 8px">'+escHtml(v.vendor)+'</td><td style="padding:5px 8px;text-align:right">'+cr(v.taxable)+'</td><td style="padding:5px 8px;text-align:right">'+cr(v.gst)+'</td><td style="padding:5px 8px;text-align:right">'+cr(v.total)+'</td><td style="padding:5px 8px;text-align:right">'+gp.toFixed(2)+'%</td><td style="padding:5px 8px;text-align:right">'+v.vouchers+'</td></tr>';
+        var isDrill=String(_expensePayableDrillVendor||'')===String(v.vendor||'');
+        var rowStyle='border-bottom:1px solid var(--border);cursor:pointer'+(isDrill?';background:#FFFBEB':'');
+        h+='<tr style="'+rowStyle+'" data-action="expense-payable-vendor-drill" data-vendor="'+escAttr(v.vendor)+'" title="Drill into payable vs paid bills">';
+        h+='<td style="padding:5px 8px;font-weight:700;color:var(--blue-b)">'+escHtml(v.vendor)+(isDrill?' ▾':'')+'</td>';
+        h+='<td style="padding:5px 8px;text-align:right">'+cr(v.taxable)+'</td><td style="padding:5px 8px;text-align:right">'+cr(v.gst)+'</td><td style="padding:5px 8px;text-align:right">'+cr(v.total)+'</td>';
+        h+='<td style="padding:5px 8px;text-align:right">'+cr(v.payable||0)+'</td><td style="padding:5px 8px;text-align:right">'+cr(v.paid||0)+'</td>';
+        h+='<td style="padding:5px 8px;text-align:right;color:'+((v.balance||0)>0?'var(--orange)':'var(--green-b)')+'">'+cr(v.balance||0)+'</td>';
+        h+='<td style="padding:5px 8px;text-align:right">'+gp.toFixed(2)+'%</td><td style="padding:5px 8px;text-align:right">'+v.vouchers+'</td></tr>';
       });
       h+='</tbody></table></div>';
       var gstBillRows=facts.filter(function(f){
@@ -10834,7 +11103,14 @@ document.addEventListener('click',function(e){
   if(a==='gst-xlsx-export')        { exportVendorGstExcel(String(el.dataset.report||'bills-inr')); return; }
   if(a==='sales-sub')              { _salesUIPanel=el.dataset.panel||'inventory'; renderSales(); return; }
   if(a==='post-sales-sub')         { _postSalesSubPanel=el.dataset.panel||'overview'; renderSales(); return; }
-  if(a==='expense-sub')            { _expenseUIPanel=el.dataset.panel||'dashboard'; renderExpenses(); return; }
+  if(a==='expense-sub')            { if((el.dataset.panel||'dashboard')!=='gst-vendor') _expensePayableDrillVendor=''; _expenseUIPanel=el.dataset.panel||'dashboard'; renderExpenses(); return; }
+  if(a==='expense-payable-vendor-drill'){
+    var vDrill=String(el.dataset.vendor||'');
+    _expensePayableDrillVendor=(_expensePayableDrillVendor===vDrill)?'':vDrill;
+    renderExpenses();
+    return;
+  }
+  if(a==='expense-payable-vendor-clear'){ _expensePayableDrillVendor=''; renderExpenses(); return; }
   if(a==='insight-apply'){
     _insightFrom=String((document.querySelector('[data-action="insight-f-from"]')||{}).value||'');
     _insightTo=String((document.querySelector('[data-action="insight-f-to"]')||{}).value||'');
@@ -10848,7 +11124,7 @@ document.addEventListener('click',function(e){
   if(a==='expense-tree-expand-all'){ _expenseTreeCollapsedL1={}; _expenseTreeCollapsedL2={}; renderExpenses(); return; }
   if(a==='expense-tree-collapse-all'){
     if(_curPid){
-      var ck=collectExpenseGATreeKeys((getCF(_curPid).actuals||[]).filter(includeActualInCashflowSums));
+      var ck=collectExpenseGATreeKeys((getCF(_curPid).actuals||[]).filter(function(a){ return includeActualInCashflowSums(a)&&isExpenseDashboardOutflow(a); }));
       (ck.l1kList||[]).forEach(function(k){ _expenseTreeCollapsedL1[k]=true; });
       (ck.l2kList||[]).forEach(function(k){ _expenseTreeCollapsedL2[k]=true; });
     } else { _expenseTreeCollapsedL1={}; _expenseTreeCollapsedL2={}; }
