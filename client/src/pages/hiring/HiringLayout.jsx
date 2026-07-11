@@ -15,7 +15,8 @@ export default function HiringLayout() {
   }, []);
 
   const canWrite = (user?.roleIds || []).some((r) => ['admin', 'hiring_manager'].includes(r))
-    || (user?.permissions || []).includes('manage_security');
+    || (user?.permissions || []).includes('manage_security')
+    || (user?.allowedApps || []).includes('hiring');
 
   return (
     <div className="hr-app">
