@@ -17,6 +17,7 @@ import { pushFeedback, fetchCandidateProfile, metaviewConfigured } from '../../l
 import { CANDIDATE_SOURCES } from '../../lib/hiring/constants.js';
 import { parseSpreadsheetBuffer } from '../../lib/hiring/importParsers.js';
 import { runCandidateImport, parseImportRows } from '../../lib/hiring/importService.js';
+import { applyResolvedContact, resolveCandidateContact } from '../../lib/hiring/contact.js';
 import { importUpload } from '../../lib/hiring/importUpload.js';
 import { hiringImportLimiter } from '../../lib/hiring/rateLimit.js';
 
@@ -46,8 +47,7 @@ async function enrichCandidateProfile(candidate, requisition) {
       if (profile.experience?.[0]?.company && !candidate.currentCompany) {
         candidate.currentCompany = profile.experience[0].company;
       }
-      if (profile.emails?.[0] && !candidate.email) candidate.email = profile.emails[0];
-      if (profile.phones?.[0] && !candidate.phone) candidate.phone = profile.phones[0];
+      applyResolvedContact(candidate, { profileSnapshot: profile, emails: profile.emails, phones: profile.phones });
       if (!candidate.highlights && profile.summary?.length) {
         candidate.highlights = profile.summary.map((s) => s.description).join('\n');
       }
@@ -79,7 +79,23 @@ router.get('/', async (req, res) => {
     if (req.query.stage) filter.currentStageNumber = Number(req.query.stage);
     if (req.query.entityTag) filter.entityTag = req.query.entityTag;
     const candidates = await HiringCandidate.find(filter).sort({ updatedAt: -1 }).lean();
-    res.json({ candidates });
+    const hydrated = [];
+    const backfills = [];
+    for (const c of candidates) {
+      const { email, phone } = resolveCandidateContact(c);
+      const next = { ...c, email: email || c.email || '', phone: phone || c.phone || '' };
+      hydrated.push(next);
+      const set = {};
+      if (email && !c.email) set.email = email;
+      if (phone && !c.phone) set.phone = phone;
+      if (Object.keys(set).length) backfills.push({ id: c._id, set });
+    }
+    if (backfills.length) {
+      await Promise.all(
+        backfills.map(({ id, set }) => HiringCandidate.updateOne({ _id: id }, { $set: set }))
+      );
+    }
+    res.json({ candidates: hydrated });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -162,7 +178,12 @@ router.get('/:id', async (req, res) => {
     if (!candidateDoc) return res.status(404).json({ error: 'Candidate not found' });
     const requisition = await HiringRequisition.findById(candidateDoc.requisitionId).lean();
     const profile = await enrichCandidateProfile(candidateDoc, requisition);
+    applyResolvedContact(candidateDoc, { profileSnapshot: profile || candidateDoc.profileSnapshot });
+    if (candidateDoc.isModified()) await candidateDoc.save();
     const candidate = candidateDoc.toObject();
+    const resolved = resolveCandidateContact(candidate);
+    candidate.email = resolved.email || candidate.email || '';
+    candidate.phone = resolved.phone || candidate.phone || '';
     const [interviews, offer] = await Promise.all([
       HiringInterview.find(notDeletedFilter({ candidateId: candidate._id })).sort({ round: 1 }).lean(),
       HiringOffer.findOne(notDeletedFilter({ candidateId: candidate._id })).lean()

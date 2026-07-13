@@ -75,8 +75,14 @@ function mapRowHeaders(row) {
 
 const Naukri_HEADERS = {
   name: ['name', 'candidate name', 'full name'],
-  phone: ['mobile', 'phone', 'mobile no', 'mobile number'],
-  email: ['email', 'email id', 'e-mail'],
+  phone: [
+    'mobile', 'phone', 'mobile no', 'mobile number', 'contact number', 'contact no',
+    'cellphone', 'cell', 'whatsapp', 'phone number', 'primary phone'
+  ],
+  email: [
+    'email', 'email id', 'e-mail', 'e mail', 'email address', 'personal email',
+    'work email', 'primary email'
+  ],
   company: ['current company', 'organization', 'current company / organization', 'company'],
   currentCtc: ['annual salary', 'current ctc', 'ctc'],
   expectedCtc: ['expected ctc', 'expected salary'],
@@ -130,6 +136,23 @@ export function mapNaukriRow(row, rowIndex) {
   };
 }
 
+const COMMON_HEADERS = {
+  name: ['name', 'candidate name', 'full name'],
+  phone: [
+    'mobile', 'phone', 'mobile no', 'mobile number', 'contact number', 'contact no',
+    'cellphone', 'cell', 'whatsapp', 'phone number', 'primary phone'
+  ],
+  email: [
+    'email', 'email id', 'e-mail', 'e mail', 'email address', 'personal email',
+    'work email', 'primary email'
+  ],
+  company: ['current company', 'company', 'organization'],
+  currentCtc: ['current ctc', 'annual salary', 'ctc'],
+  expectedCtc: ['expected ctc', 'expected salary'],
+  notice: ['notice period', 'notice'],
+  city: ['city', 'current location', 'location']
+};
+
 export function mapLinkedInRow(row, rowIndex) {
   const m = mapRowHeaders(row);
   const first = pick(m, 'first name', 'firstname', 'first_name');
@@ -143,6 +166,8 @@ export function mapLinkedInRow(row, rowIndex) {
   return {
     candidate: {
       name,
+      phone: normalizePhone(resolveField(m, COMMON_HEADERS.phone)),
+      email: normalizeEmail(resolveField(m, COMMON_HEADERS.email)),
       linkedinUrl: pick(m, 'profile url', 'linkedin url', 'url', 'linkedin'),
       currentCompany: pick(m, 'company', 'current company', 'organization'),
       highlights,
@@ -151,17 +176,6 @@ export function mapLinkedInRow(row, rowIndex) {
     }
   };
 }
-
-const COMMON_HEADERS = {
-  name: ['name', 'candidate name', 'full name'],
-  phone: ['mobile', 'phone', 'mobile no'],
-  email: ['email', 'email id'],
-  company: ['current company', 'company', 'organization'],
-  currentCtc: ['current ctc', 'annual salary', 'ctc'],
-  expectedCtc: ['expected ctc', 'expected salary'],
-  notice: ['notice period', 'notice'],
-  city: ['city', 'current location', 'location']
-};
 
 export function mapGenericRow(row, rowIndex, source = 'other') {
   const m = mapRowHeaders(row);

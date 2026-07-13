@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import HiringCandidate from '../../models/hiring/Candidate.js';
 import { dedupeKey, mapRowByChannel } from './importParsers.js';
+import { applyResolvedContact } from './contact.js';
 import { logHiringActivity } from './activity.js';
 
 function slug(s) {
@@ -24,8 +25,6 @@ export async function loadExistingDedupeKeys(requisitionId) {
 export function mergeMetaviewCandidate(existing, row) {
   if (row.name && !existing.name) existing.name = row.name;
   if (row.highlights && !existing.highlights) existing.highlights = row.highlights;
-  if (row.email && !existing.email) existing.email = row.email;
-  if (row.phone && !existing.phone) existing.phone = row.phone;
   if (row.linkedinUrl && !existing.linkedinUrl) existing.linkedinUrl = row.linkedinUrl;
   if (row.currentCompany && !existing.currentCompany) existing.currentCompany = row.currentCompany;
   if (row.cityCurrent && !existing.cityCurrent) existing.cityCurrent = row.cityCurrent;
@@ -33,6 +32,11 @@ export function mergeMetaviewCandidate(existing, row) {
     existing.profileSnapshot = row.profileSnapshot;
     existing.profileFetchedAt = new Date();
   }
+  applyResolvedContact(existing, {
+    email: row.email,
+    phone: row.phone,
+    profileSnapshot: row.profileSnapshot || existing.profileSnapshot
+  });
   return existing;
 }
 

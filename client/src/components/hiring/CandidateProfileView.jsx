@@ -13,6 +13,14 @@ function ProfileSection({ title, children }) {
 export default function CandidateProfileView({ candidate, profile, requisition }) {
   if (!candidate) return null;
   const p = profile || candidate.profileSnapshot || null;
+  const email = candidate.email
+    || (Array.isArray(p?.emails) ? (typeof p.emails[0] === 'string' ? p.emails[0] : (p.emails[0]?.email || p.emails[0]?.value || '')) : '')
+    || p?.email
+    || '';
+  const phone = candidate.phone
+    || (Array.isArray(p?.phones) ? (typeof p.phones[0] === 'string' ? p.phones[0] : (p.phones[0]?.phone || p.phones[0]?.value || p.phones[0]?.number || '')) : '')
+    || p?.phone
+    || '';
   const summary = Array.isArray(p?.summary) && p.summary.length
     ? p.summary
     : String(candidate.highlights || '').split('\n').filter(Boolean).map((d) => ({ description: d }));
@@ -49,8 +57,11 @@ export default function CandidateProfileView({ candidate, profile, requisition }
         <div className="hr-profile-facts">
           <div><span className="hr-muted">Stage</span><strong>{STAGE_LABELS[candidate.currentStageNumber] || '—'}</strong></div>
           <div><span className="hr-muted">Requisition</span><strong>{requisition?.reqCode || '—'}{requisition?.role ? ` — ${requisition.role}` : ''}</strong></div>
-          {candidate.email && <div><span className="hr-muted">Email</span><strong>{candidate.email}</strong></div>}
-          {candidate.phone && <div><span className="hr-muted">Phone</span><strong>{candidate.phone}</strong></div>}
+          {email && <div><span className="hr-muted">Email</span><strong>{email}</strong></div>}
+          {phone && <div><span className="hr-muted">Phone</span><strong>{phone}</strong></div>}
+          {!email && !phone && (
+            <div><span className="hr-muted">Contact</span><strong>Not available from source</strong></div>
+          )}
           {(candidate.currentCtcPaise != null || candidate.expectedCtcPaise != null) && (
             <div>
               <span className="hr-muted">CTC</span>

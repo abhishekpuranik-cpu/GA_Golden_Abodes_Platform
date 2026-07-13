@@ -1,5 +1,7 @@
 /** Direct Metaview MCP client — no Anthropic proxy required. */
 
+import { pickFirstEmail, pickFirstPhone } from './contact.js';
+
 function trimEnv(k) {
   const v = process.env[k];
   return typeof v === 'string' ? v.trim() : '';
@@ -119,8 +121,12 @@ export function normalizeFullProfile(row) {
     })),
     skills: p.skills || [],
     languages: p.languages || [],
-    emails: p.emails || [],
-    phones: p.phones || []
+    emails: (p.emails || p.email_addresses || [])
+      .map((e) => pickFirstEmail(e))
+      .filter(Boolean),
+    phones: (p.phones || p.phone_numbers || [])
+      .map((ph) => pickFirstPhone(ph))
+      .filter(Boolean)
   };
 }
 
@@ -130,11 +136,32 @@ function mapCandidate(c) {
     .filter(Boolean)
     .join('\n');
   const profile = c.profile ? normalizeFullProfile(c) : null;
+  const email = pickFirstEmail(
+    c.email,
+    c.emails,
+    c.contact_email,
+    c.primary_email,
+    profile?.emails,
+    c.profile?.emails,
+    c.profile?.email,
+    c.profile?.email_addresses
+  );
+  const phone = pickFirstPhone(
+    c.phone,
+    c.phones,
+    c.contact_phone,
+    c.mobile,
+    c.primary_phone,
+    profile?.phones,
+    c.profile?.phones,
+    c.profile?.phone,
+    c.profile?.phone_numbers
+  );
   return {
     metaviewCandidateId: String(c.candidate_id || c.id || ''),
     name: c.name || 'Unknown',
-    email: c.email || profile?.emails?.[0] || '',
-    phone: c.phone || profile?.phones?.[0] || '',
+    email,
+    phone,
     linkedinUrl: c.linkedin_url || c.linkedinUrl || profile?.linkedinUrl || '',
     currentCompany: c.current_company || c.currentCompany || profile?.experience?.[0]?.company || '',
     cityCurrent: profile?.location || c.city_current || '',

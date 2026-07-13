@@ -433,7 +433,30 @@ export default function RequisitionDetail() {
                     onKeyDown={(e) => e.key === 'Enter' && navigate(`/app/hiring/req/${id}/candidate/${c._id}`)}
                   >
                     <strong>{c.name}</strong>
-                    <br />
+                    <div className="hr-cand-chip-contact">
+                      {c.email ? (
+                        <a
+                          href={`mailto:${c.email}`}
+                          onClick={(e) => e.stopPropagation()}
+                          title={c.email}
+                        >
+                          {c.email}
+                        </a>
+                      ) : (
+                        <span className="hr-muted">No email</span>
+                      )}
+                      {c.phone ? (
+                        <a
+                          href={`tel:${c.phone}`}
+                          onClick={(e) => e.stopPropagation()}
+                          title={c.phone}
+                        >
+                          {c.phone}
+                        </a>
+                      ) : (
+                        <span className="hr-muted">No phone</span>
+                      )}
+                    </div>
                     <span className="hr-muted">
                       {c.source === 'agency' && c.agencyName
                         ? `Agency · ${c.agencyName}`
