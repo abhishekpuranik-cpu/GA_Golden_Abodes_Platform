@@ -73,15 +73,12 @@ vaultAnalyticsRouter.post(
         context,
         appLabel: req.body?.appLabel || APP_LABELS[appId],
       });
-      if (result.skippedLlm) {
-        return res.json({
-          ok: true,
-          skippedLlm: true,
-          source: 'local',
-          reason: result.reason || 'LLM unavailable',
-        });
-      }
-      res.json(result);
+      // Always return the full answer payload (local engine or LLM).
+      res.json({
+        ok: true,
+        ...result,
+        skippedLlm: !!result.skippedLlm,
+      });
     } catch (e) {
       console.error('[vault-analytics]', e?.message || e);
       res.status(502).json({ error: e?.message || String(e) });

@@ -60,33 +60,70 @@
   }
 
   function localAnswer(question, context, appId) {
+    var q = String(question || '').trim();
     var totals = (context && (context.totals || context.summary)) || {};
-    var items = (context && (context.hotItems || context.items)) || [];
-    var md = '### Answer (local · ' + (appId || 'app') + ')\n\n#### Snapshot\n';
-    var keys = Object.keys(totals);
-    if (keys.length) {
-      keys.slice(0, 12).forEach(function (k) {
-        md += '- **' + k + '**: ' + totals[k] + '\n';
-      });
-    } else md += '_No structured totals — data may still be loading._\n';
-    if (items.length) {
-      md += '\n#### Hotspots\n';
-      items.slice(0, 8).forEach(function (it) {
-        md += '- **' + (it.title || it.name || 'Item') + '**' + (it.detail ? ' — ' + it.detail : '') + '\n';
+    var items = (context && (context.hotItems || context.items || context.hotTasks)) || [];
+    var stop = { a:1,an:1,the:1,and:1,or:1,of:1,to:1,in:1,on:1,for:1,is:1,are:1,what:1,which:1,who:1,how:1,many:1,show:1,tell:1,list:1,about:1,please:1,this:1,that:1,with:1,from:1,should:1,will:1,next:1,app:1,data:1,now:1,today:1 };
+    var tokens = (q.toLowerCase().match(/[a-z0-9][a-z0-9._-]{1,}/g) || []).filter(function (t) {
+      return t.length > 1 && !stop[t] && !/^\d+$/.test(t);
+    });
+    function hay(o){ try { return JSON.stringify(o||{}).toLowerCase(); } catch(e){ return ''; } }
+    function score(o){
+      if (!tokens.length) return 0;
+      var h = hay(o), s = 0;
+      tokens.forEach(function(t){ if (h.indexOf(t) >= 0) s += t.length >= 5 ? 3 : 2; });
+      return s;
+    }
+    var ranked = items.map(function(it){ return { it: it, s: score(it) }; }).filter(function(r){ return !tokens.length || r.s > 0; }).sort(function(a,b){ return b.s - a.s; });
+    var usedFallback = tokens.length > 0 && !ranked.length;
+    if (!ranked.length) ranked = items.slice(0, 10).map(function(it,i){ return { it: it, s: 10 - i }; });
+    var metricKeys = Object.keys(totals);
+    var matchedMetrics = metricKeys.filter(function(k){
+      if (!tokens.length) return typeof totals[k] === 'number' || (typeof totals[k] === 'string' && String(totals[k]).length < 40);
+      var h = (k + ' ' + totals[k]).toLowerCase();
+      return tokens.some(function(t){ return h.indexOf(t) >= 0; });
+    }).slice(0, 10);
+    if (!matchedMetrics.length) matchedMetrics = metricKeys.filter(function(k){ return typeof totals[k] === 'number'; }).slice(0, 8);
+    var top = ranked[0] && ranked[0].it;
+    var headline = top
+      ? ((tokens.length && !usedFallback ? ranked.length + ' match(es): ' : 'Top focus: ') + (top.title || top.name || top.task || 'item'))
+      : ('Answer from ' + (appId || 'app') + ' live data');
+    var direct = '';
+    if (top && tokens.length && !usedFallback) {
+      direct = '**Direct answer:** Found **' + ranked.length + '** item(s) matching (' + tokens.slice(0,6).join(', ') + '). Top: **' + (top.title||top.name||top.task||'item') + '**' + (top.detail || top.status ? ' — ' + (top.detail||top.status) : '') + '.';
+    } else if (matchedMetrics.length) {
+      var mk = matchedMetrics[0];
+      direct = '**Direct answer:** `' + mk + '` = **' + totals[mk] + '** from live ' + (appId||'app') + ' data.';
+    } else {
+      direct = '**Direct answer:** Live context does not contain a precise match — open app views or re-ask with a name/metric.';
+    }
+    if (usedFallback) direct += '\n_No exact keyword hits; showing strongest available snapshot._';
+    var md = '### Answer to: “' + q.slice(0, 180) + '”\n\n' + direct + '\n\n';
+    if (ranked.length) {
+      md += '#### Matching / top items\n';
+      ranked.slice(0, 8).forEach(function (r) {
+        var it = r.it;
+        md += '- **' + (it.title || it.name || it.task || 'Item') + '**' + (it.detail ? ' — ' + it.detail : '') + '\n';
       });
     }
-    md += '\n#### Focus\n1. Clear top hotspots.\n2. Confirm owners and dates.\n3. Re-ask with a narrower scope.\n';
-    md += '\n_Question: “' + String(question || '').slice(0, 180) + '”_\n';
-    md += '\n_Local engine — set ANTHROPIC_API_KEY on Render for full LLM answers._';
-    var charts=[];
-    var keys=Object.keys(totals).filter(function(k){return typeof totals[k]==='number';}).slice(0,6);
-    if(keys.length>=2){ charts.push({ title:'Key metrics', narrative:'Numeric totals in the current app snapshot.', data: keys.map(function(k){return {label:k,value:totals[k]};}) }); }
-    if(items.length){ charts.push({ title:'Hotspots', narrative:'Relative pressure of flagged items.', data: items.slice(0,6).map(function(it,i){return {label:String(it.title||it.name||('Item '+(i+1))).slice(0,14), value: it.risk||it.count||1};}) }); }
-    var sections=[
-      {kind:'informative', title:'What the data shows', narrative: keys.length ? ('Snapshot has '+keys.length+' numeric metrics and '+items.length+' hotspot(s).') : 'Limited structured totals available.'},
-      {kind:'prescriptive', title:'What to do next', narrative:'Clear top hotspots, confirm owners/dates, then re-ask with a narrower scope.'}
+    if (matchedMetrics.length) {
+      md += '\n#### Metrics\n';
+      matchedMetrics.forEach(function (k) { md += '- **' + k + '**: ' + totals[k] + '\n'; });
+    }
+    md += '\n_Local query engine · ' + (appId || 'app') + '_';
+    var charts = [];
+    var numKeys = matchedMetrics.filter(function(k){ return typeof totals[k] === 'number'; }).slice(0, 6);
+    if (numKeys.length >= 2) {
+      charts.push({ title: 'Metrics for your question', narrative: 'Metrics matched to your question keywords.', data: numKeys.map(function(k){ return { label: String(k).slice(0,14), value: totals[k] }; }) });
+    }
+    if (ranked.length) {
+      charts.push({ title: 'Items for your question', narrative: 'Ranked by match to your question.', data: ranked.slice(0,6).map(function(r,i){ return { label: String(r.it.title||r.it.name||r.it.task||('Item '+(i+1))).slice(0,14), value: r.s || r.it.risk || 1 }; }) });
+    }
+    var sections = [
+      { kind: 'informative', title: 'Answer to your question', narrative: direct.replace(/\*\*/g, '') },
+      { kind: 'prescriptive', title: 'What to do next', narrative: top ? ('1. Act on ' + (top.title||top.name||top.task) + '. 2. Confirm owner/date. 3. Re-ask with a narrower name if needed.') : 'Refresh app data, then re-ask with a named item or metric.' }
     ];
-    return { source: 'local', markdown: md, headline: items.length ? (items.length+' hotspot(s) need attention') : ('Health check · '+(appId||'app')), charts: charts, sections: sections };
+    return { source: 'local', markdown: md, headline: headline, charts: charts, sections: sections, highlights: matchedMetrics.slice(0,4).reduce(function(acc,k){ acc[k]=totals[k]; return acc; }, {}) };
   }
 
   function renderRich(ans, ansEl){
@@ -278,20 +315,34 @@
           var local = localAnswer(q, context, opts.appId);
           return askApi(opts, q, context)
             .then(function (res) {
-              if (!res.ok || res.data.skippedLlm || res.data.source === 'local') {
+              if (!res.ok) {
                 meta.textContent = 'Local engine';
-                if (res.data && res.data.reason) {
-                  warn.style.display = 'block';
-                  warn.textContent = res.data.reason || res.data.error || 'AI unavailable — local answer';
-                }
+                warn.style.display = 'block';
+                warn.textContent = (res.data && (res.data.error || res.data.reason)) || ('AI unavailable (' + res.status + ')');
                 renderRich(local, ans);
                 return;
               }
-              meta.textContent = 'AI · ' + (res.data.model || 'model');
-              renderRich(Object.assign({}, local, res.data), ans);
-              if (res.data.warning) {
+              // Prefer server payload (includes query-grounded local or LLM).
+              var serverAns = res.data || {};
+              var hasServer =
+                serverAns.headline ||
+                serverAns.markdown ||
+                (serverAns.sections && serverAns.sections.length) ||
+                (serverAns.charts && serverAns.charts.length);
+              if (serverAns.skippedLlm || serverAns.source === 'local') {
+                meta.textContent = 'Local query engine';
+                if (serverAns.reason) {
+                  warn.style.display = 'block';
+                  warn.textContent = serverAns.reason;
+                }
+                renderRich(hasServer ? Object.assign({}, local, serverAns) : local, ans);
+                return;
+              }
+              meta.textContent = 'AI · ' + (serverAns.model || 'model');
+              renderRich(Object.assign({}, local, serverAns), ans);
+              if (serverAns.warning) {
                 warn.style.display = 'block';
-                warn.textContent = res.data.warning;
+                warn.textContent = serverAns.warning;
               }
             })
             .catch(function (e) {
