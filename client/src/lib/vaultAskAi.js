@@ -17,8 +17,8 @@ export const VAULT_ASK_EXAMPLES = {
     'Who needs interview slots this week?',
   ],
   post_sales: [
-    'Which units are blocked in the pipeline?',
-    'Where are CLP / demand delays?',
+    'Paradise Unit 701 collections',
+    'Which units have SLA breaches?',
     'What should ops clear first this week?',
   ],
   dm_spv_governance: [
@@ -72,7 +72,7 @@ function mergeAnswer(preferred, fallback) {
     roadmapVersion: preferred.roadmapVersion || fallback.roadmapVersion,
     refused: preferred.refused ?? fallback.refused,
     contextServerBuilt: preferred.contextServerBuilt,
-    contextSources: preferred.contextSources || fallback.contextSources,
+    focusedEntity: preferred.focusedEntity || fallback.focusedEntity,
   };
 }
 

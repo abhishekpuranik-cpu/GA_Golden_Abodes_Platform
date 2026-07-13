@@ -23,6 +23,7 @@ const APP_LABELS = {
 function trimContext(context) {
   const raw = JSON.stringify(context || {});
   if (raw.length <= MAX_CONTEXT_CHARS) return { context, truncated: false };
+  // Keep entity lookups — never drop focusedUnit / queryParse when truncating
   return {
     truncated: true,
     context: {
@@ -30,7 +31,11 @@ function trimContext(context) {
       _truncated: true,
       _note: `Original context was ${raw.length} chars; prefer summary/totals fields.`,
       summary: context?.summary || context?.totals || context?.highlights || null,
+      totals: context?.totals || null,
       highlights: context?.highlights || null,
+      focusedUnit: context?.focusedUnit || null,
+      queryParse: context?.queryParse || null,
+      unitLookup: context?.unitLookup || null,
       hotItems: Array.isArray(context?.hotItems)
         ? context.hotItems.slice(0, 30)
         : Array.isArray(context?.items)
@@ -38,6 +43,14 @@ function trimContext(context) {
           : undefined,
     },
   };
+}
+
+/** Unit / entity answers must stay domain-locked — LLM often reverts to portfolio totals. */
+function shouldSkipLlmForDomain(appId, context, local) {
+  if (context?.focusedUnit) return true;
+  if (context?.queryParse?.unitNumber && appId === 'post_sales') return true;
+  if (local?.insufficientData && /unit not found/i.test(local?.headline || '')) return true;
+  return false;
 }
 
 function extractJsonBlock(text) {
@@ -84,6 +97,15 @@ export async function runVaultAnalyticsAsk({ appId, question, context, appLabel 
       skippedLlm: true,
       source: 'local',
       reason: 'Refused — context quality below Phase-2 threshold (no guessing)',
+    };
+  }
+
+  if (shouldSkipLlmForDomain(appId, ctx, local)) {
+    return {
+      ...local,
+      skippedLlm: true,
+      source: 'local',
+      reason: 'Domain engine locked for entity-specific question (unit/project focus)',
     };
   }
 
@@ -199,12 +221,19 @@ ${JSON.stringify(ctx)}`;
     intent: parsed.intent || local.intent,
     headline: parsed.headline ? String(parsed.headline) : local.headline,
     sections: Array.isArray(parsed.sections) && parsed.sections.length ? parsed.sections.slice(0, 6) : local.sections,
-    charts: Array.isArray(parsed.charts) && parsed.charts.length ? parsed.charts.slice(0, 4) : local.charts,
+    // Prefer domain charts/highlights — LLM often invents portfolio KPI strips
+    charts: Array.isArray(local.charts) && local.charts.length
+      ? local.charts
+      : Array.isArray(parsed.charts) && parsed.charts.length
+        ? parsed.charts.slice(0, 4)
+        : [],
     markdown: String(parsed.markdown || local.markdown),
     highlights:
-      parsed.highlights && typeof parsed.highlights === 'object' && Object.keys(parsed.highlights).length
-        ? parsed.highlights
-        : local.highlights,
+      local.highlights && typeof local.highlights === 'object' && Object.keys(local.highlights).length
+        ? local.highlights
+        : parsed.highlights && typeof parsed.highlights === 'object'
+          ? parsed.highlights
+          : {},
     proposedActions: Array.isArray(parsed.proposedActions) ? parsed.proposedActions.slice(0, 8) : local.proposedActions,
     roadmapVersion: local.roadmapVersion,
   };

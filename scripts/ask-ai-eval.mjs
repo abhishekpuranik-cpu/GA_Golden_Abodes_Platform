@@ -195,6 +195,56 @@ const cases = [
       confidence: ['high'],
     },
   },
+  {
+    name: 'postsales-unit-collections',
+    appId: 'post_sales',
+    question: 'Paradise Unit 701 collections',
+    context: {
+      totals: { totalUnits: 67, slaBreaches: 209, openTickets: 0, totalOutstanding: 175858874, collectPct: 52 },
+      focusedUnit: {
+        id: 'u1',
+        project: 'Paradise',
+        unitNumber: '701',
+        status: 'active',
+        customer: 'Test Customer',
+        agreementDue: 5000000,
+        agreementReceived: 3200000,
+        agreementPending: 1800000,
+        gstPending: 90000,
+        totalOutstanding: 1890000,
+        collectPct: 64,
+        slaBreaches: 1,
+        openTickets: 0,
+        detail: 'Paradise 701 · collected ₹32L',
+        href: '/app/post-sales/units/u1',
+      },
+      queryParse: { project: 'Paradise', unitNumber: '701', wantsCollections: true },
+      hotItems: [],
+    },
+    expect: {
+      headlineIncludes: ['701', 'Paradise'],
+      directIncludes: ['701', 'Paradise', 'Collected'],
+      confidence: ['high'],
+    },
+  },
+  {
+    name: 'postsales-unit-missing',
+    appId: 'post_sales',
+    question: 'Paradise Unit 99999 collections',
+    context: {
+      totals: { totalUnits: 67, slaBreaches: 2, openTickets: 0, totalOutstanding: 1000, collectPct: 50 },
+      focusedUnit: null,
+      queryParse: { project: 'Paradise', unitNumber: '99999', wantsCollections: true },
+      unitLookup: { found: false, message: 'No Post Sales unit matched project “Paradise” unit “99999”.' },
+      hotItems: [{ title: 'A-101', detail: 'SLA', status: 'sla_breach' }],
+    },
+    expect: {
+      headlineIncludes: ['not found'],
+      directIncludes: ['No Post Sales unit', '99999'],
+      confidence: ['high'],
+      insufficientData: true,
+    },
+  },
 ];
 
 function includesAny(text, needles) {

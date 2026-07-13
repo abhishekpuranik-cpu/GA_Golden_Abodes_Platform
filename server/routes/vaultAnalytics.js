@@ -3,6 +3,7 @@ import { withDb } from '../lib/mongo.js';
 import { resolveSession, userHasApp } from './auth.js';
 import { APP_LABELS, runVaultAnalyticsAsk } from '../lib/vaultAnalyticsAsk.js';
 import { hydrateVaultAskContext } from '../lib/vaultAskContextHydrate.js';
+import { enrichAskContextForQuestion } from '../lib/askAi/enrichContextForQuestion.js';
 
 export const vaultAnalyticsRouter = Router();
 
@@ -68,12 +69,13 @@ vaultAnalyticsRouter.post(
     }
 
     try {
-      const { context, hydrated, quality, serverBuilt } = await hydrateVaultAskContext(
+      const { context: baseContext, hydrated, quality, serverBuilt } = await hydrateVaultAskContext(
         db,
         appId,
         rawContext,
         sess.user,
       );
+      const context = await enrichAskContextForQuestion(db, appId, question, baseContext);
       const result = await runVaultAnalyticsAsk({
         appId,
         question,
@@ -87,6 +89,9 @@ vaultAnalyticsRouter.post(
         refused: !!result.refused,
         contextHydrated: !!hydrated,
         contextServerBuilt: !!serverBuilt,
+        focusedEntity: context.focusedUnit
+          ? { type: 'unit', project: context.focusedUnit.project, unitNumber: context.focusedUnit.unitNumber, id: context.focusedUnit.id }
+          : null,
         contextQuality: result.contextQuality || quality || null,
         contextTotals: context?.totals || null,
         contextHotCount: Array.isArray(context?.hotItems)
