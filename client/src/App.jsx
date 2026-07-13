@@ -9,6 +9,7 @@ const AccessPage = lazy(() => import('./pages/AccessPage.jsx'));
 const AdminSecurityPage = lazy(() => import('./pages/AdminSecurityPage.jsx'));
 const DmGovernanceLayout = lazy(() => import('./pages/dmGovernance/DmGovernanceLayout.jsx'));
 const DmBusinessHealthPage = lazy(() => import('./pages/dmGovernance/DmBusinessHealthPage.jsx'));
+const DmPortfolioCalendarPage = lazy(() => import('./pages/dmGovernance/DmPortfolioCalendarPage.jsx'));
 const DmSpvListPage = lazy(() => import('./pages/dmGovernance/DmSpvListPage.jsx'));
 const DmSpvDetailPage = lazy(() => import('./pages/dmGovernance/DmSpvDetailPage.jsx'));
 const DmProjectListPage = lazy(() => import('./pages/dmGovernance/DmProjectListPage.jsx'));
@@ -140,6 +141,7 @@ export default function App() {
           }
         >
           <Route index element={<DmBusinessHealthPage />} />
+          <Route path="calendar" element={<DmPortfolioCalendarPage />} />
           <Route path="spvs" element={<DmSpvListPage />} />
           <Route path="spvs/:spvId" element={<DmSpvDetailPage />} />
           <Route path="projects" element={<DmProjectListPage />} />

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useOutletContext } from 'react-router-dom';
+import BusinessHealthSubNav from '../../components/businessHealth/BusinessHealthSubNav.jsx';
 import { dmGovernanceApi, formatCr } from '../../lib/dmGovernanceApi.js';
 import { quickLaunchForUser } from '../../lib/businessHealthQuickLaunch.js';
 
@@ -131,6 +132,7 @@ export default function DmBusinessHealthPage() {
 
   return (
     <div className="dm-bh-simple">
+      <BusinessHealthSubNav />
       <header className="dm-bh-head">
         <div>
           <h2 className="dm-bh-head-title">How is the business doing?</h2>

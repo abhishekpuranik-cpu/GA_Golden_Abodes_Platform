@@ -18,7 +18,7 @@ import { ensureComplianceChecklist } from '../lib/dmGovernance/reconciliationSer
 import { buildDashboardConsolidated } from '../lib/dmGovernance/dashboard.js';
 import { buildControlTower } from '../lib/dmGovernance/controlTower.js';
 import { buildPortfolioKpis } from '../lib/businessHealth/portfolioRollup.js';
-import { upsertMonthlySnapshot, loadTrendSeries, extractTrendPoints } from '../lib/businessHealth/snapshots.js';
+import { buildPortfolioCalendar } from '../lib/businessHealth/portfolioCalendar.js';
 import { rollupProjectPillars, buildSyncFreshness } from '../lib/dmGovernance/pillars.js';
 import { syncProjectsFromRegistry } from '../lib/dmGovernance/integrations/projectSync.js';
 import { syncProjectFromCashflow, pushDmScheduleToCashflow } from '../lib/dmGovernance/integrations/cashflowV1.js';
@@ -121,6 +121,19 @@ dmGovernanceRouter.get(
         }
       }
     });
+  })
+);
+
+dmGovernanceRouter.get(
+  '/business-health/calendar',
+  withDb(async (req, res, db) => {
+    await bootstrapDm(db);
+    const user = userFromReq(req);
+    if (!userCanDmTab(user, DM_TABS.BUSINESS_HEALTH) && !userCanDmTab(user, DM_TABS.DASHBOARD)) {
+      return deny(res, 'Business Health access denied');
+    }
+    const data = await buildPortfolioCalendar(db, user, req.query);
+    res.json(data);
   })
 );
 

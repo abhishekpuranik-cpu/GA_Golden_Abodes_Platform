@@ -13,6 +13,16 @@ export const dmGovernanceApi = {
     if (!ok) throw new Error(data?.error || `Dashboard failed (${status})`);
     return data;
   },
+  async portfolioCalendar(params = {}) {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+      if (v != null && v !== '') qs.set(k, String(v));
+    });
+    const url = `${BASE}/business-health/calendar${qs.toString() ? `?${qs}` : ''}`;
+    const { ok, data, status } = await apiFetch(url);
+    if (!ok) throw new Error(data?.error || `Calendar failed (${status})`);
+    return data;
+  },
   async proactiveScan() {
     const { ok, data, status } = await apiFetch(`${BASE}/dashboard/proactive-scan`, { method: 'POST' });
     if (!ok) throw new Error(data?.error || `Proactive scan failed (${status})`);
