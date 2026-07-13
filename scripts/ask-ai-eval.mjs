@@ -134,7 +134,65 @@ const cases = [
     context: { totals: { keysLoaded: 1 }, hotItems: [{ title: 'ga_cf_v1', detail: 'localStorage snapshot' }] },
     expect: {
       insufficientData: true,
-      confidence: ['low'],
+      refused: true,
+      confidence: ['refused'],
+      headlineIncludes: ['Cannot answer', 'insufficient'],
+    },
+  },
+  {
+    name: 'dm-outstanding',
+    appId: 'dm_spv_governance',
+    question: 'What is DM fee outstanding?',
+    context: {
+      totals: {
+        activeProjects: 4,
+        activeSpvs: 2,
+        dmFeeBilledTtd: 1000000,
+        dmFeePaidTtd: 600000,
+        dmFeeAccrued: 400000,
+        delayedPayments: 2,
+        pendingApprovals: 1,
+        exceptionsPending: 1,
+      },
+      hotItems: [
+        { title: 'Paradise', detail: 'risk amber · outstanding ₹200000', status: 'amber', risk: 7 },
+        { title: 'Heights', detail: 'risk red · outstanding ₹200000', status: 'red', risk: 10 },
+      ],
+    },
+    expect: {
+      directIncludes: ['400000', 'billed'],
+      confidence: ['high'],
+    },
+  },
+  {
+    name: 'execution-spi',
+    appId: 'execution',
+    question: 'What is the SPI?',
+    context: {
+      totals: { spi: 0.86, cpi: 0.95, issues: 3 },
+      hotItems: [{ title: 'Foundation delay', detail: 'Tower A', risk: 8 }],
+    },
+    expect: {
+      headlineIncludes: ['0.86', 'SPI'],
+      directIncludes: ['0.86'],
+      confidence: ['high'],
+    },
+  },
+  {
+    name: 'precon-overdue-count',
+    appId: 'preconstruction',
+    question: 'How many overdue tasks are there?',
+    context: {
+      totals: { projects: 3, tasks: 40, overdue: 7, unassigned: 2, inprogress: 10, completed: 20 },
+      hotTasks: [
+        { task: 'Soil test', title: 'Soil test', status: 'overdue', project: 'Paradise', risk: 40 },
+        { task: 'RERA pack', title: 'RERA pack', status: 'overdue', project: 'Heights', risk: 35 },
+      ],
+    },
+    expect: {
+      headlineIncludes: ['7'],
+      directIncludes: ['7', 'overdue'],
+      confidence: ['high'],
     },
   },
 ];
@@ -147,7 +205,7 @@ function includesAny(text, needles) {
 let failed = 0;
 for (const c of cases) {
   const ans = answerAskDomain(c.appId, c.question, c.context);
-  const direct = ans.sections?.find((s) => /direct/i.test(s.title || ''))?.narrative || ans.markdown || '';
+  const direct = ans.sections?.find((s) => /direct|cannot answer/i.test(s.title || ''))?.narrative || ans.markdown || '';
   const errs = [];
   if (c.expect.headlineIncludes && !includesAny(ans.headline, c.expect.headlineIncludes)) {
     errs.push(`headline missing one of ${JSON.stringify(c.expect.headlineIncludes)} (got: ${ans.headline})`);
@@ -160,6 +218,9 @@ for (const c of cases) {
   }
   if (c.expect.insufficientData && !ans.insufficientData) {
     errs.push('expected insufficientData=true');
+  }
+  if (c.expect.refused && !ans.refused) {
+    errs.push('expected refused=true');
   }
   if (errs.length) {
     failed += 1;

@@ -226,18 +226,22 @@ export function VaultAskAi({
         {answer ? (
           <div className="vai-answer">
             <div className="vai-meta">
-              <span className={`vai-src vai-src-${answer.source || 'local'}`}>
-                {answer.source === 'llm' ? `AI · ${answer.model || 'model'}` : 'Local engine'}
+              <span className={`vai-src vai-src-${answer.refused ? 'local' : answer.source || 'local'}`}>
+                {answer.refused
+                  ? 'Refused · low data'
+                  : answer.source === 'llm'
+                    ? `AI · ${answer.model || 'model'}`
+                    : 'Local engine'}
               </span>
-              {answer.intent ? <span className="vai-intent">{answer.intent}</span> : null}
               {answer.confidence ? <span className="vai-intent">confidence · {answer.confidence}</span> : null}
+              {answer.contextServerBuilt ? <span className="vai-ctx">server context</span> : null}
               {answer.contextQuality?.score != null ? (
                 <span className="vai-ctx">quality {answer.contextQuality.score}/100</span>
               ) : null}
               {answer.contextHotCount != null ? (
                 <span className="vai-ctx">
                   Evidence: {answer.contextHotCount} item(s)
-                  {answer.contextHydrated ? ' · Mongo hydrated' : ''}
+                  {answer.contextHydrated ? ' · hydrated' : ''}
                 </span>
               ) : null}
             </div>

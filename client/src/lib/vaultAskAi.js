@@ -70,6 +70,9 @@ function mergeAnswer(preferred, fallback) {
     evidence: preferred.evidence || fallback.evidence,
     engine: preferred.engine || fallback.engine,
     roadmapVersion: preferred.roadmapVersion || fallback.roadmapVersion,
+    refused: preferred.refused ?? fallback.refused,
+    contextServerBuilt: preferred.contextServerBuilt,
+    contextSources: preferred.contextSources || fallback.contextSources,
   };
 }
 

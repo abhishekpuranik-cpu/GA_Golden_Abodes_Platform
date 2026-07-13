@@ -57,7 +57,17 @@ export function scoreAskContext(context) {
     realItemCount: realItems.length,
     numericTotalCount: numericKeys.length,
     reasons,
+    /** Phase 2: refuse narrating when below this. */
+    refuse: score < 30,
   };
+}
+
+/** Minimum quality to allow an answered narrative (Phase 2). */
+export const ASK_CONTEXT_REFUSE_THRESHOLD = 30;
+
+export function shouldRefuseAskContext(quality) {
+  if (!quality) return true;
+  return quality.score < ASK_CONTEXT_REFUSE_THRESHOLD || quality.refuse === true;
 }
 
 export function mergeAskContexts(primary, secondary) {

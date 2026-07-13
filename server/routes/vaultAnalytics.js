@@ -68,7 +68,12 @@ vaultAnalyticsRouter.post(
     }
 
     try {
-      const { context, hydrated, quality } = await hydrateVaultAskContext(db, appId, rawContext);
+      const { context, hydrated, quality, serverBuilt } = await hydrateVaultAskContext(
+        db,
+        appId,
+        rawContext,
+        sess.user,
+      );
       const result = await runVaultAnalyticsAsk({
         appId,
         question,
@@ -78,8 +83,10 @@ vaultAnalyticsRouter.post(
       res.json({
         ok: true,
         ...result,
-        skippedLlm: !!result.skippedLlm,
+        skippedLlm: !!result.skippedLlm || !!result.refused,
+        refused: !!result.refused,
         contextHydrated: !!hydrated,
+        contextServerBuilt: !!serverBuilt,
         contextQuality: result.contextQuality || quality || null,
         contextTotals: context?.totals || null,
         contextHotCount: Array.isArray(context?.hotItems)
@@ -87,6 +94,7 @@ vaultAnalyticsRouter.post(
           : Array.isArray(context?.hotTasks)
             ? context.hotTasks.length
             : 0,
+        contextSources: context?.contextSources || [],
       });
     } catch (e) {
       console.error('[vault-analytics]', e?.message || e);

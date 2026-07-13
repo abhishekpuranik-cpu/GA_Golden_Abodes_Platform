@@ -11,6 +11,7 @@ import {
   loadV3PlannerState,
 } from './dmGovernance/integrations/appStateReader.js';
 import { mergeAskContexts, scoreAskContext } from './askAi/contextQuality.js';
+import { buildServerAskContext } from './askAi/serverContextBuilders.js';
 
 function snip(s, n = 140) {
   const t = String(s || '').replace(/\s+/g, ' ').trim();
@@ -209,13 +210,23 @@ function plannerFromState(appId, state) {
 }
 
 /**
+ * Phase 2: resolve Ask context = server API/Mongo builders (preferred) + app_states hydrate + client.
  * @param {import('mongodb').Db} db
  * @param {string} appId
  * @param {object} clientContext
+ * @param {object} [user]
  */
-export async function hydrateVaultAskContext(db, appId, clientContext) {
+export async function hydrateVaultAskContext(db, appId, clientContext, user = null) {
   const client = clientContext && typeof clientContext === 'object' ? clientContext : {};
   let mongoCtx = null;
+  let serverCtx = null;
+  let hydrated = false;
+
+  try {
+    serverCtx = await buildServerAskContext(db, appId, user);
+  } catch (e) {
+    serverCtx = null;
+  }
 
   try {
     if (appId === 'v1_cashflow') {
@@ -235,23 +246,31 @@ export async function hydrateVaultAskContext(db, appId, clientContext) {
       if (st) mongoCtx = plannerFromState(appId, st);
     }
   } catch (e) {
-    return {
-      context: {
-        ...client,
-        hydrateError: e?.message || String(e),
-      },
-      hydrated: false,
-      quality: scoreAskContext(client),
-    };
+    // keep whatever we have
   }
 
-  if (!mongoCtx) {
-    return { context: client, hydrated: false, quality: scoreAskContext(client) };
+  let merged = client;
+  // Prefer server-of-record, then mongo hydrate, then client
+  if (mongoCtx) {
+    merged = mergeAskContexts(mongoCtx, merged);
+    hydrated = true;
+  }
+  if (serverCtx && !serverCtx.serverError) {
+    merged = mergeAskContexts(serverCtx, merged);
+    hydrated = true;
+  } else if (serverCtx?.serverError) {
+    merged = { ...merged, serverError: serverCtx.serverError };
   }
 
-  // Always merge: client live memory + Mongo server of record
-  const thin = isThinAskContext(client);
-  const merged = thin ? { ...mongoCtx, clientNote: 'Mongo primary (client context was thin)' } : mergeAskContexts(client, mongoCtx);
-  merged.hydrated = true;
-  return { context: merged, hydrated: true, quality: scoreAskContext(merged) };
+  if (hydrated) merged.hydrated = true;
+  merged.contextSources = [serverCtx?.source, mongoCtx?.source, client.source || (Object.keys(client).length ? 'client' : null)].filter(
+    Boolean,
+  );
+
+  return {
+    context: merged,
+    hydrated,
+    quality: scoreAskContext(merged),
+    serverBuilt: !!(serverCtx && !serverCtx.serverError),
+  };
 }

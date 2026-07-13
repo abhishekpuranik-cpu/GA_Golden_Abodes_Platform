@@ -77,6 +77,16 @@ export async function runVaultAnalyticsAsk({ appId, question, context, appLabel 
   const { context: ctx, truncated } = trimContext(context);
   const local = answerAskDomain(appId, String(question || '').trim(), ctx);
 
+  // Phase 2: never call LLM when we refused for low-quality context
+  if (local.refused) {
+    return {
+      ...local,
+      skippedLlm: true,
+      source: 'local',
+      reason: 'Refused — context quality below Phase-2 threshold (no guessing)',
+    };
+  }
+
   if (!ANTHROPIC_API_KEY) {
     return {
       ...local,
