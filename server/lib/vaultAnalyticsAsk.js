@@ -1,5 +1,5 @@
 import { ANTHROPIC_API_KEY } from './config.js';
-import { answerVaultAskLocally } from './vaultAskLocalEngine.js';
+import { answerAskDomain } from './askAi/router.js';
 
 const MODEL = process.env.VAULT_ANALYTICS_MODEL || process.env.PRECON_ANALYTICS_MODEL || 'claude-sonnet-4-20250514';
 const MAX_CONTEXT_CHARS = 100_000;
@@ -75,75 +75,58 @@ function extractJsonBlock(text) {
 export async function runVaultAnalyticsAsk({ appId, question, context, appLabel }) {
   const label = appLabel || APP_LABELS[appId] || appId || 'Golden Abodes app';
   const { context: ctx, truncated } = trimContext(context);
-  const local = answerVaultAskLocally(String(question || '').trim(), ctx, appId);
+  const local = answerAskDomain(appId, String(question || '').trim(), ctx);
 
   if (!ANTHROPIC_API_KEY) {
     return {
       ...local,
       skippedLlm: true,
       source: 'local',
-      reason: 'ANTHROPIC_API_KEY not set on server — answered with local query engine from live context',
+      reason: `Domain engine (${local.engine || 'local'}) · confidence=${local.confidence || 'n/a'} · ANTHROPIC_API_KEY not set`,
     };
   }
 
   const system = `You are the Golden Abodes Vault analytics advisor for "${label}" (appId=${appId || 'unknown'}).
-Answer ONLY from the provided JSON context (live app data). Never invent IDs, amounts, people, or projects.
-India real-estate / GA operating context.
+You are a NARRATOR over verified evidence — not a free-form analyst.
 
-CRITICAL — ANSWER THE USER'S QUESTION:
-- The headline MUST directly answer the specific question asked (not a generic "health check").
-- The first informative section MUST start with a Direct answer to that question.
-- Do NOT reuse a canned portfolio summary if the user asked about a named project, person, metric, status, or risk.
-- If the context lacks the answer, say what is missing and what IS known from the data.
-- Then add predictive / prescriptive insight grounded in the same evidence.
-- You may use the "Local engine draft" as a hint for relevant rows, but verify against Context JSON.
+HARD RULES:
+1. Answer ONLY using DomainEvidence and Context JSON below. Never invent numbers, names, or projects.
+2. The headline MUST answer the user's question directly.
+3. First section title must be "Direct answer" and must include concrete numbers/names from DomainEvidence.
+4. If DomainEvidence.insufficientData is true, say what is missing — do not pad with generic advice.
+5. Every number you write must appear in DomainEvidence.metrics, DomainEvidence.evidence, or Context totals/hotItems.
+6. Prefer DomainEvidence as the source of truth; refine wording only.
 
-CRITICAL OUTPUT SHAPE — return STRICT JSON only:
+Return STRICT JSON only:
 {
   "intent": "informative|predictive|prescriptive|diagnostic|count|general",
   "headline": "one clear sentence that answers the question",
-  "highlights": { "Short KPI label": "value", "Another": "value" },
+  "highlights": { "Short KPI label": "value" },
   "sections": [
-    { "kind": "informative", "title": "Answer to your question", "narrative": "2-5 sentences that answer the question with named evidence" },
-    { "kind": "predictive", "title": "...", "narrative": "2-4 sentences on what will worsen if unchanged" },
-    { "kind": "prescriptive", "title": "...", "narrative": "2-4 sentences with concrete next actions" }
+    { "kind": "informative", "title": "Direct answer", "narrative": "..." },
+    { "kind": "predictive", "title": "...", "narrative": "..." },
+    { "kind": "prescriptive", "title": "...", "narrative": "..." }
   ],
-  "charts": [
-    {
-      "type": "donut|bar|hbar",
-      "title": "chart title tied to the question",
-      "narrative": "1-2 sentences explaining how to read this chart and what insight it supports",
-      "unit": "optional unit",
-      "data": [ { "label": "A", "value": 12 }, { "label": "B", "value": 5 } ]
-    }
-  ],
-  "markdown": "full scannable markdown that opens with the direct answer, then evidence, then actions",
-  "proposedActions": [
-    {
-      "type": "navigate|open|note",
-      "label": "short UI label",
-      "rationale": "why",
-      "href": "optional path"
-    }
-  ]
+  "charts": [ { "type": "donut|bar|hbar", "title": "...", "narrative": "...", "data": [{"label":"A","value":1}] } ],
+  "markdown": "opens with direct answer, then evidence",
+  "proposedActions": [ { "type": "note", "label": "...", "rationale": "...", "href": "" } ]
 }
-Chart rules:
-- Include 1–3 charts when numeric or categorical data exists that is relevant to the question.
-- Every chart MUST have a narrative (not just a title).
-- Use only numbers present in context (or simple counts derived from listed items). Never fabricate series.
-- Prefer donut for mix/share, hbar for ranked matches, bar for comparisons.
-- Max 6 proposedActions. If unsure, return [].`;
+Max 6 proposedActions. Max 3 charts. Never fabricate chart series.`;
 
   const user = `App: ${label} (${appId || ''})
 Question:
 ${String(question || '').trim()}
 
-Local engine draft (hint — verify against context):
+DomainEvidence (AUTHORITATIVE — verify every claim against this):
 ${JSON.stringify({
     headline: local.headline,
+    confidence: local.confidence,
+    insufficientData: local.insufficientData,
     highlights: local.highlights,
+    evidence: local.evidence,
     sections: local.sections,
-    queryTokens: local.queryTokens,
+    metrics: local.highlights,
+    contextQuality: local.contextQuality,
   })}
 
 Context JSON${truncated ? ' (truncated)' : ''}:
@@ -159,7 +142,7 @@ ${JSON.stringify(ctx)}`;
     body: JSON.stringify({
       model: MODEL,
       max_tokens: 2500,
-      temperature: 0.15,
+      temperature: 0.1,
       system,
       messages: [{ role: 'user', content: user }],
     }),
@@ -172,7 +155,7 @@ ${JSON.stringify(ctx)}`;
       ...local,
       skippedLlm: true,
       source: 'local',
-      reason: `LLM error (${res.status}): ${msg} — used local query engine`,
+      reason: `LLM error (${res.status}): ${msg} — domain engine used`,
       warning: msg,
     };
   }
@@ -190,7 +173,7 @@ ${JSON.stringify(ctx)}`;
       source: 'llm',
       model: MODEL,
       markdown: text || local.markdown,
-      warning: 'LLM returned unstructured text — merged with local evidence',
+      warning: 'LLM returned unstructured text — showing domain evidence answer',
     };
   }
 
@@ -198,6 +181,11 @@ ${JSON.stringify(ctx)}`;
     ok: true,
     source: 'llm',
     model: MODEL,
+    engine: local.engine,
+    confidence: local.confidence,
+    insufficientData: local.insufficientData,
+    contextQuality: local.contextQuality,
+    evidence: local.evidence,
     intent: parsed.intent || local.intent,
     headline: parsed.headline ? String(parsed.headline) : local.headline,
     sections: Array.isArray(parsed.sections) && parsed.sections.length ? parsed.sections.slice(0, 6) : local.sections,
@@ -208,6 +196,7 @@ ${JSON.stringify(ctx)}`;
         ? parsed.highlights
         : local.highlights,
     proposedActions: Array.isArray(parsed.proposedActions) ? parsed.proposedActions.slice(0, 8) : local.proposedActions,
+    roadmapVersion: local.roadmapVersion,
   };
 }
 

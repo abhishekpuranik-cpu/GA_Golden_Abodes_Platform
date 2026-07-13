@@ -10,6 +10,7 @@ import {
   loadV2PlannerState,
   loadV3PlannerState,
 } from './dmGovernance/integrations/appStateReader.js';
+import { mergeAskContexts, scoreAskContext } from './askAi/contextQuality.js';
 
 function snip(s, n = 140) {
   const t = String(s || '').replace(/\s+/g, ' ').trim();
@@ -214,30 +215,24 @@ function plannerFromState(appId, state) {
  */
 export async function hydrateVaultAskContext(db, appId, clientContext) {
   const client = clientContext && typeof clientContext === 'object' ? clientContext : {};
-  if (!isThinAskContext(client)) {
-    return { context: client, hydrated: false };
-  }
+  let mongoCtx = null;
 
   try {
     if (appId === 'v1_cashflow') {
       const envelope = await loadCashflowEnvelope(db);
-      if (envelope) return { context: { ...cashflowFromEnvelope(envelope), clientNote: 'hydrated from Mongo because client context was thin' }, hydrated: true };
-    }
-    if (appId === 'finance_kpi' || appId === 'finance_kpi_admin') {
+      if (envelope) mongoCtx = cashflowFromEnvelope(envelope);
+    } else if (appId === 'finance_kpi' || appId === 'finance_kpi_admin') {
       const fin = await loadFinanceKpiState(db);
-      if (fin?.blob) return { context: financeFromBlob(fin.blob), hydrated: true };
-    }
-    if (appId === 'marketing_kpi') {
+      if (fin?.blob) mongoCtx = financeFromBlob(fin.blob);
+    } else if (appId === 'marketing_kpi') {
       const mkt = await loadMarketingKpiState(db);
-      if (mkt?.blob) return { context: marketingFromBlob(mkt.blob), hydrated: true };
-    }
-    if (appId === 'v2_resource_planner') {
+      if (mkt?.blob) mongoCtx = marketingFromBlob(mkt.blob);
+    } else if (appId === 'v2_resource_planner') {
       const st = await loadV2PlannerState(db);
-      if (st) return { context: plannerFromState(appId, st), hydrated: true };
-    }
-    if (appId === 'v3_org_planner' || appId === 'v3_project_acquisition') {
+      if (st) mongoCtx = plannerFromState(appId, st);
+    } else if (appId === 'v3_org_planner' || appId === 'v3_project_acquisition') {
       const st = await loadV3PlannerState(db);
-      if (st) return { context: plannerFromState(appId, st), hydrated: true };
+      if (st) mongoCtx = plannerFromState(appId, st);
     }
   } catch (e) {
     return {
@@ -246,8 +241,17 @@ export async function hydrateVaultAskContext(db, appId, clientContext) {
         hydrateError: e?.message || String(e),
       },
       hydrated: false,
+      quality: scoreAskContext(client),
     };
   }
 
-  return { context: client, hydrated: false };
+  if (!mongoCtx) {
+    return { context: client, hydrated: false, quality: scoreAskContext(client) };
+  }
+
+  // Always merge: client live memory + Mongo server of record
+  const thin = isThinAskContext(client);
+  const merged = thin ? { ...mongoCtx, clientNote: 'Mongo primary (client context was thin)' } : mergeAskContexts(client, mongoCtx);
+  merged.hydrated = true;
+  return { context: merged, hydrated: true, quality: scoreAskContext(merged) };
 }

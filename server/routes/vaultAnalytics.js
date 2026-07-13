@@ -68,7 +68,7 @@ vaultAnalyticsRouter.post(
     }
 
     try {
-      const { context, hydrated } = await hydrateVaultAskContext(db, appId, rawContext);
+      const { context, hydrated, quality } = await hydrateVaultAskContext(db, appId, rawContext);
       const result = await runVaultAnalyticsAsk({
         appId,
         question,
@@ -80,6 +80,7 @@ vaultAnalyticsRouter.post(
         ...result,
         skippedLlm: !!result.skippedLlm,
         contextHydrated: !!hydrated,
+        contextQuality: result.contextQuality || quality || null,
         contextTotals: context?.totals || null,
         contextHotCount: Array.isArray(context?.hotItems)
           ? context.hotItems.length

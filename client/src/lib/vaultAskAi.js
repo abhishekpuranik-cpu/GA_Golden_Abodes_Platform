@@ -2,7 +2,7 @@
  * Shared Vault Ask AI client + local fallback (query-grounded).
  */
 
-import { answerVaultAskLocally } from './vaultAskLocalEngine.js';
+import { answerAskDomain } from './askAi/router.js';
 
 export const VAULT_ASK_EXAMPLES = {
   default: [
@@ -39,7 +39,7 @@ export const VAULT_ASK_EXAMPLES = {
 };
 
 export function localVaultAskAnswer(question, context, appId) {
-  return answerVaultAskLocally(question, context || {}, appId);
+  return answerAskDomain(appId, question, context || {});
 }
 
 function mergeAnswer(preferred, fallback) {
@@ -64,6 +64,12 @@ function mergeAnswer(preferred, fallback) {
     contextHydrated: preferred.contextHydrated,
     contextHotCount: preferred.contextHotCount,
     contextTotals: preferred.contextTotals,
+    contextQuality: preferred.contextQuality || fallback.contextQuality,
+    confidence: preferred.confidence || fallback.confidence,
+    insufficientData: preferred.insufficientData ?? fallback.insufficientData,
+    evidence: preferred.evidence || fallback.evidence,
+    engine: preferred.engine || fallback.engine,
+    roadmapVersion: preferred.roadmapVersion || fallback.roadmapVersion,
   };
 }
 
