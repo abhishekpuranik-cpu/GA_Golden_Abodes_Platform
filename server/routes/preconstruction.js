@@ -40,6 +40,7 @@ import {
   whatsappConfigured,
   whatsappNotifyEnabled
 } from '../lib/preconWhatsApp.js';
+import { runPreconAnalyticsAsk } from '../lib/preconAnalyticsAsk.js';
 
 export const preconstructionRouter = Router();
 const APP_ID = 'preconstruction';
@@ -513,6 +514,39 @@ preconstructionRouter.get(
       });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+/** Prompt-based analytics: grounded context + optional Anthropic answer. */
+preconstructionRouter.post(
+  '/preconstruction/analytics-ask',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const question = String(req.body?.question || '').trim();
+      if (!question) return res.status(400).json({ error: 'question required' });
+      if (question.length > 4000) return res.status(400).json({ error: 'question too long' });
+
+      const context = req.body?.context;
+      if (!context || typeof context !== 'object' || Array.isArray(context)) {
+        return res.status(400).json({ error: 'context object required' });
+      }
+
+      const result = await runPreconAnalyticsAsk({ question, context });
+      if (result.skippedLlm) {
+        return res.json({
+          ok: true,
+          skippedLlm: true,
+          source: 'local',
+          reason: result.reason || 'LLM unavailable',
+        });
+      }
+      res.json(result);
+    } catch (e) {
+      console.error('[precon-analytics]', e?.message || e);
+      res.status(502).json({ error: e?.message || String(e) });
     }
   })
 );
