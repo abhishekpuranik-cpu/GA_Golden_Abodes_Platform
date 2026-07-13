@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { withDb } from '../lib/mongo.js';
 import { resolveSession, userHasApp } from './auth.js';
 import { APP_LABELS, runVaultAnalyticsAsk } from '../lib/vaultAnalyticsAsk.js';
+import { hydrateVaultAskContext } from '../lib/vaultAskContextHydrate.js';
 
 export const vaultAnalyticsRouter = Router();
 
@@ -61,23 +62,30 @@ vaultAnalyticsRouter.post(
     if (!question) return res.status(400).json({ error: 'question required' });
     if (question.length > 4000) return res.status(400).json({ error: 'question too long' });
 
-    const context = req.body?.context;
-    if (!context || typeof context !== 'object' || Array.isArray(context)) {
+    const rawContext = req.body?.context;
+    if (!rawContext || typeof rawContext !== 'object' || Array.isArray(rawContext)) {
       return res.status(400).json({ error: 'context object required' });
     }
 
     try {
+      const { context, hydrated } = await hydrateVaultAskContext(db, appId, rawContext);
       const result = await runVaultAnalyticsAsk({
         appId,
         question,
         context,
         appLabel: req.body?.appLabel || APP_LABELS[appId],
       });
-      // Always return the full answer payload (local engine or LLM).
       res.json({
         ok: true,
         ...result,
         skippedLlm: !!result.skippedLlm,
+        contextHydrated: !!hydrated,
+        contextTotals: context?.totals || null,
+        contextHotCount: Array.isArray(context?.hotItems)
+          ? context.hotItems.length
+          : Array.isArray(context?.hotTasks)
+            ? context.hotTasks.length
+            : 0,
       });
     } catch (e) {
       console.error('[vault-analytics]', e?.message || e);

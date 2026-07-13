@@ -11,6 +11,7 @@ const STOP = new Set([
   'you', 'they', 'i', 'am', 'at', 'by', 'as', 'if', 'then', 'than', 'so', 'not', 'no',
   'yes', 'please', 'tell', 'show', 'give', 'list', 'about', 'any', 'all', 'some', 'most',
   'app', 'apps', 'data', 'now', 'today', 'week', 'next', 'current', 'currently', 'right',
+  'have', 'has', 'had', 'need', 'needs', 'get', 'got', 'make', 'made',
 ]);
 
 function intentOf(q) {

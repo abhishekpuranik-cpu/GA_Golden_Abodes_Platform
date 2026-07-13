@@ -1135,6 +1135,7 @@
   });
 
   bootState();
+  try { window.GA_MKT_KPI_STATE = state; } catch (e) {}
 })();
 </script>
 
@@ -1142,7 +1143,58 @@
 <script>
 GAVaultAskAI.mount({
   appId:'marketing_kpi', appLabel:'Marketing KPIs', title:'Ask Marketing KPIs',
-  buildContext:function(){ return Object.assign({app:'marketing_kpi'}, GAVaultAskAI.contextFromLocalStorage(['ga_mkt_kpi_state_v1'])); },
+  buildContext:function(){
+    try{
+      var live = (typeof window!=='undefined' && window.GA_MKT_KPI_STATE) ? window.GA_MKT_KPI_STATE : null;
+      var leads = (live && Array.isArray(live.leads)) ? live.leads : [];
+      if(!leads.length){
+        try{
+          var raw=localStorage.getItem('ga_mkt_kpi_state_v1');
+          var parsed=raw?JSON.parse(raw):null;
+          if(parsed && Array.isArray(parsed.leads)) leads=parsed.leads;
+        }catch(e0){}
+      }
+      if(!leads.length){
+        return Object.assign({app:'marketing_kpi', note:'No leads loaded yet'}, GAVaultAskAI.contextFromLocalStorage(['ga_mkt_kpi_state_v1']));
+      }
+      var byStatus={}, byOwner={}, bySource={};
+      var hotItems=[];
+      leads.forEach(function(L){
+        var st=String(L.status||L.stage||L.leadStage||'unknown');
+        var owner=String(L.owner||L.employee||L.Employees||'unassigned');
+        var src=String(L.source||L.sourceName||L['Source Name']||'unknown');
+        byStatus[st]=(byStatus[st]||0)+1;
+        byOwner[owner]=(byOwner[owner]||0)+1;
+        bySource[src]=(bySource[src]||0)+1;
+      });
+      leads.filter(function(L){
+        return /new|follow|callback|warm|booked/i.test(String(L.status||L.stage||''));
+      }).slice(0,25).forEach(function(L){
+        hotItems.push({
+          title:L.name||L.firstName||L['First Name']||L.phone||'Lead',
+          detail:(L.status||L.stage||'')+' · '+(L.owner||L.employee||'')+' · '+(L.source||L.sourceName||''),
+          status:L.status||L.stage||'',
+          risk:5
+        });
+      });
+      return {
+        generatedAt:new Date().toISOString(),
+        app:'marketing_kpi',
+        totals:{
+          leads:leads.length,
+          statuses:Object.keys(byStatus).length,
+          owners:Object.keys(byOwner).length,
+          sources:Object.keys(bySource).length,
+          byStatus:byStatus,
+          byOwner:byOwner,
+          bySource:bySource
+        },
+        hotItems:hotItems
+      };
+    }catch(e){
+      return { totals:{error:String(e&&e.message||e)}, hotItems:[] };
+    }
+  },
   examples:['Which KPIs are off track?','Predict channel underperformance.','Prescribe marketing focus for this week.']
 });
 </script>

@@ -224,7 +224,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 56;
+var CF_VERSION = 57;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
@@ -11652,21 +11652,61 @@ setInterval(function(){
 (function(){
   function buildContext(){
     try{
-      var d = (typeof _cfData!=='undefined' && _cfData) ? _cfData : null;
-      var raw = null;
-      try{ raw = localStorage.getItem('ga_cf_v1'); }catch(e){}
-      var parsed = null;
-      try{ parsed = raw ? JSON.parse(raw) : null; }catch(e){}
-      var src = d || (parsed && parsed.data) || parsed || {};
-      var projs = src.projects || src.projs || [];
-      var totals = { projects: Array.isArray(projs)?projs.length:0, version: (typeof CF_VERSION!=='undefined'?CF_VERSION:null) };
+      var projs = (typeof PROJS!=='undefined' && Array.isArray(PROJS)) ? PROJS : [];
+      var totals = {
+        projects: projs.length,
+        unitsSold: 0,
+        unsoldUnits: 0,
+        collectionsTtd: 0,
+        agreementPendingUnits: 0,
+        paymentIssueUnits: 0,
+        actualsRows: 0,
+        version: (typeof CF_VERSION!=='undefined' ? CF_VERSION : null)
+      };
       var hotItems = [];
-      if(Array.isArray(projs)){
-        projs.slice(0,20).forEach(function(p){
-          hotItems.push({ title: p.name||p.id||'Project', detail: (p.loc||'')+' '+(p.status||''), status: p.status||'' });
+      projs.forEach(function(p){
+        if(!p || !p.id) return;
+        var cfg = null;
+        try{ cfg = (typeof getCF==='function') ? getCF(p.id) : ((_cfData&&_cfData[p.id])||{}); }
+        catch(e){ cfg = (_cfData&&_cfData[p.id])||{}; }
+        cfg = cfg || {};
+        var units = cfg.units || [];
+        var unsold = cfg.unsoldUnits || [];
+        var actuals = cfg.actuals || [];
+        totals.unitsSold += units.length;
+        totals.unsoldUnits += unsold.length;
+        totals.actualsRows += actuals.length;
+        var agreementPending = 0, payIssues = 0, collections = 0;
+        units.forEach(function(u){
+          try{ if(typeof ensureUnitPaymentFields==='function') ensureUnitPaymentFields(u); }catch(e){}
+          collections += Number(u.receivedToDate||u.collected||0)||0;
+          var st = '';
+          try{ st = (typeof normalizeUnitPaymentStatus==='function') ? normalizeUnitPaymentStatus(u) : String(u.paymentStatus||''); }
+          catch(e2){ st = String(u.paymentStatus||''); }
+          st = String(st||'').toLowerCase();
+          if(st.indexOf('agreement')>=0) agreementPending++;
+          else if(st && st!=='ok' && st!=='clear' && st!=='paid') payIssues++;
         });
-      }
-      return { generatedAt:new Date().toISOString(), app:'v1_cashflow', totals:totals, hotItems:hotItems, summary: GAVaultAskAI.contextFromLocalStorage(['ga_cf_v1','ga_cf_tally_settings']).storage };
+        totals.collectionsTtd += collections;
+        totals.agreementPendingUnits += agreementPending;
+        totals.paymentIssueUnits += payIssues;
+        var risk = agreementPending*2 + payIssues*3 + (unsold.length>units.length?2:0);
+        hotItems.push({
+          title: p.name || p.id,
+          detail: 'sold '+units.length+', unsold '+unsold.length+', collected ₹'+Math.round(collections)+', agreement pending '+agreementPending+', pay issues '+payIssues+', actuals '+actuals.length,
+          status: payIssues ? 'payment_risk' : (agreementPending ? 'agreement_pending' : (p.status||'ok')),
+          risk: risk,
+          projectId: p.id
+        });
+      });
+      hotItems.sort(function(a,b){ return (b.risk||0)-(a.risk||0); });
+      return {
+        generatedAt: new Date().toISOString(),
+        app: 'v1_cashflow',
+        totals: totals,
+        hotItems: hotItems.slice(0,30),
+        projects: hotItems.slice(0,30)
+      };
     }catch(e){
       return { totals:{ error:String(e&&e.message||e) }, hotItems:[] };
     }

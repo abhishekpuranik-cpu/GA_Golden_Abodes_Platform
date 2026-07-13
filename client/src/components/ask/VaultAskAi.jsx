@@ -165,98 +165,106 @@ export function VaultAskAi({
         ) : null}
       </div>
 
-      <div className="vai-row">
-        <button
-          type="button"
-          className={`vai-mic${listening ? ' on' : ''}`}
-          disabled={busy || !speechSupported}
-          title={speechSupported ? (listening ? 'Stop' : 'Dictate') : 'Voice needs Chrome/Edge'}
-          onClick={() => (listening ? stopSpeech() : startSpeech())}
-        >
-          {listening ? '⏹' : '🎤'} Voice
-        </button>
-      </div>
-
-      <textarea
-        className="vai-input"
-        rows={3}
-        value={displayQ}
-        disabled={busy}
-        placeholder="Ask anything — risks, forecasts, what to do next…"
-        onChange={(e) => {
-          if (listening) stopSpeech();
-          setQuestion(e.target.value);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-            e.preventDefault();
-            runAsk();
-          }
-        }}
-      />
-      {listening ? <p className="vai-hint">Listening… tap ⏹ then Ask</p> : null}
-
-      <div className="vai-actions">
-        <button type="button" className="vai-ask" disabled={busy || !String(displayQ).trim()} onClick={() => runAsk()}>
-          {busy ? 'Analyzing…' : 'Ask'}
-        </button>
-        <button
-          type="button"
-          className="vai-ghost"
-          disabled={busy}
-          onClick={() => {
-            stopSpeech();
-            setQuestion('');
-            setAnswer(null);
-          }}
-        >
-          Clear
-        </button>
-      </div>
-
-      <div className="vai-chips">
-        {examples.map((ex) => (
-          <button key={ex} type="button" className="vai-chip" disabled={busy} onClick={() => runAsk(ex)}>
-            {ex}
+      <div className="vai-panel-scroll">
+        <div className="vai-row">
+          <button
+            type="button"
+            className={`vai-mic${listening ? ' on' : ''}`}
+            disabled={busy || !speechSupported}
+            title={speechSupported ? (listening ? 'Stop' : 'Dictate') : 'Voice needs Chrome/Edge'}
+            onClick={() => (listening ? stopSpeech() : startSpeech())}
+          >
+            {listening ? '⏹' : '🎤'} Voice
           </button>
-        ))}
-      </div>
-
-      {answer ? (
-        <div className="vai-answer">
-          <div className="vai-meta">
-            <span className={`vai-src vai-src-${answer.source || 'local'}`}>
-              {answer.source === 'llm' ? `AI · ${answer.model || 'model'}` : 'Local engine'}
-            </span>
-            {answer.intent ? <span className="vai-intent">{answer.intent}</span> : null}
-          </div>
-          {answer.warning ? <p className="vai-warn">{answer.warning}</p> : null}
-          {answer.error && !answer.markdown && !answer.sections?.length ? (
-            <p className="vai-warn">{answer.error}</p>
-          ) : null}
-          <AskAnswerVisuals answer={answer} />
-          {answer.proposedActions?.length ? (
-            <div className="vai-proposals">
-              <h4>Suggested next steps</h4>
-              <ul>
-                {answer.proposedActions.map((a, idx) => (
-                  <li key={idx}>
-                    <div>
-                      <strong>{a.label || a.type}</strong>
-                      {a.rationale ? <div className="vai-why">{a.rationale}</div> : null}
-                    </div>
-                    {a.href ? (
-                      <a className="vai-link" href={a.href}>
-                        Open
-                      </a>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : null}
         </div>
-      ) : null}
+
+        <textarea
+          className="vai-input"
+          rows={3}
+          value={displayQ}
+          disabled={busy}
+          placeholder="Ask a specific question — name a project, person, status, or metric…"
+          onChange={(e) => {
+            if (listening) stopSpeech();
+            setQuestion(e.target.value);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              e.preventDefault();
+              runAsk();
+            }
+          }}
+        />
+        {listening ? <p className="vai-hint">Listening… tap ⏹ then Ask</p> : null}
+
+        <div className="vai-actions">
+          <button type="button" className="vai-ask" disabled={busy || !String(displayQ).trim()} onClick={() => runAsk()}>
+            {busy ? 'Analyzing…' : 'Ask'}
+          </button>
+          <button
+            type="button"
+            className="vai-ghost"
+            disabled={busy}
+            onClick={() => {
+              stopSpeech();
+              setQuestion('');
+              setAnswer(null);
+            }}
+          >
+            Clear
+          </button>
+        </div>
+
+        <div className="vai-chips">
+          {examples.map((ex) => (
+            <button key={ex} type="button" className="vai-chip" disabled={busy} onClick={() => runAsk(ex)}>
+              {ex}
+            </button>
+          ))}
+        </div>
+
+        {answer ? (
+          <div className="vai-answer">
+            <div className="vai-meta">
+              <span className={`vai-src vai-src-${answer.source || 'local'}`}>
+                {answer.source === 'llm' ? `AI · ${answer.model || 'model'}` : 'Local engine'}
+              </span>
+              {answer.intent ? <span className="vai-intent">{answer.intent}</span> : null}
+              {answer.contextHotCount != null ? (
+                <span className="vai-ctx">
+                  Evidence: {answer.contextHotCount} item(s)
+                  {answer.contextHydrated ? ' · Mongo hydrated' : ''}
+                </span>
+              ) : null}
+            </div>
+            {answer.warning ? <p className="vai-warn">{answer.warning}</p> : null}
+            {answer.error && !answer.markdown && !answer.sections?.length ? (
+              <p className="vai-warn">{answer.error}</p>
+            ) : null}
+            <AskAnswerVisuals answer={answer} />
+            {answer.proposedActions?.length ? (
+              <div className="vai-proposals">
+                <h4>Suggested next steps</h4>
+                <ul>
+                  {answer.proposedActions.map((a, idx) => (
+                    <li key={idx}>
+                      <div>
+                        <strong>{a.label || a.type}</strong>
+                        {a.rationale ? <div className="vai-why">{a.rationale}</div> : null}
+                      </div>
+                      {a.href ? (
+                        <a className="vai-link" href={a.href}>
+                          Open
+                        </a>
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </div>
   );
 

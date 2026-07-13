@@ -61,6 +61,9 @@ function mergeAnswer(preferred, fallback) {
     warning: preferred.warning || preferred.reason || fallback.warning,
     llmAvailable: preferred.llmAvailable,
     queryTokens: preferred.queryTokens || fallback.queryTokens,
+    contextHydrated: preferred.contextHydrated,
+    contextHotCount: preferred.contextHotCount,
+    contextTotals: preferred.contextTotals,
   };
 }
 

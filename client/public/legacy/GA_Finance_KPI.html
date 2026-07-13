@@ -1626,7 +1626,48 @@ checkAdminSession(function(){renderTab(curTab);initMongoSync();});
 <script>
 GAVaultAskAI.mount({
   appId:'finance_kpi', appLabel:'Finance KPI', title:'Ask Finance KPI',
-  buildContext:function(){ return Object.assign({app:'finance_kpi'}, GAVaultAskAI.contextFromLocalStorage(['ga_finkpi_state_v2'])); },
+  buildContext:function(){
+    try{
+      if(typeof S==='undefined' || !S){
+        return Object.assign({app:'finance_kpi', note:'Finance state not loaded yet'}, GAVaultAskAI.contextFromLocalStorage(['ga_finkpi_state_v2']));
+      }
+      var t = (typeof todayISO==='function') ? todayISO() : new Date().toISOString().slice(0,10);
+      var fyStart = (typeof FY_START_YEAR!=='undefined'?FY_START_YEAR:new Date().getFullYear())+'-04-01';
+      var compliance = S.compliance||[];
+      var overdue = compliance.filter(function(c){ return !c.actual && c.due && c.due<t && c.due>=fyStart; });
+      var next14 = compliance.filter(function(c){
+        if(c.actual||!c.due) return false;
+        var d=(new Date(c.due)-new Date(t))/86400000;
+        return d>=0 && d<=14;
+      });
+      var openRa = (S.raBills||[]).filter(function(b){ return !b.paymentDate; });
+      var hotItems = [];
+      overdue.slice(0,15).forEach(function(c){
+        hotItems.push({ title:c.obligation||'Filing', detail:'OVERDUE · due '+c.due+' · '+(c.authority||''), status:'overdue', risk:10 });
+      });
+      next14.slice(0,10).forEach(function(c){
+        hotItems.push({ title:c.obligation||'Filing', detail:'Due '+c.due+' · '+(c.authority||''), status:'due_soon', risk:7 });
+      });
+      openRa.slice(0,10).forEach(function(b){
+        hotItems.push({ title:b.vendor||b.billNo||'RA bill', detail:'Open RA · '+(b.amount!=null?b.amount:'')+' · '+(b.project||''), status:'ra_open', risk:6 });
+      });
+      return {
+        generatedAt:new Date().toISOString(),
+        app:'finance_kpi',
+        totals:{
+          overdueCompliance:overdue.length,
+          dueNext14:next14.length,
+          openRaBills:openRa.length,
+          complianceRows:compliance.length,
+          employees:(S.employees||[]).filter(function(e){return e.active!==false;}).length,
+          corrections:(S.corrections||[]).length
+        },
+        hotItems:hotItems
+      };
+    }catch(e){
+      return { totals:{error:String(e&&e.message||e)}, hotItems:[] };
+    }
+  },
   examples:['What compliance items are overdue?','Where are finance KPIs weak?','What should F&A prioritize this month?']
 });
 </script>

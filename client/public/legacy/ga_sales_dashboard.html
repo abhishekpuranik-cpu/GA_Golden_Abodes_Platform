@@ -255,9 +255,41 @@
 GAVaultAskAI.mount({
   appId:'sales_dashboard', appLabel:'Sales Dashboard', title:'Ask Sales',
   buildContext:function(){
-    var keys=[];
-    try{ for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(k&&(/sales|crm|booking|inventory/i.test(k)||k.indexOf('ga_')===0)) keys.push(k); } }catch(e){}
-    return Object.assign({app:'sales_dashboard'}, GAVaultAskAI.contextFromLocalStorage(keys.slice(0,12)));
+    try{
+      var snap = null;
+      if(typeof window!=='undefined'){
+        snap = window.GA_SALES_STATE || window.SALES_STATE || window.salesState || window.DASH || null;
+      }
+      if(snap && typeof snap==='object'){
+        var totals={};
+        var hotItems=[];
+        Object.keys(snap).forEach(function(k){
+          var v=snap[k];
+          if(typeof v==='number') totals[k]=v;
+        });
+        var pools=[].concat(snap.inventory||[], snap.units||[], snap.bookings||[], snap.hot||[], snap.atRisk||[]);
+        pools.slice(0,30).forEach(function(it){
+          if(!it||typeof it!=='object') return;
+          hotItems.push({
+            title:it.name||it.unit||it.project||it.id||'Item',
+            detail:[it.status,it.stage,it.reason].filter(Boolean).join(' · '),
+            status:it.status||'',
+            risk:Number(it.risk||3)
+          });
+        });
+        if(Object.keys(totals).length || hotItems.length){
+          return { generatedAt:new Date().toISOString(), app:'sales_dashboard', totals:totals, hotItems:hotItems };
+        }
+      }
+      var keys=[];
+      try{ for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(k&&(/sales|crm|booking|inventory/i.test(k)||k.indexOf('ga_')===0)) keys.push(k); } }catch(e){}
+      var ctx = GAVaultAskAI.contextFromLocalStorage(keys.slice(0,8));
+      ctx.app='sales_dashboard';
+      ctx.note='Sales runtime snapshot not exposed — using storage keys. Prefer Ask inside apps with live board data.';
+      return ctx;
+    }catch(e){
+      return { totals:{error:String(e&&e.message||e)}, hotItems:[] };
+    }
   },
   examples:['What is inventory and booking risk?','Where are sales bottlenecks?','What should sales leadership do this week?']
 });

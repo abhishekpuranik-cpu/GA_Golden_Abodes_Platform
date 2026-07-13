@@ -43,19 +43,22 @@
     css.id = 'ga-vault-ask-css';
     css.textContent =
       '.gai-fab{position:fixed;right:16px;bottom:16px;z-index:99999;padding:12px 16px;border-radius:999px;border:none;background:linear-gradient(135deg,#1A304A,#253E60);color:#fff;font:700 13px DM Sans,system-ui,sans-serif;cursor:pointer;box-shadow:0 8px 24px rgba(26,48,74,.28)}' +
-      '.gai-panel{position:fixed;right:16px;bottom:70px;z-index:99999;width:min(420px,calc(100vw - 24px));max-height:min(80vh,680px);overflow:auto;background:#FBF9F5;border:1px solid #E2DDD4;border-radius:14px;box-shadow:0 16px 48px rgba(0,0,0,.22);padding:14px;font:14px DM Sans,system-ui,sans-serif;color:#1A1815}' +
-      '.gai-title{font-weight:700;color:#1A304A;font-size:16px;margin:0 0 4px}' +
-      '.gai-sub{font-size:11px;color:#55504A;margin:0 0 8px}' +
-      '.gai-input{width:100%;box-sizing:border-box;min-height:72px;border:1.5px solid #E2DDD4;border-radius:8px;padding:10px;font:14px inherit;resize:vertical}' +
+      '.gai-overlay{position:fixed;inset:0;z-index:99998;display:none;align-items:center;justify-content:center;padding:20px;background:rgba(18,22,28,.55);backdrop-filter:blur(2px)}' +
+      '.gai-overlay.on{display:flex}' +
+      '.gai-panel{position:relative;width:min(960px,96vw);height:min(88vh,920px);overflow:auto;background:#FBF9F5;border:1px solid #E2DDD4;border-radius:18px;box-shadow:0 24px 64px rgba(0,0,0,.32);padding:18px 20px;font:14px DM Sans,system-ui,sans-serif;color:#1A1815}' +
+      '.gai-title{font-weight:700;color:#1A304A;font-size:22px;margin:0 0 4px}' +
+      '.gai-sub{font-size:13px;color:#55504A;margin:0 0 8px}' +
+      '.gai-input{width:100%;box-sizing:border-box;min-height:88px;border:1.5px solid #E2DDD4;border-radius:10px;padding:12px;font:15px inherit;resize:vertical}' +
       '.gai-row{display:flex;gap:8px;margin:8px 0;flex-wrap:wrap;align-items:center}' +
-      '.gai-btn{padding:8px 12px;border-radius:8px;border:none;background:#1A304A;color:#fff;font-weight:700;cursor:pointer;font-size:12px}' +
+      '.gai-btn{padding:10px 16px;border-radius:10px;border:none;background:#1A304A;color:#fff;font-weight:700;cursor:pointer;font-size:13px}' +
       '.gai-btn:disabled{opacity:.5;cursor:not-allowed}' +
-      '.gai-ghost{padding:8px 12px;border-radius:8px;border:1px solid #E2DDD4;background:#fff;cursor:pointer;font-size:12px}' +
+      '.gai-ghost{padding:10px 14px;border-radius:10px;border:1px solid #E2DDD4;background:#fff;cursor:pointer;font-size:13px}' +
       '.gai-mic.on{border-color:#B32E1E;background:#FCECEA;color:#B32E1E}' +
-      '.gai-chip{border:1px solid #E2DDD4;background:#fff;border-radius:999px;padding:4px 8px;font-size:11px;cursor:pointer;margin:2px}' +
-      '.gai-ans{margin-top:10px;padding-top:10px;border-top:1px solid #E2DDD4;font-size:13px;line-height:1.5;white-space:pre-wrap}' +
+      '.gai-chip{border:1px solid #E2DDD4;background:#fff;border-radius:999px;padding:6px 10px;font-size:12px;cursor:pointer;margin:2px}' +
+      '.gai-ans{margin-top:12px;padding:14px 16px;border:1px solid #E2DDD4;border-radius:14px;background:#fff;font-size:14px;line-height:1.55}' +
       '.gai-warn{background:#FDF3E8;border:1px solid #E8C490;color:#AE6418;padding:8px;border-radius:6px;font-size:12px;margin:8px 0}' +
-      '.gai-chart{margin:8px 0;padding:8px;border:1px solid #E2DDD4;border-radius:10px;background:#fff}.gai-chart-t{font-size:12px;font-weight:700;color:#1A304A}.gai-chart-n{font-size:11px;color:#55504A;margin:4px 0 8px;line-height:1.4}.gai-bar-row{display:flex;align-items:center;gap:6px;margin:3px 0;font-size:11px}.gai-bar-lab{width:88px;text-align:right;color:#55504A;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gai-bar-track{flex:1;height:12px;background:#EAE6DC;border-radius:4px;overflow:hidden}.gai-bar-fill{height:100%;background:#1A304A;border-radius:4px}.gai-bar-val{width:36px;font-weight:700;color:#1A304A}.gai-sec{margin:8px 0;padding:8px 10px;border-radius:10px;border:1px solid #E2DDD4;background:#FAFAF8}.gai-sec-k{font-size:10px;font-weight:700;text-transform:uppercase;color:#9A6E20}.gai-headline{font-size:15px;font-weight:700;color:#1A304A;margin:0 0 8px}.gai-meta{font-size:10px;font-weight:700;text-transform:uppercase;color:#9A6E20;margin-bottom:6px}';
+      '.gai-chart{margin:8px 0;padding:8px;border:1px solid #E2DDD4;border-radius:10px;background:#FAFAF8}.gai-chart-t{font-size:12px;font-weight:700;color:#1A304A}.gai-chart-n{font-size:11px;color:#55504A;margin:4px 0 8px;line-height:1.4}.gai-bar-row{display:flex;align-items:center;gap:6px;margin:3px 0;font-size:11px}.gai-bar-lab{width:88px;text-align:right;color:#55504A;flex-shrink:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gai-bar-track{flex:1;height:12px;background:#EAE6DC;border-radius:4px;overflow:hidden}.gai-bar-fill{height:100%;background:#1A304A;border-radius:4px}.gai-bar-val{width:36px;font-weight:700;color:#1A304A}.gai-sec{margin:8px 0;padding:8px 10px;border-radius:10px;border:1px solid #E2DDD4;background:#FAFAF8}.gai-sec-k{font-size:10px;font-weight:700;text-transform:uppercase;color:#9A6E20}.gai-headline{font-size:18px;font-weight:700;color:#1A304A;margin:0 0 8px}.gai-meta{font-size:11px;font-weight:700;text-transform:uppercase;color:#9A6E20;margin-bottom:6px}' +
+      '@media (max-width:720px){.gai-overlay{padding:0}.gai-panel{width:100%;height:100%;border-radius:0}}';
     document.head.appendChild(css);
   }
 
@@ -177,6 +180,17 @@
     var question = '';
     var recog = null;
     var want = false;
+    var overlay = null;
+
+    var closeBtn = el('button', {
+      class: 'gai-ghost',
+      type: 'button',
+      text: '✕ Close',
+      onclick: function () {
+        panelOpen = false;
+        if (overlay) overlay.classList.remove('on');
+      },
+    });
 
     var fab = el('button', {
       class: 'gai-fab',
@@ -184,13 +198,19 @@
       text: '✦ Ask AI',
       onclick: function () {
         panelOpen = !panelOpen;
-        panel.style.display = panelOpen ? 'block' : 'none';
+        if (!overlay) return;
+        if (panelOpen) overlay.classList.add('on');
+        else overlay.classList.remove('on');
       },
     });
 
     var title = el('div', { class: 'gai-title', text: opts.title || 'Ask AI' });
     var sub = el('div', { class: 'gai-sub', text: (opts.appLabel || opts.appId) + ' · live data · voice supported' });
-    var input = el('textarea', { class: 'gai-input', rows: '3', placeholder: 'Ask anything — risks, forecasts, what to do next…' });
+    var input = el('textarea', {
+      class: 'gai-input',
+      rows: '3',
+      placeholder: 'Ask a specific question — name a project, person, status, or metric…',
+    });
     var micBtn = el('button', { class: 'gai-ghost', type: 'button', text: '🎤 Voice' });
     var askBtn = el('button', { class: 'gai-btn', type: 'button', text: 'Ask' });
     var clearBtn = el('button', { class: 'gai-ghost', type: 'button', text: 'Clear' });
@@ -375,8 +395,8 @@
       }
     });
 
-    var panel = el('div', { class: 'gai-panel', style: { display: 'none' } }, [
-      title,
+    var panel = el('div', { class: 'gai-panel' }, [
+      el('div', { class: 'gai-row', style: { justifyContent: 'space-between' } }, [title, closeBtn]),
       sub,
       input,
       el('div', { class: 'gai-row' }, [micBtn, askBtn, clearBtn]),
@@ -385,9 +405,18 @@
       warn,
       ans,
     ]);
+    overlay = el('div', {
+      class: 'gai-overlay',
+      onclick: function (e) {
+        if (e.target === overlay) {
+          panelOpen = false;
+          overlay.classList.remove('on');
+        }
+      },
+    }, [panel]);
 
     root.appendChild(fab);
-    root.appendChild(panel);
+    root.appendChild(overlay);
     document.body.appendChild(root);
   }
 
