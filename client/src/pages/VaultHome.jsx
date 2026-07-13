@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { authApi } from '../lib/api.js';
 import { VAULT_PLATFORM_APPS, canOpenVaultApp } from '../lib/vaultCatalog.js';
 import { APP_IDS } from '../appRegistry.js';
+import { VaultAskAi } from '../components/ask/VaultAskAi.jsx';
+import { buildVaultHubAskContext } from '../lib/vaultAskContextBuilders.js';
 
 const VAULT_LINK_PROPS = { target: '_blank', rel: 'noopener noreferrer' };
 
@@ -66,7 +68,7 @@ const DEFAULT_EXECUTION_DASHBOARD_URL = '';
 const DEFAULT_PRECONSTRUCTION_URL = '';
 /** Cache-bust query on Construction Execution Dashboard URL from Vault (?v=…). Bump when UI ships; may differ from in-app `GA_DASHBOARD_VERSION`. */
 const VAULT_EXEC_VERSION = '20260511-exec-progress-roadmap';
-const VAULT_PRE_VERSION = '20260713-ask-ai';
+const VAULT_PRE_VERSION = '20260713-ask-visuals';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
 const PRE_URL_LS_KEY = 'ga_preconstruction_url';
 const V3_URL_LS_KEY = 'ga_v3_url';
@@ -577,6 +579,16 @@ export default function VaultHome() {
           </button>
         </div>
       </section>
+
+      {auth.authenticated ? (
+        <VaultAskAi
+          appId="vault"
+          appLabel="App Vault"
+          exampleKey="vault"
+          title="Ask across your apps"
+          buildContext={() => buildVaultHubAskContext([...(auth.user?.allowedApps || [])])}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1137,5 +1137,15 @@
   bootState();
 })();
 </script>
+
+<script src="/legacy/ga_vault_ask_ai.js"></script>
+<script>
+GAVaultAskAI.mount({
+  appId:'marketing_kpi', appLabel:'Marketing KPIs', title:'Ask Marketing KPIs',
+  buildContext:function(){ return Object.assign({app:'marketing_kpi'}, GAVaultAskAI.contextFromLocalStorage(['ga_mkt_kpi_state_v1'])); },
+  examples:['Which KPIs are off track?','Predict channel underperformance.','Prescribe marketing focus for this week.']
+});
+</script>
+
 </body>
 </html>

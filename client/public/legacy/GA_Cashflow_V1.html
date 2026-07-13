@@ -224,7 +224,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 55;
+var CF_VERSION = 56;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
@@ -11646,5 +11646,35 @@ setInterval(function(){
 },15000);
 
 </script>
+
+<script src="/legacy/ga_vault_ask_ai.js"></script>
+<script>
+(function(){
+  function buildContext(){
+    try{
+      var d = (typeof _cfData!=='undefined' && _cfData) ? _cfData : null;
+      var raw = null;
+      try{ raw = localStorage.getItem('ga_cf_v1'); }catch(e){}
+      var parsed = null;
+      try{ parsed = raw ? JSON.parse(raw) : null; }catch(e){}
+      var src = d || (parsed && parsed.data) || parsed || {};
+      var projs = src.projects || src.projs || [];
+      var totals = { projects: Array.isArray(projs)?projs.length:0, version: (typeof CF_VERSION!=='undefined'?CF_VERSION:null) };
+      var hotItems = [];
+      if(Array.isArray(projs)){
+        projs.slice(0,20).forEach(function(p){
+          hotItems.push({ title: p.name||p.id||'Project', detail: (p.loc||'')+' '+(p.status||''), status: p.status||'' });
+        });
+      }
+      return { generatedAt:new Date().toISOString(), app:'v1_cashflow', totals:totals, hotItems:hotItems, summary: GAVaultAskAI.contextFromLocalStorage(['ga_cf_v1','ga_cf_tally_settings']).storage };
+    }catch(e){
+      return { totals:{ error:String(e&&e.message||e) }, hotItems:[] };
+    }
+  }
+  GAVaultAskAI.mount({ appId:'v1_cashflow', appLabel:'Cashflow V1', title:'Ask Cashflow', buildContext:buildContext,
+    examples:['What is cash pressure across projects?','Which projects need collection focus?','Prescribe actions for payables this week.'] });
+})();
+</script>
+
 </body>
 </html>

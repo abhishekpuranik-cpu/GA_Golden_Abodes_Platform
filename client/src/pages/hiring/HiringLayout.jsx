@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet } from 'react-router-dom';
 import { authApi } from '../../lib/api.js';
 import { hiringApi } from '../../lib/hiringApi.js';
 import { HIRING_NAV } from '../../lib/hiringTabs.js';
+import { VaultAskAi } from '../../components/ask/VaultAskAi.jsx';
+import { buildHiringAskContext } from '../../lib/vaultAskContextBuilders.js';
 import '../../hiring.css';
 
 export default function HiringLayout() {
@@ -42,6 +44,12 @@ export default function HiringLayout() {
       <main className="hr-body">
         <Outlet context={{ user, canWrite, sourcingAuto: health?.sourcingMode === 'auto' }} />
       </main>
+      <VaultAskAi
+        appId="hiring"
+        appLabel="Hiring & Sourcing"
+        exampleKey="hiring"
+        buildContext={buildHiringAskContext}
+      />
     </div>
   );
 }

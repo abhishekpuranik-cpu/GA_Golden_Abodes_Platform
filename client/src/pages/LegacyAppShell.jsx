@@ -2,6 +2,8 @@ import { useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { usePlannerIframeSync } from '../hooks/usePlannerIframeSync.js';
 import { injectLegacyMobileCss } from '../lib/injectLegacyMobileCss.js';
+import { VaultAskAi } from '../components/ask/VaultAskAi.jsx';
+import { buildPlannerAskContext } from '../lib/vaultAskContextBuilders.js';
 
 export default function LegacyAppShell({
   title,
@@ -33,6 +35,8 @@ export default function LegacyAppShell({
   const onIframeLoad = useCallback(() => {
     injectLegacyMobileCss(iframeRef.current);
   }, []);
+
+  const buildContext = useCallback(() => buildPlannerAskContext(appId, title), [appId, title]);
 
   return (
     <div className="app-shell-full" style={{ background: '#f0f4fa' }}>
@@ -118,6 +122,11 @@ export default function LegacyAppShell({
           style={{ width: '100%', height: '100%', border: 'none', display: 'block', flex: 1, minHeight: 0 }}
         />
       </div>
+      <VaultAskAi
+        appId={appId}
+        appLabel={title}
+        buildContext={buildContext}
+      />
     </div>
   );
 }

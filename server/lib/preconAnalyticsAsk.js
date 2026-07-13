@@ -93,17 +93,30 @@ export async function runPreconAnalyticsAsk({ question, context }) {
 
   const { context: ctx, truncated } = trimContext(context);
   const system = `You are the Golden Abodes PreConstruction analytics advisor.
-You answer ONLY from the provided JSON context (live app data). Never invent projects, tasks, dates, or people.
-Be insightful across Informative, Predictive, and Prescriptive lenses when useful.
-If the question is vague, infer the most valuable executive answer from the data.
-Cite specific project/task names from context.
-Keep markdown crisp and scannable (headings, bullets). India real-estate pre-construction context.
+Answer ONLY from the provided JSON context (live app data). Never invent projects, tasks, dates, or people.
+Be insightful across Informative, Predictive, and Prescriptive lenses.
+Cite specific project/task names from context. India real-estate pre-construction context.
 
 Return STRICT JSON only:
 {
   "intent": "informative|predictive|prescriptive|diagnostic|general",
-  "markdown": "markdown answer for the user",
+  "headline": "one clear sentence verdict",
   "highlights": { "overdue": number, "nextActionOverdue": number, "complianceBreaches": number, "hotCount": number },
+  "sections": [
+    { "kind": "informative", "title": "...", "narrative": "2-4 sentences" },
+    { "kind": "predictive", "title": "...", "narrative": "2-4 sentences" },
+    { "kind": "prescriptive", "title": "...", "narrative": "2-4 sentences with concrete actions" }
+  ],
+  "charts": [
+    {
+      "type": "donut|bar|hbar",
+      "title": "chart title",
+      "narrative": "1-2 sentences explaining the chart insight",
+      "unit": "",
+      "data": [ { "label": "A", "value": 3 }, { "label": "B", "value": 5 } ]
+    }
+  ],
+  "markdown": "full scannable markdown tying charts + sections together",
   "proposedActions": [
     {
       "type": "openProject|markDone|setTaskStatus|updTask|addComment",
@@ -117,10 +130,8 @@ Return STRICT JSON only:
     }
   ]
 }
-Rules for proposedActions:
-- Only suggest safe, high-value actions grounded in context.hotTasks ids.
-- Prefer openProject / setTaskStatus / markDone. Avoid mass deletes.
-- Max 6 actions. If unsure, return [].`;
+Chart rules: 1–3 charts from context.totals / hotTasks / workload only. Every chart needs a narrative. Prefer donut for status mix, hbar for ranked risks.
+ProposedActions: only grounded hotTasks ids; max 6.`;
 
   const user = `Question:\n${String(question || '').trim()}\n\nContext JSON${truncated ? ' (truncated)' : ''}:\n${JSON.stringify(ctx)}`;
 
@@ -155,12 +166,15 @@ Rules for proposedActions:
     .trim();
 
   const parsed = extractJsonBlock(text);
-  if (!parsed?.markdown) {
+  if (!parsed?.markdown && !parsed?.sections?.length && !parsed?.headline) {
     return {
       ok: true,
       source: 'llm',
       model: MODEL,
       intent: 'general',
+      headline: '',
+      sections: [],
+      charts: [],
       markdown: text || '_No answer returned._',
       highlights: ctx.totals
         ? {
@@ -179,7 +193,10 @@ Rules for proposedActions:
     source: 'llm',
     model: MODEL,
     intent: parsed.intent || 'general',
-    markdown: String(parsed.markdown),
+    headline: parsed.headline ? String(parsed.headline) : '',
+    sections: Array.isArray(parsed.sections) ? parsed.sections.slice(0, 6) : [],
+    charts: Array.isArray(parsed.charts) ? parsed.charts.slice(0, 4) : [],
+    markdown: String(parsed.markdown || ''),
     highlights: parsed.highlights || {},
     proposedActions: normalizeActions(parsed.proposedActions, ctx),
   };

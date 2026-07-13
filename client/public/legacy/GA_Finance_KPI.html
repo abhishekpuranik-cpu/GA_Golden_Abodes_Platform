@@ -1621,5 +1621,15 @@ saveState(false);
 renderTab('dash');
 checkAdminSession(function(){renderTab(curTab);initMongoSync();});
 </script>
+
+<script src="/legacy/ga_vault_ask_ai.js"></script>
+<script>
+GAVaultAskAI.mount({
+  appId:'finance_kpi', appLabel:'Finance KPI', title:'Ask Finance KPI',
+  buildContext:function(){ return Object.assign({app:'finance_kpi'}, GAVaultAskAI.contextFromLocalStorage(['ga_finkpi_state_v2'])); },
+  examples:['What compliance items are overdue?','Where are finance KPIs weak?','What should F&A prioritize this month?']
+});
+</script>
+
 </body>
 </html>

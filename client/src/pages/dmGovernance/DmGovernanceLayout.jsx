@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { authApi } from '../../lib/api.js';
 import { dmGovernanceApi } from '../../lib/dmGovernanceApi.js';
 import { DM_NAV, DM_TABS } from '../../lib/dmGovernanceTabs.js';
+import { VaultAskAi } from '../../components/ask/VaultAskAi.jsx';
+import { buildDmAskContext } from '../../lib/vaultAskContextBuilders.js';
 import '../../dm-governance.css';
 
 export default function DmGovernanceLayout() {
@@ -52,6 +54,12 @@ export default function DmGovernanceLayout() {
       <main className="dm-body">
         <Outlet context={{ user, meta, pathname: location.pathname }} />
       </main>
+      <VaultAskAi
+        appId="dm_spv_governance"
+        appLabel="Business Health"
+        exampleKey="dm_spv_governance"
+        buildContext={buildDmAskContext}
+      />
     </div>
   );
 }

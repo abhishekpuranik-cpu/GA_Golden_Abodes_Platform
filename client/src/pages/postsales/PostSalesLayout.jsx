@@ -1,15 +1,12 @@
 import { useEffect, useState } from 'react';
 
 import { Link, NavLink, Outlet } from 'react-router-dom';
-
 import { authApi } from '../../lib/api.js';
-
 import { postSalesApi } from '../../lib/postSalesApi.js';
-
 import { invalidatePostSalesCache } from '../../lib/postsales/postSalesCache.js';
-
 import { PS_NAV } from '../../lib/postSalesTabs.js';
-
+import { VaultAskAi } from '../../components/ask/VaultAskAi.jsx';
+import { buildPostSalesAskContext } from '../../lib/vaultAskContextBuilders.js';
 import '../../post-sales.css';
 
 
@@ -175,15 +172,16 @@ export default function PostSalesLayout() {
       )}
 
       <main className="ps-body">
-
         <Outlet context={{ user }} />
-
       </main>
-
+      <VaultAskAi
+        appId="post_sales"
+        appLabel="Post Sales Operations"
+        exampleKey="post_sales"
+        buildContext={buildPostSalesAskContext}
+      />
     </div>
-
   );
-
 }
 
 

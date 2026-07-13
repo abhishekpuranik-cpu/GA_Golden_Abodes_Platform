@@ -13,6 +13,7 @@ import { closeMongo } from './lib/mongo.js';
 import { healthRouter } from './routes/health.js';
 import { workspaceRouter } from './routes/workspace.js';
 import { preconstructionRouter } from './routes/preconstruction.js';
+import { vaultAnalyticsRouter } from './routes/vaultAnalytics.js';
 import { appStatesRouter } from './routes/appStates.js';
 import { authRouter } from './routes/auth.js';
 import { dmGovernanceRouter } from './routes/dmGovernance.js';
@@ -126,6 +127,7 @@ if (LEGACY_EXISTS) {
 app.use('/api', healthRouter);
 app.use('/api', workspaceRouter);
 app.use('/api', preconstructionRouter);
+app.use('/api', vaultAnalyticsRouter);
 app.use('/api', appStatesRouter);
 app.use('/api/dm-governance', dmGovernanceRouter);
 app.use('/api/postsales', postSalesRouter);

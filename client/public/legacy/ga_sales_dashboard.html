@@ -249,5 +249,19 @@
   </div>
 
   <script src="ga_sales_dashboard_runtime.js"></script>
+
+<script src="/legacy/ga_vault_ask_ai.js"></script>
+<script>
+GAVaultAskAI.mount({
+  appId:'sales_dashboard', appLabel:'Sales Dashboard', title:'Ask Sales',
+  buildContext:function(){
+    var keys=[];
+    try{ for(var i=0;i<localStorage.length;i++){ var k=localStorage.key(i); if(k&&(/sales|crm|booking|inventory/i.test(k)||k.indexOf('ga_')===0)) keys.push(k); } }catch(e){}
+    return Object.assign({app:'sales_dashboard'}, GAVaultAskAI.contextFromLocalStorage(keys.slice(0,12)));
+  },
+  examples:['What is inventory and booking risk?','Where are sales bottlenecks?','What should sales leadership do this week?']
+});
+</script>
+
 </body>
 </html>
