@@ -224,7 +224,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 57;
+var CF_VERSION = 58;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
@@ -1739,33 +1739,40 @@ function guessTallyCategoryKey(ledger){
 // ══════════════════════════════════════════════════════════════
 // TALLY BRIDGE (local Node server → Tally XML API)
 // ══════════════════════════════════════════════════════════════
+/** Default books-from when pulling Payment+Receipt from inception (override in sync modal). */
+var TALLY_BOOKS_INCEPTION_DEFAULT='2000-04-01';
 function getTallySettings(){
   try{
     var r=localStorage.getItem('ga_cf_tally_settings');
-    var d=new Date();
-    var y=d.getFullYear();
-    var m=String(d.getMonth()+1).padStart(2,'0');
-    var day=String(d.getDate()).padStart(2,'0');
-    var defTo=y+'-'+m+'-'+day;
-    var defFrom=y+'-01-01';
+    var defTo=today();
+    var defFrom=TALLY_BOOKS_INCEPTION_DEFAULT;
     var o=r?JSON.parse(r):{};
+    var fromDate=o.fromDate||defFrom;
+    // Migrate legacy default (1 Jan of current year) → books inception for Payment+Receipt full history
+    if(!o.pullPreset && o.fromDate){
+      var yNow=String(new Date().getFullYear());
+      if(o.fromDate===yNow+'-01-01') fromDate=TALLY_BOOKS_INCEPTION_DEFAULT;
+    }
     return {
       bridgeUrl:(o.bridgeUrl||'http://127.0.0.1:34876').replace(/\/$/,''),
-      reportId:o.reportId||'Voucher Register',
-      fromDate:o.fromDate||defFrom,
+      reportId:o.reportId||'Payment Register',
+      pullPreset:o.pullPreset||'payment_receipt',
+      fromDate:fromDate,
       toDate:o.toDate||defTo,
       replaceTally:!!o.replaceTally,
       costCentreSubstr:(o.costCentreSubstr||'').trim()
     };
   }catch(e){
-    return {bridgeUrl:'http://127.0.0.1:34876',reportId:'Voucher Register',fromDate:'',toDate:'',replaceTally:false,costCentreSubstr:''};
+    return {bridgeUrl:'http://127.0.0.1:34876',reportId:'Payment Register',pullPreset:'payment_receipt',fromDate:TALLY_BOOKS_INCEPTION_DEFAULT,toDate:today(),replaceTally:false,costCentreSubstr:''};
   }
 }
 function saveTallySettingsFromForm(){
   var u=(document.getElementById('tset-bridge')||{}).value||'';
+  var presetEl=document.getElementById('tset-preset');
   var s={
     bridgeUrl:u.replace(/\/$/,'')||'http://127.0.0.1:34876',
-    reportId:(document.getElementById('tset-report')||{}).value||'Voucher Register',
+    reportId:(document.getElementById('tset-report')||{}).value||'Payment Register',
+    pullPreset:(presetEl&&presetEl.value)||'payment_receipt',
     fromDate:(document.getElementById('tset-from')||{}).value||'',
     toDate:(document.getElementById('tset-to')||{}).value||'',
     replaceTally:!!(document.getElementById('tset-replace')&&document.getElementById('tset-replace').checked),
@@ -1779,23 +1786,23 @@ function saveTallySettingsFromForm(){
     cfg.tallyCostCentreFilter=s.costCentreSubstr;
     cfg.tallyCompanyName=(document.getElementById('tset-company')||{}).value||'';
     cfg.tallySendCompany=!!(document.getElementById('tset-send-company')&&document.getElementById('tset-send-company').checked);
+    cfg.tallyPullPreset=s.pullPreset;
     saveAll();
   }
 }
 /**
- * Effective Tally pull settings for the current project: per-project dates & filters,
- * else global localStorage, else defaults (from = project start or 1 Jan of current year, to = today).
+ * Effective Tally pull settings for the current project.
+ * Default range = books inception (2000-04-01 unless overridden) → today — full Payment+Receipt history.
  * Cost centre filter limits which voucher lines are merged into this project’s actuals (post-parse).
  */
 function getTallySyncForPull(){
   var g=getTallySettings();
-  var d=new Date();
   var defTo=today();
-  var defFrom=String(d.getFullYear())+'-01-01';
+  var defFrom=TALLY_BOOKS_INCEPTION_DEFAULT;
   var cfg={};
   if(_curPid){
     cfg=getCF(_curPid);
-    if(cfg.startDate&&/^\d{4}-\d{2}-\d{2}$/.test(cfg.startDate)) defFrom=cfg.startDate.slice(0,10);
+    if(cfg.tallyBooksFrom&&/^\d{4}-\d{2}-\d{2}$/.test(cfg.tallyBooksFrom)) defFrom=cfg.tallyBooksFrom.slice(0,10);
   }
   var fromD=String(cfg.tallyFromDate||'').trim()||String(g.fromDate||'').trim()||defFrom;
   var toD=String(cfg.tallyToDate||'').trim()||String(g.toDate||'').trim()||defTo;
@@ -1803,9 +1810,11 @@ function getTallySyncForPull(){
     ?String(cfg.tallyCostCentreFilter).trim()
     :String(g.costCentreSubstr||'').trim();
   var co=_curPid?String(cfg.tallyCompanyName||'').trim():'';
+  var preset=_curPid&&cfg.tallyPullPreset?String(cfg.tallyPullPreset):String(g.pullPreset||'payment_receipt');
   return{
     bridgeUrl:g.bridgeUrl,
     reportId:g.reportId,
+    pullPreset:preset||'payment_receipt',
     replaceTally:g.replaceTally,
     fromDate:String(fromD).slice(0,10),
     toDate:String(toD).slice(0,10),
@@ -2191,34 +2200,40 @@ function showTallySyncModal(){
   var s, perProjNote='';
   if(_curPid){
     s=getTallySyncForPull();
-    perProjNote='<p style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:12px"><strong>Date range</strong> below is sent to Tally as <code>SVFROMDATE</code> / <code>SVTODATE</code> (plain YYYYMMDD and <code>Type="Date"</code> forms, including <strong>DD-MMM-YYYY</strong> like the Day Book period you set with Alt+F2). The bridge cannot drive Tally’s UI; it only sends XML. <strong>Report ID</strong> is the report title for <strong>Export Data</strong> (default <code>Voucher Register</code>); multi-day pulls also try <code>Day Book</code>. Legacy export uses the <code>Day Book</code> object id. Defaults: <strong>from</strong> = project start (or 1 Jan current year), <strong>to</strong> = today (local date).</p>'
-      +'<p style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:12px"><strong>Project-wise data:</strong> Tally has no notion of this app’s projects. Use <strong>cost centre contains</strong> so only voucher lines whose cost centre text matches this project are imported into <em>this</em> project’s actuals. Leave it blank only if the Tally book is effectively single-project. <strong>Tally company name</strong> is optional — must match the company in Tally exactly when not using the active company.</p>';
+    s.toDate=today(); // always offer pull through today
+    perProjNote='<p style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:12px"><strong>Date range</strong> is sent to Tally as <code>SVFROMDATE</code> / <code>SVTODATE</code>. Default is <strong>books inception → today</strong> (from <code>'+TALLY_BOOKS_INCEPTION_DEFAULT+'</code> unless you change it) so Payment + Receipt registers cover the full account history. The bridge cannot click Tally menus/F12 — it uses XML Export Data. Long ranges are pulled <strong>year-by-year</strong> automatically (may take several minutes).</p>'
+      +'<p style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:12px"><strong>Project-wise data:</strong> use <strong>cost centre contains</strong> so only matching voucher lines land in <em>this</em> project. <strong>Tally company name</strong> is optional — exact match only when enabled.</p>';
   }else{
-    var g=getTallySettings(), dx=new Date();
-    s={bridgeUrl:g.bridgeUrl,reportId:g.reportId,replaceTally:g.replaceTally,fromDate:g.fromDate||dx.getFullYear()+'-01-01',toDate:g.toDate||today(),costCentreSubstr:g.costCentreSubstr||'',tallyCompanyName:'',tallySendCompany:false};
-    perProjNote='<p style="font-size:10px;color:var(--gold);line-height:1.45;margin-bottom:12px">Select a <strong>project</strong> to set per-project dates, cost-centre filter, and company — and to use <strong>Pull from Tally</strong>. You can still <strong>Test bridge</strong> from here.</p>';
+    var g=getTallySettings();
+    s={bridgeUrl:g.bridgeUrl,reportId:g.reportId,pullPreset:g.pullPreset,replaceTally:g.replaceTally,fromDate:g.fromDate||TALLY_BOOKS_INCEPTION_DEFAULT,toDate:g.toDate||today(),costCentreSubstr:g.costCentreSubstr||'',tallyCompanyName:'',tallySendCompany:false};
+    perProjNote='<p style="font-size:10px;color:var(--gold);line-height:1.45;margin-bottom:12px">Select a <strong>project</strong> to set per-project dates / cost-centre filter and to use <strong>Pull from Tally</strong>. You can still <strong>Test bridge</strong> from here.</p>';
   }
+  var preset=s.pullPreset||'payment_receipt';
   openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
     +'<h3>Tally Prime — live sync (local)</h3>'
-    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> with XML access and the <strong>Node bridge</strong> (<code style="font-size:10px">node tally_bridge.mjs</code>). Voucher lines go into the selected project’s <strong>actuals</strong> (same mapping as Import Tally CSV / XML).</p>'
-    +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Live pull only one day?</strong> In Tally, export the report (e.g. Day Book after <strong>Alt+F2</strong> date range) to <strong>XML</strong>, then on Monthly Cashflow use <strong>Import Tally (CSV or XML)</strong> — you can select <strong>multiple XML files</strong> (e.g. Payment + Receipts) in one go.</p>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> with XML access and the <strong>Node bridge</strong> (<code style="font-size:10px">node tally_bridge.mjs</code> in API_Tool). Default pull = <strong>Payment Register + Receipt Register</strong> from inception to today → project <strong>actuals</strong>.</p>'
+    +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Fallback:</strong> export Payment / Receipts registers from Tally to XML (F12 date range), then use <strong>Import Tally (CSV or XML)</strong> and select both files.</p>'
     +perProjNote
     +'<div class="field"><label>Bridge URL (shared)</label><input id="tset-bridge" type="text" value="'+escAttr(s.bridgeUrl)+'" placeholder="http://127.0.0.1:34876"/></div>'
-    +'<div class="field"><label>Tally report ID (export, shared)</label><input id="tset-report" type="text" value="'+escAttr(s.reportId)+'" placeholder="Voucher Register"/></div>'
+    +'<div class="field"><label>Pull mode</label><select id="tset-preset">'
+    +'<option value="payment_receipt"'+(preset==='payment_receipt'?' selected':'')+'>Payment + Receipt registers (inception → today)</option>'
+    +'<option value="single"'+(preset==='single'?' selected':'')+'>Single report ID (below)</option>'
+    +'</select></div>'
+    +'<div class="field"><label>Tally report ID (only for “Single report”)</label><input id="tset-report" type="text" value="'+escAttr(s.reportId||'Day Book')+'" placeholder="Day Book / Voucher Register"/></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +'<div class="field"><label>From date</label><input id="tset-from" type="date" value="'+escAttr(s.fromDate)+'"/></div>'
+    +'<div class="field"><label>From date (books inception)</label><input id="tset-from" type="date" value="'+escAttr(s.fromDate)+'"/></div>'
     +'<div class="field"><label>To date</label><input id="tset-to" type="date" value="'+escAttr(s.toDate)+'"/></div></div>'
     +'<div class="field"><label>Only if cost centre contains (optional)</label><input id="tset-cc" type="text" value="'+escAttr(s.costCentreSubstr)+'" placeholder="Substring matching Tally cost centre text (per project when a project is selected)"/></div>'
     +'<label style="font-size:11px;display:flex;align-items:flex-start;gap:8px;margin-bottom:8px;cursor:pointer;max-width:100%">'
     +'<input type="checkbox" id="tset-send-company" style="margin-top:2px" '+((s.tallySendCompany)?'checked':'')+'/>'
-    +'<span><strong>Send company name to Tally</strong> (<code>SVCURRENTCOMPANY</code>). Only enable if the text below matches <strong>Gateway → Select Company</strong> exactly (e.g. full legal name). Partial names like “PAD” fail with LINEERROR.</span></label>'
+    +'<span><strong>Send company name to Tally</strong> (<code>SVCURRENTCOMPANY</code>). Only enable if the text below matches <strong>Gateway → Select Company</strong> exactly.</span></label>'
     +'<div class="field"><label>Tally company name (only if checked above)</label><input id="tset-company" type="text" value="'+escAttr(s.tallyCompanyName)+'" placeholder="Exact company name from Tally"/></div>'
     +'<label style="font-size:11px;display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer">'
     +'<input type="checkbox" id="tset-replace" '+(s.replaceTally?'checked':'')+'/> Replace existing Tally-imported lines before adding new ones</label>'
     +'<div id="tally-sync-msg" style="font-size:11px;min-height:18px;color:var(--blue-b);margin-bottom:8px"></div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap">'
     +'<button class="btn btn-outline" data-action="tally-test-bridge" type="button">Test bridge</button>'
-    +'<button class="btn btn-primary" data-action="tally-pull-vouchers" type="button">Pull from Tally</button>'
+    +'<button class="btn btn-primary" data-action="tally-pull-vouchers" type="button">Pull Payment + Receipt (full history)</button>'
     +'<button class="btn btn-outline" data-action="close-modal" type="button">Close</button>'
     +'</div>'
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
@@ -2226,7 +2241,7 @@ function showTallySyncModal(){
     +'<button type="button" class="btn btn-outline" data-action="tally-dl-parsed-tsv" style="font-size:10px">Download last parsed TSV</button>'
     +'</div>'
     +'<p style="font-size:9px;color:var(--muted);margin-top:6px">Dumps use the response from your most recent successful pull (this browser session).</p>'
-    +'<p style="font-size:10px;color:var(--muted);margin-top:14px;line-height:1.4"><strong>Capital Structure:</strong> equity / loans / investor lines are not auto-created from Tally. Inflow categories (Investor Funding, Equity, Unsecured Loan, etc.) appear in <strong>actuals</strong> and in Monthly Cashflow — use them to reconcile, then edit structured capital rows manually or via the capital template.</p>'
+    +'<p style="font-size:10px;color:var(--muted);margin-top:14px;line-height:1.4"><strong>Capital Structure:</strong> equity / loans / investor lines are not auto-created from Tally. Inflow categories appear in <strong>actuals</strong> — reconcile, then edit capital rows manually if needed.</p>'
     +'</div></div>');
 }
 function escAttr(s){ return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;'); }
@@ -2277,14 +2292,28 @@ function runTallyPullVouchers(){
   var s=getTallySyncForPull();
   var fd=tallyDd(s.fromDate), td=tallyDd(s.toDate);
   if(fd.length!==8||td.length!==8){alert('Choose valid from/to dates.');return;}
-  el.textContent='Requesting Tally export ('+fd+'–'+td+')…';
-  var exportBody={reportId:s.reportId,fromDate:fd,toDate:td,sendCompanyToTally:!!s.tallySendCompany};
+  if(fd>td){alert('From date must be on or before To date.');return;}
+  var preset=s.pullPreset||'payment_receipt';
+  var label=preset==='payment_receipt'?'Payment + Receipt registers':'report '+s.reportId;
+  el.textContent='Requesting Tally export ('+label+', '+fd+'–'+td+'). Year-chunked — keep Tally + bridge open; this can take several minutes…';
+  var exportBody={
+    fromDate:fd,
+    toDate:td,
+    chunkByYear:true,
+    sendCompanyToTally:!!s.tallySendCompany
+  };
+  if(preset==='payment_receipt'){
+    exportBody.preset='payment_receipt';
+    exportBody.reportIds=['Payment Register','Receipt Register'];
+  }else{
+    exportBody.reportId=s.reportId||'Day Book';
+  }
   if(s.tallySendCompany&&s.tallyCompanyName) exportBody.currentCompany=s.tallyCompanyName;
   fetch(s.bridgeUrl+'/tally/export',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify(exportBody)
-  }).then(function(r){return r.text().then(function(text){return {ok:r.ok,status:r.status,text:text};});}).then(function(resp){
+  }).then(function(r){return r.text().then(function(text){return {ok:r.ok,status:r.status,text:text,meta:r.headers.get('X-GA-Tally-Meta')};});}).then(function(resp){
     var text=resp.text;
     if(!resp.ok&&text.trim().charAt(0)==='{'){
       try{
@@ -2300,14 +2329,25 @@ function runTallyPullVouchers(){
       return;
     }
     window.__gaLastTallyExportRaw=text;
-    window.__gaLastTallyExportMeta={reportId:s.reportId,fromDate:fd,toDate:td,sendCompanyToTally:!!s.tallySendCompany,currentCompany:(s.tallySendCompany&&s.tallyCompanyName)?s.tallyCompanyName:'',pulledAt:new Date().toISOString()};
+    window.__gaLastTallyExportMeta={
+      preset:preset,
+      reportId:s.reportId,
+      fromDate:fd,
+      toDate:td,
+      sendCompanyToTally:!!s.tallySendCompany,
+      currentCompany:(s.tallySendCompany&&s.tallyCompanyName)?s.tallyCompanyName:'',
+      pulledAt:new Date().toISOString(),
+      bridgeMeta:resp.meta||null
+    };
     window.__gaLastTallyParsedRows=(parsed.rows||[]).slice();
     var res=mergeTallyLinesIntoActuals(parsed.rows,{replaceTally:s.replaceTally,costCentreSubstr:s.costCentreSubstr});
-    el.textContent='✓ Added '+res.added+' line(s). Skipped '+res.skipped+' (duplicate or cost-centre filter).';
+    var metaHint='';
+    try{ if(resp.meta){ var m=JSON.parse(resp.meta); if(m&&m.voucherCount!=null) metaHint=' · Tally vouchers≈'+m.voucherCount; } }catch(e3){}
+    el.textContent='✓ Added '+res.added+' line(s). Skipped '+res.skipped+' (duplicate or cost-centre filter).'+metaHint;
     closeModal();
     renderTab(_curTab);
     refreshProjectCashflowViews();
-    alert('Tally sync: +'+res.added+' actuals row(s). Skipped '+res.skipped+'.');
+    alert('Tally sync ('+label+'): +'+res.added+' actuals row(s). Skipped '+res.skipped+'.'+metaHint);
   }).catch(function(e){
     el.textContent='Error: '+e.message+(isNetworkOrBridgeFetchFailure(e)?tallyBridgeUnreachableHint(s.bridgeUrl):'');
   });
