@@ -19,7 +19,6 @@ import { buildDashboardConsolidated } from '../lib/dmGovernance/dashboard.js';
 import { buildControlTower } from '../lib/dmGovernance/controlTower.js';
 import { buildPortfolioKpis } from '../lib/businessHealth/portfolioRollup.js';
 import { upsertMonthlySnapshot, loadTrendSeries, extractTrendPoints } from '../lib/businessHealth/snapshots.js';
-import { buildPortfolioCalendar } from '../lib/businessHealth/portfolioCalendar.js';
 import { rollupProjectPillars, buildSyncFreshness } from '../lib/dmGovernance/pillars.js';
 import { syncProjectsFromRegistry } from '../lib/dmGovernance/integrations/projectSync.js';
 import { syncProjectFromCashflow, pushDmScheduleToCashflow } from '../lib/dmGovernance/integrations/cashflowV1.js';
@@ -89,52 +88,63 @@ dmGovernanceRouter.get(
 dmGovernanceRouter.get(
   '/dashboard/consolidated',
   withDb(async (req, res, db) => {
-    await bootstrapDm(db);
-    const user = userFromReq(req);
-    if (!userCanDmTab(user, DM_TABS.DASHBOARD) && !userCanDmTab(user, DM_TABS.BUSINESS_HEALTH) && !userCanDmTab(user, DM_TABS.CONSOLIDATED)) {
-      return deny(res, 'Dashboard access denied');
-    }
-    const [data, controlTower] = await Promise.all([
-      buildDashboardConsolidated(db, user),
-      buildControlTower(db, user)
-    ]);
-    const trendPoints = extractTrendPoints(data, controlTower);
-    await upsertMonthlySnapshot(db, {
-      portfolio: trendPoints,
-      pillars: controlTower?.health?.pillars || {},
-      projects: {},
-      trends: trendPoints
-    });
-    const [collectionsTrend, recoveryTrend, healthTrend] = await Promise.all([
-      loadTrendSeries(db, 'collections_rate', 12),
-      loadTrendSeries(db, 'dm_recovery_pct', 12),
-      loadTrendSeries(db, 'portfolio_health_score', 12)
-    ]);
-    res.json({
-      ...data,
-      controlTower,
-      businessHealth: {
-        kpis: buildPortfolioKpis(data, controlTower),
-        trends: {
-          collections_rate: collectionsTrend,
-          dm_recovery_pct: recoveryTrend,
-          portfolio_health_score: healthTrend
-        }
+    try {
+      await bootstrapDm(db);
+      const user = userFromReq(req);
+      if (!userCanDmTab(user, DM_TABS.DASHBOARD) && !userCanDmTab(user, DM_TABS.BUSINESS_HEALTH) && !userCanDmTab(user, DM_TABS.CONSOLIDATED)) {
+        return deny(res, 'Dashboard access denied');
       }
-    });
+      const [data, controlTower] = await Promise.all([
+        buildDashboardConsolidated(db, user),
+        buildControlTower(db, user)
+      ]);
+      const trendPoints = extractTrendPoints(data, controlTower);
+      await upsertMonthlySnapshot(db, {
+        portfolio: trendPoints,
+        pillars: controlTower?.health?.pillars || {},
+        projects: {},
+        trends: trendPoints
+      });
+      const [collectionsTrend, recoveryTrend, healthTrend] = await Promise.all([
+        loadTrendSeries(db, 'collections_rate', 12),
+        loadTrendSeries(db, 'dm_recovery_pct', 12),
+        loadTrendSeries(db, 'portfolio_health_score', 12)
+      ]);
+      res.json({
+        ...data,
+        controlTower,
+        businessHealth: {
+          kpis: buildPortfolioKpis(data, controlTower),
+          trends: {
+            collections_rate: collectionsTrend,
+            dm_recovery_pct: recoveryTrend,
+            portfolio_health_score: healthTrend
+          }
+        }
+      });
+    } catch (err) {
+      console.error('[dm-governance/dashboard/consolidated]', err);
+      res.status(500).json({ error: err?.message || 'Dashboard build failed' });
+    }
   })
 );
 
 dmGovernanceRouter.get(
   '/business-health/calendar',
   withDb(async (req, res, db) => {
-    await bootstrapDm(db);
-    const user = userFromReq(req);
-    if (!userCanDmTab(user, DM_TABS.BUSINESS_HEALTH) && !userCanDmTab(user, DM_TABS.DASHBOARD)) {
-      return deny(res, 'Business Health access denied');
+    try {
+      await bootstrapDm(db);
+      const user = userFromReq(req);
+      if (!userCanDmTab(user, DM_TABS.BUSINESS_HEALTH) && !userCanDmTab(user, DM_TABS.DASHBOARD)) {
+        return deny(res, 'Business Health access denied');
+      }
+      const { buildPortfolioCalendar } = await import('../lib/businessHealth/portfolioCalendar.js');
+      const data = await buildPortfolioCalendar(db, user, req.query);
+      res.json(data);
+    } catch (err) {
+      console.error('[dm-governance/business-health/calendar]', err);
+      res.status(500).json({ error: err?.message || 'Calendar build failed' });
     }
-    const data = await buildPortfolioCalendar(db, user, req.query);
-    res.json(data);
   })
 );
 
