@@ -1,5 +1,6 @@
 import { APP_IDS } from '../appRegistry.js';
 import { canOpenVaultApp } from './vaultCatalog.js';
+import { APP_CALENDAR_COLORS } from './appCalendarColors.js';
 
 /** Deep links to vault / platform apps — ACL matches VaultHome. */
 export const QUICK_LAUNCH_APPS = [
@@ -7,49 +8,49 @@ export const QUICK_LAUNCH_APPS = [
     appId: APP_IDS.V1_CASHFLOW,
     label: 'Cashflow V1',
     href: '/legacy/GA_Cashflow_V1.html',
-    color: '#0d9488'
+    color: APP_CALENDAR_COLORS.v1_cashflow
   },
   {
     appId: APP_IDS.V2_RESOURCE_PLANNER,
     label: 'Resource V2',
     href: '/app/resource-planner',
-    color: '#6366f1'
+    color: APP_CALENDAR_COLORS.v2_resource_planner
   },
   {
     appId: APP_IDS.V3_ORG_PLANNER,
     label: 'V3 Acquisition',
     href: '/app/org-planner',
-    color: '#3b82f6'
+    color: APP_CALENDAR_COLORS.v3_org_planner
   },
   {
     appId: APP_IDS.POST_SALES,
     label: 'Post Sales',
     href: '/app/post-sales',
-    color: '#2563eb'
+    color: APP_CALENDAR_COLORS.post_sales
   },
   {
     appId: 'finance_kpi',
     label: 'Finance KPI',
     href: '/legacy/GA_Finance_KPI.html',
-    color: '#059669'
+    color: APP_CALENDAR_COLORS.finance_kpi
   },
   {
     appId: 'marketing_kpi',
     label: 'Marketing KPI',
     href: '/legacy/GA_MarketingSales_KPI_Dashboard.html',
-    color: '#db2777'
+    color: APP_CALENDAR_COLORS.marketing_kpi
   },
   {
     appId: APP_IDS.PRECONSTRUCTION,
     label: 'PreConstruction',
     href: '/preconstruction/',
-    color: '#ea580c'
+    color: APP_CALENDAR_COLORS.preconstruction
   },
   {
     appId: 'execution',
     label: 'Execution',
     href: '',
-    color: '#ca8a04',
+    color: APP_CALENDAR_COLORS.ga_execution_dashboard,
     lsKey: 'ga_execution_dashboard_url'
   }
 ];

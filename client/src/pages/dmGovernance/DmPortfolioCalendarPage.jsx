@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import ActivityCalendarShell from '../../components/postsales/ActivityCalendarShell.jsx';
 import BusinessHealthSubNav from '../../components/businessHealth/BusinessHealthSubNav.jsx';
 import { dmGovernanceApi } from '../../lib/dmGovernanceApi.js';
+import { appCalendarColor } from '../../lib/appCalendarColors.js';
 import { parseYmd, todayYmd } from '../../lib/postsales/activityCalendarUtils.js';
 import { startOfDay } from '../../lib/postsales/taskAgenda.js';
 import '../../components/postsales/activityCalendar.css';
@@ -55,15 +56,18 @@ function eventDates(ev) {
 }
 
 function eventColor(ev) {
-  if (ev.status === 'overdue') return '#dc2626';
-  if (ev.status === 'today') return '#d97706';
-  if (ev.status === 'done') return '#94a3b8';
-  return ev.sourceColor || '#0d9488';
+  return ev.sourceColor || appCalendarColor(ev.sourceApp);
+}
+
+function eventAccentStyle(ev) {
+  if (ev.status === 'done') return { opacity: 0.5 };
+  if (ev.status === 'overdue') return { boxShadow: 'inset 3px 0 0 #dc2626' };
+  if (ev.status === 'today') return { boxShadow: 'inset 3px 0 0 #fbbf24' };
+  return undefined;
 }
 
 function eventTitle(ev) {
-  const src = ev.sourceLabel ? `${ev.sourceLabel} · ` : '';
-  return `${src}${ev.title}`;
+  return ev.title;
 }
 
 export default function DmPortfolioCalendarPage() {
@@ -129,12 +133,11 @@ export default function DmPortfolioCalendarPage() {
   );
 
   const legend = useMemo(() => {
-    const sources = meta?.sources || [];
-    return sources
-      .filter((s) => !apps.length || apps.includes(s.key))
-      .filter((s) => s.count > 0 || apps.includes(s.key))
-      .map((s) => ({ label: s.label, color: s.color }));
-  }, [meta, apps]);
+    return (meta?.sources || []).map((s) => ({
+      label: s.label,
+      color: s.color || appCalendarColor(s.key)
+    }));
+  }, [meta]);
 
   function toggleChip(list, setList, key) {
     setList((prev) => (prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key]));
@@ -198,18 +201,22 @@ export default function DmPortfolioCalendarPage() {
         <div className="dm-bh-filter-row">
           <span className="dm-bh-filter-label">Apps</span>
           <div className="dm-bh-chips">
-            {(meta?.sources || []).map((s) => (
+            {(meta?.sources || []).map((s) => {
+              const color = s.color || appCalendarColor(s.key);
+              const on = !apps.length || apps.includes(s.key);
+              return (
               <button
                 key={s.key}
                 type="button"
-                className={`dm-bh-chip${!apps.length || apps.includes(s.key) ? ' on' : ''}`}
-                style={{ '--chip-color': s.color }}
+                className={`dm-bh-chip dm-bh-chip-app${on ? ' on' : ''}`}
+                style={{ '--chip-color': color }}
                 onClick={() => toggleApp(s.key)}
               >
+                <span className="dm-bh-chip-dot" style={{ background: color }} aria-hidden />
                 {s.label}
                 {s.count > 0 ? ` (${s.count})` : ''}
               </button>
-            ))}
+            );})}
           </div>
         </div>
 
@@ -268,6 +275,7 @@ export default function DmPortfolioCalendarPage() {
             getTaskId={(ev) => ev.id}
             getTaskTitle={eventTitle}
             getTaskColor={eventColor}
+            getTaskExtraStyle={eventAccentStyle}
             onViewChange={setView}
             onCursorChange={setCursorDate}
             onToday={() => {
@@ -300,6 +308,7 @@ export default function DmPortfolioCalendarPage() {
                       <span>
                         {ev.sourceLabel}
                         {ev.projectName ? ` · ${ev.projectName}` : ''}
+                        {ev.status === 'overdue' ? ' · overdue' : ev.status === 'today' ? ' · today' : ''}
                       </span>
                     </span>
                   </button>
@@ -329,11 +338,11 @@ export default function DmPortfolioCalendarPage() {
               {selectedEvent.href && (
                 selectedEvent.href.startsWith('/legacy') || selectedEvent.href.startsWith('http') ? (
                   <a href={selectedEvent.href} className="dm-bh-link">
-                    Open in app →
+                    Open in {selectedEvent.sourceLabel} →
                   </a>
                 ) : (
                   <Link to={selectedEvent.href} className="dm-bh-link">
-                    Open in app →
+                    Open in {selectedEvent.sourceLabel} →
                   </Link>
                 )
               )}

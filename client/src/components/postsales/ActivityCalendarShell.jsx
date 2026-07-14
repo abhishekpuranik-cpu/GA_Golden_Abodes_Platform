@@ -40,6 +40,7 @@ export default function ActivityCalendarShell({
   onToday,
   onSelectDay,
   onTaskClick,
+  getTaskExtraStyle,
   legend = [],
 }) {
   const title = calendarTitle(view, cursorDate);
@@ -50,7 +51,7 @@ export default function ActivityCalendarShell({
     <div
       key={getTaskId(task)}
       className="hr-cal-ev"
-      style={{ background: getTaskColor(task) }}
+      style={{ background: getTaskColor(task), ...(getTaskExtraStyle?.(task) || {}) }}
       title={getTaskTitle(task)}
       onClick={(e) => {
         e.stopPropagation();
