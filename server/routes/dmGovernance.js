@@ -18,6 +18,7 @@ import { ensureComplianceChecklist } from '../lib/dmGovernance/reconciliationSer
 import { buildDashboardConsolidated } from '../lib/dmGovernance/dashboard.js';
 import { buildControlTower } from '../lib/dmGovernance/controlTower.js';
 import { buildPortfolioKpis } from '../lib/businessHealth/portfolioRollup.js';
+import { upsertMonthlySnapshot, loadTrendSeries, extractTrendPoints } from '../lib/businessHealth/snapshots.js';
 import { buildPortfolioCalendar } from '../lib/businessHealth/portfolioCalendar.js';
 import { rollupProjectPillars, buildSyncFreshness } from '../lib/dmGovernance/pillars.js';
 import { syncProjectsFromRegistry } from '../lib/dmGovernance/integrations/projectSync.js';

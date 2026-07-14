@@ -117,7 +117,18 @@ export default function DmBusinessHealthPage() {
   }
 
   if (loading) return <p className="dm-muted">Loading…</p>;
-  if (err) return <div className="dm-err">{err}</div>;
+  if (err) {
+    return (
+      <div>
+        <BusinessHealthSubNav />
+        <div className="dm-err">{err}</div>
+        <p className="dm-muted" style={{ marginTop: 12 }}>
+          Try <Link to="/app/dm-governance/calendar">Portfolio calendar</Link> or refresh. If this persists,
+          the consolidated dashboard API may be down.
+        </p>
+      </div>
+    );
+  }
   if (!data) return null;
 
   const s = data.summary;
