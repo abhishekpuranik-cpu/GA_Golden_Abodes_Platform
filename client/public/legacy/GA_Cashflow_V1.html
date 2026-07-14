@@ -104,6 +104,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* Native calendar picker for capital / schedules (some layouts were too narrow to show as date) */
 input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:auto;max-width:100%}
 </style>
+<link rel="stylesheet" href="/legacy/ga_activity_calendar_core.css"/>
 </head>
 <body>
 
@@ -112,6 +113,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
   <div class="logo">&#127968; GA Cashflow</div>
   <button class="tab-btn"     id="tab-cashflow"  onclick="showTab('cashflow')">&#128200; Cashflow</button>
   <button class="tab-btn"     id="tab-pl"        onclick="showTab('pl')">&#128202; P&amp;L</button>
+  <button class="tab-btn"     id="tab-activities" onclick="showTab('activities')">&#128197; Activity Calendar</button>
   <span style="opacity:.45;font-size:10px;padding:0 4px;align-self:center">|</span>
   <div class="planning-wrap" id="planning-wrap">
     <button type="button" class="tab-btn" id="tab-planning" onclick="togglePlanningMenu(event)" aria-haspopup="true" aria-expanded="false" title="Sales, capital, schedules, debt, portfolio rollup">&#128203; Planning &#9662;</button>
@@ -199,6 +201,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 <!-- Pages -->
 <div id="page-cashflow"  class="page hidden"></div>
 <div id="page-pl"        class="page hidden"></div>
+<div id="page-activities" class="page hidden"></div>
 <div id="page-sales"     class="page"></div>
 <div id="page-capital"   class="page hidden"></div>
 <div id="page-expenses"  class="page hidden"></div>
@@ -6054,9 +6057,11 @@ function syncPlanningMenuHighlight(t){
 function updateTopTabHighlights(t){
   var tbCash=document.getElementById('tab-cashflow');
   var tbPl=document.getElementById('tab-pl');
+  var tbAct=document.getElementById('tab-activities');
   var tbPlan=document.getElementById('tab-planning');
   if(tbCash) tbCash.classList.toggle('on',t==='cashflow');
   if(tbPl) tbPl.classList.toggle('on',t==='pl');
+  if(tbAct) tbAct.classList.toggle('on',t==='activities');
   if(tbPlan) tbPlan.classList.toggle('on',isPlanningTab(t));
   syncPlanningMenuHighlight(t);
 }
@@ -6068,7 +6073,7 @@ function showTab(t){
   if(cfTabRequiresFinanceUnlock(t) && !isCfFinanceTabsUnlocked()){
     if(!promptCfFinanceTabsUnlock()) return;
   }
-  ['cashflow','pl'].concat(PLANNING_TABS).forEach(function(x){
+  ['cashflow','pl','activities'].concat(PLANNING_TABS).forEach(function(x){
     var pg=document.getElementById('page-'+x);
     if(pg) pg.classList.toggle('hidden',x!==t);
   });
@@ -6082,11 +6087,58 @@ function renderTab(t){
   }
   if(t==='cashflow') renderCashflow();
   else if(t==='pl') renderPL();
+  else if(t==='activities') renderActivities();
   else if(t==='sales') renderSales();
   else if(t==='capital') renderCapital();
   else if(t==='expenses') renderExpenses();
   else if(t==='debt') renderDebt();
   else if(t==='ga') renderGA();
+}
+var _cfCalApi=null;
+function cfEvStatus(ymd){
+  if(!ymd||!window.GAActivityCalendar)return undefined;
+  var today=GAActivityCalendar.todayYmd();
+  if(ymd<today)return 'overdue';
+  if(ymd===today)return 'today';
+  return undefined;
+}
+function cfCalendarEvents(){
+  var events=[];
+  var pids=_curPid?[_curPid]:(PROJS||[]).map(function(p){return p&&p.id;}).filter(Boolean);
+  pids.forEach(function(pid){
+    if(!pid)return;
+    var cfg=getCF(pid);
+    if(!cfg)return;
+    var proj=(PROJS||[]).find(function(p){return p&&p.id===pid;})||{};
+    var pname=proj.name||pid;
+    var defs=milestoneDefsForCfg(cfg);
+    defs.forEach(function(ms){
+      var iso=milestoneTargetIsoForDef(cfg,null,ms);
+      if(!iso)return;
+      var ymd=iso.slice(0,10);
+      var title=milestoneDisplayLabel(ms);
+      if(pids.length>1) title=pname+' · '+title;
+      events.push({id:pid+'-'+ms.key,date:ymd,title:title,color:'#15803d',status:cfEvStatus(ymd)});
+    });
+  });
+  return events;
+}
+function renderActivities(){
+  var el=document.getElementById('page-activities');
+  if(!el)return;
+  el.innerHTML='<div style="padding:12px 0 8px;font-size:11px;color:var(--muted)">Construction milestone target dates for the selected project (or all projects when none selected).</div><div id="cf-cal-root"></div>';
+  var root=document.getElementById('cf-cal-root');
+  if(!root||!window.GAActivityCalendar)return;
+  if(!_cfCalApi){
+    _cfCalApi=GAActivityCalendar.mount(root,{
+      title:'Construction milestones',
+      subtitle:'Cashflow V1 · plan dates',
+      accent:'#15803d',
+      getEvents:cfCalendarEvents,
+      legend:[{color:'#15803d',label:'Milestone target'}],
+      onEventClick:function(ev){alert(ev.title||'Milestone');}
+    });
+  }else _cfCalApi.refresh();
 }
 function renderAll(){
   ensureProjRootCoherent();
@@ -11804,6 +11856,7 @@ setInterval(function(){
 
 </script>
 
+<script src="/legacy/ga_activity_calendar_core.js"></script>
 <script src="/legacy/ga_vault_ask_ai.js"></script>
 <script>
 (function(){

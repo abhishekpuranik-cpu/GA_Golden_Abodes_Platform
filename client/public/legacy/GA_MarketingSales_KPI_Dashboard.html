@@ -113,7 +113,9 @@
     .score { font-weight: 700; color: var(--accent); }
     .hidden-file { position: absolute; width: 0; height: 0; opacity: 0; }
     .hint { font-size: 11px; color: var(--muted); margin-top: 8px; }
+    .cal-page-wrap { padding: 4px 0 24px; max-width: 1200px; }
   </style>
+  <link rel="stylesheet" href="/legacy/ga_activity_calendar_core.css"/>
 </head>
 <body>
   <div class="app">
@@ -125,6 +127,7 @@
       <button type="button" class="nav-btn" data-page="source">Source / Campaign</button>
       <button type="button" class="nav-btn" data-page="owner">Owner / Team</button>
       <button type="button" class="nav-btn" data-page="ops">Operations</button>
+      <button type="button" class="nav-btn" data-page="calendar">Activity Calendar</button>
       <button type="button" class="nav-btn" data-page="intel">Lead Intelligence</button>
     </aside>
     <div class="main">
@@ -171,6 +174,7 @@
         <section class="page" id="page-source"></section>
         <section class="page" id="page-owner"></section>
         <section class="page" id="page-ops"></section>
+        <section class="page" id="page-calendar"><div class="cal-page-wrap" id="mkt-cal-root"></div></section>
         <section class="page" id="page-intel">
           <div class="card" style="margin-bottom:16px">
             <label class="intel-search-label" for="intel-q">Search leads</label>
@@ -1008,6 +1012,69 @@
     return d.innerHTML;
   }
 
+  var _mktCalApi = null;
+  function mktYmdFromDate(d) {
+    if (!d) return null;
+    if (d instanceof Date && !isNaN(d.getTime()) && window.GAActivityCalendar) return GAActivityCalendar.fmtYmd(d);
+    var s = String(d).slice(0, 10);
+    return /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+  }
+  function mktEvStatus(ymd) {
+    if (!ymd || !window.GAActivityCalendar) return undefined;
+    var today = GAActivityCalendar.todayYmd();
+    if (ymd < today) return 'overdue';
+    if (ymd === today) return 'today';
+    return undefined;
+  }
+  function mktCalendarEvents() {
+    var out = [];
+    filtered().forEach(function (L, i) {
+      var label = L.firstName || L.phone || ('Lead ' + (i + 1));
+      var nc = mktYmdFromDate(L.nextCall);
+      if (nc) {
+        out.push({
+          id: 'nc-' + i,
+          date: nc,
+          title: label + ' · follow-up call',
+          color: '#6eb0f4',
+          status: mktEvStatus(nc)
+        });
+      }
+      var tv = mktYmdFromDate(L.tentativeVisit);
+      if (tv) {
+        out.push({
+          id: 'tv-' + i,
+          date: tv,
+          title: label + ' · site visit',
+          color: '#34d399',
+          status: mktEvStatus(tv)
+        });
+      }
+    });
+    return out;
+  }
+  function renderCalendar() {
+    var root = document.getElementById('mkt-cal-root');
+    if (!root || !window.GAActivityCalendar) return;
+    if (!_mktCalApi) {
+      _mktCalApi = GAActivityCalendar.mount(root, {
+        title: 'Lead follow-ups & visits',
+        subtitle: 'Marketing KPI · filtered leads',
+        accent: '#db2777',
+        getEvents: mktCalendarEvents,
+        legend: [
+          { color: '#6eb0f4', label: 'Next call' },
+          { color: '#34d399', label: 'Tentative visit' }
+        ],
+        onEventClick: function (ev) {
+          alert(ev.title || 'Lead activity');
+        }
+      });
+    } else {
+      _mktCalApi.refresh();
+    }
+  }
+
   function refreshAll() {
     fillFilterDropdowns();
     renderExec();
@@ -1016,6 +1083,9 @@
     renderOwner();
     renderOps();
     renderIntel();
+    if (document.getElementById('page-calendar') && document.getElementById('page-calendar').classList.contains('active')) {
+      renderCalendar();
+    }
     persistState();
   }
 
@@ -1085,8 +1155,9 @@
       var p = btn.getAttribute('data-page');
       document.querySelectorAll('.nav-btn').forEach(function (b) { b.classList.toggle('on', b === btn); });
       document.querySelectorAll('.page').forEach(function (pg) { pg.classList.toggle('active', pg.id === 'page-' + p); });
-      var titles = { exec: 'Executive Overview', funnel: 'Funnel & Leakage', source: 'Source / Campaign', owner: 'Owner / Team', ops: 'Operations', intel: 'Lead Intelligence' };
+      var titles = { exec: 'Executive Overview', funnel: 'Funnel & Leakage', source: 'Source / Campaign', owner: 'Owner / Team', ops: 'Operations', calendar: 'Activity Calendar', intel: 'Lead Intelligence' };
       document.getElementById('page-title').textContent = titles[p] || '';
+      if (p === 'calendar') renderCalendar();
     });
   });
 
@@ -1138,6 +1209,7 @@
   try { window.GA_MKT_KPI_STATE = state; } catch (e) {}
 })();
 </script>
+<script src="/legacy/ga_activity_calendar_core.js"></script>
 
 <script src="/legacy/ga_vault_ask_ai.js"></script>
 <script>

@@ -80,6 +80,7 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
 .raci-c{background:var(--orange-l);color:var(--orange-b);font-weight:700}
 .raci-i{background:var(--slate-l);color:var(--slate-b)}
 </style>
+<link rel="stylesheet" href="/legacy/ga_activity_calendar_core.css"/>
 </head>
 <body>
 <script>try{if(window.self!==window.top)document.documentElement.classList.add('ga-vault-embed');}catch(e){}</script>
@@ -100,6 +101,7 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
 <div class="tabs">
   <button class="tab on" id="tab-dash" onclick="showTab('dash')">Dashboard</button>
   <button class="tab" id="tab-comp" onclick="showTab('comp')">Compliance Calendar</button>
+  <button class="tab" id="tab-actcal" onclick="showTab('actcal')">Activity Calendar</button>
   <button class="tab" id="tab-reg" onclick="showTab('reg')">Registers</button>
   <button class="tab" id="tab-review" onclick="showTab('review')">Monthly Review</button>
   <button class="tab" id="tab-appr" onclick="showTab('appr')">Appraisal</button>
@@ -109,6 +111,7 @@ h3.sec{font-size:13px;font-weight:800;margin:14px 0 8px;color:var(--blue-b)}
 </div>
 <div class="page" id="page-dash"></div>
 <div class="page hidden" id="page-comp"></div>
+<div class="page hidden" id="page-actcal"></div>
 <div class="page hidden" id="page-reg"></div>
 <div class="page hidden" id="page-review"></div>
 <div class="page hidden" id="page-appr"></div>
@@ -662,7 +665,7 @@ function suggest(kpi,empId,ym){
 }
 
 /* --------------------------- Navigation ----------------------------- */
-var TAB_IDS=['dash','comp','reg','review','appr','kpi','work','team'];
+var TAB_IDS=['dash','comp','actcal','reg','review','appr','kpi','work','team'];
 var curTab='dash';
 function showTab(t){
   curTab=t;
@@ -675,6 +678,7 @@ function showTab(t){
 function renderTab(t){
   if(t==='dash')renderDash();
   else if(t==='comp')renderComp();
+  else if(t==='actcal')renderActCal();
   else if(t==='reg')renderReg();
   else if(t==='review')renderReview();
   else if(t==='appr')renderAppr();
@@ -824,6 +828,50 @@ function renderComp(){
   });
   h+='</table></div>';
   document.getElementById('page-comp').innerHTML=h;
+}
+var _finCalApi=null;
+function finEvStatus(ymd){
+  if(!ymd||!window.GAActivityCalendar)return undefined;
+  var today=GAActivityCalendar.todayYmd();
+  if(ymd<today)return 'overdue';
+  if(ymd===today)return 'today';
+  return undefined;
+}
+function finCalendarEvents(){
+  var events=[];
+  (S.compliance||[]).forEach(function(c,i){
+    if(c.actual)return;
+    var ymd=String(c.due||'').slice(0,10);
+    if(!ymd)return;
+    events.push({id:'comp-'+i,date:ymd,title:c.obligation||'Statutory filing',color:'#0284c7',status:finEvStatus(ymd)});
+  });
+  (S.raBills||[]).forEach(function(b,i){
+    if(b.paymentDate)return;
+    var recv=String(b.received||'').slice(0,10);
+    if(!recv)return;
+    var d=new Date(recv+'T12:00:00');
+    d.setDate(d.getDate()+10);
+    var ymd=GAActivityCalendar?GAActivityCalendar.fmtYmd(d):d.toISOString().slice(0,10);
+    events.push({id:'ra-'+i,date:ymd,title:'RA payment · '+(b.contractor||b.ref||'Vendor'),color:'#6366f1',status:finEvStatus(ymd)});
+  });
+  return events;
+}
+function renderActCal(){
+  var pg=document.getElementById('page-actcal');
+  if(!pg)return;
+  pg.innerHTML='<div class="info" style="margin-bottom:12px">Month view of statutory due dates and implied RA bill payment deadlines (received + 10 working days).</div><div id="fin-cal-root"></div>';
+  var root=document.getElementById('fin-cal-root');
+  if(!root||!window.GAActivityCalendar)return;
+  if(!_finCalApi){
+    _finCalApi=GAActivityCalendar.mount(root,{
+      title:'Finance obligations',
+      subtitle:'Compliance & vendor payments',
+      accent:'#0284c7',
+      getEvents:finCalendarEvents,
+      legend:[{color:'#0284c7',label:'Statutory filing'},{color:'#6366f1',label:'RA payment due'}],
+      onEventClick:function(ev){alert(ev.title||'Obligation');}
+    });
+  }else _finCalApi.refresh();
 }
 function addCompRow(){
   if(needAdmin())return;
@@ -1621,7 +1669,7 @@ saveState(false);
 renderTab('dash');
 checkAdminSession(function(){renderTab(curTab);initMongoSync();});
 </script>
-
+<script src="/legacy/ga_activity_calendar_core.js"></script>
 <script src="/legacy/ga_vault_ask_ai.js"></script>
 <script>
 GAVaultAskAI.mount({

@@ -148,6 +148,7 @@ input[type=number]:focus{outline:none;border-color:var(--blue);background:#fff}
 /* Info banner */
 .info-banner{background:var(--gold-l);border-left:3px solid var(--gold);border-radius:8px;padding:9px 13px;margin-bottom:12px;font-size:11px;color:var(--gold-b)}
 </style>
+<link rel="stylesheet" href="/legacy/ga_activity_calendar_core.css"/>
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 // pdf.js worker URL - set before library loads
@@ -176,6 +177,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   <button class="tab on" id="tab-dashboard" onclick="showTab('dashboard')">▲ Dashboard</button>
   <button class="tab" id="tab-projects" onclick="showTab('projects')">🌏 Projects</button>
   <button class="tab" id="tab-gadm" onclick="showTab('gadm')">📈 GA DM</button>
+  <button class="tab" id="tab-calendar" onclick="showTab('calendar')">📅 Activity Calendar</button>
   <button class="tab" id="tab-dd" onclick="showTab('dd')">📄 Due Diligence</button>
 </div>
 <div style="background:var(--green-l);padding:8px 18px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border)">
@@ -189,6 +191,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
 <div id="page-dashboard" class="page"><div style="padding:24px;color:var(--muted);font-size:13px">Loading planner…</div></div>
 <div id="page-projects" class="page hidden"></div>
 <div id="page-gadm" class="page hidden"></div>
+<div id="page-calendar" class="page hidden"></div>
 <div id="page-dd" class="page hidden"></div>
 
 <script async src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
@@ -4269,7 +4272,7 @@ function initProjBtns(){
 // ── Tab navigation ───────────────────────────────────
 var _curTab = 'dashboard';
 function showTab(t){
-  ['dashboard','projects','gadm','dd'].forEach(function(x){
+  ['dashboard','projects','gadm','calendar','dd'].forEach(function(x){
     var pg=document.getElementById('page-'+x);
     var tb=document.getElementById('tab-'+x);
     if(pg) pg.className='page'+(x===t?'':' hidden');
@@ -4278,11 +4281,52 @@ function showTab(t){
   _curTab=t;
   renderAll();
 }
+var _v3CalApi=null;
+function v3EvStatus(ymd){
+  if(!ymd||!window.GAActivityCalendar)return undefined;
+  var today=GAActivityCalendar.todayYmd();
+  if(ymd<today)return 'overdue';
+  if(ymd===today)return 'today';
+  return undefined;
+}
+function v3CalendarEvents(){
+  var events=[];
+  (PROJS||[]).forEach(function(p,i){
+    if(!p||p.on===false)return;
+    if(p.startDate){
+      var sd=String(p.startDate).slice(0,10);
+      events.push({id:'s-'+i,date:sd,title:(p.name||p.id)+' · start',color:'#4338ca',status:v3EvStatus(sd)});
+    }
+    if(p.endDate){
+      var ed=String(p.endDate).slice(0,10);
+      events.push({id:'e-'+i,date:ed,title:(p.name||p.id)+' · target completion',color:'#6366f1',status:v3EvStatus(ed)});
+    }
+  });
+  return events;
+}
+function renderCalendar(){
+  var pg=document.getElementById('page-calendar');
+  if(!pg)return;
+  pg.innerHTML='<div class="info-banner">Project start and target completion dates from the acquisition portfolio.</div><div id="v3-cal-root"></div>';
+  var root=document.getElementById('v3-cal-root');
+  if(!root||!window.GAActivityCalendar)return;
+  if(!_v3CalApi){
+    _v3CalApi=GAActivityCalendar.mount(root,{
+      title:'Acquisition timeline',
+      subtitle:'V3 Org Planner · active projects',
+      accent:'#4338ca',
+      getEvents:v3CalendarEvents,
+      legend:[{color:'#4338ca',label:'Project start'},{color:'#6366f1',label:'Target completion'}],
+      onEventClick:function(ev){alert(ev.title||'Project date');}
+    });
+  }else _v3CalApi.refresh();
+}
 function renderAll(){
   try {
     if(_curTab==='dashboard')    renderDashboard();
     else if(_curTab==='projects') renderProjects();
     else if(_curTab==='gadm')     renderGaDm();
+    else if(_curTab==='calendar') renderCalendar();
     else if(_curTab==='dd')      renderDueDiligence();
   } catch (e) {
     console.error('renderAll', e);
@@ -5758,5 +5802,6 @@ setTimeout(function(){
 },5000);
 
 </script>
+<script src="/legacy/ga_activity_calendar_core.js"></script>
 
 </body></html>

@@ -43,14 +43,14 @@ export const CALENDAR_SOURCE_DEFS = [
     label: 'Resource V2',
     pillar: 'people_cost',
     color: APP_CALENDAR_COLORS.v2_resource_planner,
-    types: []
+    types: ['hr_event']
   },
   {
     key: 'v3_org_planner',
     label: 'V3 Acquisition',
     pillar: 'commercial',
     color: APP_CALENDAR_COLORS.v3_org_planner,
-    types: []
+    types: ['project_start', 'project_end']
   },
   {
     key: 'preconstruction',
@@ -92,7 +92,7 @@ export const CALENDAR_SOURCE_DEFS = [
     label: 'Sales Dashboard',
     pillar: 'commercial',
     color: APP_CALENDAR_COLORS.sales_dashboard,
-    types: []
+    types: ['site_visit', 'sales_followup', 'collection_due', 'campaign_window']
   }
 ];
 
@@ -111,7 +111,14 @@ export const CALENDAR_TYPE_LABELS = {
   lead_followup: 'Lead follow-up',
   site_visit: 'Site visit',
   interview: 'Interview',
-  roadmap_milestone: 'Execution roadmap'
+  roadmap_milestone: 'Execution roadmap',
+  hr_event: 'HR activity',
+  project_start: 'Project start',
+  project_end: 'Project completion',
+  site_visit: 'Site visit',
+  sales_followup: 'Sales follow-up',
+  collection_due: 'Collection due',
+  campaign_window: 'Campaign window'
 };
 
 export function sourceDef(key) {
