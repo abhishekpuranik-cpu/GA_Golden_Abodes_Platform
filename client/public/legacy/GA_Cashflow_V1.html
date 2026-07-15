@@ -48,6 +48,29 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .exp-kpi{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;border-top:3px solid var(--blue)}
 .exp-kpi .v{font-size:16px;font-weight:800;color:var(--blue-b);line-height:1.2}
 .exp-kpi .l{font-size:9px;color:var(--muted);margin-top:4px;line-height:1.35}
+/* Label + amount: shrink-wrap so ₹ sits next to the name (never stretch across the card) */
+.amt-pair-wrap{display:block;width:fit-content;max-width:100%;overflow-x:auto}
+.amt-pair-tbl{width:max-content!important;max-width:none;border-collapse:collapse;font-size:10px;table-layout:auto}
+.amt-pair-tbl th,.amt-pair-tbl td{padding:5px 8px;vertical-align:middle;border-bottom:1px solid var(--border)}
+.amt-pair-tbl thead th{background:var(--blue-l);font-weight:700;color:var(--blue-b);border-bottom:1px solid var(--border);white-space:nowrap}
+.amt-pair-tbl th:not(:first-child),.amt-pair-tbl td:not(:first-child){white-space:nowrap;text-align:right;padding-left:14px;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.amt-pair-tbl th:last-child,.amt-pair-tbl td:last-child{width:1%;padding-left:18px}
+.amt-pair-tbl td:first-child{max-width:22rem;word-break:break-word}
+.amt-pair-tbl tbody tr:hover td{background:rgba(21,88,160,.045)}
+.amt-pair-tbl--green thead th{background:#ECFDF5;color:#166534}
+.amt-pair-tbl--tree tbody tr.amt-l1 td{background:linear-gradient(90deg,var(--blue-l),#fff);border-bottom-color:#D7E3F0}
+.amt-pair-tbl--tree tbody tr.amt-l1:hover td{background:linear-gradient(90deg,#DCE8F5,#F8FBFF)}
+.amt-pair-tbl--tree td.amt{font-weight:700;color:var(--blue-b)}
+.amt-pair-stack{display:flex;flex-direction:column;align-items:flex-start;gap:0;width:fit-content;max-width:100%}
+.amt-pair-row{display:grid;grid-template-columns:minmax(5rem,max-content) max-content;column-gap:18px;align-items:baseline;font-size:10px;padding:5px 2px;border-bottom:1px solid var(--border);width:max-content;max-width:100%}
+.amt-pair-row .lbl{color:var(--slate);min-width:0;max-width:18rem}
+.amt-pair-row .amt{font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;text-align:right}
+.amt-bar-stack{display:flex;flex-direction:column;align-items:flex-start;gap:2px;width:fit-content;max-width:100%}
+.amt-bar-row{display:grid;grid-template-columns:minmax(4.5rem,max-content) minmax(64px,120px) max-content;gap:8px 10px;align-items:center;margin-bottom:6px;width:max-content;max-width:100%}
+.amt-bar-row .lbl{font-size:10px;font-weight:600;color:var(--slate);max-width:10rem}
+.amt-bar-row .bar{height:8px;background:#E8EEF5;border-radius:999px;overflow:hidden;min-width:64px}
+.amt-bar-row .bar>i{display:block;height:8px;background:#1558A0;border-radius:999px}
+.amt-bar-row .amt{text-align:right;font-size:10px;font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums}
 /* Pages */
 .page{padding:12px 14px;max-width:1800px;margin:0 auto}
 /* Cards */
@@ -231,7 +254,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 66;
+var CF_VERSION = 68;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
@@ -1189,10 +1212,9 @@ function htmlExpenseMetricHorizonBars(rows,maxV,color){
   var h='<div style="display:flex;flex-direction:column;gap:5px">';
   (rows||[]).forEach(function(r){
     var v=r.plan||0, w=maxV>0?Math.max(2,Math.round((v/maxV)*100)):2;
-    h+='<div style="display:grid;grid-template-columns:88px 1fr 90px;gap:6px;align-items:center">';
-    h+='<div style="font-size:9px;color:var(--muted)">'+escHtml(formatMonthKey(r.mo))+'</div>';
-    h+='<div style="height:9px;background:#E5E7EB;border-radius:999px;overflow:hidden"><div style="height:9px;width:'+w+'%;background:'+color+'"></div></div>';
-    h+='<div style="text-align:right;font-size:9px;font-weight:700">'+formatRupeesDisplay(v)+'</div></div>';
+    h+='<div class="amt-bar-row"><div class="lbl" style="color:var(--muted);font-weight:500;font-size:9px">'+escHtml(formatMonthKey(r.mo))+'</div>';
+    h+='<div class="bar" style="background:#E5E7EB"><i style="width:'+w+'%;background:'+color+'"></i></div>';
+    h+='<div class="amt" style="font-size:9px">'+formatRupeesDisplay(v)+'</div></div>';
   });
   return h+'</div>';
 }
@@ -1242,15 +1264,15 @@ function htmlExpenseMetricsDashboard(cfg, filt){
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-bottom:8px">';
   h+='<div style="padding:10px;border:1px solid var(--border);border-radius:10px"><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:8px">Spend by phase</div>'+htmlExpenseMetricPhaseBars(m.phases,maxPhase)+'</div>';
   h+='<div style="padding:10px;border:1px solid var(--border);border-radius:10px"><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:8px">Largest plan variances</div>';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:var(--blue-l)"><th style="padding:5px 6px;text-align:left">Bucket</th><th style="padding:5px 6px;text-align:right">Plan</th><th style="padding:5px 6px;text-align:right">Actual</th><th style="padding:5px 6px;text-align:right">Var %</th></tr></thead><tbody>';
+  h+='<div class="amt-pair-wrap"><table class="amt-pair-tbl"><thead><tr><th>Bucket</th><th>Plan</th><th>Actual</th><th>Var %</th></tr></thead><tbody>';
   m.topVariances.forEach(function(r){
     var vc=r.varPct!=null?(r.varPct>=0?'+':'')+r.varPct.toFixed(0)+'%':'—';
     var col=(r.variance||0)>0?'var(--red-b)':'var(--green-b)';
-    h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:4px 6px;font-weight:700">'+escHtml(r.key)+'</td>';
-    h+='<td style="padding:4px 6px;text-align:right">'+formatRupeesDisplay(r.plan)+'</td><td style="padding:4px 6px;text-align:right">'+formatRupeesDisplay(r.act)+'</td>';
-    h+='<td style="padding:4px 6px;text-align:right;color:'+col+'">'+vc+'</td></tr>';
+    h+='<tr><td style="font-weight:700">'+escHtml(r.key)+'</td>';
+    h+='<td>'+formatRupeesDisplay(r.plan)+'</td><td>'+formatRupeesDisplay(r.act)+'</td>';
+    h+='<td style="color:'+col+'">'+vc+'</td></tr>';
   });
-  h+='</tbody></table></div></div>';
+  h+='</tbody></table></div></div></div>';
   if(m.ytdMonthly.length){
     var maxY=1; m.ytdMonthly.forEach(function(r){ if((r.act||0)>maxY) maxY=r.act; });
     h+='<div style="font-size:11px;font-weight:700;color:var(--muted);margin:10px 0 6px">Monthly burn (filtered)</div>';
@@ -1301,10 +1323,9 @@ function htmlBusinessKpiChartsFromActs(cfg, acts){
     h+='<div style="display:flex;flex-direction:column;gap:5px">';
     moList.slice(-12).forEach(function(k){
       var v=byMo[k]||0, w=maxMo>0?Math.max(2,Math.round((v/maxMo)*100)):2;
-      h+='<div style="display:grid;grid-template-columns:88px 1fr 82px;gap:6px;align-items:center">';
-      h+='<div style="font-size:9px;color:var(--muted)">'+escHtml(formatMonthKey(k))+'</div>';
-      h+='<div style="height:9px;background:#EDE9FE;border-radius:999px;overflow:hidden"><div style="height:9px;width:'+w+'%;background:linear-gradient(90deg,#7C3AED,#A78BFA)"></div></div>';
-      h+='<div style="text-align:right;font-size:9px;font-weight:700">'+cr(v)+'</div></div>';
+      h+='<div class="amt-bar-row"><div class="lbl" style="color:var(--muted);font-weight:500;font-size:9px">'+escHtml(formatMonthKey(k))+'</div>';
+      h+='<div class="bar" style="background:#EDE9FE"><i style="width:'+w+'%;background:linear-gradient(90deg,#7C3AED,#A78BFA)"></i></div>';
+      h+='<div class="amt" style="font-size:9px">'+cr(v)+'</div></div>';
     });
     h+='</div>';
   }
@@ -2574,9 +2595,9 @@ var _cfTimeScale = 'month'; // 'month' | 'quarter'
 var _gaTimeScale = 'month';
 var _debtLenderFilter = '__all__';
 var _postSalesDelayMo = 0; // scenario months (UI only, not persisted)
-var _cfForecastCollapsed = true;
+var _cfForecastCollapsed = false;
 var _cfMsForecastMode = 'future'; // 'future' | 'all' — L1 × construction milestone matrix
-var _cfSubview = 'monthly'; // 'monthly' | 'payables'
+var _cfSubview = 'monthly'; // 'monthly' | 'payables' | 'forecast'
 var _plPeriod = 'fytd'; // 'month' | 'fytd' | 'fy'
 var _expenseUIPanel = 'dashboard'; // 'dashboard' | 'insights' | 'narration' | 'gst-vendor' | 'schedule'
 var _dashFrom = '';
@@ -6685,13 +6706,13 @@ function renderCashflowPayables(cfg){
   h+='<div class="kpi"><div class="kpi-lbl">Absolute movement</div><div class="kpi-val">'+crL(totalAbs,'₹0')+'</div></div>';
   h+='</div>';
   h+='<div style="font-size:12px;font-weight:800;color:var(--purple-b);margin-bottom:6px">By category</div>';
-  h+='<table class="cf-table" style="margin-bottom:12px"><thead><tr><th>Category</th><th style="text-align:right">Lines</th><th style="text-align:right">Net paid</th></tr></thead><tbody>';
+  h+='<div class="amt-pair-wrap" style="margin-bottom:12px"><table class="amt-pair-tbl"><thead><tr><th>Category</th><th>Lines</th><th>Net paid</th></tr></thead><tbody>';
   var cats=Object.keys(byCat).sort();
   if(!cats.length) h+='<tr><td colspan="3" style="color:var(--muted);font-size:11px">No payables / retention lines in actuals yet. Map Tally ledgers to CM W (Payables) or CM R3 (Retention).</td></tr>';
   cats.forEach(function(c){
-    h+='<tr><td>'+escHtml(c)+'</td><td style="text-align:right">'+byCat[c].count+'</td><td style="text-align:right;font-family:monospace">'+crL(byCat[c].paid,'₹0')+'</td></tr>';
+    h+='<tr><td>'+escHtml(c)+'</td><td>'+byCat[c].count+'</td><td style="font-family:monospace">'+crL(byCat[c].paid,'₹0')+'</td></tr>';
   });
-  h+='</tbody></table>';
+  h+='</tbody></table></div>';
   h+='<div style="font-size:12px;font-weight:800;color:var(--purple-b);margin-bottom:6px">Detail ledger</div>';
   h+='<div style="overflow:auto;max-height:52vh;border:1px solid var(--border);border-radius:8px"><table class="cf-table" style="margin:0"><thead><tr><th>Date</th><th>Party</th><th>Category</th><th>L3</th><th style="text-align:right">Amount</th></tr></thead><tbody>';
   if(!lines.length) h+='<tr><td colspan="5" style="padding:12px;color:var(--muted);font-size:11px">—</td></tr>';
@@ -6699,6 +6720,83 @@ function renderCashflowPayables(cfg){
     h+='<tr><td>'+escHtml(String(a.date||'').slice(0,10))+'</td><td>'+escHtml(a.party||'')+'</td><td>'+escHtml(a.gaL1||a.plL1||'')+'</td><td>'+escHtml(a.gaL3Name||a.gaL3||'')+'</td><td style="text-align:right;font-family:monospace">'+crL(a.amount||0,'₹0')+'</td></tr>';
   });
   h+='</tbody></table></div>';
+  el.innerHTML=h;
+}
+/** Dedicated Cashflow subview: L1 × construction-milestone inflow/outflow forecast. */
+function renderCashflowForecastPanel(vis, useRollup){
+  var el=document.getElementById('page-cashflow'); if(!el) return;
+  vis=vis||getVisibleProjects();
+  if(!vis.length){ el.innerHTML=noProjectMsg(); return; }
+  if(!_curPid || (_curPid!=='__rollup__' && !vis.some(function(p){return p.id===_curPid;}))) _curPid=vis[0].id;
+  var pid=_curPid;
+  if(useRollup && (!pid || pid==='__rollup__' || pid==='__ga__')) pid=vis[0].id;
+  var cfg=getCF(pid);
+  var h='';
+  h+='<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">L1 × Milestone forecast — '+escHtml(cfg.projName||pid)+'</div>';
+  h+='<div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">';
+  h+='<button type="button" class="btn btn-outline" data-action="cf-set-subview" data-subview="monthly" style="font-size:10px;padding:4px 10px">Monthly grid</button>';
+  h+='<button type="button" class="btn btn-primary" data-action="cf-set-subview" data-subview="forecast" style="font-size:10px;padding:4px 12px;background:#0D4D30;border-color:#0D4D30">Forecast · L1 × Milestone</button>';
+  if(!useRollup){
+    h+='<button type="button" class="btn btn-outline" data-action="cf-set-subview" data-subview="payables" style="font-size:10px;padding:4px 10px">Payables &amp; timing</button>';
+  }
+  h+='</div></div>';
+  if(useRollup){
+    h+='<div class="card" style="margin-bottom:12px;border-left:3px solid var(--gold)">';
+    h+='<div style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:8px">Filters show <strong>'+vis.length+'</strong> projects. Forecast is for one project — choose below (or narrow header filters to a single project).</div>';
+    h+='<label style="font-size:10px;font-weight:700;color:var(--muted);display:block;margin-bottom:4px">Project</label>';
+    h+='<select class="cap-inp" data-action="cf-forecast-pick-proj" style="max-width:360px;font-size:12px">';
+    vis.forEach(function(p){
+      h+='<option value="'+escAttr(p.id)+'"'+(p.id===pid?' selected':'')+'>'+escHtml(p.name||p.id)+'</option>';
+    });
+    h+='</select></div>';
+  }
+  var fz=forecastCfg(cfg);
+  var fullRows=buildCashflow(pid);
+  var baseRows=forecastIsDefault(cfg)?fullRows:buildCashflowWithForecast(pid,defaultForecastObj());
+  var futRows=fullRows.filter(function(r){return !r.isActual&&r.period>0;});
+  var futBase=baseRows.filter(function(r){return !r.isActual&&r.period>0;});
+  var sumK=function(arr,key){return arr.reduce(function(s,r){return s+(r[key]||0);},0);};
+  var futIn=sumK(futRows,'totInflows'), futOut=sumK(futRows,'totOutflows'), futNet=futIn-futOut;
+  var baseIn=sumK(futBase,'totInflows'), baseOut=sumK(futBase,'totOutflows'), baseNet=baseIn-baseOut;
+  var futConstr=sumK(futRows,'construction'), baseConstr=sumK(futBase,'construction');
+  var unsMap=buildUnsoldRealization(cfg,cfg.startDate||new Date().toISOString().slice(0,7)+'-01');
+  var curMo=currentMonthStr();
+  var unsFuture=Object.keys(unsMap).reduce(function(s,mo){ return s + ((mo>=curMo)?(unsMap[mo].sales||0):0); },0);
+  var unsAdj=unsFuture*fz.salesFactor;
+  h+='<div class="card" style="padding:10px;margin:4px 0 12px">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b)">Forecast Controls (future months)</div>';
+  h+='<div style="display:flex;gap:6px">';
+  h+='<button class="btn btn-outline" data-action="forecast-toggle" style="font-size:10px;padding:4px 10px">'+(_cfForecastCollapsed?'Expand':'Collapse')+'</button>';
+  h+='<button class="btn btn-outline" data-action="forecast-reset" style="font-size:10px;padding:4px 10px">Reset</button>';
+  h+='</div></div>';
+  if(!_cfForecastCollapsed){
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px">';
+    function fSlide(lbl,key,val,min,max,step){ return '<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">'+lbl+': '+Math.round(val*100)+'%<input type="range" data-action="forecast-set" data-key="'+key+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+Math.round(val*100)+'"/></label>'; }
+    h+=fSlide('Sales pace (incl. unsold)','salesFactor',fz.salesFactor,50,160,5);
+    h+=fSlide('Collection efficiency (future)','collectionsFactor',fz.collectionsFactor,50,140,5);
+    h+=fSlide('Other inflow factor','otherInflowFactor',fz.otherInflowFactor,50,180,5);
+    h+=fSlide('Construction + consultant cost','costFactor',fz.costFactor,70,170,5);
+    h+=fSlide('Marketing factor','marketingFactor',fz.marketingFactor,60,200,5);
+    h+=fSlide('GA DM Fee factor (future)','gaFactor',fz.gaFactor,70,160,5);
+    h+='<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">Monthly risk buffer (₹)<input type="number" data-action="forecast-set" data-key="monthlyBuffer" data-type="abs" min="0" step="10000" value="'+Math.round(fz.monthlyBuffer||0)+'" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:11px"/></label>';
+    h+='</div>';
+  } else {
+    h+='<div style="font-size:10px;color:var(--muted)">Controls collapsed. Click <strong>Expand</strong> to adjust future-month assumptions.</div>';
+  }
+  h+='</div>';
+  h+='<div class="card" style="padding:10px;margin:-2px 0 12px;background:#F8FAFF;border-left:3px solid var(--blue)">';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:6px">Forecast Impact (future months only)</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 12px;font-size:11px">';
+  h+='<div><div style="color:var(--muted);font-size:10px">Unsold inventory sales</div><div><strong>Base:</strong> '+cr(unsFuture)+' &nbsp; <strong>Adjusted:</strong> '+cr(unsAdj)+' &nbsp; <strong>Δ:</strong> '+cr(unsAdj-unsFuture,'+0')+'</div></div>';
+  h+='<div><div style="color:var(--muted);font-size:10px">Future construction outflow</div><div><strong>Base:</strong> '+cr(baseConstr)+' &nbsp; <strong>Adjusted:</strong> '+cr(futConstr)+' &nbsp; <strong>Δ:</strong> '+cr(futConstr-baseConstr,'+0')+'</div></div>';
+  h+='<div><div style="color:var(--muted);font-size:10px">Future net cashflow</div><div><strong>Base:</strong> '+cr(baseNet,'+0')+' &nbsp; <strong>Adjusted:</strong> '+cr(futNet,'+0')+' &nbsp; <strong>Δ:</strong> '+cr(futNet-baseNet,'+0')+'</div></div>';
+  h+='</div></div>';
+  var bakPid=_curPid;
+  _curPid=pid;
+  h+=htmlL1MilestoneForecastMatrix(pid);
+  _curPid=bakPid;
   el.innerHTML=h;
 }
 function renderCashflow(){
@@ -6709,6 +6807,10 @@ function renderCashflow(){
   var useRollup = vis.length>1;
   if(_cfSubview==='payables' && !useRollup){
     renderCashflowPayables(getCF(_curPid));
+    return;
+  }
+  if(_cfSubview==='forecast'){
+    renderCashflowForecastPanel(vis, useRollup);
     return;
   }
   var cfg=useRollup?null:getCF(_curPid);
@@ -6728,6 +6830,8 @@ function renderCashflow(){
   var cfTitle = useRollup?('📊 Monthly Cashflow — Rollup ('+vis.length+' selected projects)'):('📊 Monthly Cashflow — '+cfg.projName);
   h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">'+cfTitle+'</div>';
   h+='<div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">';
+  h+='<button type="button" class="btn '+(_cfSubview==='monthly'?'btn-primary':'btn-outline')+'" data-action="cf-set-subview" data-subview="monthly" style="font-size:10px;padding:4px 10px">Monthly grid</button>';
+  h+='<button type="button" class="btn btn-primary" data-action="cf-set-subview" data-subview="forecast" style="font-size:10px;padding:4px 12px;background:#0D4D30;border-color:#0D4D30" title="Inflow &amp; outflow prediction by L1 against construction milestones">Forecast · L1 × Milestone</button>';
   if(!useRollup){
     h+='<button type="button" class="btn '+(_cfSubview==='payables'?'btn-primary':'btn-outline')+'" data-action="cf-set-subview" data-subview="payables" style="font-size:10px;padding:4px 10px">Payables &amp; timing</button>';
   }
@@ -6797,11 +6901,15 @@ function renderCashflow(){
     h+='<div><div style="color:var(--muted);font-size:10px">Future net cashflow</div><div><strong>Base:</strong> '+cr(baseNet,'+0')+' &nbsp; <strong>Adjusted:</strong> '+cr(futNet,'+0')+' &nbsp; <strong>Δ:</strong> '+cr(futNet-baseNet,'+0')+'</div></div>';
     h+='</div>';
     h+='<div style="font-size:10px;color:var(--muted);margin-top:6px;line-height:1.4">Interpretation: <strong>Base</strong> = no forecast multipliers (100%, ₹0 buffer). <strong>Adjusted</strong> = current control values. Historical actual months are never changed.</div>';
-    h+='</div>';
-    h+=htmlL1MilestoneForecastMatrix(_curPid);
+    h+='<div style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);display:flex;flex-wrap:wrap;align-items:center;gap:8px">';
+    h+='<div style="font-size:11px;color:var(--muted);flex:1;min-width:200px">Full <strong>L1 × construction milestone</strong> inflow/outflow prediction lives on the Forecast tab.</div>';
+    h+='<button type="button" class="btn btn-primary" data-action="cf-set-subview" data-subview="forecast" style="font-size:10px;padding:6px 12px;background:#0D4D30">Open Forecast · L1 × Milestone</button>';
+    h+='</div></div>';
   }else{
-    h+='<div class="card" style="padding:10px;margin:4px 0 12px;background:#F8FAFF;border-left:3px solid var(--blue)">';
-    h+='<div style="font-size:11px;color:var(--muted)">Showing rollup for selected Project / Phase / Building filters. Forecast sliders are hidden in rollup mode.</div>';
+    h+='<div class="card" style="padding:12px;margin:4px 0 12px;background:#F0FDF4;border-left:3px solid #0D4D30">';
+    h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:4px">Forecast · L1 × Milestone</div>';
+    h+='<div style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:8px">Multi-project rollup is active ('+vis.length+' projects). Open Forecast to predict inflows/outflows by L1 against construction milestones for one project.</div>';
+    h+='<button type="button" class="btn btn-primary" data-action="cf-set-subview" data-subview="forecast" style="font-size:10px;padding:6px 12px;background:#0D4D30">Open Forecast · L1 × Milestone</button>';
     h+='</div>';
   }
 
@@ -8602,19 +8710,19 @@ function htmlExpenseInflowsSection(actsIn){
   h+='<div class="kpi" style="border-top:3px solid var(--green-b);max-width:200px;margin-bottom:10px"><div style="font-size:14px;font-weight:800">'+cr(tot)+'</div><div style="font-size:9px;color:var(--muted)">Total inflows</div></div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
   h+='<div><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:6px">By cashflow category</div>';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:#ECFDF5"><th style="padding:5px 8px;text-align:left">Category</th><th style="padding:5px 8px;text-align:right">Amount</th></tr></thead><tbody>';
-  if(!catRows.length) h+='<tr><td colspan="2" style="padding:10px;color:var(--muted)">No inflows yet.</td></tr>';
+  h+='<div class="amt-pair-wrap"><table class="amt-pair-tbl amt-pair-tbl--green"><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>';
+  if(!catRows.length) h+='<tr><td colspan="2" style="color:var(--muted)">No inflows yet.</td></tr>';
   catRows.forEach(function(c){
-    h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 8px">'+escHtml(c)+'</td><td style="padding:5px 8px;text-align:right">'+cr(byCat[c])+'</td></tr>';
+    h+='<tr><td>'+escHtml(c)+'</td><td>'+cr(byCat[c])+'</td></tr>';
   });
-  h+='</tbody></table></div>';
+  h+='</tbody></table></div></div>';
   h+='<div><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:6px">Top parties (inflows)</div>';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:10px"><thead><tr style="background:#ECFDF5"><th style="padding:5px 8px;text-align:left">Party</th><th style="padding:5px 8px;text-align:right">Amount</th></tr></thead><tbody>';
-  if(!partyRows.length) h+='<tr><td colspan="2" style="padding:10px;color:var(--muted)">—</td></tr>';
+  h+='<div class="amt-pair-wrap"><table class="amt-pair-tbl amt-pair-tbl--green"><thead><tr><th>Party</th><th>Amount</th></tr></thead><tbody>';
+  if(!partyRows.length) h+='<tr><td colspan="2" style="color:var(--muted)">—</td></tr>';
   partyRows.forEach(function(p){
-    h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:5px 8px">'+escHtml(p)+'</td><td style="padding:5px 8px;text-align:right">'+cr(byParty[p])+'</td></tr>';
+    h+='<tr><td>'+escHtml(p)+'</td><td>'+cr(byParty[p])+'</td></tr>';
   });
-  h+='</tbody></table></div></div></div>';
+  h+='</tbody></table></div></div></div></div>';
   return h;
 }
 function payablePaidSourceMeta(bills){
@@ -8904,21 +9012,26 @@ function renderExpenses(){
     if(!catRows.length) h+='<div style="font-size:10px;color:var(--muted)">No outflows in this filter.</div>';
     else{
       var maxC=1; catRows.forEach(function(c){ if(byCat[c]>maxC) maxC=byCat[c]; });
+      h+='<div class="amt-bar-stack">';
       catRows.slice(0,10).forEach(function(c){
         var v=byCat[c], w=Math.max(3,Math.round((v/maxC)*100));
-        h+='<div style="display:grid;grid-template-columns:110px 1fr 72px;gap:8px;align-items:center;margin-bottom:6px">';
-        h+='<div style="font-size:10px;font-weight:600">'+escHtml(c)+'</div>';
-        h+='<div style="height:8px;background:#E8EEF5;border-radius:999px;overflow:hidden"><div style="height:8px;width:'+w+'%;background:#1558A0"></div></div>';
-        h+='<div style="text-align:right;font-size:10px;font-weight:700">'+cr(v)+'</div></div>';
+        h+='<div class="amt-bar-row"><div class="lbl">'+escHtml(c)+'</div>';
+        h+='<div class="bar"><i style="width:'+w+'%"></i></div>';
+        h+='<div class="amt">'+cr(v)+'</div></div>';
       });
+      h+='</div>';
     }
     h+='</div>';
     h+='<div class="card" style="margin:0;border-radius:12px;border:1px solid var(--border)">';
     h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:8px">Top cost centres</div>';
     if(!ccRows.length) h+='<div style="font-size:10px;color:var(--muted)">—</div>';
-    else ccRows.forEach(function(cc){
-      h+='<div style="display:flex;justify-content:space-between;gap:8px;font-size:10px;padding:4px 0;border-bottom:1px solid var(--border)"><span style="color:var(--slate)">'+escHtml(cc)+'</span><strong>'+cr(byCC[cc])+'</strong></div>';
-    });
+    else{
+      h+='<div class="amt-pair-stack">';
+      ccRows.forEach(function(cc){
+        h+='<div class="amt-pair-row"><span class="lbl">'+escHtml(cc)+'</span><span class="amt">'+cr(byCC[cc])+'</span></div>';
+      });
+      h+='</div>';
+    }
     h+='</div></div>';
     h+='<div class="card" style="border-radius:12px;border:1px solid var(--border)">';
     h+='<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">';
@@ -8928,9 +9041,9 @@ function renderExpenses(){
     h+='<button type="button" class="btn btn-outline" data-action="expense-tree-collapse-all" style="font-size:10px;padding:4px 10px">Collapse all</button>';
     h+='</div></div>';
     h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">V3 master coding · expand L3 for date · party · narration.</div>';
-    h+='<div style="overflow:auto"><table style="width:100%;border-collapse:collapse;font-size:10px">';
-    h+='<thead><tr style="background:var(--blue-l)"><th style="padding:6px 8px;text-align:left">L1 → L2 → L3 → voucher</th><th style="padding:6px 8px;text-align:right">Amount (₹)</th></tr></thead><tbody>';
-    if(!l1Keys.length) h+='<tr><td colspan="2" style="padding:12px;text-align:center;color:var(--muted)">No outflow lines in this filter. Widen dates or clear category.</td></tr>';
+    h+='<div class="amt-pair-wrap"><table class="amt-pair-tbl amt-pair-tbl--tree">';
+    h+='<thead><tr><th>Category</th><th>Amount (₹)</th></tr></thead><tbody>';
+    if(!l1Keys.length) h+='<tr><td colspan="2" style="padding:12px;color:var(--muted)">No outflow lines in this filter. Widen dates or clear category.</td></tr>';
     l1Keys.forEach(function(l1){
       var tL1=0;
       var l2Keys=Object.keys(treeOut[l1]||{}).sort();
@@ -8940,7 +9053,7 @@ function renderExpenses(){
       });
       var l1k='l1:'+String(l1).toLowerCase().replace(/[^a-z0-9]+/g,'_');
       var l1Collapsed=!!_expenseTreeCollapsedL1[l1k];
-      h+='<tr style="background:linear-gradient(90deg, var(--blue-l), #fff)"><td style="padding:6px 8px;font-weight:800;color:var(--blue-b)"><button type="button" data-action="expense-tree-l1" data-k="'+escAttr(l1k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--blue-b);font-weight:800;padding:0;margin-right:6px">'+(l1Collapsed?'▶':'▼')+'</button>'+escHtml(l1)+'</td><td style="text-align:right;font-weight:800">'+cr(tL1)+'</td></tr>';
+      h+='<tr class="amt-l1"><td style="font-weight:800;color:var(--blue-b)"><button type="button" data-action="expense-tree-l1" data-k="'+escAttr(l1k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--blue-b);font-weight:800;padding:0;margin-right:6px">'+(l1Collapsed?'▶':'▼')+'</button>'+escHtml(l1)+'</td><td class="amt">'+cr(tL1)+'</td></tr>';
       if(l1Collapsed) return;
       l2Keys.forEach(function(l2){
         var tL2=0, vchN=0;
@@ -8952,7 +9065,7 @@ function renderExpenses(){
         var l2k=l1k+'|'+String(l2).toLowerCase().replace(/[^a-z0-9]+/g,'_');
         var l2Collapsed=!!_expenseTreeCollapsedL2[l2k];
         var l2Label=escHtml(l2)+(vchN?' <span style="font-weight:500;color:var(--muted)">('+vchN+')</span>':'');
-        h+='<tr><td style="padding:4px 8px 2px 18px;font-weight:600;color:var(--slate)"><button type="button" data-action="expense-tree-l2" data-k="'+escAttr(l2k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--slate);font-weight:700;padding:0;margin-right:5px">'+(l2Collapsed?'▶':'▼')+'</button>'+l2Label+'</td><td style="text-align:right">'+cr(tL2)+'</td></tr>';
+        h+='<tr><td style="padding-left:22px;font-weight:600;color:var(--slate)"><button type="button" data-action="expense-tree-l2" data-k="'+escAttr(l2k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--slate);font-weight:700;padding:0;margin-right:5px">'+(l2Collapsed?'▶':'▼')+'</button>'+l2Label+'</td><td class="amt">'+cr(tL2)+'</td></tr>';
         if(l2Collapsed) return;
         l3Keys.forEach(function(l3){
           var leaf=treeOut[l1][l2][l3];
@@ -8964,10 +9077,10 @@ function renderExpenses(){
           // L3 voucher detail defaults collapsed (missing key => collapsed)
           var l3Open=_expenseTreeCollapsedL3[l3k]===false;
           var l3Label=escHtml(l3)+(lines.length?' <span style="color:var(--muted)">('+lines.length+')</span>':'');
-          h+='<tr style="border-bottom:1px solid var(--border)"><td style="padding:2px 8px 4px 32px;font-size:9px;color:var(--muted)"><button type="button" data-action="expense-tree-l3" data-k="'+escAttr(l3k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--muted);font-weight:700;padding:0;margin-right:4px">'+(l3Open?'▼':'▶')+'</button>'+l3Label+'</td><td style="text-align:right;font-size:9px">'+cr(amt)+'</td></tr>';
+          h+='<tr><td style="padding-left:36px;font-size:9px;color:var(--muted)"><button type="button" data-action="expense-tree-l3" data-k="'+escAttr(l3k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--muted);font-weight:700;padding:0;margin-right:4px">'+(l3Open?'▼':'▶')+'</button>'+l3Label+'</td><td class="amt" style="font-size:9px">'+cr(amt)+'</td></tr>';
           if(!l3Open) return;
           if(!lines.length){
-            h+='<tr><td colspan="2" style="padding:2px 8px 6px 52px;font-size:9px;color:var(--muted)">No voucher lines stored for this L3 (re-import Tally if needed).</td></tr>';
+            h+='<tr><td colspan="2" style="padding-left:52px;font-size:9px;color:var(--muted)">No voucher lines stored for this L3 (re-import Tally if needed).</td></tr>';
             return;
           }
           lines.forEach(function(ln){
@@ -8975,7 +9088,7 @@ function renderExpenses(){
             var narShort=nar.length>90?nar.slice(0,90)+'…':nar;
             var label=escHtml(String(ln.date||'').slice(0,10))+' · <strong style="color:var(--slate)">'+escHtml(ln.party||'—')+'</strong>';
             if(narShort) label+=' <span style="color:var(--muted)">— '+escHtml(narShort)+'</span>';
-            h+='<tr style="border-bottom:1px solid #f1f5f9"><td style="padding:2px 8px 5px 52px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+'</td><td style="text-align:right;font-size:9px;white-space:nowrap">'+cr(ln.amount)+'</td></tr>';
+            h+='<tr><td style="padding-left:52px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+'</td><td class="amt" style="font-size:9px">'+cr(ln.amount)+'</td></tr>';
           });
         });
       });
@@ -9042,14 +9155,13 @@ function renderExpenses(){
     if(!moKeys.length){
       h+='<div style="font-size:10px;color:var(--muted)">No outflow actuals in this range / filters. Widen the date range or clear filters.</div>';
     }else{
-      h+='<div style="display:flex;flex-direction:column;gap:6px">';
+      h+='<div class="amt-bar-stack">';
       moKeys.slice(-12).forEach(function(k){
         var v=byMo[k]||0;
         var w=maxMo>0?Math.max(2,Math.round((v/maxMo)*100)):2;
-        h+='<div style="display:grid;grid-template-columns:90px 1fr 90px;gap:8px;align-items:center">';
-        h+='<div style="font-size:10px;color:var(--muted)">'+escHtml(formatMonthKey(k))+'</div>';
-        h+='<div style="height:10px;background:#E5E7EB;border-radius:999px;overflow:hidden"><div style="height:10px;width:'+w+'%;background:linear-gradient(90deg,var(--purple),#9F7AEA)"></div></div>';
-        h+='<div style="text-align:right;font-size:10px;font-weight:700">'+cr(v)+'</div></div>';
+        h+='<div class="amt-bar-row"><div class="lbl" style="color:var(--muted);font-weight:500">'+escHtml(formatMonthKey(k))+'</div>';
+        h+='<div class="bar" style="background:#EDE9FE"><i style="width:'+w+'%;background:linear-gradient(90deg,var(--purple),#9F7AEA)"></i></div>';
+        h+='<div class="amt">'+cr(v)+'</div></div>';
       });
       h+='</div>';
     }
@@ -9060,12 +9172,13 @@ function renderExpenses(){
     catRows2.slice(0,12).forEach(function(c){ var v=byCat2[c]||0; if(v>maxCat) maxCat=v; });
     if(!catRows2.length) h+='<div style="font-size:10px;color:var(--muted)">No data in this filter.</div>';
     else{
-      h+='<div style="display:flex;flex-direction:column;gap:6px">';
+      h+='<div class="amt-bar-stack">';
       catRows2.slice(0,12).forEach(function(c){
         var v=byCat2[c]||0, pct=totOutAct>0?(v*100/totOutAct):0;
         var w=maxCat>0?Math.max(3,Math.round((v/maxCat)*100)):3;
-        h+='<div style="font-size:10px"><div style="display:flex;justify-content:space-between;gap:6px"><span style="font-weight:700">'+escHtml(c)+'</span><span style="color:var(--muted)">'+cr(v)+' · '+pct.toFixed(1)+'%</span></div>';
-        h+='<div style="height:8px;background:#E5E7EB;border-radius:999px;overflow:hidden"><div style="height:8px;width:'+w+'%;background:linear-gradient(90deg,#1558A0,#60A5FA)"></div></div></div>';
+        h+='<div class="amt-bar-row"><div class="lbl">'+escHtml(c)+'</div>';
+        h+='<div class="bar"><i style="width:'+w+'%;background:linear-gradient(90deg,#1558A0,#60A5FA)"></i></div>';
+        h+='<div class="amt" style="color:var(--muted);font-weight:600">'+cr(v)+' · '+pct.toFixed(1)+'%</div></div>';
       });
       h+='</div>';
     }
@@ -11854,7 +11967,20 @@ document.addEventListener('click',function(e){
   }
   if(a==='toggle-sales-q')        { var qk2=el.dataset.qk; if(qk2)_salesQCollapsed[qk2]=!_salesQCollapsed[qk2]; renderSales(); return; }
   if(a==='cf-set-scale')          { _cfTimeScale=el.dataset.scale||'month'; renderCashflow(); return; }
-  if(a==='cf-set-subview')        { _cfSubview=el.dataset.subview||'monthly'; renderCashflow(); return; }
+  if(a==='cf-set-subview'){
+    _cfSubview=el.dataset.subview||'monthly';
+    if(_cfSubview==='forecast') _cfForecastCollapsed=false;
+    renderCashflow();
+    return;
+  }
+  if(a==='cf-forecast-pick-proj'){
+    var fp=String(el.value||'').trim();
+    if(fp){ _curPid=fp; try{ buildProjSelect(); }catch(ePs){} }
+    _cfSubview='forecast';
+    _cfForecastCollapsed=false;
+    renderCashflow();
+    return;
+  }
   if(a==='pl-set-period')         { _plPeriod=el.dataset.period||'fytd'; renderPL(); return; }
   if(a==='ga-set-scale')          { _gaTimeScale=el.dataset.scale||'month'; renderGA(); return; }
   if(a==='forecast-reset'){
@@ -11938,6 +12064,14 @@ document.addEventListener('click',function(e){
 
 document.addEventListener('change',function(e){
   var el=e.target; var a=el.dataset.action;
+  if(a==='cf-forecast-pick-proj'){
+    var fp=String(el.value||'').trim();
+    if(fp){ _curPid=fp; try{ buildProjSelect(); }catch(ePs){} }
+    _cfSubview='forecast';
+    _cfForecastCollapsed=false;
+    renderCashflow();
+    return;
+  }
   if(a==='narration-cf-only'){ _narrationCfOnly=!!el.checked; if(_curTab==='expenses' && _expenseUIPanel==='narration') renderExpenses(); return; }
   if(a==='toggle-prior-years'){ setShowPriorCalendarYears(!!el.checked); renderAll(); return; }
   if(a==='sales-search'){ _salesSearchQuery=String(el.value||''); renderSalesKeepViewport(); return; }
