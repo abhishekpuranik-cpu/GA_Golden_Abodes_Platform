@@ -227,13 +227,18 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 62;
+var CF_VERSION = 63;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
-var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow'];
+/** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
+var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Income','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
 var ALL_CATS = INFLOW_CATS.concat(OUTFLOW_CATS);
-function isCashflowInflowCat(cat1){ return INFLOW_CATS.indexOf(String(cat1||'').trim())>=0; }
+function isCashflowInflowCat(cat1){
+  var c=String(cat1||'').trim();
+  if(c==='Other Inflow'||c==='Other Income') return true;
+  return INFLOW_CATS.indexOf(c)>=0;
+}
 /** Expense dashboard: collections & other inflows stay out of outflow rollups. */
 function isExpenseDashboardInflow(a){
   if(!a) return false;
@@ -357,12 +362,32 @@ function persistGaAcctMasterOverride(payload){
   if(!payload) return;
   try{ localStorage.setItem(GA_ACCT_OVERRIDE_LS_KEY, JSON.stringify(payload)); }catch(e){}
 }
+/** Detect pre-fix masters that invented "Other Inflow" for common cost/BS L1s. */
+function gaAcctMasterLooksMisaligned(payload){
+  try{
+    var book=payload&&payload.GA_ACCT_L3_BY_CODE;
+    if(!book) return false;
+    var keys=Object.keys(book), bad=0, i, e;
+    for(i=0;i<keys.length;i++){
+      e=book[keys[i]];
+      if(!e) continue;
+      if(String(e.legacyCat1||'')==='Other Inflow' && String(e.flow||'')==='in' && String(e.scope||'')==='common'){
+        if(!/other income/i.test(String(e.l1Name||''))){ bad++; if(bad>=3) return true; }
+      }
+    }
+  }catch(err){}
+  return false;
+}
 function loadGaAcctMasterOverrideFromLocal(){
   try{
     var raw=localStorage.getItem(GA_ACCT_OVERRIDE_LS_KEY);
     if(!raw) return false;
     var p=JSON.parse(raw);
     if(!p||!p.GA_ACCT_L3_BY_CODE) return false;
+    if(gaAcctMasterLooksMisaligned(p)){
+      try{ localStorage.removeItem(GA_ACCT_OVERRIDE_LS_KEY); }catch(e){}
+      return false;
+    }
     applyGaAcctMasterPayload(p, {source:'upload', fileName:p.fileName||'', uploadedAt:p.uploadedAt||0, keyCount:p.keyCount||0});
     return true;
   }catch(e){ return false; }
@@ -387,10 +412,11 @@ function importCodingMasterWorkbook(input){
       payload.source='upload';
       applyGaAcctMasterPayload(payload, {source:'upload', fileName:payload.fileName, uploadedAt:payload.uploadedAt, keyCount:payload.keyCount});
       persistGaAcctMasterOverride(gaAcctMasterPayloadFromGlobals());
+      if(migrateReclassifyTallyActuals()){ /* remapped categories + signs */ }
       saveAll({full:true});
       renderAll();
       setSS('Coding master applied: '+payload.keyCount+' keys from '+payload.fileName,'green');
-      alert('Coding worksheet applied.\n\n'+payload.keyCount+' category keys ('+String(payload.schema).toUpperCase()+').\n\nTally imports and cashflow/P&L columns now use this master.\nSave to server to share with your team.');
+      alert('Coding worksheet applied.\n\n'+payload.keyCount+' category keys ('+String(payload.schema).toUpperCase()+').\n\nTally imports and cashflow/P&L columns now use this master.\nExisting Tally actuals were remapped to the new coding.\nSave to server to share with your team.');
     }catch(e){
       alert('Could not read coding workbook:\n'+String(e&&e.message||e));
     }
@@ -401,6 +427,11 @@ function importCodingMasterWorkbook(input){
 }
 function applyGaAcctMasterFromStateEnvelope(d){
   if(!d||!d.acctMaster||!d.acctMaster.GA_ACCT_L3_BY_CODE) return false;
+  if(gaAcctMasterLooksMisaligned(d.acctMaster)){
+    try{ delete d.acctMaster; }catch(e){}
+    try{ localStorage.removeItem(GA_ACCT_OVERRIDE_LS_KEY); }catch(e){}
+    return false;
+  }
   applyGaAcctMasterPayload(d.acctMaster, {
     source: d.acctMaster.source||'server',
     fileName: d.acctMaster.fileName||'',
@@ -1591,8 +1622,8 @@ var TALLY_MAP = {
   'equity infusion':'Equity Infusion','equity':'Equity Infusion','partner capital':'Equity Infusion','share capital':'Equity Infusion','promoter infusion':'Equity Infusion',
   'unsecured loan':'Unsecured Loan','director loan':'Unsecured Loan','partner loan':'Unsecured Loan','cc limit':'Unsecured Loan','working capital limit':'Unsecured Loan',
   'customer ul':'Customer UL','customer advance':'Customer UL','security deposit customer':'Customer UL',
-  'other income':'Other Inflow','income tax refund':'Other Inflow','interest received':'Other Inflow','fd interest':'Other Inflow','miscellaneous income':'Other Inflow',
-  'refund':'Other Inflow',
+  'other income':'Other Income','income tax refund':'Other Income','interest received':'Other Income','fd interest':'Other Income','miscellaneous income':'Other Income',
+  'refund':'Other Income','other inflow':'Other Income','other inflows':'Other Income',
   'salary retention':'Payables','vendor retention':'Payables','retention payable':'Payables',
   'creditor payable':'Payables','sundry creditor':'Payables','creditors payable':'Payables',
 };
@@ -1721,7 +1752,7 @@ function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildi
     return {cat1:kw,gaL1:legacyCashflowCat1ToDisplayGaL1(kw),gaL2:'',gaL3:'',gaL3Name:'',tallyMapSrc:'keyword'};
   }
   if(/customer|collection|booking|milestone|possession|receipt|sale|unit|flat|parking|amenity|demand|installment|allotment/i.test(text)){
-    return {cat1:'Other Inflow',gaL1:'',gaL2:'',gaL3:'',gaL3Name:'(heuristic inflow)',tallyMapSrc:'heuristic-in'};
+    return {cat1:'Other Income',gaL1:'',gaL2:'',gaL3:'',gaL3Name:'(heuristic inflow)',tallyMapSrc:'heuristic-in'};
   }
   return {cat1:'Construction',gaL1:legacyCashflowCat1ToDisplayGaL1('Construction'),gaL2:'',gaL3:'',gaL3Name:'(unmapped — reclassify if needed)',tallyMapSrc:'unmapped-out'};
 }
@@ -3874,6 +3905,16 @@ function migrateReclassifyTallyActuals(){
         if((a.masterKey||'')!==(cl.masterKey||'')){ a.masterKey=cl.masterKey||''; touched=true; }
         if((a.gaScope||'')!==(cl.gaScope||'')){ a.gaScope=cl.gaScope||scope; touched=true; }
         if((a.plL1||'')!==(cl.plL1||'')){ a.plL1=cl.plL1||''; touched=true; }
+        // Align cashflow sign with corrected flow (old "Other Inflow" l3-book mapped many Payment credits as +ve)
+        var isInflow=isCashflowInflowCat(cl.cat1);
+        if(cl.flow==='in' && !isInflow) isInflow=true;
+        if(cl.flow==='out' && isInflow) isInflow=false;
+        var mag=Math.abs(coerceMoney(a.amount));
+        if(mag>0){
+          var desired=isInflow?mag:-mag;
+          if(coerceMoney(a.amount)!==desired){ a.amount=desired; touched=true; }
+        }
+        if(a.cat1==='Other Inflow'){ a.cat1='Other Income'; touched=true; }
       });
     });
   }catch(e){}
@@ -4482,7 +4523,7 @@ function buildCashflow(pid){
     var ulInflow    = ov.ulInflow    !== undefined ? ov.ulInflow    : (act['Unsecured Loan']    || ulFlowMap[mo]  || 0);
     var custColl    = ov.custColl    !== undefined ? ov.custColl    : (act['Customer Collections'] || 0);
     var custUL      = ov.custUL      !== undefined ? ov.custUL      : (act['Customer UL']       || culFlowMap[mo] || 0);
-    var otherIn     = ov.otherIn     !== undefined ? ov.otherIn     : (act['Other Inflow']      || otherFlowMap[mo] || 0);
+    var otherIn     = ov.otherIn     !== undefined ? ov.otherIn     : ((act['Other Income']||0)+(act['Other Inflow']||0) || otherFlowMap[mo] || 0);
 
     // ── OUTFLOWS ──
     var land        = ov.land        !== undefined ? ov.land        : (act['Land']         || landMap[mo]    || 0);
@@ -8215,7 +8256,7 @@ function htmlExpenseInflowsSection(actsIn){
   var byCat={}, byParty={}, tot=0;
   (actsIn||[]).forEach(function(a){
     if(!a) return;
-    var c=String(a.cat1||'Other Inflow').trim()||'Other Inflow';
+    var c=String(a.cat1||'Other Income').trim()||'Other Income';
     var mag=Math.abs(coerceMoney(a.amount));
     if(mag<=0) return;
     tot+=mag;
@@ -10966,7 +11007,7 @@ function importCRMPostSalesWorkbook(input){
 function exportCFTSV(pid){
   var cfg=getCF(pid||_curPid);
   var rows=pid?buildCashflow(pid):buildCashflow(_curPid);
-  var hdrs=['Period','Month','Opening Cash','Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow','Total Inflows','Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid','Total Outflows','Net Cashflow','Closing Cash','Closing Debt','Debt Draw'];
+  var hdrs=['Period','Month','Opening Cash','Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Income','Total Inflows','Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid','Total Outflows','Net Cashflow','Closing Cash','Closing Debt','Debt Draw'];
   var lines=[hdrs.join('\t')];
   rows.forEach(function(r){
     lines.push([r.period,r.mo,r.openingCash,r.salesRev,r.equityInf,r.invFunding,r.ulInflow,r.custColl,r.custUL,r.otherIn,r.totInflows,r.land,r.noc,r.consultant,r.regulatoryConsulting,r.construction,r.marketing,r.ga,r.contingency,r.intPaid,r.principalPaid,r.totOutflows,r.netCF,r.closingCash,r.closingDebt,r.debtDraw].join('\t'));
@@ -10979,7 +11020,7 @@ function exportCFTSV(pid){
 function exportGACFTSV(){
   var rows=buildGACashflow();
   if(!rows || !rows.length){alert('No GA consolidated data available yet.');return;}
-  var hdrs=['Period','Month','Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Inflow','Total Inflows','Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid','Total Outflows','Net Cashflow','Closing Cash'];
+  var hdrs=['Period','Month','Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Income','Total Inflows','Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid','Total Outflows','Net Cashflow','Closing Cash'];
   var lines=[hdrs.join('\t')];
   rows.forEach(function(r){
     lines.push([r.period,r.mo,r.salesRev,r.equityInf,r.invFunding,r.ulInflow,r.custColl,r.custUL,r.otherIn,r.totInflows,r.land,r.noc,r.consultant,r.regulatoryConsulting,r.construction,r.marketing,r.ga,r.contingency,r.intPaid,r.principalPaid,r.totOutflows,r.netCF,r.closingCash].join('\t'));
@@ -11171,7 +11212,7 @@ function dlCapitalTemplate(){
   });
   (cfg.unsecuredLoans||[]).forEach(function(u){data.push(['Unsecured Loan',u.name,u.amount,u.drawDate,u.ratePct,'','']);});
   (cfg.customerUL||[]).forEach(function(c){data.push(['Customer UL',c.name,c.amount,c.date,'','','']);});
-  (cfg.otherInflows||[]).forEach(function(o){data.push(['Other Inflow',o.name,o.amount,o.date,'','',o.note]);});
+  (cfg.otherInflows||[]).forEach(function(o){data.push(['Other Income',o.name,o.amount,o.date,'','',o.note]);});
   var wb=XLSX.utils.book_new();
   var ws=XLSX.utils.aoa_to_sheet(data);
   ws['!cols']=[{wch:16},{wch:28},{wch:16},{wch:16},{wch:8},{wch:8},{wch:30}];

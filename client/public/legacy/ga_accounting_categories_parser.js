@@ -23,17 +23,21 @@
     var lc = clean(l1Letter).toUpperCase();
     var name = clean(l1Name).toLowerCase();
     if (scope === 'common' && lc === 'Z') return 'cash';
-    if (/collection|revenue|sales|funding|loan|inflow|receipt|equity|investor|unsecured|customer/i.test(name)) {
-      if (/expense|cost|paid|tax|fee|construction|marketing|interest|principal|land|consult/i.test(name)) {
-        /* mixed */
-      } else return 'in';
-    }
-    if (/^[A-G]$/.test(lc) && scope === 'building') {
-      if (lc === 'B') return 'in';
-      if (lc === 'A') return 'in';
+    if (/loans?\s*and\s*advance|advances?\s+given|advance\s+receivable/i.test(name)) return 'out';
+    if (/deposit|fixed asset|payable|suspense|other current|retention|creditor|depreciation/i.test(name)) {
       return 'out';
     }
-    if (/^[A-G]$/.test(lc)) return 'in';
+    if (/^other income$/i.test(name) || /\bother income\b/i.test(name)) return 'in';
+    if (/customer collection/i.test(name)) return 'in';
+    if (/sales revenue/i.test(name)) return 'in';
+    if (/unsecured loan/i.test(name)) return 'in';
+    if (/investor funding|financial institution funding|promoter funding|equity infusion/i.test(name)) return 'in';
+    if (scope === 'building') {
+      if (lc === 'A' && /sales|revenue/i.test(name)) return 'in';
+      if (lc === 'B' && /collection/i.test(name)) return 'in';
+      return 'out';
+    }
+    if (/^[LMNOP]$/.test(lc)) return 'in';
     return 'out';
   }
   function inferLegacyCat1(opts) {
@@ -44,18 +48,35 @@
       if (nl.indexOf('sales revenue') >= 0) return 'Sales Revenue';
       if (nl.indexOf('equity') >= 0 || nl.indexOf('promoter') >= 0) return 'Equity Infusion';
       if (nl.indexOf('investor') >= 0) return 'Investor Funding';
-      if (nl.indexOf('unsecured') >= 0) return 'Unsecured Loan';
-      return 'Other Inflow';
+      if (nl.indexOf('unsecured') >= 0 || nl.indexOf('financial institution') >= 0) return 'Unsecured Loan';
+      return 'Other Income';
     }
-    if (nl.indexOf('project acquisition') >= 0 || nl.indexOf('land') >= 0) return 'Land';
+    if (nl.indexOf('project acquisition') >= 0 || (nl.indexOf('land') >= 0 && nl.indexOf('loan') < 0)) return 'Land';
+    if (nl.indexOf('statutory') >= 0 || nl.indexOf('government duties') >= 0 || nl.indexOf('duties & taxes') >= 0) {
+      return 'Regulatory & Consulting';
+    }
     if (nl.indexOf('regulatory') >= 0) return 'Regulatory & Consulting';
     if (nl.indexOf('consult') >= 0) return 'Consultant';
     if (nl.indexOf('noc') >= 0) return 'NOC';
     if (nl.indexOf('marketing') >= 0) return 'Marketing';
     if (nl.indexOf('g&a') >= 0 || nl.indexOf('g a') >= 0 || nl.indexOf('dm fee') >= 0) return 'GA DM Fee';
-    if (nl.indexOf('interest') >= 0) return 'Interest Paid';
+    if (nl.indexOf('finance cost') >= 0) return 'Interest Paid';
+    if (/\binterest\b/i.test(nl) && nl.indexOf('income') < 0) return 'Interest Paid';
     if (nl.indexOf('principal') >= 0 || nl.indexOf('debt') >= 0) return 'Principal Repaid';
-    if (nl.indexOf('construction') >= 0 || nl.indexOf('show flat') >= 0 || nl.indexOf('sales office') >= 0) return 'Construction';
+    if (nl.indexOf('payable') >= 0 || nl.indexOf('creditor') >= 0) return 'Payables';
+    if (
+      nl.indexOf('construction') >= 0 ||
+      nl.indexOf('show flat') >= 0 ||
+      nl.indexOf('sales office') >= 0 ||
+      nl.indexOf('common aminities') >= 0 ||
+      nl.indexOf('common amenities') >= 0 ||
+      nl.indexOf('loans and advance') >= 0 ||
+      nl.indexOf('fixed asset') >= 0 ||
+      nl.indexOf('deposit') >= 0 ||
+      nl.indexOf('common expenses') >= 0
+    ) {
+      return 'Construction';
+    }
     if (opts.scope === 'common') return 'Construction';
     return 'Construction';
   }
@@ -192,7 +213,7 @@
         }
       });
       var letter = String(curL1 || '').trim().charAt(0).toUpperCase();
-      var flow = /^[A-G]$/.test(letter) ? 'in' : 'out';
+      var flow = inferFlow(letter, curL1Name, 'building');
       var masterKey = 'A|' + l3;
       entries[masterKey] = {
         schema: 'v2',
@@ -218,7 +239,7 @@
         cfL1Label: scopedL1Label('building', curL1Name),
         plL1Label: scopedL1Label('building', curL1Name),
         flow: flow,
-        legacyCat1: flow === 'in' ? 'Other Inflow' : 'Construction',
+        legacyCat1: inferLegacyCat1({ l1Name: curL1Name, flow: flow, scope: 'building' }),
       };
     }
     return { entries: entries, cfL1Order: [], plL1Order: [] };

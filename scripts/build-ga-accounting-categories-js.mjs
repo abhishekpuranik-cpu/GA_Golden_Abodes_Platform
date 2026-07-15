@@ -28,6 +28,16 @@ function candidateXlsxPaths() {
   const fromEnv = process.env.GA_ACCT_XLSX && process.env.GA_ACCT_XLSX.trim();
   if (fromEnv) return [path.resolve(fromEnv)];
   return [
+    path.join(
+      'C:',
+      'Users',
+      'HP',
+      'OneDrive',
+      'Projects',
+      'Golden Abodes',
+      'Accounting',
+      'GA Accounting Categories V3 Master.xlsx',
+    ),
     path.join(platformRoot, 'data', 'GA_Accounting_Categories_V3.xlsx'),
     path.join('C:', 'Users', 'HP', 'Downloads', 'Coding (1) (1).xlsx'),
     path.join('C:', 'Users', 'HP', 'Downloads', 'Coding (1).xlsx'),
@@ -53,21 +63,39 @@ function extractShortCode(fullStr) {
   return m ? m[1] : '';
 }
 
+/**
+ * Align with GA Accounting Categories V3 Master:
+ * - Building inflows: Sales Revenue (A), Customer Collections (B)
+ * - Common inflows: L Unsecured Loan, M Investor, N FI Funding, O Promoter, P Other Income
+ * - Common A–G / I / Q / … are costs & BS movements (cash out), NOT "Other Inflow"
+ */
 function inferFlow(l1Letter, l1Name, scope) {
   const lc = clean(l1Letter).toUpperCase();
   const name = clean(l1Name).toLowerCase();
   if (scope === 'common' && lc === 'Z') return 'cash';
-  if (/collection|revenue|sales|funding|loan|inflow|receipt|equity|investor|unsecured|customer/i.test(name)) {
-    if (/expense|cost|paid|tax|fee|construction|marketing|interest|principal|land|consult/i.test(name)) {
-      /* mixed keyword — use letter */
-    } else return 'in';
-  }
-  if (/^[A-G]$/.test(lc) && scope === 'building') {
-    if (lc === 'B') return 'in';
-    if (lc === 'A') return 'in';
+
+  // Balance-sheet advances given = cash out (name contains "loan" but is not funding received)
+  if (/loans?\s*and\s*advance|advances?\s+given|advance\s+receivable/i.test(name)) return 'out';
+  if (/deposit|fixed asset|payable|suspense|other current|retention|creditor|depreciation/i.test(name)) {
     return 'out';
   }
-  if (/^[A-G]$/.test(lc)) return 'in';
+
+  // Explicit true inflows by master L1 name
+  if (/^other income$/i.test(name) || /\bother income\b/i.test(name)) return 'in';
+  if (/customer collection/i.test(name)) return 'in';
+  if (/sales revenue/i.test(name)) return 'in';
+  if (/unsecured loan/i.test(name)) return 'in';
+  if (/investor funding|financial institution funding|promoter funding|equity infusion/i.test(name)) return 'in';
+
+  if (scope === 'building') {
+    // Building chart: A Sales Revenue, B Customer Collections → in; rest out
+    if (lc === 'A' && /sales|revenue/i.test(name)) return 'in';
+    if (lc === 'B' && /collection/i.test(name)) return 'in';
+    return 'out';
+  }
+
+  // Common chart: funding / income letters only
+  if (/^[LMNOP]$/.test(lc)) return 'in';
   return 'out';
 }
 
@@ -79,18 +107,36 @@ function inferLegacyCat1({ l1Name, flow, scope }) {
     if (nl.includes('sales revenue')) return 'Sales Revenue';
     if (nl.includes('equity') || nl.includes('promoter')) return 'Equity Infusion';
     if (nl.includes('investor')) return 'Investor Funding';
-    if (nl.includes('unsecured')) return 'Unsecured Loan';
-    return 'Other Inflow';
+    if (nl.includes('unsecured') || nl.includes('financial institution')) return 'Unsecured Loan';
+    // Master L1 is "Other Income" — never invent "Other Inflow"
+    return 'Other Income';
   }
-  if (nl.includes('project acquisition') || nl.includes('land')) return 'Land';
+  if (nl.includes('project acquisition') || (nl.includes('land') && !nl.includes('loan'))) return 'Land';
+  if (nl.includes('statutory') || nl.includes('government duties') || nl.includes('duties & taxes')) {
+    return 'Regulatory & Consulting';
+  }
   if (nl.includes('regulatory')) return 'Regulatory & Consulting';
   if (nl.includes('consult')) return 'Consultant';
   if (nl.includes('noc')) return 'NOC';
   if (nl.includes('marketing')) return 'Marketing';
   if (nl.includes('g&a') || nl.includes('g a') || nl.includes('dm fee')) return 'GA DM Fee';
-  if (nl.includes('interest')) return 'Interest Paid';
+  if (nl.includes('finance cost')) return 'Interest Paid';
+  if (/\binterest\b/i.test(nl) && !/income/i.test(nl)) return 'Interest Paid';
   if (nl.includes('principal') || nl.includes('debt')) return 'Principal Repaid';
-  if (nl.includes('construction') || nl.includes('show flat') || nl.includes('sales office')) return 'Construction';
+  if (nl.includes('payable') || nl.includes('creditor')) return 'Payables';
+  if (
+    nl.includes('construction') ||
+    nl.includes('show flat') ||
+    nl.includes('sales office') ||
+    nl.includes('common aminities') ||
+    nl.includes('common amenities') ||
+    nl.includes('loans and advance') ||
+    nl.includes('fixed asset') ||
+    nl.includes('deposit') ||
+    nl.includes('common expenses')
+  ) {
+    return 'Construction';
+  }
   if (scope === 'common') return 'Construction';
   return 'Construction';
 }
@@ -235,7 +281,7 @@ function parseV2Outflow(ws) {
     });
     const desc = tail.filter(Boolean)[0] || '';
     const letter = String(curL1 || '').trim().charAt(0).toUpperCase();
-    const flow = /^[A-G]$/.test(letter) ? 'in' : 'out';
+    const flow = inferFlow(letter, curL1Name, 'building');
     const masterKey = `A|${l3}`;
 
     entries[masterKey] = {
@@ -262,7 +308,7 @@ function parseV2Outflow(ws) {
       cfL1Label: scopedL1Label('building', curL1Name),
       plL1Label: scopedL1Label('building', curL1Name),
       flow,
-      legacyCat1: flow === 'in' ? 'Other Inflow' : 'Construction',
+      legacyCat1: inferLegacyCat1({ l1Name: curL1Name, flow, scope: 'building' }),
     };
   }
   return { entries, cfL1Order: [], plL1Order: [] };
