@@ -90,7 +90,7 @@ router.post('/upload', (req, res) => {
         return res.status(400).json({ error: 'unitId and docType are required' });
       }
       if (!req.file) {
-        return res.status(400).json({ error: 'File is required (PDF, image, Word, Excel, etc.)' });
+        return res.status(400).json({ error: 'File is required' });
       }
 
       const body = {

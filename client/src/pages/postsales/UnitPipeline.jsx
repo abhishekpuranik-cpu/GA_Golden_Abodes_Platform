@@ -275,42 +275,27 @@ export default function UnitPipeline() {
 
 
 
-  const handleLineDocUpload = async (docType, file) => {
-
-    if (!file) return;
-
+  const handleLineDocUpload = async (docType, fileList) => {
+    const files = [...(fileList || [])];
+    if (!files.length) return;
     setActionError(null);
-
     setDocUploading(docType);
-
     try {
-
-      await uploadDocument(file, {
-
-        unitId: id,
-
-        stepNumber: selected,
-
-        docType,
-
-        label: TYPE_LABELS[docType],
-
-        status: 'uploaded',
-
-        uploadedBy: actor,
-
-      });
-
+      for (const file of files) {
+        await uploadDocument(file, {
+          unitId: id,
+          stepNumber: selected,
+          docType,
+          label: file.name || TYPE_LABELS[docType],
+          status: 'uploaded',
+          uploadedBy: actor,
+        });
+      }
     } catch (err) {
-
       setActionError(err.message);
-
     } finally {
-
       setDocUploading(null);
-
     }
-
   };
 
 
@@ -808,7 +793,7 @@ export default function UnitPipeline() {
 
                       {docUploading === '__bulk__' ? 'Uploading…' : 'Upload all missing'}
 
-                      <input type="file" multiple accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt" style={{ display: 'none' }} disabled={docUploading === '__bulk__'} onChange={handleBulkDocUpload} />
+                      <input type="file" multiple style={{ display: 'none' }} disabled={docUploading === '__bulk__'} onChange={handleBulkDocUpload} />
 
                     </label>
 
@@ -817,63 +802,52 @@ export default function UnitPipeline() {
                   </div>
 
                 {stepDocTypes.map((type) => {
-
-                  const doc = stepDocuments.find((d) => d.docType === type);
-
+                  const typeDocs = stepDocuments.filter((d) => d.docType === type);
+                  const hasFiles = typeDocs.some((d) => documentOpenUrl(d));
+                  const latest = typeDocs[0];
                   return (
-
                     <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
-
                       <div style={{ flex: '1 1 auto', minWidth: 0 }}>
-
                         <strong>{TYPE_LABELS[type]}</strong>
-
-                        <div>{doc ? <span className="ps-badge ps-badge-green">{doc.status}</span> : <span className="ps-badge ps-badge-grey">missing</span>}</div>
-
+                        <div>
+                          {typeDocs.length
+                            ? <span className="ps-badge ps-badge-green">{latest.status}</span>
+                            : <span className="ps-badge ps-badge-grey">missing</span>}
+                          {typeDocs.length > 1 && (
+                            <span style={{ fontSize: '0.75rem', marginLeft: 8, color: 'var(--ps-text-muted)' }}>
+                              {typeDocs.length} files
+                            </span>
+                          )}
+                        </div>
+                        {typeDocs.length > 0 && (
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                            {typeDocs.map((doc) => (
+                              documentOpenUrl(doc) ? (
+                                <a key={doc._id} href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn" style={{ fontSize: '0.75rem' }}>
+                                  {doc.fileName || doc.label || 'File'}
+                                </a>
+                              ) : null
+                            ))}
+                          </div>
+                        )}
                       </div>
-
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-
-                        {documentOpenUrl(doc) ? (
-
-                          <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
-
-                        ) : null}
-
                         <label className="ps-btn" style={{ margin: 0, cursor: docUploading === type ? 'wait' : 'pointer' }}>
-
-                          {docUploading === type ? '…' : documentOpenUrl(doc) ? 'Replace' : 'Upload'}
-
+                          {docUploading === type ? '…' : hasFiles ? 'Add more' : 'Upload'}
                           <input
-
                             type="file"
-
-                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt"
-
+                            multiple
                             style={{ display: 'none' }}
-
                             disabled={!!docUploading}
-
                             onChange={(e) => {
-
-                              const f = e.target.files?.[0];
-
-                              if (f) handleLineDocUpload(type, f);
-
+                              handleLineDocUpload(type, e.target.files || []);
                               e.target.value = '';
-
                             }}
-
                           />
-
                         </label>
-
                       </div>
-
                     </div>
-
                   );
-
                 })}
 
                 </>

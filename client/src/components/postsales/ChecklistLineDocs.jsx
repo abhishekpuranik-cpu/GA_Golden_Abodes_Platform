@@ -96,7 +96,6 @@ export default function ChecklistLineDocs({
               <input
                 type="file"
                 multiple
-                accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt"
                 style={{ display: 'none' }}
                 disabled={disabled || busy}
                 onChange={(e) => {

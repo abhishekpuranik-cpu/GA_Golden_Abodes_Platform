@@ -1,6 +1,11 @@
 import crypto from 'crypto';
 import { GridFSBucket, ObjectId } from 'mongodb';
-import { attachmentKind, isAllowedMime } from '../preconAttachments.js';
+import { attachmentKind } from '../preconAttachments.js';
+
+/** Post Sales document vault accepts any file format (size limit still applies). */
+export function isAllowedPostSalesMime(_mimeType) {
+  return true;
+}
 
 export const POSTSALES_FILES_BUCKET = 'postsales_files';
 export const MAX_UPLOAD_BYTES = Math.min(
@@ -26,7 +31,9 @@ export async function storePostSalesFile(db, file) {
   if (buffer.length > MAX_UPLOAD_BYTES) {
     throw new Error(`File exceeds ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`);
   }
-  if (!isAllowedMime(mimeType)) throw new Error('File type not allowed (PDF, images, Word, Excel, etc.)');
+  if (!isAllowedPostSalesMime(mimeType)) {
+    throw new Error('File type not allowed');
+  }
 
   const bucket = gfsBucket(db);
   const gridId = new ObjectId();

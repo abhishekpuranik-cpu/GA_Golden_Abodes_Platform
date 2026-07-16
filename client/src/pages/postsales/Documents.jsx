@@ -35,7 +35,7 @@ export default function Documents() {
   const [unitSearch, setUnitSearch] = useState('');
   const [docSearch, setDocSearch] = useState('');
   const [showUpload, setShowUpload] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ docType: 'booking_form', status: 'uploaded', label: '', file: null });
+  const [uploadForm, setUploadForm] = useState({ docType: 'booking_form', status: 'uploaded', label: '', files: [] });
   const [uploadError, setUploadError] = useState(null);
   const [lineUploading, setLineUploading] = useState(null);
 
@@ -99,11 +99,12 @@ export default function Documents() {
     })).filter((g) => g.types.length > 0);
   }, [docSearch, documents]);
 
-  const docByType = useMemo(() => {
+  const docsByType = useMemo(() => {
     const m = {};
     for (const d of documents) {
       if (d.clpLetterTaskId || d.checklistIndex != null) continue;
-      m[d.docType] = d;
+      if (!m[d.docType]) m[d.docType] = [];
+      m[d.docType].push(d);
     }
     return m;
   }, [documents]);
@@ -112,18 +113,21 @@ export default function Documents() {
 
 
 
-  const handleLineUpload = async (type, file) => {
-    if (!file || !unitId) return;
+  const handleLineUpload = async (type, fileList) => {
+    const files = [...(fileList || [])];
+    if (!files.length || !unitId) return;
     setLineUploading(type);
     try {
       const stepNumber = primaryStepForDocType(type) || DOC_GROUPS.find((g) => g.types.includes(type))?.step;
-      await uploadDocument(file, {
-        unitId,
-        stepNumber,
-        docType: type,
-        label: TYPE_LABELS[type],
-        status: 'uploaded',
-      });
+      for (const file of files) {
+        await uploadDocument(file, {
+          unitId,
+          stepNumber,
+          docType: type,
+          label: file.name || TYPE_LABELS[type],
+          status: 'uploaded',
+        });
+      }
     } finally {
       setLineUploading(null);
     }
@@ -137,33 +141,25 @@ export default function Documents() {
 
     setUploadError(null);
 
-    if (!uploadForm.file) {
-
-      setUploadError('Choose a file to upload (PDF, image, Word, etc.)');
-
+    if (!uploadForm.files.length) {
+      setUploadError('Choose one or more files to upload');
       return;
-
     }
 
     const stepNumber = primaryStepForDocType(uploadForm.docType) || DOC_GROUPS.find((g) => g.types.includes(uploadForm.docType))?.step;
 
-    await uploadDocument(uploadForm.file, {
-
-      unitId,
-
-      stepNumber,
-
-      docType: uploadForm.docType,
-
-      label: uploadForm.label || TYPE_LABELS[uploadForm.docType],
-
-      status: uploadForm.status,
-
-    });
+    for (const file of uploadForm.files) {
+      await uploadDocument(file, {
+        unitId,
+        stepNumber,
+        docType: uploadForm.docType,
+        label: uploadForm.label || file.name || TYPE_LABELS[uploadForm.docType],
+        status: uploadForm.status,
+      });
+    }
 
     setShowUpload(false);
-
-    setUploadForm({ docType: 'booking_form', status: 'uploaded', label: '', file: null });
+    setUploadForm({ docType: 'booking_form', status: 'uploaded', label: '', files: [] });
 
   };
 
@@ -337,57 +333,47 @@ export default function Documents() {
                   </div>
 
                   {group.types.map((type) => {
-
-                    const doc = docByType[type];
-
+                    const typeDocs = docsByType[type] || [];
+                    const hasFiles = typeDocs.some((d) => documentOpenUrl(d));
+                    const latest = typeDocs[0];
                     return (
-
                       <div key={type} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0', borderBottom: '1px solid var(--ps-border)' }}>
-
                         <div style={{ flex: 1, minWidth: 0 }}>
-
                           <div>{TYPE_LABELS[type]}</div>
-
-                          {doc ? (
-
+                          {typeDocs.length ? (
                             <>
-
-                              <span className={statusBadge(doc.status)}>{doc.status}</span>
-
-                              {doc.receivedDate && <span style={{ fontSize: '0.75rem', marginLeft: 8 }}>{new Date(doc.receivedDate).toLocaleDateString('en-IN')}</span>}
-
+                              <span className={statusBadge(latest.status)}>{latest.status}</span>
+                              {latest.receivedDate && <span style={{ fontSize: '0.75rem', marginLeft: 8 }}>{new Date(latest.receivedDate).toLocaleDateString('en-IN')}</span>}
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                                {typeDocs.map((doc) => (
+                                  documentOpenUrl(doc) ? (
+                                    <a key={doc._id} href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn" style={{ fontSize: '0.75rem' }}>
+                                      {doc.fileName || doc.label || 'File'}
+                                    </a>
+                                  ) : (
+                                    <span key={doc._id} className="ps-badge ps-badge-grey">{doc.fileName || doc.label || 'File'}</span>
+                                  )
+                                ))}
+                              </div>
                             </>
-
                           ) : (
-
                             <span className="ps-badge ps-badge-grey">missing</span>
-
                           )}
-
                         </div>
-
                         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
-
-                          {documentOpenUrl(doc) ? (
-
-                            <a href={documentOpenUrl(doc)} target="_blank" rel="noreferrer" className="ps-btn">Open</a>
-
-                          ) : null}
-
                           <label className="ps-btn" style={{ margin: 0, cursor: lineUploading === type ? 'wait' : 'pointer' }}>
-
-                            {lineUploading === type ? '…' : documentOpenUrl(doc) ? 'Replace' : 'Upload'}
-
-                            <input type="file" accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt" style={{ display: 'none' }} disabled={!!lineUploading} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleLineUpload(type, f); e.target.value = ''; }} />
-
+                            {lineUploading === type ? '…' : hasFiles ? 'Add more' : 'Upload'}
+                            <input
+                              type="file"
+                              multiple
+                              style={{ display: 'none' }}
+                              disabled={!!lineUploading}
+                              onChange={(e) => { handleLineUpload(type, e.target.files || []); e.target.value = ''; }}
+                            />
                           </label>
-
                         </div>
-
                       </div>
-
                     );
-
                   })}
 
                 </div>
@@ -433,23 +419,18 @@ export default function Documents() {
               <div className="ps-form-group"><label>Label</label><input value={uploadForm.label} onChange={(e) => setUploadForm((f) => ({ ...f, label: e.target.value }))} placeholder={TYPE_LABELS[uploadForm.docType]} /></div>
 
               <div className="ps-form-group">
-
-                <label>File (PDF, image, Word, Excel…)</label>
-
+                <label>Files (any format — select multiple)</label>
                 <input
-
                   type="file"
-
-                  required
-
-                  accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg,.gif,.webp,.txt"
-
-                  onChange={(e) => setUploadForm((f) => ({ ...f, file: e.target.files?.[0] || null }))}
-
+                  multiple
+                  required={!uploadForm.files.length}
+                  onChange={(e) => setUploadForm((f) => ({ ...f, files: [...(e.target.files || [])] }))}
                 />
-
-                {uploadForm.file && <div style={{ fontSize: '0.8rem', marginTop: 4, color: 'var(--ps-text-muted)' }}>{uploadForm.file.name}</div>}
-
+                {uploadForm.files.length > 0 && (
+                  <div style={{ fontSize: '0.8rem', marginTop: 4, color: 'var(--ps-text-muted)' }}>
+                    {uploadForm.files.length} file{uploadForm.files.length === 1 ? '' : 's'}: {uploadForm.files.map((f) => f.name).join(', ')}
+                  </div>
+                )}
               </div>
 
               <div className="ps-form-group">
