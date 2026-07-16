@@ -36,6 +36,12 @@ const ActivityLogSchema = new mongoose.Schema({
 
 }, { _id: false });
 
+const CommentSchema = new mongoose.Schema({
+  text: String,
+  at: { type: Date, default: Date.now },
+  by: String,
+}, { _id: false });
+
 
 
 const ClpLetterTaskSchema = new mongoose.Schema({
@@ -73,6 +79,12 @@ const ClpLetterTaskSchema = new mongoose.Schema({
   completedBy: String,
 
   note: String,
+
+  nextAction: String,
+
+  nextActionDate: Date,
+
+  comments: [CommentSchema],
 
 }, { timestamps: true });
 

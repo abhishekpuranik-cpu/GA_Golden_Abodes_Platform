@@ -366,6 +366,65 @@ export async function toggleClpLetterChecklist(taskId, index, done, by) {
   return task.toObject();
 }
 
+export async function completeAllClpLetterChecklist(taskId, by) {
+  const task = await ClpLetterTask.findById(taskId);
+  if (!task) throw new Error('CLP letter task not found');
+  if (task.status === 'complete') throw new Error('Reopen activity before editing checklist');
+
+  let changed = 0;
+  for (const item of task.checklist || []) {
+    if (!item.done) {
+      item.done = true;
+      item.doneAt = new Date();
+      item.doneBy = by;
+      changed += 1;
+    }
+  }
+  if (!changed) return task.toObject();
+
+  if (task.status === 'open') task.status = 'in_progress';
+  task.markModified('checklist');
+  pushClpActivity(task, 'checklist', by, `Marked all ${changed} checklist item(s) complete`);
+  await task.save();
+  return task.toObject();
+}
+
+export async function addClpLetterTaskComment(taskId, text, by) {
+  const task = await ClpLetterTask.findById(taskId);
+  if (!task) throw new Error('CLP letter task not found');
+  const trimmed = String(text || '').trim();
+  if (!trimmed) throw new Error('Comment text is required');
+
+  if (!task.comments) task.comments = [];
+  task.comments.push({ text: trimmed, by, at: new Date() });
+  pushClpActivity(task, 'note', by, trimmed.slice(0, 240));
+  await task.save();
+  return task.toObject();
+}
+
+export async function updateClpLetterTaskMeta(taskId, { nextAction, nextActionDate, note, by } = {}) {
+  const task = await ClpLetterTask.findById(taskId);
+  if (!task) throw new Error('CLP letter task not found');
+
+  if (nextAction !== undefined) task.nextAction = nextAction;
+  if (nextActionDate !== undefined) {
+    task.nextActionDate = nextActionDate ? new Date(nextActionDate) : undefined;
+  }
+  if (note !== undefined) task.note = note;
+
+  if (by && (nextAction !== undefined || nextActionDate !== undefined)) {
+    const parts = [];
+    if (nextAction !== undefined && String(nextAction).trim()) parts.push(`Next: ${String(nextAction).trim().slice(0, 120)}`);
+    if (nextActionDate !== undefined && nextActionDate) {
+      parts.push(`Date: ${new Date(nextActionDate).toLocaleDateString('en-IN')}`);
+    }
+    if (parts.length) pushClpActivity(task, 'note', by, parts.join(' · '));
+  }
+
+  await task.save();
+  return task.toObject();
+}
+
 export async function completeClpLetterTask(taskId, by, note) {
   return updateClpLetterTaskStatus(taskId, 'complete', by, note);
 }
@@ -386,8 +445,8 @@ export function mapClpLetterTaskToMyTask(task, unit) {
     taskKindLabel: 'CLP',
     assignedTo: task.assignee,
     dueDate: task.dueDate,
-    nextAction: `Issue CLP letter — ${task.milestoneName}`,
-    nextActionDate: task.dueDate,
+    nextAction: task.nextAction || `Issue CLP letter — ${task.milestoneName}`,
+    nextActionDate: task.nextActionDate || task.dueDate,
     milestoneName: task.milestoneName,
     clpPercent: task.clpPercent,
     unitNumber: unit?.unitNumber,

@@ -1,7 +1,7 @@
 /** Document types expected per pipeline step — shared by pipeline upload and Documents vault. */
 export const DOC_GROUPS = [
   { label: 'Booking (Step 1)', step: 1, types: ['booking_form', 'cost_sheet', 'payment_receipt'] },
-  { label: 'KYC (Steps 1, 5)', step: 5, types: ['pan_card', 'aadhaar_card', 'photograph', 'address_proof', 'marital_proof'] },
+  { label: 'KYC (Steps 1, 5)', step: 5, types: ['pan_card', 'aadhaar_card', 'photograph', 'marital_proof'] },
   { label: 'Loan (Step 4)', step: 4, types: ['loan_application', 'approved_plan', 'rera_certificate', 'loan_sanction_letter', 'allotment_letter'] },
   { label: 'Agreement (Steps 6, 8)', step: 6, types: ['agreement_draft', 'registered_agreement', 'self_declaration'] },
   { label: 'TDS (Step 9)', step: 9, types: ['form_26QB', 'form_16B', 'tds_challan'] },
@@ -13,6 +13,7 @@ export const DOC_GROUPS = [
 
 export const TYPE_LABELS = {
   ...Object.fromEntries(DOC_GROUPS.flatMap((g) => g.types.map((t) => [t, t.replace(/_/g, ' ')]))),
+  aadhaar_card: 'Aadhaar (address proof)',
   demand_letter_clp: 'Demand letter (CLP)',
   architect_certificate: 'Architect certificate',
   supporting_document: 'Supporting document',
