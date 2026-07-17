@@ -254,7 +254,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 71;
+var CF_VERSION = 72;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
@@ -1968,14 +1968,10 @@ function guessTallyCategoryKey(ledger){
 // ══════════════════════════════════════════════════════════════
 /** Default books-from when pulling Payment+Receipt from inception (override in sync modal). */
 var TALLY_BOOKS_INCEPTION_DEFAULT='2000-04-01';
-/** Reset mistaken “this FY only” dates so full-history pulls cover the real books. */
+/** Keep any valid From date the user chose; only fix blank/invalid values. */
 function normalizeTallyBooksFromDate(fromDate){
   var d=String(fromDate||'').trim().slice(0,10);
   if(!/^\d{4}-\d{2}-\d{2}$/.test(d)) return TALLY_BOOKS_INCEPTION_DEFAULT;
-  var y=String(new Date().getFullYear());
-  var yPrev=String(parseInt(y,10)-1);
-  // Common mistakes saved as books inception: Jan 1 or Apr 1 of current/previous calendar year
-  if(d===y+'-01-01'||d===y+'-04-01'||d===yPrev+'-01-01'||d===yPrev+'-04-01') return TALLY_BOOKS_INCEPTION_DEFAULT;
   return d;
 }
 function getTallySettings(){
@@ -2557,7 +2553,7 @@ function showTallySyncModal(){
     +'</select></div>'
     +'<div class="field"><label>Tally report ID (only for “Single report”)</label><input id="tset-report" type="text" value="'+escAttr(s.reportId||'Day Book')+'" placeholder="Day Book / Voucher Register"/></div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">'
-    +'<div class="field"><label>From date (books inception)</label><input id="tset-from" type="date" value="'+escAttr(s.fromDate)+'"/></div>'
+    +'<div class="field"><label>From date (any start — e.g. FY start or books inception)</label><input id="tset-from" type="date" value="'+escAttr(s.fromDate)+'"/></div>'
     +'<div class="field"><label>To date</label><input id="tset-to" type="date" value="'+escAttr(s.toDate)+'"/></div></div>'
     +'<div class="field"><label>Only if cost centre contains (optional site/company scope)</label><input id="tset-cc" type="text" value="'+escAttr(s.costCentreSubstr)+'" placeholder="Leave blank to allocate every building/common cost centre in this phase"/></div>'
     +'<label style="font-size:11px;display:flex;align-items:flex-start;gap:8px;margin-bottom:10px;cursor:pointer;max-width:100%">'
@@ -2668,7 +2664,7 @@ function runTallyPullVouchers(){
     if(parsed.error){
       var hint=(bridgeMeta&&bridgeMeta.hint)?(' '+bridgeMeta.hint):'';
       if(bridgeMeta&&bridgeMeta.empty){
-        el.textContent='No Payment/Receipt vouchers returned for '+fd+'–'+td+'.'+hint+' Tip: set From date to 2000-04-01 (books inception), open the company in Tally, then pull again. Use Download last raw XML to inspect.';
+        el.textContent='No Payment/Receipt vouchers returned for '+fd+'–'+td+'.'+hint+' Tip: confirm Tally company/FY covers your From–To dates, then pull again. Use Download last raw XML to inspect.';
       }else{
         el.textContent='Parse: '+parsed.error+hint;
       }

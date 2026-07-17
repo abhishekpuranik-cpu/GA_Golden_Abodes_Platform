@@ -23,9 +23,18 @@ const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || '34876', 10);
 const TALLY_TIMEOUT_MS = Math.max(5000, parseInt(process.env.TALLY_TIMEOUT_MS || '20000', 10) || 20000);
 /** Max XML shapes tried per window before declaring empty (prevents multi-minute hangs). */
 const MAX_PROBES_PER_WINDOW = Math.max(2, parseInt(process.env.TALLY_MAX_PROBES || '5', 10) || 5);
-const BRIDGE_VERSION = 3.1;
+const BRIDGE_VERSION = 3.2;
 /** Remember last winning export shape across windows/jobs. */
 let lastWinningTag = '';
+
+/** Node rejects non-ASCII / CR/LF in header values (Invalid character in header content). */
+function headerSafeJson(obj, maxLen) {
+  const raw = JSON.stringify(obj == null ? {} : obj);
+  return String(raw)
+    .replace(/[\r\n\t]/g, ' ')
+    .replace(/[^\x20-\x7E]/g, '')
+    .slice(0, Math.max(200, maxLen || 3500));
+}
 
 function send(res, status, body, contentType) {
   res.writeHead(status, {
@@ -790,9 +799,9 @@ const server = http.createServer(async (req, res) => {
         'Content-Type': 'application/xml; charset=utf-8',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Expose-Headers': 'X-GA-Tally-Meta',
-        'X-GA-Tally-Meta': JSON.stringify({
+        'X-GA-Tally-Meta': headerSafeJson({
           preset: body.preset || null,
-          strategy: 'daybook_voucher_type_dated_v3.1',
+          strategy: 'daybook_voucher_type_dated_v3.2',
           version: BRIDGE_VERSION,
           fromDate: fromDd,
           toDate: toDd,
@@ -802,10 +811,10 @@ const server = http.createServer(async (req, res) => {
           empty: totalV === 0,
           hint:
             totalV === 0
-              ? 'No Payment/Receipt vouchers in range. In Tally: open the company, set the correct FY, then in Cashflow set From = books inception (2000-04-01) → today and pull again.'
+              ? 'No Payment/Receipt vouchers in this date range. In Tally: open the company, confirm FY covers the From/To dates you chose, then pull again. Any From-To window is allowed.'
               : null,
           parts: meta.slice(0, 80),
-        }).slice(0, 3500),
+        }),
       });
       res.end(merged);
     } catch (e) {
