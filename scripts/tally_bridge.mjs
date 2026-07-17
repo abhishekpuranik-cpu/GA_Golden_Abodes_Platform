@@ -19,6 +19,11 @@ import { URL } from 'url';
 
 const TALLY_URL = process.env.TALLY_URL || 'http://127.0.0.1:9000';
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || '34876', 10);
+const TALLY_TIMEOUT_MS = Math.max(5000, parseInt(process.env.TALLY_TIMEOUT_MS || '45000', 10) || 45000);
+/** Max XML shapes tried per window before declaring empty (prevents multi-minute hangs). */
+const MAX_PROBES_PER_WINDOW = Math.max(3, parseInt(process.env.TALLY_MAX_PROBES || '8', 10) || 8);
+/** Remember last winning export shape across windows/jobs. */
+let lastWinningTag = '';
 
 function send(res, status, body, contentType) {
   res.writeHead(status, {
@@ -298,12 +303,22 @@ function scoreExportBody(xml, fromDd, toDd) {
   return dates.size * 100000 + inRange * 10 - outRange;
 }
 
+/**
+ * True when Tally returned some in-range vouchers but the date span looks cut short.
+ * Empty responses are NOT truncation — do not month-fan-out on score=-1 / 0 vouchers.
+ */
 function looksLikeTruncation(xml, fromDd, toDd) {
   if (!isMultiDayRequest(fromDd, toDd)) return false;
-  if (!responseHasVoucherXml(xml)) return true;
+  if (!responseHasVoucherXml(xml)) return false;
   const dates = [...collectDates(xml)].filter((d) => !fromDd || !toDd || (d >= fromDd && d <= toDd));
-  if (!dates.length) return true;
-  if (dates.length <= 1) return true;
+  if (!dates.length) return false;
+  if (dates.length <= 1 && isMultiDayRequest(fromDd, toDd)) {
+    const reqSpan =
+      (Date.UTC(+toDd.slice(0, 4), +toDd.slice(4, 6) - 1, +toDd.slice(6, 8)) -
+        Date.UTC(+fromDd.slice(0, 4), +fromDd.slice(4, 6) - 1, +fromDd.slice(6, 8))) /
+      86400000;
+    return reqSpan >= 14;
+  }
   dates.sort();
   // Truncated if span of returned dates is tiny vs requested window (>60 days asked, <3 days returned)
   const reqSpan =
@@ -418,12 +433,12 @@ function resolveJobs(body) {
       {
         label: 'Payment',
         voucherType: 'Payment',
-        reportIds: ['Day Book', 'Voucher Register', 'Daybook'],
+        reportIds: ['Day Book', 'Voucher Register'],
       },
       {
         label: 'Receipt',
         voucherType: 'Receipt',
-        reportIds: ['Day Book', 'Voucher Register', 'Daybook'],
+        reportIds: ['Day Book', 'Voucher Register'],
       },
     ];
   }
@@ -448,95 +463,132 @@ async function forwardToTally(xmlBody) {
     method: 'POST',
     headers: { 'Content-Type': 'text/xml; charset=UTF-8' },
     body: xmlBody,
+    signal: AbortSignal.timeout(TALLY_TIMEOUT_MS),
   });
   const text = await r.text();
   return { ok: r.ok, status: r.status, body: text };
 }
 
-async function exportOneWindow(reportIds, fromDd, toDd, optsIn) {
-  let optsOut = { ...(optsIn || {}) };
+/** Build a short, deduped probe list for one date window. */
+function buildAttemptList(reportIds, fromDd, toDd, optsOut) {
   const uniqueNames = [...new Set((reportIds || ['Day Book']).filter(Boolean))];
   const vt = optsOut.voucherTypeName || '';
+  const list = [];
+  const seen = new Set();
+  const push = (tag, fn) => {
+    if (seen.has(tag)) return;
+    seen.add(tag);
+    list.push({ tag, fn });
+  };
 
-  function attemptsForReport(rid) {
-    const reportName = rid || 'Day Book';
-    const list = [
-      { tag: reportName + '+vtype|typedDmy', fn: () => buildExportData(reportName, fromDd, toDd, optsOut, 'typedDmy') },
-      {
-        tag: reportName + '+vtype|varsBefore+typedDmy',
-        fn: () => buildExportDataVarsBeforeReport(reportName, fromDd, toDd, optsOut, 'typedDmy'),
-      },
-      { tag: reportName + '+vtype|fmtFirst', fn: () => buildExportData(reportName, fromDd, toDd, optsOut, 'fmtFirst') },
-      { tag: reportName + '+vtype|datesFirst', fn: () => buildExportData(reportName, fromDd, toDd, optsOut, 'datesFirst') },
-      { tag: reportName + '+vtype|typedYmd', fn: () => buildExportData(reportName, fromDd, toDd, optsOut, 'typed') },
-      {
-        tag: reportName + '|legacy+typedDmy',
-        fn: () => buildExportXmlLegacy(reportName === 'Daybook' ? 'Day Book' : reportName, fromDd, toDd, optsOut, 'typedDmy'),
-      },
-    ];
-    if (vt) {
-      list.unshift({
-        tag: 'DayBook-TDL|' + vt + '|typedDmy',
-        fn: () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, 'typedDmy'),
-      });
-      list.unshift({
-        tag: 'DayBook-TDL|' + vt + '|fmtFirst',
-        fn: () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, 'fmtFirst'),
-      });
-    }
-    return list;
+  // Prefer last winning shape first (fast path after first success).
+  if (vt && lastWinningTag.startsWith('DayBook-TDL|' + vt)) {
+    const fmt = lastWinningTag.includes('|fmtFirst') ? 'fmtFirst' : 'typedDmy';
+    push(lastWinningTag, () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, fmt));
   }
+
+  // Day Book TDL filter once per window (not once per report name).
+  if (vt) {
+    push('DayBook-TDL|' + vt + '|typedDmy', () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, 'typedDmy'));
+    push('DayBook-TDL|' + vt + '|fmtFirst', () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, 'fmtFirst'));
+  }
+
+  for (const rid of uniqueNames) {
+    const reportName = rid || 'Day Book';
+    push(reportName + '+vtype|typedDmy', () => buildExportData(reportName, fromDd, toDd, optsOut, 'typedDmy'));
+    push(reportName + '+vtype|fmtFirst', () => buildExportData(reportName, fromDd, toDd, optsOut, 'fmtFirst'));
+    push(reportName + '+vtype|typedYmd', () => buildExportData(reportName, fromDd, toDd, optsOut, 'typed'));
+  }
+
+  return list.slice(0, MAX_PROBES_PER_WINDOW);
+}
+
+async function exportOneWindow(reportIds, fromDd, toDd, optsIn) {
+  let optsOut = { ...(optsIn || {}) };
+  const attempts = buildAttemptList(reportIds, fromDd, toDd, optsOut);
 
   let best = null;
   let bestScore = -999999;
   let bestTag = '';
+  let emptyStreak = 0;
 
-  for (const rid of uniqueNames) {
-    for (const a of attemptsForReport(rid)) {
-      let xml = a.fn();
-      let out = await forwardToTally(xml);
-      let bodyText = out.body || '';
+  for (const a of attempts) {
+    let xml = a.fn();
+    let out;
+    try {
+      out = await forwardToTally(xml);
+    } catch (e) {
+      console.warn('[ga-tally-bridge]', a.tag, 'Tally fetch failed:', e.message || e);
+      emptyStreak += 1;
+      if (emptyStreak >= 3) {
+        console.warn('[ga-tally-bridge] aborting window after repeated Tally failures');
+        break;
+      }
+      continue;
+    }
+    let bodyText = out.body || '';
 
-      const companyRejected =
-        optsOut.sendCompanyToTally &&
-        optsOut.currentCompany &&
-        /<LINEERROR[^>]*>/i.test(bodyText) &&
-        /SVCURRENTCOMPANY|SVCurrentCompany|Could not set.*company/i.test(bodyText);
-      if (companyRejected) {
-        console.warn('[ga-tally-bridge] SVCURRENTCOMPANY rejected; retrying without company.');
-        optsOut = { ...optsOut, sendCompanyToTally: false, currentCompany: undefined };
-        xml = a.fn();
+    const companyRejected =
+      optsOut.sendCompanyToTally &&
+      optsOut.currentCompany &&
+      /<LINEERROR[^>]*>/i.test(bodyText) &&
+      /SVCURRENTCOMPANY|SVCurrentCompany|Could not set.*company/i.test(bodyText);
+    if (companyRejected) {
+      console.warn('[ga-tally-bridge] SVCURRENTCOMPANY rejected; retrying without company.');
+      optsOut = { ...optsOut, sendCompanyToTally: false, currentCompany: undefined };
+      xml = a.fn();
+      try {
         out = await forwardToTally(xml);
         bodyText = out.body || '';
+      } catch (e) {
+        console.warn('[ga-tally-bridge] retry without company failed:', e.message || e);
+        continue;
       }
+    }
 
-      const sc = scoreExportBody(bodyText, fromDd, toDd);
-      const nv = extractVoucherBlocks(bodyText).length;
-      console.log('[ga-tally-bridge]', a.tag, fromDd, '→', toDd, 'score=', sc, 'vouchers~', nv);
+    const sc = scoreExportBody(bodyText, fromDd, toDd);
+    const nv = extractVoucherBlocks(bodyText).length;
+    console.log('[ga-tally-bridge]', a.tag, fromDd, '→', toDd, 'score=', sc, 'vouchers~', nv);
 
-      if (sc > bestScore) {
-        bestScore = sc;
-        best = out;
-        bestTag = a.tag;
+    if (sc > bestScore) {
+      bestScore = sc;
+      best = out;
+      bestTag = a.tag;
+    }
+
+    if (isAcceptable(bodyText, fromDd, toDd)) {
+      lastWinningTag = a.tag;
+      console.log('[ga-tally-bridge] accepted', a.tag);
+      return { out, tag: a.tag, score: sc, optsOut, acceptable: true, empty: false };
+    }
+
+    if (sc < 0 && nv === 0) {
+      emptyStreak += 1;
+      // After a few empties, further formats almost never help — stop this window.
+      if (emptyStreak >= 4) {
+        console.warn('[ga-tally-bridge] empty streak — stop probes for', fromDd, '→', toDd);
+        break;
       }
-
-      if (isAcceptable(bodyText, fromDd, toDd)) {
-        console.log('[ga-tally-bridge] accepted', a.tag);
-        return { out, tag: a.tag, score: sc, optsOut, acceptable: true };
-      }
+    } else {
+      emptyStreak = 0;
     }
   }
 
+  const empty = bestScore < 0 || !extractVoucherBlocks(best?.body || '').length;
   return {
     out: best || { ok: true, body: '<ENVELOPE><BODY><DATA></DATA></BODY></ENVELOPE>' },
     tag: bestTag || 'empty',
     score: bestScore,
     optsOut,
     acceptable: false,
+    empty,
   };
 }
 
-/** Year window first; if truncated, re-pull that window month-by-month. */
+/**
+ * Year window first; month fan-out ONLY when the year returned partial data that looks truncated.
+ * Empty years (0 vouchers / score=-1) skip month retries — that was the multi-minute hang.
+ */
 async function exportAdaptive(job, fromDd, toDd, optsIn) {
   const opts = { ...(optsIn || {}), voucherTypeName: job.voucherType || optsIn?.voucherTypeName || undefined };
   const parts = [];
@@ -559,7 +611,30 @@ async function exportAdaptive(job, fromDd, toDd, optsIn) {
       });
       continue;
     }
-    console.warn('[ga-tally-bridge] year truncated/out-of-range — retry months', job.label, yFrom, yTo);
+
+    const yrVouchers = extractVoucherBlocks(yr.out.body || '').length;
+    if (yr.empty || yr.score < 0 || yrVouchers === 0) {
+      console.warn(
+        '[ga-tally-bridge] year empty — skip month fan-out',
+        job.label,
+        yFrom,
+        yTo,
+        '(open company in Tally / check FY / narrow dates)'
+      );
+      parts.push(yr.out.body || '');
+      meta.push({
+        job: job.label,
+        from: yFrom,
+        to: yTo,
+        tag: yr.tag,
+        score: yr.score,
+        mode: 'year_empty',
+        vouchers: 0,
+      });
+      continue;
+    }
+
+    console.warn('[ga-tally-bridge] year truncated — retry months', job.label, yFrom, yTo);
     for (const [mFrom, mTo] of monthChunks(yFrom, yTo)) {
       console.log('[ga-tally-bridge] month', job.label, mFrom, '→', mTo);
       const mr = await exportOneWindow(job.reportIds, mFrom, mTo, yr.optsOut || opts);
@@ -594,8 +669,16 @@ const server = http.createServer(async (req, res) => {
       service: 'ga-tally-bridge',
       tallyUrl: TALLY_URL,
       port: BRIDGE_PORT,
-      features: ['payment_receipt_daybook_vtype', 'year_then_month_chunks', 'date_window_guard'],
-      version: 2,
+      features: [
+        'payment_receipt_daybook_vtype',
+        'year_then_month_chunks',
+        'date_window_guard',
+        'fail_fast_empty',
+        'tally_timeout',
+      ],
+      version: 3,
+      tallyTimeoutMs: TALLY_TIMEOUT_MS,
+      maxProbesPerWindow: MAX_PROBES_PER_WINDOW,
     });
     return;
   }
@@ -691,6 +774,15 @@ const server = http.createServer(async (req, res) => {
         '→',
         dates[dates.length - 1] || '-',
       );
+      if (totalV === 0) {
+        console.warn(
+          '[ga-tally-bridge] 0 vouchers — open the Tally company, confirm FY covers',
+          fromDd,
+          '→',
+          toDd,
+          ', and that Payment/Receipt exist. Empty windows no longer month-retry.'
+        );
+      }
 
       res.writeHead(200, {
         'Content-Type': 'application/xml; charset=utf-8',
@@ -698,12 +790,17 @@ const server = http.createServer(async (req, res) => {
         'Access-Control-Expose-Headers': 'X-GA-Tally-Meta',
         'X-GA-Tally-Meta': JSON.stringify({
           preset: body.preset || null,
-          strategy: 'daybook_voucher_type_dated',
+          strategy: 'daybook_voucher_type_dated_v3',
           fromDate: fromDd,
           toDate: toDd,
           voucherCount: totalV,
           dateMin: dates[0] || null,
           dateMax: dates[dates.length - 1] || null,
+          empty: totalV === 0,
+          hint:
+            totalV === 0
+              ? 'No Payment/Receipt vouchers in range. Open company in Tally; confirm FY; Test bridge; narrow dates.'
+              : null,
           parts: meta.slice(0, 80),
         }).slice(0, 3500),
       });
@@ -722,7 +819,17 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(BRIDGE_PORT, '127.0.0.1', () => {
-  console.log('GA Tally bridge v2 on http://127.0.0.1:' + BRIDGE_PORT);
+  console.log(
+    'GA Tally bridge v3 on http://127.0.0.1:' +
+      BRIDGE_PORT +
+      ' → ' +
+      TALLY_URL +
+      ' (timeout ' +
+      TALLY_TIMEOUT_MS +
+      'ms, max probes/window ' +
+      MAX_PROBES_PER_WINDOW +
+      ')'
+  );
   console.log('Forwarding to Tally at ' + TALLY_URL);
   console.log('payment_receipt = Day Book/Voucher Register + Payment|Receipt types, dated, year→month fallback');
 });
