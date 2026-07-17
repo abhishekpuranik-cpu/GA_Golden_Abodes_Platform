@@ -302,26 +302,54 @@ export function userHasPreconProjectAccess(user, roleDocs, project) {
 }
 
 /**
+ * Assignee options for PreConstruction:
+ * - people tagged to the open project in Admin Security (allowedProjects)
+ * - plus every active Security Admin user with a name/id
+ *
  * @param {import('mongodb').Db} db
  * @param {{ allowedProjects?: string[] }} sessionUser
+ * @param {{ id?: string, name?: string } | null} project
+ * @returns {Promise<{ names: string[], projectTagged: string[], securityUsers: string[] }>}
  */
-export async function listPreconTeamRosterNames(db, sessionUser) {
+export async function listPreconTeamRosterNames(db, sessionUser, project = null) {
   const rolesCol = db.collection('auth_roles');
   const usersCol = db.collection('auth_users');
   const allRoles = await rolesCol.find({}).toArray();
   const roleById = Object.fromEntries(allRoles.map((r) => [r._id, r]));
   const users = await usersCol.find({ status: { $ne: 'disabled' } }).toArray();
   const myProjects = sessionUser?.allowedProjects || [];
-  const names = new Set();
+  const securityUsers = new Set();
+  const projectTagged = new Set();
+  const sharedTeam = new Set();
 
   for (const u of users) {
     const roleDocs = (u.roleIds || ['viewer']).map((id) => roleById[id]).filter(Boolean);
     const access = mergeUserAccess(u, roleDocs);
-    if (!userHasPreconApp(access.allowedApps)) continue;
-    if (!allowedProjectsOverlap(myProjects, access.allowedProjects)) continue;
     const n = String(u.name || '').trim();
-    if (n) names.add(n);
+    if (!n) continue;
+
+    // Anyone with an active Security Admin identity is assignable.
+    securityUsers.add(n);
+
+    if (project && projectInAllowedList(project, access.allowedProjects)) {
+      projectTagged.add(n);
+    }
+
+    // Keep shared PreConstruction team as a useful middle group when no project is open.
+    if (userHasPreconApp(access.allowedApps) && allowedProjectsOverlap(myProjects, access.allowedProjects)) {
+      sharedTeam.add(n);
+    }
   }
 
-  return [...names].sort((a, b) => a.localeCompare(b));
+  const ordered = new Set([
+    ...[...projectTagged].sort((a, b) => a.localeCompare(b)),
+    ...[...sharedTeam].sort((a, b) => a.localeCompare(b)),
+    ...[...securityUsers].sort((a, b) => a.localeCompare(b)),
+  ]);
+
+  return {
+    names: [...ordered],
+    projectTagged: [...projectTagged].sort((a, b) => a.localeCompare(b)),
+    securityUsers: [...securityUsers].sort((a, b) => a.localeCompare(b)),
+  };
 }

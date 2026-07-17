@@ -426,8 +426,19 @@ authRouter.get(
     const sess = await resolveSession(db, req);
     if (!sess) return res.status(401).json({ error: 'Unauthorized' });
     if (!userHasApp(sess.user, PRECON_APP_ID)) return res.status(403).json({ error: 'Forbidden' });
-    const names = await listPreconTeamRosterNames(db, sess.user);
-    res.json({ names });
+    const projectId = String(req.query.projectId || '').trim();
+    const projectName = String(req.query.projectName || '').trim();
+    let project = null;
+    if (projectId || projectName) {
+      const { projects } = await loadPreconProjects(db);
+      project =
+        projects.find((p) => String(p.id || '') === projectId) ||
+        projects.find((p) => String(p.name || '').toLowerCase() === projectName.toLowerCase()) ||
+        { id: projectId, name: projectName };
+    }
+    const roster = await listPreconTeamRosterNames(db, sess.user, project);
+    // `names` stays an ordered array for older clients; newer clients also get groups.
+    res.json(roster);
   })
 );
 
