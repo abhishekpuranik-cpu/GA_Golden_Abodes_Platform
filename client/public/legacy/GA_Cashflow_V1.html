@@ -254,7 +254,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 70;
+var CF_VERSION = 71;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
@@ -2748,6 +2748,8 @@ var _gaTimeScale = 'month';
 var _debtLenderFilter = '__all__';
 var _postSalesDelayMo = 0; // scenario months (UI only, not persisted)
 var _cfForecastCollapsed = false;
+var _cfForecastAdvanced = false; // simple stage forecast by default; advanced = old matrix + sliders
+var _cfForecastStageOpen = {}; // stage key → expanded L1 outflow detail
 var _cfMsForecastMode = 'future'; // 'future' | 'all' — L1 × construction milestone matrix
 var _cfSubview = 'monthly'; // 'monthly' | 'payables' | 'forecast'
 var _plPeriod = 'fytd'; // 'month' | 'fytd' | 'fy'
@@ -5129,6 +5131,104 @@ function buildL1MilestoneForecast(pid, opts){
     net:inTot-outTot
   };
 }
+/**
+ * Simple, business-first forecast: one row per construction stage with its
+ * target completion date, expected revenue realization, and expected outflow
+ * (expandable into L1 categories). Reuses the milestone forecast engine.
+ */
+function buildSimpleStageForecast(pid, mode){
+  var M=buildL1MilestoneForecast(pid,{mode:mode||'future'});
+  var stages=(M.axis||[]).map(function(ms){
+    var outByL1=(M.outflowRows||[]).map(function(r){
+      return {l1:r.l1, amount:r.byMs[ms.key]||0};
+    }).filter(function(x){ return Math.abs(x.amount)>0.5; })
+      .sort(function(a,b){ return b.amount-a.amount; });
+    var revenue=M.colIn[ms.key]||0;
+    var outflow=M.colOut[ms.key]||0;
+    return {
+      key:ms.key, label:ms.label, pct:ms.pct,
+      targetIso:ms.targetIso||'', targetMo:ms.targetMo||'',
+      achievedIso:ms.achievedIso||'', isHere:!!ms.isHere,
+      revenue:revenue, outflow:outflow, net:revenue-outflow,
+      outflowByL1:outByL1
+    };
+  });
+  return {
+    stages:stages, hasDates:M.hasDates, mode:M.mode,
+    revenueTotal:M.inflowTotal, outflowTotal:M.outflowTotal, net:M.net
+  };
+}
+function htmlSimpleStageForecast(pid){
+  if(!pid||pid==='__rollup__'||String(pid)==='__ga__') return '';
+  var mode=_cfMsForecastMode||'future';
+  var S=buildSimpleStageForecast(pid,mode);
+  if(!S.stages.length){
+    return '<div class="card" style="padding:14px;margin:0 0 12px;border-left:3px solid var(--gold)">'
+      +'<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Construction stage forecast</div>'
+      +'<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">No construction-linked stages found (Plinth → Possession). Add milestone dates under <strong>Sales → milestones</strong> or upload a milestone template with <em>Construction linked = Y</em>.</div></div>';
+  }
+  var h='<div class="card" style="padding:16px;margin:0 0 12px;border-left:4px solid #0D4D30">';
+  // Header + mode toggle
+  h+='<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">';
+  h+='<div style="font-size:14px;font-weight:800;color:var(--blue-b)">Construction stage forecast</div>';
+  h+='<div style="display:flex;gap:6px">';
+  h+='<button type="button" class="btn '+(mode==='future'?'btn-primary':'btn-outline')+'" data-action="cf-ms-forecast-mode" data-mode="future" style="font-size:10px;padding:4px 10px">From this month</button>';
+  h+='<button type="button" class="btn '+(mode==='all'?'btn-primary':'btn-outline')+'" data-action="cf-ms-forecast-mode" data-mode="all" style="font-size:10px;padding:4px 10px">All stages</button>';
+  h+='</div></div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.5;margin-bottom:12px">Each construction stage shows its <strong>target completion</strong>, the <strong>revenue expected to be realized</strong> around that stage, and the <strong>outflow</strong> it drives (click a stage to see L1 categories).'
+    +(S.hasDates?'':' <span style="color:var(--gold)">Add milestone target dates under Sales to place stages on the calendar — currently split by CLP %.</span>')+'</div>';
+  // Summary chips
+  h+='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">';
+  function chip(lbl,val,col){ return '<div style="flex:1;min-width:150px;background:#F8FAFF;border:1px solid var(--border);border-radius:10px;padding:10px 12px">'
+    +'<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em">'+lbl+'</div>'
+    +'<div style="font-size:18px;font-weight:800;color:'+col+';margin-top:2px">'+val+'</div></div>'; }
+  h+=chip('Expected revenue', cr(S.revenueTotal), '#166534');
+  h+=chip('Expected outflow', cr(S.outflowTotal), '#991B1B');
+  h+=chip('Net cashflow', cr(S.net,'+0'), (S.net>=0?'#166534':'#991B1B'));
+  h+='</div>';
+  // Table
+  h+='<div style="overflow:auto;border:1px solid var(--border);border-radius:10px">';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:640px">';
+  h+='<thead><tr style="background:var(--blue-l)">'
+    +'<th style="padding:9px 10px;text-align:left">Construction stage</th>'
+    +'<th style="padding:9px 10px;text-align:left;white-space:nowrap">Target completion</th>'
+    +'<th style="padding:9px 10px;text-align:right">CLP %</th>'
+    +'<th style="padding:9px 10px;text-align:right;color:#166534">Expected revenue</th>'
+    +'<th style="padding:9px 10px;text-align:right;color:#991B1B">Expected outflow</th>'
+    +'<th style="padding:9px 10px;text-align:right">Net</th></tr></thead><tbody>';
+  S.stages.forEach(function(st){
+    var open=!!_cfForecastStageOpen[st.key];
+    var dateCell=st.achievedIso
+      ? '<span style="color:#166534;font-weight:700">✓ '+formatMonthKey(st.achievedIso.slice(0,7))+'</span> <span style="color:var(--muted)">done</span>'
+      : (st.targetMo?formatMonthKey(st.targetMo):'<span style="color:var(--muted)">—</span>');
+    var caret=st.outflowByL1.length?('<span style="display:inline-block;width:12px;color:var(--muted)">'+(open?'▾':'▸')+'</span>'):'<span style="display:inline-block;width:12px"></span>';
+    var rowBg=st.isHere?'#FFFBEB':'#fff';
+    h+='<tr data-action="cf-stage-toggle" data-key="'+escAttr(st.key)+'" style="border-top:1px solid var(--border);cursor:'+(st.outflowByL1.length?'pointer':'default')+';background:'+rowBg+'">';
+    h+='<td style="padding:9px 10px;font-weight:700;color:var(--blue-b)">'+caret+' '+escHtml(st.label)+(st.isHere?' <span style="color:#b45309" title="Current roadmap stage">●</span>':'')+'</td>';
+    h+='<td style="padding:9px 10px;white-space:nowrap">'+dateCell+'</td>';
+    h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:var(--muted)">'+formatMilestonePct(st.pct)+'%</td>';
+    h+='<td class="cf-num" style="padding:9px 10px;text-align:right;font-weight:700;color:#166534">'+cr(st.revenue)+'</td>';
+    h+='<td class="cf-num" style="padding:9px 10px;text-align:right;font-weight:700;color:#991B1B">'+cr(st.outflow)+'</td>';
+    h+='<td class="cf-num" style="padding:9px 10px;text-align:right;font-weight:800;color:'+(st.net>=0?'#166534':'#991B1B')+'">'+cr(st.net,'+0')+'</td></tr>';
+    if(open && st.outflowByL1.length){
+      st.outflowByL1.forEach(function(x){
+        var share=st.outflow?Math.round(x.amount/st.outflow*100):0;
+        h+='<tr style="background:#FCFCFA;border-top:1px dashed var(--border)">';
+        h+='<td style="padding:5px 10px 5px 30px;color:var(--muted)" colspan="4">'+escHtml(x.l1)+'</td>';
+        h+='<td class="cf-num" style="padding:5px 10px;text-align:right;color:#991B1B">'+cr(x.amount)+'</td>';
+        h+='<td class="cf-num" style="padding:5px 10px;text-align:right;color:var(--muted)">'+share+'%</td></tr>';
+      });
+    }
+  });
+  h+='<tr style="background:#F1F5F9;font-weight:800;border-top:2px solid var(--border)">';
+  h+='<td style="padding:9px 10px" colspan="3">Total</td>';
+  h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:#166534">'+cr(S.revenueTotal)+'</td>';
+  h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:#991B1B">'+cr(S.outflowTotal)+'</td>';
+  h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:'+(S.net>=0?'#166534':'#991B1B')+'">'+cr(S.net,'+0')+'</td></tr>';
+  h+='</tbody></table></div>';
+  h+='</div>';
+  return h;
+}
 function htmlL1MilestoneForecastMatrix(pid){
   if(!pid||pid==='__rollup__'||String(pid)==='__ga__') return '';
   var mode=_cfMsForecastMode||'future';
@@ -6922,50 +7022,62 @@ function renderCashflowForecastPanel(vis, useRollup){
     h+='</select></div>';
   }
   var fz=forecastCfg(cfg);
-  var fullRows=buildCashflow(pid);
-  var baseRows=forecastIsDefault(cfg)?fullRows:buildCashflowWithForecast(pid,defaultForecastObj());
-  var futRows=fullRows.filter(function(r){return !r.isActual&&r.period>0;});
-  var futBase=baseRows.filter(function(r){return !r.isActual&&r.period>0;});
-  var sumK=function(arr,key){return arr.reduce(function(s,r){return s+(r[key]||0);},0);};
-  var futIn=sumK(futRows,'totInflows'), futOut=sumK(futRows,'totOutflows'), futNet=futIn-futOut;
-  var baseIn=sumK(futBase,'totInflows'), baseOut=sumK(futBase,'totOutflows'), baseNet=baseIn-baseOut;
-  var futConstr=sumK(futRows,'construction'), baseConstr=sumK(futBase,'construction');
-  var unsMap=buildUnsoldRealization(cfg,cfg.startDate||new Date().toISOString().slice(0,7)+'-01');
-  var curMo=currentMonthStr();
-  var unsFuture=Object.keys(unsMap).reduce(function(s,mo){ return s + ((mo>=curMo)?(unsMap[mo].sales||0):0); },0);
-  var unsAdj=unsFuture*fz.salesFactor;
-  h+='<div class="card" style="padding:10px;margin:4px 0 12px">';
-  h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b)">Forecast Controls (future months)</div>';
-  h+='<div style="display:flex;gap:6px">';
-  h+='<button class="btn btn-outline" data-action="forecast-toggle" style="font-size:10px;padding:4px 10px">'+(_cfForecastCollapsed?'Expand':'Collapse')+'</button>';
-  h+='<button class="btn btn-outline" data-action="forecast-reset" style="font-size:10px;padding:4px 10px">Reset</button>';
-  h+='</div></div>';
-  if(!_cfForecastCollapsed){
-    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px">';
-    function fSlide(lbl,key,val,min,max,step){ return '<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">'+lbl+': '+Math.round(val*100)+'%<input type="range" data-action="forecast-set" data-key="'+key+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+Math.round(val*100)+'"/></label>'; }
-    h+=fSlide('Sales pace (incl. unsold)','salesFactor',fz.salesFactor,50,160,5);
-    h+=fSlide('Collection efficiency (future)','collectionsFactor',fz.collectionsFactor,50,140,5);
-    h+=fSlide('Other inflow factor','otherInflowFactor',fz.otherInflowFactor,50,180,5);
-    h+=fSlide('Construction + consultant cost','costFactor',fz.costFactor,70,170,5);
-    h+=fSlide('Marketing factor','marketingFactor',fz.marketingFactor,60,200,5);
-    h+=fSlide('GA DM Fee factor (future)','gaFactor',fz.gaFactor,70,160,5);
-    h+='<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">Monthly risk buffer (₹)<input type="number" data-action="forecast-set" data-key="monthlyBuffer" data-type="abs" min="0" step="10000" value="'+Math.round(fz.monthlyBuffer||0)+'" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:11px"/></label>';
-    h+='</div>';
-  } else {
-    h+='<div style="font-size:10px;color:var(--muted)">Controls collapsed. Click <strong>Expand</strong> to adjust future-month assumptions.</div>';
-  }
-  h+='</div>';
-  h+='<div class="card" style="padding:10px;margin:-2px 0 12px;background:#F8FAFF;border-left:3px solid var(--blue)">';
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:6px">Forecast Impact (future months only)</div>';
-  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 12px;font-size:11px">';
-  h+='<div><div style="color:var(--muted);font-size:10px">Unsold inventory sales</div><div><strong>Base:</strong> '+cr(unsFuture)+' &nbsp; <strong>Adjusted:</strong> '+cr(unsAdj)+' &nbsp; <strong>Δ:</strong> '+cr(unsAdj-unsFuture,'+0')+'</div></div>';
-  h+='<div><div style="color:var(--muted);font-size:10px">Future construction outflow</div><div><strong>Base:</strong> '+cr(baseConstr)+' &nbsp; <strong>Adjusted:</strong> '+cr(futConstr)+' &nbsp; <strong>Δ:</strong> '+cr(futConstr-baseConstr,'+0')+'</div></div>';
-  h+='<div><div style="color:var(--muted);font-size:10px">Future net cashflow</div><div><strong>Base:</strong> '+cr(baseNet,'+0')+' &nbsp; <strong>Adjusted:</strong> '+cr(futNet,'+0')+' &nbsp; <strong>Δ:</strong> '+cr(futNet-baseNet,'+0')+'</div></div>';
-  h+='</div></div>';
   var bakPid=_curPid;
   _curPid=pid;
-  h+=htmlL1MilestoneForecastMatrix(pid);
+  // ── Simple, business-first stage forecast (default view) ──
+  h+=htmlSimpleStageForecast(pid);
+
+  // ── Advanced: sensitivity sliders + full L1 × stage matrix (opt-in) ──
+  h+='<div class="card" style="padding:10px 12px;margin:0 0 12px">';
+  h+='<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">';
+  h+='<div><div style="font-size:12px;font-weight:700;color:var(--blue-b)">Advanced forecast (sensitivity &amp; L1 × stage matrix)</div>'
+    +'<div style="font-size:10px;color:var(--muted);margin-top:2px">Optional — adjust assumptions and see every L1 category against each stage.</div></div>';
+  h+='<button class="btn btn-outline" data-action="cf-forecast-advanced" style="font-size:10px;padding:5px 12px">'+(_cfForecastAdvanced?'Hide advanced':'Show advanced')+'</button>';
+  h+='</div></div>';
+  if(_cfForecastAdvanced){
+    var fullRows=buildCashflow(pid);
+    var baseRows=forecastIsDefault(cfg)?fullRows:buildCashflowWithForecast(pid,defaultForecastObj());
+    var futRows=fullRows.filter(function(r){return !r.isActual&&r.period>0;});
+    var futBase=baseRows.filter(function(r){return !r.isActual&&r.period>0;});
+    var sumK=function(arr,key){return arr.reduce(function(s,r){return s+(r[key]||0);},0);};
+    var futIn=sumK(futRows,'totInflows'), futOut=sumK(futRows,'totOutflows'), futNet=futIn-futOut;
+    var baseIn=sumK(futBase,'totInflows'), baseOut=sumK(futBase,'totOutflows'), baseNet=baseIn-baseOut;
+    var futConstr=sumK(futRows,'construction'), baseConstr=sumK(futBase,'construction');
+    var unsMap=buildUnsoldRealization(cfg,cfg.startDate||new Date().toISOString().slice(0,7)+'-01');
+    var curMo=currentMonthStr();
+    var unsFuture=Object.keys(unsMap).reduce(function(s,mo){ return s + ((mo>=curMo)?(unsMap[mo].sales||0):0); },0);
+    var unsAdj=unsFuture*fz.salesFactor;
+    h+='<div class="card" style="padding:10px;margin:4px 0 12px">';
+    h+='<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">';
+    h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b)">Forecast Controls (future months)</div>';
+    h+='<div style="display:flex;gap:6px">';
+    h+='<button class="btn btn-outline" data-action="forecast-toggle" style="font-size:10px;padding:4px 10px">'+(_cfForecastCollapsed?'Expand':'Collapse')+'</button>';
+    h+='<button class="btn btn-outline" data-action="forecast-reset" style="font-size:10px;padding:4px 10px">Reset</button>';
+    h+='</div></div>';
+    if(!_cfForecastCollapsed){
+      h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px 12px">';
+      var fSlide=function(lbl,key,val,min,max,step){ return '<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">'+lbl+': '+Math.round(val*100)+'%<input type="range" data-action="forecast-set" data-key="'+key+'" min="'+min+'" max="'+max+'" step="'+step+'" value="'+Math.round(val*100)+'"/></label>'; };
+      h+=fSlide('Sales pace (incl. unsold)','salesFactor',fz.salesFactor,50,160,5);
+      h+=fSlide('Collection efficiency (future)','collectionsFactor',fz.collectionsFactor,50,140,5);
+      h+=fSlide('Other inflow factor','otherInflowFactor',fz.otherInflowFactor,50,180,5);
+      h+=fSlide('Construction + consultant cost','costFactor',fz.costFactor,70,170,5);
+      h+=fSlide('Marketing factor','marketingFactor',fz.marketingFactor,60,200,5);
+      h+=fSlide('GA DM Fee factor (future)','gaFactor',fz.gaFactor,70,160,5);
+      h+='<label style="font-size:10px;color:var(--muted);display:flex;flex-direction:column;gap:4px">Monthly risk buffer (₹)<input type="number" data-action="forecast-set" data-key="monthlyBuffer" data-type="abs" min="0" step="10000" value="'+Math.round(fz.monthlyBuffer||0)+'" style="padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:11px"/></label>';
+      h+='</div>';
+    } else {
+      h+='<div style="font-size:10px;color:var(--muted)">Controls collapsed. Click <strong>Expand</strong> to adjust future-month assumptions.</div>';
+    }
+    h+='</div>';
+    h+='<div class="card" style="padding:10px;margin:-2px 0 12px;background:#F8FAFF;border-left:3px solid var(--blue)">';
+    h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:6px">Forecast Impact (future months only)</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 12px;font-size:11px">';
+    h+='<div><div style="color:var(--muted);font-size:10px">Unsold inventory sales</div><div><strong>Base:</strong> '+cr(unsFuture)+' &nbsp; <strong>Adjusted:</strong> '+cr(unsAdj)+' &nbsp; <strong>Δ:</strong> '+cr(unsAdj-unsFuture,'+0')+'</div></div>';
+    h+='<div><div style="color:var(--muted);font-size:10px">Future construction outflow</div><div><strong>Base:</strong> '+cr(baseConstr)+' &nbsp; <strong>Adjusted:</strong> '+cr(futConstr)+' &nbsp; <strong>Δ:</strong> '+cr(futConstr-baseConstr,'+0')+'</div></div>';
+    h+='<div><div style="color:var(--muted);font-size:10px">Future net cashflow</div><div><strong>Base:</strong> '+cr(baseNet,'+0')+' &nbsp; <strong>Adjusted:</strong> '+cr(futNet,'+0')+' &nbsp; <strong>Δ:</strong> '+cr(futNet-baseNet,'+0')+'</div></div>';
+    h+='</div></div>';
+    h+=htmlL1MilestoneForecastMatrix(pid);
+  }
   _curPid=bakPid;
   el.innerHTML=h;
 }
@@ -12182,6 +12294,16 @@ document.addEventListener('click',function(e){
   if(a==='cf-ms-forecast-mode'){
     _cfMsForecastMode=el.dataset.mode==='all'?'all':'future';
     renderCashflow();
+    return;
+  }
+  if(a==='cf-forecast-advanced'){
+    _cfForecastAdvanced=!_cfForecastAdvanced;
+    renderCashflow();
+    return;
+  }
+  if(a==='cf-stage-toggle'){
+    var sk=String(el.dataset.key||'');
+    if(sk){ _cfForecastStageOpen[sk]=!_cfForecastStageOpen[sk]; renderCashflow(); }
     return;
   }
   if(a==='goto-proj')              { selectProj(el.dataset.pid); return; }
