@@ -19,9 +19,11 @@ import { URL } from 'url';
 
 const TALLY_URL = process.env.TALLY_URL || 'http://127.0.0.1:9000';
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || '34876', 10);
-const TALLY_TIMEOUT_MS = Math.max(5000, parseInt(process.env.TALLY_TIMEOUT_MS || '45000', 10) || 45000);
+/** Keep short — empty/hung Tally exports must not block Cashflow for minutes. */
+const TALLY_TIMEOUT_MS = Math.max(5000, parseInt(process.env.TALLY_TIMEOUT_MS || '20000', 10) || 20000);
 /** Max XML shapes tried per window before declaring empty (prevents multi-minute hangs). */
-const MAX_PROBES_PER_WINDOW = Math.max(3, parseInt(process.env.TALLY_MAX_PROBES || '8', 10) || 8);
+const MAX_PROBES_PER_WINDOW = Math.max(2, parseInt(process.env.TALLY_MAX_PROBES || '5', 10) || 5);
+const BRIDGE_VERSION = 3.1;
 /** Remember last winning export shape across windows/jobs. */
 let lastWinningTag = '';
 
@@ -564,8 +566,8 @@ async function exportOneWindow(reportIds, fromDd, toDd, optsIn) {
 
     if (sc < 0 && nv === 0) {
       emptyStreak += 1;
-      // After a few empties, further formats almost never help — stop this window.
-      if (emptyStreak >= 4) {
+      // Two empties is enough — more formats rarely help and burn 20s each.
+      if (emptyStreak >= 2) {
         console.warn('[ga-tally-bridge] empty streak — stop probes for', fromDd, '→', toDd);
         break;
       }
@@ -676,7 +678,7 @@ const server = http.createServer(async (req, res) => {
         'fail_fast_empty',
         'tally_timeout',
       ],
-      version: 3,
+      version: BRIDGE_VERSION,
       tallyTimeoutMs: TALLY_TIMEOUT_MS,
       maxProbesPerWindow: MAX_PROBES_PER_WINDOW,
     });
@@ -790,7 +792,8 @@ const server = http.createServer(async (req, res) => {
         'Access-Control-Expose-Headers': 'X-GA-Tally-Meta',
         'X-GA-Tally-Meta': JSON.stringify({
           preset: body.preset || null,
-          strategy: 'daybook_voucher_type_dated_v3',
+          strategy: 'daybook_voucher_type_dated_v3.1',
+          version: BRIDGE_VERSION,
           fromDate: fromDd,
           toDate: toDd,
           voucherCount: totalV,
@@ -799,7 +802,7 @@ const server = http.createServer(async (req, res) => {
           empty: totalV === 0,
           hint:
             totalV === 0
-              ? 'No Payment/Receipt vouchers in range. Open company in Tally; confirm FY; Test bridge; narrow dates.'
+              ? 'No Payment/Receipt vouchers in range. In Tally: open the company, set the correct FY, then in Cashflow set From = books inception (2000-04-01) → today and pull again.'
               : null,
           parts: meta.slice(0, 80),
         }).slice(0, 3500),
@@ -820,7 +823,9 @@ const server = http.createServer(async (req, res) => {
 
 server.listen(BRIDGE_PORT, '127.0.0.1', () => {
   console.log(
-    'GA Tally bridge v3 on http://127.0.0.1:' +
+    'GA Tally bridge v' +
+      BRIDGE_VERSION +
+      ' on http://127.0.0.1:' +
       BRIDGE_PORT +
       ' → ' +
       TALLY_URL +
