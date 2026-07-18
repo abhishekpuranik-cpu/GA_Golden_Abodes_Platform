@@ -1,0 +1,34 @@
+:root {
+  /* Propviewz platform theme — sampled from app.propviewz.com (per Abhishek, 17 Jul 2026) */
+  --ga-paper: #ffffff;
+  --ga-canvas: #f3f4f7;
+  --ga-ink: #212631;
+  --ga-body: #68717a;
+  --ga-line: #e4e7ec;
+  --ga-chrome: #212631;
+  --ga-chrome-hi: #29303d;
+  --ga-navy: #092856;
+  --ga-orange: #f0592c;
+  --ga-orange-hi: #d64517;
+  --ga-salmon: #fba287;
+  --ga-green: #28a745;
+  --ga-indigo: #5856d6;
+
+  --ga-font-display: 'Playfair Display', Georgia, serif;
+  --ga-font-text: 'Jost', 'Segoe UI', sans-serif;
+
+  --ga-radius: 4px;
+  --ga-shadow-card: 0 18px 40px rgba(33, 38, 49, 0.1);
+  --ga-ease: cubic-bezier(0.16, 0.68, 0.3, 1);
+
+  /* Back-compat aliases used by existing shells */
+  --deep: var(--ga-chrome);
+  --mid: var(--ga-chrome-hi);
+  --gold: var(--ga-orange);
+  --text: var(--ga-ink);
+  --muted: var(--ga-body);
+  --teal: var(--ga-indigo);
+  --blue: var(--ga-navy);
+  --card: var(--ga-paper);
+  --border: var(--ga-line);
+}
