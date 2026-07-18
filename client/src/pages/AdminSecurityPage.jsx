@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import { authApi } from '../lib/api.js';
 import { ProjectAssignPicker } from '../components/ProjectAssignPicker.jsx';
 import { BandwidthReport } from '../components/BandwidthReport.jsx';
+import { PlatformShell } from '../components/PlatformShell.jsx';
+import { PageHeader } from '../components/ga-kit/PageHeader.jsx';
 
 const ALL_APPS = ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_security'];
 
@@ -185,16 +187,18 @@ export default function AdminSecurityPage() {
   }
 
   return (
+    <PlatformShell title="Admin Security" breadcrumb="Vault / Admin Security">
     <div className="admin-security">
-      <header className="admin-hdr">
-        <div>
-          <h1>Admin Security</h1>
-          <p className="admin-sub">Users, project access, and team bandwidth across PreConstruction projects</p>
-        </div>
-        <Link to="/" className="admin-back">
-          ← Back to Vault
-        </Link>
-      </header>
+      <PageHeader
+        eyebrow="GOLDEN ABODES · SECURITY"
+        title="Admin Security"
+        actions={
+          <Link to="/" className="admin-back">
+            ← Back to Vault
+          </Link>
+        }
+      />
+      <p className="admin-sub">Users, project access, and team bandwidth across PreConstruction projects</p>
       {err ? <div className="admin-err">{err}</div> : null}
       {session ? <div className="admin-session">Signed in as {session.email}</div> : null}
 
@@ -433,5 +437,6 @@ export default function AdminSecurityPage() {
         ))}
       </section>
     </div>
+    </PlatformShell>
   );
 }

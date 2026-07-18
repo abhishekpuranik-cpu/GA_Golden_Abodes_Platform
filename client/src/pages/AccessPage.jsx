@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../lib/api.js';
+import '../theme/ga-access.css';
 
 export default function AccessPage() {
   const [searchParams] = useSearchParams();
@@ -65,59 +66,78 @@ export default function AccessPage() {
 
   useEffect(() => {
     void checkBootstrap();
-    authApi.session().then((s) => {
-      if (s?.authenticated) navigate(next, { replace: true });
-    }).catch(() => {});
+    authApi
+      .session()
+      .then((s) => {
+        if (s?.authenticated) navigate(next, { replace: true });
+      })
+      .catch(() => {});
   }, [navigate, next]);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', background: '#0f172a', color: '#e2e8f0', padding: 20 }}>
-      <form
-        className="access-page-form"
-        onSubmit={onSubmit}
-        style={{ width: '100%', maxWidth: 420, background: 'rgba(15, 23, 42, 0.7)', border: '1px solid rgba(148, 163, 184, 0.4)', borderRadius: 12, padding: 18 }}
-      >
-        <div style={{ fontWeight: 700, fontSize: 19, marginBottom: 8 }}>{bootstrapMode ? 'Create First Admin' : 'Login to App Vault'}</div>
-        <div style={{ color: '#94a3b8', marginBottom: 14, fontSize: 13 }}>
-          {bootstrapMode ? 'No users found. Set up the first admin account.' : 'Sign in to access assigned apps, projects, and tabs.'}
+    <div className="ga-access">
+      <aside className="ga-access-left" aria-hidden={false}>
+        <Link to="/" className="ga-access-logo">
+          <span className="ga-access-mark">G</span>
+          <span>GOLDEN ABODES</span>
+        </Link>
+        <div className="ga-access-slides" aria-hidden>
+          <div className="ga-access-slide" />
+          <div className="ga-access-slide" />
+          <div className="ga-access-slide" />
         </div>
-        {bootstrapMode ? (
-          <input
-            type="text"
-            placeholder="Full name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            style={{ width: '100%', padding: '11px 12px', borderRadius: 8, border: '1px solid #334155', background: '#020617', color: '#e2e8f0', marginBottom: 12 }}
-          />
-        ) : null}
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          style={{ width: '100%', padding: '11px 12px', borderRadius: 8, border: '1px solid #334155', background: '#020617', color: '#e2e8f0', marginBottom: 12 }}
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          style={{ width: '100%', padding: '11px 12px', borderRadius: 8, border: '1px solid #334155', background: '#020617', color: '#e2e8f0', marginBottom: 12 }}
-        />
-        {error ? <div style={{ color: '#fca5a5', marginBottom: 10, fontSize: 12 }}>{error}</div> : null}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-          <button
-            type="submit"
-            disabled={busy}
-            style={{ padding: '12px 16px', borderRadius: 8, border: '1px solid #1558a0', background: '#1558a0', color: '#fff', fontWeight: 700, cursor: 'pointer', minHeight: 44 }}
-          >
-            {busy ? 'Checking…' : bootstrapMode ? 'Create Admin' : 'Continue'}
-          </button>
-          <Link to="/" style={{ alignSelf: 'center', color: '#93c5fd', textDecoration: 'none', fontSize: 13 }}>
-            Back to Vault
-          </Link>
+        <div className="ga-access-copy">
+          <div className="ga-access-eyebrow">GOLDEN ABODES · PLATFORM</div>
+          <p className="ga-access-tagline">Curated Addresses. Considered Lives.</p>
         </div>
-      </form>
+      </aside>
+
+      <main className="ga-access-right">
+        <form className="ga-access-form access-page-form" onSubmit={onSubmit}>
+          <div className="ga-access-form-eyebrow">SIGN IN</div>
+          <h1>{bootstrapMode ? 'Create admin.' : 'The vault.'}</h1>
+          <p className="ga-access-form-sub">
+            {bootstrapMode
+              ? 'No users found. Set up the first admin account.'
+              : 'Sign in to access assigned apps, projects, and tabs.'}
+          </p>
+          {bootstrapMode ? (
+            <label>
+              <span className="ga-lbl">Full name</span>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+            </label>
+          ) : null}
+          <label>
+            <span className="ga-lbl">Email</span>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
+              required
+            />
+          </label>
+          <label>
+            <span className="ga-lbl">Password</span>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete={bootstrapMode ? 'new-password' : 'current-password'}
+              required
+            />
+          </label>
+          {error ? <div className="ga-access-error">{error}</div> : null}
+          <div className="ga-access-actions">
+            <button type="submit" className="ga-access-submit ga-interactive" disabled={busy}>
+              {busy ? 'Checking…' : bootstrapMode ? 'Create Admin' : 'Continue'}
+            </button>
+            <Link to="/" className="ga-access-back">
+              Back to Vault
+            </Link>
+          </div>
+        </form>
+      </main>
     </div>
   );
 }
