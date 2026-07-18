@@ -15,6 +15,18 @@ function trimContext(context) {
       ...p,
       topRisks: (p.topRisks || []).slice(0, 5),
     })),
+    projectBrief: context.projectBrief
+      ? {
+          ...context.projectBrief,
+          missed: (context.projectBrief.missed || []).slice(0, 15),
+          challenges: (context.projectBrief.challenges || []).slice(0, 12),
+          horizons: {
+            week: (context.projectBrief.horizons?.week || []).slice(0, 12),
+            fortnight: (context.projectBrief.horizons?.fortnight || []).slice(0, 15),
+            month: (context.projectBrief.horizons?.month || []).slice(0, 20),
+          },
+        }
+      : undefined,
   };
   return { context: slim, truncated: true };
 }
@@ -52,6 +64,13 @@ function normalizeActions(list, context) {
   for (const t of context?.hotTasks || []) {
     byTask.set(String(t.taskId), t);
   }
+  for (const t of context?.projectBrief?.missed || []) {
+    byTask.set(String(t.taskId), {
+      taskId: t.taskId,
+      phaseId: t.phaseId,
+      projectId: context.projectBrief?.project?.id,
+    });
+  }
   const out = [];
   for (const a of list || []) {
     if (!a || typeof a !== 'object') continue;
@@ -65,7 +84,7 @@ function normalizeActions(list, context) {
       type,
       label: String(a.label || a.title || type).slice(0, 160),
       rationale: String(a.rationale || a.reason || '').slice(0, 240),
-      projId: a.projId || a.projectId || hit?.projectId || '',
+      projId: a.projId || a.projectId || hit?.projectId || context?.projectBrief?.project?.id || '',
       phId: a.phId || a.phaseId || hit?.phaseId || '',
       tId: taskId || hit?.taskId || '',
       fields: a.fields && typeof a.fields === 'object' ? a.fields : undefined,
@@ -80,9 +99,14 @@ function normalizeActions(list, context) {
 
 /**
  * Call Anthropic with grounded PreConstruction context.
- * Returns { skippedLlm, reason } when no key.
+ * When preferNarrateOnly / lockFacts: LLM may only narrate; client keeps numbers.
  */
-export async function runPreconAnalyticsAsk({ question, context }) {
+export async function runPreconAnalyticsAsk({
+  question,
+  context,
+  localAnswer = null,
+  preferNarrateOnly = false,
+}) {
   if (!ANTHROPIC_API_KEY) {
     return {
       skippedLlm: true,
@@ -91,8 +115,29 @@ export async function runPreconAnalyticsAsk({ question, context }) {
     };
   }
 
+  const lockFacts = !!(preferNarrateOnly || localAnswer?.lockFacts);
   const { context: ctx, truncated } = trimContext(context);
-  const system = `You are the Golden Abodes PreConstruction analytics advisor.
+
+  const system = lockFacts
+    ? `You are the Golden Abodes PreConstruction narrative writer.
+You receive a FACT-LOCKED project brief / evidence JSON already computed from the live app.
+Your ONLY job is to write a clear executive narrative in plain English.
+
+HARD RULES (anti-hallucination):
+- Use ONLY facts present in the evidence / context JSON.
+- Do NOT invent projects, tasks, dates, owners, percentages, or comments.
+- Do NOT change any number. If a figure is missing, say it is not in the record.
+- Do NOT add speculative causes unless the comment text itself states them — and then quote lightly.
+- Prefer citing task names and dates that appear in evidence.missed, evidence.challenges, evidence.horizons.
+
+Return STRICT JSON only:
+{
+  "intent": "project_brief",
+  "headline": "one sentence that restates the locked headline facts (same numbers)",
+  "narrative": "4-8 short paragraphs covering: current state, missed timelines, challenges from comments, next week / fortnight / month. No new metrics.",
+  "markdown": "optional markdown version of narrative only"
+}`
+    : `You are the Golden Abodes PreConstruction analytics advisor.
 Answer ONLY from the provided JSON context (live app data). Never invent projects, tasks, dates, or people.
 India real-estate pre-construction context.
 
@@ -138,7 +183,14 @@ Return STRICT JSON only:
 Chart rules: 1–3 charts from context.totals / hotTasks / workload only. Every chart needs a narrative. Prefer donut for status mix, hbar for ranked risks.
 ProposedActions: only grounded hotTasks ids; max 6.`;
 
-  const user = `Question:\n${String(question || '').trim()}\n\nContext JSON${truncated ? ' (truncated)' : ''}:\n${JSON.stringify(ctx)}`;
+  const userParts = [
+    `Question:\n${String(question || '').trim()}`,
+    localAnswer?.headline ? `\nLocked local headline:\n${localAnswer.headline}` : '',
+    localAnswer?.evidence
+      ? `\nFact-locked evidence JSON:\n${JSON.stringify(localAnswer.evidence).slice(0, 60_000)}`
+      : '',
+    `\nContext JSON${truncated ? ' (truncated)' : ''}:\n${JSON.stringify(ctx)}`,
+  ];
 
   const res = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -149,10 +201,10 @@ ProposedActions: only grounded hotTasks ids; max 6.`;
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 2500,
-      temperature: 0.2,
+      max_tokens: lockFacts ? 1800 : 2500,
+      temperature: lockFacts ? 0.1 : 0.2,
       system,
-      messages: [{ role: 'user', content: user }],
+      messages: [{ role: 'user', content: userParts.filter(Boolean).join('\n') }],
     }),
   });
 
@@ -171,6 +223,27 @@ ProposedActions: only grounded hotTasks ids; max 6.`;
     .trim();
 
   const parsed = extractJsonBlock(text);
+  if (lockFacts) {
+    const narrative =
+      (parsed && (parsed.narrative || parsed.markdown)) ||
+      text ||
+      '';
+    return {
+      ok: true,
+      source: 'llm',
+      model: MODEL,
+      intent: 'project_brief',
+      narrateOnly: true,
+      headline: localAnswer?.headline || String(parsed?.headline || ''),
+      narrative: String(narrative).slice(0, 8000),
+      markdown: String(parsed?.markdown || narrative || '').slice(0, 8000),
+      sections: [],
+      charts: [],
+      highlights: localAnswer?.highlights || {},
+      proposedActions: [],
+    };
+  }
+
   if (!parsed?.markdown && !parsed?.sections?.length && !parsed?.headline) {
     return {
       ok: true,

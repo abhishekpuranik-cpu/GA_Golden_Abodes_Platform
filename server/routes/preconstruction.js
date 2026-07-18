@@ -534,7 +534,12 @@ preconstructionRouter.post(
         return res.status(400).json({ error: 'context object required' });
       }
 
-      const result = await runPreconAnalyticsAsk({ question, context });
+      const result = await runPreconAnalyticsAsk({
+        question,
+        context,
+        localAnswer: req.body?.localAnswer && typeof req.body.localAnswer === 'object' ? req.body.localAnswer : null,
+        preferNarrateOnly: !!req.body?.preferNarrateOnly,
+      });
       if (result.skippedLlm) {
         return res.json({
           ok: true,
