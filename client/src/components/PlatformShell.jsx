@@ -42,11 +42,12 @@ export function PlatformShell({ title, breadcrumb, children, showTopbar = true }
   const modules = useMemo(() => {
     return VAULT_MODULE_CATALOG.map((m) => {
       const locked = !userCanOpenModule(user, m.id);
+      const href = m.path ? toNewTabHref(m.path) : '';
       return {
         ...m,
         locked,
-        href: m.path,
-        external: !!m.external,
+        href,
+        external: true,
       };
     }).filter((m) => m.href);
   }, [user]);
