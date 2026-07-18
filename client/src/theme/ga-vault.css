@@ -6,107 +6,237 @@
   font-family: var(--ga-font-text);
 }
 
-.ga-vault-main {
-  max-width: 1180px;
-  margin: 0 auto;
-  padding: 36px 20px 40px;
+.ga-vault-topbar {
+  height: 64px;
+  background: var(--ga-paper);
+  border-bottom: 1px solid var(--ga-line);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 24px;
+  position: sticky;
+  top: 0;
+  z-index: 30;
 }
 
-.ga-vault-greet {
+.ga-vault-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: var(--ga-ink);
+  flex-shrink: 0;
+}
+
+.ga-vault-brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 2px solid var(--ga-orange);
+  display: grid;
+  place-items: center;
+  font-family: var(--ga-font-display);
+  font-size: 15px;
+  color: var(--ga-navy);
+  font-weight: 700;
+}
+
+.ga-vault-brand-name {
+  font-family: var(--ga-font-display);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.ga-vault-env {
+  background: var(--ga-navy);
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+
+.ga-vault-search {
+  margin-left: auto;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-end;
+  align-items: center;
+  gap: 10px;
+  min-width: min(360px, 42vw);
+  height: 40px;
+  padding: 0 12px 0 14px;
+  border: 1px solid var(--ga-line);
+  border-radius: 999px;
+  background: #f7f8fa;
+  color: var(--ga-body);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.ga-vault-search:hover,
+.ga-vault-search:focus-visible {
+  border-color: var(--ga-orange);
+  box-shadow: 0 0 0 3px rgba(240, 89, 44, 0.14);
+  outline: none;
+}
+
+.ga-vault-search span {
+  flex: 1;
+  font-size: 13px;
+}
+
+.ga-vault-search kbd {
+  font-size: 11px;
+  color: var(--ga-body);
+  background: var(--ga-paper);
+  border: 1px solid var(--ga-line);
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+.ga-vault-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--ga-chrome);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.ga-vault-user-menu {
+  position: absolute;
+  right: 16px;
+  top: 58px;
+  width: 210px;
+  background: var(--ga-paper);
+  border: 1px solid var(--ga-line);
+  border-radius: 10px;
+  box-shadow: var(--ga-shadow-card);
+  padding: 8px;
+  z-index: 40;
+}
+
+.ga-vault-user-menu button,
+.ga-vault-user-menu a {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ga-ink);
+  text-decoration: none;
+  font: inherit;
+  font-size: 13px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.ga-vault-user-menu button:hover,
+.ga-vault-user-menu a:hover {
+  background: rgba(240, 89, 44, 0.08);
+}
+
+.ga-vault-main {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px 24px 48px;
+}
+
+.ga-vault-hero {
   margin-bottom: 28px;
+}
+
+.ga-vault-eyebrow-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ga-vault-accent {
+  width: 28px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ga-orange);
+  flex-shrink: 0;
 }
 
 .ga-vault-eyebrow {
   color: var(--ga-navy);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
-  margin-bottom: 8px;
 }
 
-.ga-vault-greet h1 {
+.ga-vault-greet-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.ga-vault-greet-row h1 {
   margin: 0;
   font-family: var(--ga-font-display);
-  font-size: clamp(28px, 4vw, 40px);
+  font-size: clamp(32px, 4.5vw, 44px);
   font-weight: 600;
   color: var(--ga-ink);
+  letter-spacing: -0.02em;
 }
 
 .ga-vault-date {
+  margin: 0;
+  color: var(--ga-body);
+  font-size: 14px;
+}
+
+.ga-vault-meta {
   margin: 8px 0 0;
   color: var(--ga-body);
-  font-size: 13px;
-}
-
-.ga-vault-tools {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-}
-
-.ga-vault-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 999px;
   font-size: 12px;
-  font-weight: 600;
-  border: 1px solid var(--ga-line);
-  background: var(--ga-paper);
-  color: var(--ga-body);
-}
-
-.ga-vault-chip.ok {
-  color: var(--ga-green);
-  border-color: rgba(40, 167, 69, 0.35);
-  background: rgba(40, 167, 69, 0.08);
-}
-
-.ga-vault-chip.bad {
-  color: var(--ga-orange-hi);
-  border-color: rgba(214, 69, 23, 0.35);
-  background: rgba(214, 69, 23, 0.08);
 }
 
 .ga-vault-section {
-  margin-bottom: 28px;
+  margin-bottom: 32px;
 }
 
 .ga-vault-section h2 {
   margin: 0 0 14px;
   font-size: 11px;
-  letter-spacing: 0.24em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
-  color: var(--ga-navy);
+  color: var(--ga-body);
   font-weight: 700;
 }
 
 .ga-vault-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
 }
 
 .ga-module-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 18px;
-  border-radius: var(--ga-radius);
+  gap: 14px;
+  padding: 18px 18px 20px;
+  border-radius: 14px;
   background: var(--ga-paper);
-  border: 1px solid var(--ga-line);
+  border: 1px solid transparent;
+  box-shadow: 0 10px 28px rgba(33, 38, 49, 0.06);
   text-decoration: none;
   color: inherit;
-  box-shadow: none;
   min-height: 168px;
+  transition: transform 150ms var(--ga-ease), box-shadow 150ms var(--ga-ease);
 }
 
 .ga-module-card:not(.locked):hover {
@@ -116,17 +246,12 @@
 
 .ga-module-card:not(.locked):hover .ga-module-glyph {
   background: rgba(240, 89, 44, 0.12);
-  color: var(--ga-orange);
 }
 
 .ga-module-card.locked {
-  opacity: 0.55;
+  opacity: 0.72;
   cursor: not-allowed;
-}
-
-.ga-module-card.featured {
-  border-color: rgba(240, 89, 44, 0.35);
-  background: linear-gradient(180deg, #fff 0%, #fff8f5 100%);
+  filter: grayscale(0.15);
 }
 
 .ga-module-top {
@@ -139,20 +264,20 @@
 .ga-module-glyph {
   width: 44px;
   height: 44px;
-  border-radius: var(--ga-radius);
+  border-radius: 12px;
   display: grid;
   place-items: center;
-  background: #f7f1ea;
-  color: var(--ga-navy);
-  font-weight: 700;
-  font-size: 13px;
+  background: #f4eee6;
+  font-size: 22px;
+  line-height: 1;
 }
 
 .ga-module-name {
   margin: 0;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--ga-ink);
+  letter-spacing: -0.01em;
 }
 
 .ga-module-purpose {
@@ -163,15 +288,20 @@
   flex: 1;
 }
 
+.ga-status-pill.directors {
+  color: #8a6a2f;
+  background: #f3e8d4;
+}
+
 .ga-vault-foot {
-  margin-top: 40px;
+  margin-top: 24px;
   background: var(--ga-chrome);
   color: rgba(255, 255, 255, 0.86);
-  padding: 16px 20px;
+  padding: 16px 24px;
 }
 
 .ga-vault-foot-inner {
-  max-width: 1180px;
+  max-width: 1120px;
   margin: 0 auto;
   display: flex;
   flex-wrap: wrap;
@@ -181,43 +311,51 @@
   font-size: 12px;
 }
 
-.ga-env-tag {
-  background: var(--ga-navy);
-  color: #fff;
-  padding: 4px 10px;
-  border-radius: 999px;
-  letter-spacing: 0.12em;
-  font-weight: 700;
-  font-size: 10px;
-}
-
 .ga-vault-mini {
   border: 1px solid var(--ga-line);
   background: var(--ga-paper);
   color: var(--ga-ink);
   padding: 6px 10px;
-  border-radius: var(--ga-radius);
+  border-radius: 8px;
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
 }
 
-.ga-vault-link {
-  color: var(--ga-indigo);
-  text-decoration: none;
-  font-weight: 600;
-  font-size: 13px;
-}
-
-.ga-vault-legacy {
+.ga-vault-tools-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+@media (max-width: 980px) {
+  .ga-vault-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 720px) {
+  .ga-vault-topbar {
+    padding: 0 14px;
+    gap: 10px;
+  }
+  .ga-vault-brand-name {
+    display: none;
+  }
+  .ga-vault-search {
+    min-width: 0;
+    flex: 1;
+  }
+  .ga-vault-search span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
   .ga-vault-main {
-    padding: 24px 14px 32px;
+    padding: 20px 14px 40px;
+  }
+  .ga-vault-grid {
+    grid-template-columns: 1fr;
   }
 }

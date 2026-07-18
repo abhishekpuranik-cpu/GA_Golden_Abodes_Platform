@@ -17,6 +17,7 @@ export const STATUS_TONE = {
   failed: 'orange',
   error: 'orange',
   locked: 'locked',
+  directors: 'directors',
   paused: 'locked',
   inactive: 'locked',
   notstarted: 'navy',

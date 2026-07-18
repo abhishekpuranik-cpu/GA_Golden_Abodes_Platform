@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { authApi } from '../lib/api.js';
-import { VAULT_MODULE_CATALOG, userCanOpenModule } from '../lib/vaultModules.js';
+import { VAULT_MODULE_CATALOG, userCanOpenModule, toNewTabHref } from '../lib/vaultModules.js';
 import { CommandPalette, useCommandPaletteHotkey } from './CommandPalette.jsx';
 import '../theme/ga-shell.css';
 

@@ -262,6 +262,11 @@
   color: var(--ga-body);
   background: rgba(104, 113, 122, 0.12);
 }
+.ga-status-pill.directors {
+  color: #8a6a2f;
+  background: #f3e8d4;
+}
+
 .ga-status-pill.locked {
   color: var(--ga-body);
   background: rgba(104, 113, 122, 0.1);

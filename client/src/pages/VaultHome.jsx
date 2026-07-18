@@ -12,6 +12,8 @@ import {
   firstNameFromUser,
   userCanOpenModule,
   platformEnvTag,
+  toNewTabHref,
+  pickDeskModules,
 } from '../lib/vaultModules.js';
 import '../theme/ga-vault.css';
 import '../theme/ga-shell.css';
@@ -75,13 +77,21 @@ function withVersionParam(url, key, value) {
   }
 }
 
-function ModuleCard({ mod, locked, href, onOpen, featured }) {
+function initials(user) {
+  const n = String(user?.name || user?.email || 'U').trim();
+  const parts = n.split(/\s+/);
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return n.slice(0, 2).toUpperCase();
+}
+
+/** Every app opens in a new browser tab. */
+function ModuleCard({ mod, locked, href }) {
   const status = locked ? 'LOCKED' : mod.status || 'LIVE';
   const body = (
     <>
       <div className="ga-module-top">
         <div className="ga-module-glyph" aria-hidden>
-          {mod.glyph}
+          {mod.icon || mod.glyph}
         </div>
         <StatusPill status={status} label={status} />
       </div>
@@ -92,29 +102,16 @@ function ModuleCard({ mod, locked, href, onOpen, featured }) {
 
   if (locked || !href) {
     return (
-      <div className={`ga-module-card locked ga-reveal${featured ? ' featured' : ''}`} aria-disabled="true" title="Not assigned to your account">
+      <div className="ga-module-card locked ga-reveal" aria-disabled="true" title="Not assigned to your account">
         {body}
       </div>
     );
   }
 
-  if (mod.external || String(href).startsWith('http') || String(href).includes('/legacy/') || String(href).includes('/preconstruction')) {
-    return (
-      <a
-        href={href}
-        {...VAULT_LINK_PROPS}
-        className={`ga-module-card ga-interactive ga-reveal${featured ? ' featured' : ''}`}
-        onClick={onOpen}
-      >
-        {body}
-      </a>
-    );
-  }
-
   return (
-    <Link to={href} className={`ga-module-card ga-interactive ga-reveal${featured ? ' featured' : ''}`}>
+    <a href={toNewTabHref(href)} {...VAULT_LINK_PROPS} className="ga-module-card ga-interactive ga-reveal">
       {body}
-    </Link>
+    </a>
   );
 }
 
@@ -133,6 +130,7 @@ export default function VaultHome() {
   const [linkAgentLastSync, setLinkAgentLastSync] = useState('');
   const [apiOk, setApiOk] = useState(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   useCommandPaletteHotkey(setPaletteOpen);
 
   const v3Url = '/app/org-planner';
@@ -190,12 +188,13 @@ export default function VaultHome() {
     return VAULT_MODULE_CATALOG.map((m) => {
       const locked = !userCanOpenModule(auth.user, m.id);
       const href = resolvedHref[m.id] || m.path || '';
-      return { ...m, locked, href, external: !!m.external || /^https?:\/\//i.test(href) };
+      return { ...m, locked, href, external: true };
     });
   }, [auth.user, resolvedHref]);
 
-  const openModules = modules.filter((m) => !m.locked && m.href);
-  const featured = openModules.find((m) => m.featured) || openModules[0] || null;
+  const deskModules = useMemo(() => pickDeskModules(modules), [modules]);
+  const deskIds = useMemo(() => new Set(deskModules.map((m) => m.id)), [deskModules]);
+  const allModules = useMemo(() => modules.filter((m) => !deskIds.has(m.id)), [modules, deskIds]);
 
   function setCustomDashboardUrl(label, lsKey, setValue) {
     const next = window.prompt(`${label} URL\n\nExample: https://your-app.onrender.com`, localUrl(lsKey) || 'https://');
@@ -307,7 +306,10 @@ export default function VaultHome() {
     return (
       <div className="ga-vault">
         <div className="ga-vault-main" style={{ textAlign: 'center', paddingTop: '12vh' }}>
-          <div className="ga-vault-eyebrow">GOLDEN ABODES · APP VAULT</div>
+          <div className="ga-vault-eyebrow-row">
+            <span className="ga-vault-accent" aria-hidden />
+            <div className="ga-vault-eyebrow">GOLDEN ABODES · APP VAULT</div>
+          </div>
           <h1 style={{ fontFamily: 'var(--ga-font-display)', fontSize: 36, margin: '0 0 12px' }}>Login required</h1>
           <p style={{ color: 'var(--ga-body)' }}>Please sign in to open your assigned apps, projects, and tabs.</p>
           <Link to="/access" className="ga-vault-link">
@@ -329,47 +331,53 @@ export default function VaultHome() {
     id: m.id,
     title: m.title,
     purpose: m.purpose,
-    href: m.href,
+    href: toNewTabHref(m.href),
     locked: m.locked || !m.href,
-    external: m.external,
+    external: true,
   }));
-
-  const byGroup = {
-    platform: modules.filter((m) => m.group === 'platform'),
-    planner: modules.filter((m) => m.group === 'planner'),
-    sales: modules.filter((m) => m.group === 'sales'),
-    construction: modules.filter((m) => m.group === 'construction'),
-    admin: modules.filter((m) => m.group === 'admin'),
-  };
 
   return (
     <div className="ga-vault">
-      <div className="ga-vault-main">
-        <div className="ga-vault-greet ga-reveal">
-          <div>
-            <div className="ga-vault-eyebrow">GOLDEN ABODES · APP VAULT</div>
-            <h1>{greet}</h1>
-            <p className="ga-vault-date">{dateLabel}</p>
-            {auth.user?.allowedProjects?.length ? (
-              <p className="ga-vault-date">Projects: {auth.user.allowedProjects.join(', ')}</p>
-            ) : null}
-          </div>
-          <div className="ga-vault-tools">
+      <header className="ga-vault-topbar">
+        <a href="/" className="ga-vault-brand" onClick={(e) => e.preventDefault()}>
+          <span className="ga-vault-brand-mark" aria-hidden>
+            G
+          </span>
+          <span className="ga-vault-brand-name">Golden Abodes</span>
+          <span className="ga-vault-env">{platformEnvTag()}</span>
+        </a>
+
+        <button type="button" className="ga-vault-search" onClick={() => setPaletteOpen(true)} aria-label="Search modules">
+          <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2">
+            <circle cx="11" cy="11" r="7" />
+            <path d="M20 20l-3.5-3.5" />
+          </svg>
+          <span>Search modules &amp; records.</span>
+          <kbd>⌘K</kbd>
+        </button>
+
+        <button
+          type="button"
+          className="ga-vault-avatar"
+          aria-label="Account menu"
+          aria-expanded={menuOpen}
+          onClick={() => setMenuOpen((v) => !v)}
+        >
+          {initials(auth.user)}
+        </button>
+        {menuOpen ? (
+          <div className="ga-vault-user-menu" role="menu">
+            <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--ga-body)' }}>{auth.user?.email}</div>
             {apiOk !== null ? (
-              <span className={`ga-vault-chip ${apiOk ? 'ok' : 'bad'}`}>{apiOk ? 'MongoDB online' : 'API / Mongo unreachable'}</span>
+              <div style={{ padding: '4px 12px 8px', fontSize: 11, color: apiOk ? '#1f7a4d' : '#b42318' }}>
+                {apiOk ? 'MongoDB online' : 'API / Mongo unreachable'}
+              </div>
             ) : null}
-            <span className="ga-vault-chip" title="Auto-syncs app links every 30s">
-              Link agent #{linkAgentTick}
-              {linkAgentLastSync ? ` · ${linkAgentLastSync}` : ''}
-            </span>
-            <button type="button" className="ga-vault-mini ga-interactive" onClick={() => setPaletteOpen(true)}>
-              Search ⌘K
-            </button>
-            <span className="ga-vault-chip">{auth.user?.email}</span>
             <button
               type="button"
-              className="ga-vault-mini ga-interactive"
+              role="menuitem"
               onClick={async () => {
+                setMenuOpen(false);
                 await authApi.logout();
                 window.location.href = '/access';
               }}
@@ -377,104 +385,88 @@ export default function VaultHome() {
               Logout
             </button>
           </div>
+        ) : null}
+      </header>
+
+      <div className="ga-vault-main">
+        <div className="ga-vault-hero ga-reveal">
+          <div className="ga-vault-eyebrow-row">
+            <span className="ga-vault-accent" aria-hidden />
+            <div className="ga-vault-eyebrow">GOLDEN ABODES · APP VAULT</div>
+          </div>
+          <div className="ga-vault-greet-row">
+            <h1>{greet}</h1>
+            <p className="ga-vault-date">{dateLabel}</p>
+          </div>
+          {auth.user?.allowedProjects?.length ? (
+            <p className="ga-vault-meta">Projects: {auth.user.allowedProjects.join(', ')}</p>
+          ) : null}
         </div>
 
-        {featured ? (
-          <section className="ga-vault-section">
-            <h2>Featured</h2>
-            <div className="ga-vault-grid" style={{ gridTemplateColumns: '1fr', maxWidth: 720 }}>
-              <ModuleCard mod={featured} locked={false} href={featured.href} featured />
-            </div>
-          </section>
-        ) : null}
-
-        {[
-          ['platform', 'Platform modules'],
-          ['planner', 'Planner suite'],
-          ['sales', 'Sales & post-booking'],
-          ['construction', 'Construction dashboards'],
-          ['admin', 'Administration'],
-        ].map(([key, label]) => {
-          const list = byGroup[key] || [];
-          if (!list.length) return null;
-          const rest = featured ? list.filter((m) => m.id !== featured.id) : list;
-          if (!rest.length) return null;
-          return (
-            <section key={key} className="ga-vault-section">
-              <h2>{label}</h2>
-              <div className="ga-vault-grid ga-stagger">
-                {rest.map((m) => (
-                  <ModuleCard key={m.id} mod={m} locked={m.locked || !m.href} href={m.href} />
-                ))}
-              </div>
-              {key === 'construction' ? (
-                <div style={{ marginTop: 12, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  <button
-                    type="button"
-                    className="ga-vault-mini"
-                    onClick={() => setCustomDashboardUrl('Construction Execution Dashboard', EXEC_URL_LS_KEY, setExecCustomUrl)}
-                  >
-                    Set Execution URL
-                  </button>
-                  <button
-                    type="button"
-                    className="ga-vault-mini"
-                    onClick={() => setCustomDashboardUrl('PreConstruction', PRE_URL_LS_KEY, setPreCustomUrl)}
-                  >
-                    Set PreConstruction URL
-                  </button>
-                  <button
-                    type="button"
-                    className="ga-vault-mini"
-                    onClick={() => setCustomDashboardUrl('V2 Resource Planner', V2_URL_LS_KEY, setV2CustomUrl)}
-                  >
-                    Set V2 URL
-                  </button>
-                  <button
-                    type="button"
-                    className="ga-vault-mini"
-                    onClick={() => setCustomDashboardUrl('V1 Cashflow Tracker', V1_URL_LS_KEY, setV1CustomUrl)}
-                  >
-                    Set V1 URL
-                  </button>
-                </div>
-              ) : null}
-            </section>
-          );
-        })}
+        <section className="ga-vault-section">
+          <h2>Your desk</h2>
+          <div className="ga-vault-grid ga-stagger">
+            {deskModules.map((m) => (
+              <ModuleCard key={m.id} mod={m} locked={m.locked || !m.href} href={m.href} />
+            ))}
+          </div>
+        </section>
 
         <section className="ga-vault-section">
-          <h2>Legacy HTML (optional direct open)</h2>
-          <div className="ga-vault-legacy">
+          <h2>All modules</h2>
+          <div className="ga-vault-grid ga-stagger">
+            {allModules.map((m) => (
+              <ModuleCard key={m.id} mod={m} locked={m.locked || !m.href} href={m.href} />
+            ))}
+          </div>
+          <div className="ga-vault-tools-row">
+            <button
+              type="button"
+              className="ga-vault-mini"
+              onClick={() => setCustomDashboardUrl('Construction Execution Dashboard', EXEC_URL_LS_KEY, setExecCustomUrl)}
+            >
+              Set Execution URL
+            </button>
+            <button
+              type="button"
+              className="ga-vault-mini"
+              onClick={() => setCustomDashboardUrl('PreConstruction', PRE_URL_LS_KEY, setPreCustomUrl)}
+            >
+              Set PreConstruction URL
+            </button>
+            <button
+              type="button"
+              className="ga-vault-mini"
+              onClick={() => setCustomDashboardUrl('V2 Resource Planner', V2_URL_LS_KEY, setV2CustomUrl)}
+            >
+              Set V2 URL
+            </button>
+            <button
+              type="button"
+              className="ga-vault-mini"
+              onClick={() => setCustomDashboardUrl('V1 Cashflow Tracker', V1_URL_LS_KEY, setV1CustomUrl)}
+            >
+              Set V1 URL
+            </button>
             {userCanOpenModule(auth.user, 'sales_dashboard') ? (
-              <>
-                <a href={salesHref} {...VAULT_LINK_PROPS} className="ga-vault-link">
-                  Sales dashboard
-                </a>
-                <button
-                  type="button"
-                  className="ga-vault-mini"
-                  onClick={() => setCustomDashboardUrl('Sales dashboard', SALES_URL_LS_KEY, setSalesCustomUrl)}
-                >
-                  Set URL
-                </button>
-              </>
+              <button
+                type="button"
+                className="ga-vault-mini"
+                onClick={() => setCustomDashboardUrl('Sales dashboard', SALES_URL_LS_KEY, setSalesCustomUrl)}
+              >
+                Set Sales URL
+              </button>
             ) : null}
             {userCanOpenModule(auth.user, 'marketing_kpi') ? (
-              <>
-                <a href={kpiHref} {...VAULT_LINK_PROPS} className="ga-vault-link">
-                  Marketing KPIs
-                </a>
-                <button
-                  type="button"
-                  className="ga-vault-mini"
-                  onClick={() => setCustomDashboardUrl('Marketing KPIs', KPI_URL_LS_KEY, setKpiCustomUrl)}
-                >
-                  Set URL
-                </button>
-              </>
+              <button
+                type="button"
+                className="ga-vault-mini"
+                onClick={() => setCustomDashboardUrl('Marketing KPIs', KPI_URL_LS_KEY, setKpiCustomUrl)}
+              >
+                Set Marketing URL
+              </button>
             ) : null}
-            <a href={vaultHtmlHref} {...VAULT_LINK_PROPS} className="ga-vault-link">
+            <a href={toNewTabHref(vaultHtmlHref)} {...VAULT_LINK_PROPS} className="ga-vault-mini" style={{ display: 'inline-flex', alignItems: 'center' }}>
               Original vault HTML
             </a>
             <button
@@ -482,8 +474,13 @@ export default function VaultHome() {
               className="ga-vault-mini"
               onClick={() => setCustomDashboardUrl('Original vault HTML', VAULT_HTML_URL_LS_KEY, setVaultHtmlCustomUrl)}
             >
-              Set URL
+              Set vault HTML URL
             </button>
+            {linkAgentLastSync ? (
+              <span className="ga-vault-meta" style={{ alignSelf: 'center' }}>
+                Link agent #{linkAgentTick} · {linkAgentLastSync}
+              </span>
+            ) : null}
           </div>
         </section>
 
@@ -499,7 +496,7 @@ export default function VaultHome() {
       <footer className="ga-vault-foot">
         <div className="ga-vault-foot-inner">
           <span>© Golden Abodes · Internal platform</span>
-          <span className="ga-env-tag">{platformEnvTag()}</span>
+          <span>{platformEnvTag()}</span>
         </div>
       </footer>
 

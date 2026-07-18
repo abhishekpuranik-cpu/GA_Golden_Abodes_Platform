@@ -1,23 +1,58 @@
 import { APP_IDS } from '../appRegistry.js';
-import { VAULT_PLATFORM_APPS } from './vaultCatalog.js';
+
+const DESK_DEFAULT_IDS = [
+  APP_IDS.POST_SALES,
+  'sales_dashboard',
+  'execution',
+  APP_IDS.HIRING,
+];
+
+const DESK_LS_KEY = 'ga_vault_desk_ids';
 
 /** Canonical vault launcher catalog for cards + Cmd-K (ACL applied by callers). */
 export const VAULT_MODULE_CATALOG = [
-  ...VAULT_PLATFORM_APPS.map((app) => ({
-    id: app.appId,
-    title: app.title,
-    purpose: app.description,
-    path: app.path,
-    glyph: app.appId === APP_IDS.HIRING ? 'HR' : app.appId === APP_IDS.POST_SALES ? 'PS' : 'BH',
+  {
+    id: APP_IDS.POST_SALES,
+    title: 'Post-Sales Console',
+    purpose: 'Bookings, demands, collections & registrations.',
+    path: '/app/post-sales',
+    icon: '🏠',
+    glyph: 'PS',
     group: 'platform',
-    featured: !!app.featured,
+    desk: true,
+    featured: false,
     status: 'LIVE',
-  })),
+  },
+  {
+    id: APP_IDS.HIRING,
+    title: 'Hiring · M8',
+    purpose: 'Talent registry, pipeline and director gates.',
+    path: '/app/hiring',
+    icon: '💛',
+    glyph: 'HR',
+    group: 'platform',
+    desk: true,
+    featured: true,
+    status: 'BETA',
+  },
+  {
+    id: APP_IDS.DM_SPV_GOVERNANCE,
+    title: 'Board Room',
+    purpose: 'DM fees, SPV equity and partner ledgers.',
+    path: '/app/dm-governance',
+    icon: '🗂️',
+    glyph: 'BH',
+    group: 'platform',
+    desk: false,
+    featured: false,
+    status: 'DIRECTORS',
+  },
   {
     id: 'v3_project_acquisition',
     title: 'Project Acquisition',
-    purpose: 'Org resource planner — opens in a synced frame.',
+    purpose: 'Org resource planner and project pipeline.',
     path: '/app/org-planner',
+    icon: '📐',
     glyph: 'V3',
     group: 'planner',
     status: 'LIVE',
@@ -25,27 +60,30 @@ export const VAULT_MODULE_CATALOG = [
   {
     id: 'v2_resource_planner',
     title: 'Resource Planner',
-    purpose: 'Capacity, allocations, and V3 project links.',
+    purpose: 'Capacity, allocations, and team bandwidth.',
     path: '/app/resource-planner',
+    icon: '👥',
     glyph: 'V2',
     group: 'planner',
     status: 'LIVE',
   },
   {
     id: 'v1_cashflow',
-    title: 'Cashflow Tracker',
-    purpose: 'Project cashflow, Tally sync, and investor views.',
+    title: 'Cashflow',
+    purpose: 'Entity-wise inflows, outflows and projections.',
     path: '/legacy/GA_Cashflow_V1.html',
-    glyph: 'V1',
+    icon: '💰',
+    glyph: 'CF',
     group: 'planner',
     status: 'LIVE',
     external: true,
   },
   {
     id: 'finance_kpi',
-    title: 'Finance KPI & Governance',
-    purpose: 'Accounting KPIs, compliance calendar, and scoring.',
+    title: 'Finance KPIs',
+    purpose: 'Finance scorecards and review cycles.',
     path: '/legacy/GA_Finance_KPI.html',
+    icon: '📄',
     glyph: 'FA',
     group: 'planner',
     status: 'LIVE',
@@ -53,19 +91,22 @@ export const VAULT_MODULE_CATALOG = [
   },
   {
     id: 'sales_dashboard',
-    title: 'Sales dashboard',
-    purpose: 'Inventory, bookings, and CRM post-sales import.',
+    title: 'Sales Analytics',
+    purpose: 'Funnel, sources and Rate per Sq. Ft. by project.',
     path: '/legacy/ga_sales_dashboard.html',
+    icon: '📈',
     glyph: 'SL',
     group: 'sales',
+    desk: true,
     status: 'LIVE',
     external: true,
   },
   {
     id: 'marketing_kpi',
     title: 'Marketing KPIs',
-    purpose: 'Marketing and sales KPI dashboard.',
+    purpose: 'Marketing and sales KPI dashboards.',
     path: '/legacy/GA_MarketingSales_KPI_Dashboard.html',
+    icon: '🎯',
     glyph: 'MK',
     group: 'sales',
     status: 'LIVE',
@@ -73,19 +114,22 @@ export const VAULT_MODULE_CATALOG = [
   },
   {
     id: 'execution',
-    title: 'Construction Execution Dashboard',
-    purpose: 'Live construction execution dashboard.',
+    title: 'Construction KPIs',
+    purpose: 'Progress, quality and site cadence dashboards.',
     path: '',
+    icon: '🏗️',
     glyph: 'EX',
     group: 'construction',
+    desk: true,
     status: 'LIVE',
     external: true,
   },
   {
     id: 'preconstruction',
-    title: 'PreConstruction',
-    purpose: 'Pre-construction tasks, comments, and assignees.',
+    title: 'Pre-Construction',
+    purpose: 'Approvals, Gantt and PCMC regulatory tracker.',
     path: '/preconstruction/',
+    icon: '📋',
     glyph: 'PC',
     group: 'construction',
     status: 'LIVE',
@@ -96,6 +140,7 @@ export const VAULT_MODULE_CATALOG = [
     title: 'Admin Security',
     purpose: 'Users, roles, apps, and project access.',
     path: '/admin/security',
+    icon: '🔐',
     glyph: 'AD',
     group: 'admin',
     status: 'LIVE',
@@ -121,7 +166,12 @@ export function userCanOpenModule(user, moduleId) {
     return allowed.has('admin_security') || perms.includes('manage_security');
   }
   if (moduleId === 'finance_kpi') {
-    return allowed.has('finance_kpi') || allowed.has('finance_kpi_admin') || allowed.has('admin_security') || perms.includes('manage_security');
+    return (
+      allowed.has('finance_kpi') ||
+      allowed.has('finance_kpi_admin') ||
+      allowed.has('admin_security') ||
+      perms.includes('manage_security')
+    );
   }
   if (moduleId === 'v3_project_acquisition') {
     return allowed.has('v3_project_acquisition') || allowed.has('v3_org_planner');
@@ -134,4 +184,67 @@ export function platformEnvTag() {
   if (raw.includes('stag')) return 'STAGING';
   if (raw.includes('dev')) return 'DEV';
   return 'PROD';
+}
+
+/** Absolute URL so React routes also open in a new tab. */
+export function toNewTabHref(href) {
+  const raw = String(href || '').trim();
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (typeof window === 'undefined') return raw;
+  try {
+    return new URL(raw, window.location.origin).href;
+  } catch {
+    return raw;
+  }
+}
+
+/** Desk pins — local only (no schema). Defaults to mockup-style priority when unset. */
+export function loadDeskIds() {
+  try {
+    const raw = window.localStorage.getItem(DESK_LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length) return parsed.map(String).slice(0, 4);
+    }
+  } catch {
+    /* ignore */
+  }
+  return [...DESK_DEFAULT_IDS];
+}
+
+export function saveDeskIds(ids) {
+  try {
+    window.localStorage.setItem(DESK_LS_KEY, JSON.stringify((ids || []).slice(0, 4)));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function pickDeskModules(modules) {
+  const pinned = loadDeskIds();
+  const byId = new Map(modules.map((m) => [m.id, m]));
+  const desk = [];
+  for (const id of pinned) {
+    const m = byId.get(id);
+    if (m && !m.locked && m.href) desk.push(m);
+    if (desk.length >= 4) break;
+  }
+  if (desk.length < 4) {
+    for (const m of modules) {
+      if (desk.some((d) => d.id === m.id)) continue;
+      if (m.locked || !m.href) continue;
+      if (m.desk || m.featured) desk.push(m);
+      if (desk.length >= 4) break;
+    }
+  }
+  if (desk.length < 4) {
+    for (const m of modules) {
+      if (desk.some((d) => d.id === m.id)) continue;
+      if (m.locked || !m.href) continue;
+      desk.push(m);
+      if (desk.length >= 4) break;
+    }
+  }
+  return desk;
 }

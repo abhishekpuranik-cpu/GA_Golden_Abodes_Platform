@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import '../theme/ga-shell.css';
 
 function fuzzyScore(query, text) {
@@ -17,9 +16,9 @@ function fuzzyScore(query, text) {
 /**
  * Module-name command palette only (no federated endpoints exist).
  * items: [{ id, title, purpose, href, locked }]
+ * Always opens in a new browser tab.
  */
 export function CommandPalette({ open, onClose, items = [] }) {
-  const navigate = useNavigate();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
   const inputRef = useRef(null);
@@ -68,11 +67,7 @@ export function CommandPalette({ open, onClose, items = [] }) {
   function openItem(hit) {
     if (!hit?.href || hit.locked) return;
     onClose?.();
-    if (hit.external) {
-      window.open(hit.href, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    navigate(hit.href);
+    window.open(hit.href, '_blank', 'noopener,noreferrer');
   }
 
   if (!open) return null;
@@ -87,8 +82,8 @@ export function CommandPalette({ open, onClose, items = [] }) {
             setQ(e.target.value);
             setActive(0);
           }}
-          placeholder="Search apps… (Esc to close)"
-          aria-label="Search apps"
+          placeholder="Search modules & records…"
+          aria-label="Search modules"
         />
         <div className="ga-palette-list">
           {filtered.length ? (
