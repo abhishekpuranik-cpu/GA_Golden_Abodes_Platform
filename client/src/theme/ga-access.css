@@ -1,0 +1,227 @@
+.ga-access {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  grid-template-columns: 45fr 55fr;
+  background: var(--ga-paper);
+  color: var(--ga-ink);
+  font-family: var(--ga-font-text);
+}
+
+.ga-access-left {
+  position: relative;
+  background: var(--ga-chrome);
+  color: #fff;
+  overflow: hidden;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 28px;
+}
+
+.ga-access-logo {
+  position: relative;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  text-decoration: none;
+  color: #fff;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.ga-access-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid var(--ga-orange);
+  display: grid;
+  place-items: center;
+  font-family: var(--ga-font-display);
+  font-size: 16px;
+}
+
+.ga-access-slides {
+  position: absolute;
+  inset: 0;
+}
+
+.ga-access-slide {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  opacity: 0;
+  animation: ga-crossfade 14s var(--ga-ease) infinite;
+}
+
+.ga-access-slide:nth-child(1) {
+  animation-delay: 0s;
+  background-image: linear-gradient(160deg, rgba(33, 38, 49, 0.35), rgba(9, 40, 86, 0.55)),
+    url('/brand/access-renders.webp');
+  background-position: 8% center;
+}
+.ga-access-slide:nth-child(2) {
+  animation-delay: 4.6s;
+  background-image: linear-gradient(160deg, rgba(33, 38, 49, 0.4), rgba(240, 89, 44, 0.25)),
+    url('/brand/access-renders.webp');
+  background-position: 50% center;
+}
+.ga-access-slide:nth-child(3) {
+  animation-delay: 9.2s;
+  background-image: linear-gradient(160deg, rgba(33, 38, 49, 0.45), rgba(9, 40, 86, 0.45)),
+    url('/brand/access-renders.webp');
+  background-position: 88% center;
+}
+
+.ga-access-copy {
+  margin-top: auto;
+  position: relative;
+  z-index: 2;
+  max-width: 420px;
+}
+
+.ga-access-eyebrow {
+  color: var(--ga-salmon);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+.ga-access-tagline {
+  margin: 0;
+  font-family: var(--ga-font-display);
+  font-size: clamp(28px, 3.4vw, 42px);
+  line-height: 1.15;
+  font-weight: 600;
+  color: #fff;
+}
+
+.ga-access-right {
+  display: grid;
+  place-items: center;
+  padding: 32px 20px;
+  background: var(--ga-paper);
+}
+
+.ga-access-form {
+  width: 100%;
+  max-width: 380px;
+}
+
+.ga-access-form-eyebrow {
+  color: var(--ga-navy);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+}
+
+.ga-access-form h1 {
+  margin: 0 0 8px;
+  font-family: var(--ga-font-display);
+  font-size: 40px;
+  color: var(--ga-ink);
+  font-weight: 600;
+}
+
+.ga-access-form-sub {
+  margin: 0 0 22px;
+  color: var(--ga-body);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.ga-access-form label {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.ga-access-form .ga-lbl {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ga-body);
+}
+
+.ga-access-form input {
+  width: 100%;
+  height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--ga-line);
+  border-radius: var(--ga-radius);
+  background: var(--ga-paper);
+  color: var(--ga-ink);
+  font: inherit;
+  outline: none;
+  transition: border-color 150ms var(--ga-ease), box-shadow 150ms var(--ga-ease);
+}
+
+.ga-access-form input:focus {
+  border-color: var(--ga-orange);
+  box-shadow: 0 0 0 3px rgba(240, 89, 44, 0.18);
+}
+
+.ga-access-error {
+  color: var(--ga-orange-hi);
+  font-size: 13px;
+  margin: -4px 0 12px;
+}
+
+.ga-access-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.ga-access-submit {
+  height: 48px;
+  padding: 0 20px;
+  border: none;
+  border-radius: var(--ga-radius);
+  background: var(--ga-orange);
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+  min-width: 140px;
+}
+
+.ga-access-submit:hover:not(:disabled) {
+  background: var(--ga-orange-hi);
+}
+
+.ga-access-submit:disabled {
+  background: var(--ga-salmon);
+  cursor: wait;
+}
+
+.ga-access-back {
+  color: var(--ga-indigo);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
+  .ga-access {
+    grid-template-columns: 1fr;
+  }
+  .ga-access-left {
+    min-height: 200px;
+    padding: 20px;
+  }
+  .ga-access-copy {
+    margin-top: 48px;
+  }
+  .ga-access-tagline {
+    font-size: 28px;
+  }
+}

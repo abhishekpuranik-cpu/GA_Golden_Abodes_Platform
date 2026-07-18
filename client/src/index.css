@@ -22,12 +22,16 @@ body {
   margin: 0;
   min-height: 100vh;
   min-height: 100dvh;
-  font-family: Outfit, system-ui, sans-serif;
-  color: var(--text);
-  background: linear-gradient(180deg, var(--mid) 0%, var(--deep) 100%);
+  font-family: var(--ga-font-text), system-ui, sans-serif;
+  color: var(--ga-ink);
+  background: var(--ga-canvas);
 }
 a {
-  color: var(--teal);
+  color: var(--ga-indigo);
+}
+:focus-visible {
+  outline: 2px solid var(--ga-orange);
+  outline-offset: 2px;
 }
 
 /* Mobile-friendly platform shell (Vault, login, admin, planner iframe) */
@@ -527,6 +531,65 @@ img {
   color: #fca5a5;
 }
 
+/* Admin Security — light canvas compatibility (additive overrides) */
+.admin-security {
+  color: var(--ga-ink);
+  background: transparent;
+}
+.admin-security h1,
+.admin-security h2,
+.admin-security h3 {
+  color: var(--ga-ink);
+}
+.admin-sub,
+.admin-session,
+.admin-card-sub {
+  color: var(--ga-body) !important;
+}
+.admin-card,
+.admin-user-card,
+.admin-row,
+.admin-reset-panel,
+.pap {
+  background: var(--ga-paper) !important;
+  border-color: var(--ga-line) !important;
+  color: var(--ga-ink);
+}
+.admin-inp,
+.admin-inp-wide,
+.admin-inp-id,
+.pap-btn {
+  background: var(--ga-paper) !important;
+  border-color: var(--ga-line) !important;
+  color: var(--ga-ink) !important;
+}
+.admin-btn {
+  background: var(--ga-chrome-hi) !important;
+  border-color: var(--ga-chrome-hi) !important;
+  color: #fff !important;
+}
+.admin-btn-primary {
+  background: var(--ga-orange) !important;
+  border-color: var(--ga-orange) !important;
+}
+.admin-back {
+  color: var(--ga-indigo) !important;
+}
+.pap-item {
+  background: rgba(243, 244, 247, 0.6) !important;
+}
+.pap-item.on {
+  border-color: var(--ga-orange) !important;
+  background: rgba(240, 89, 44, 0.08) !important;
+}
+.pap-name,
+.bwr-person-name {
+  color: var(--ga-ink) !important;
+}
+.bwr-th-person,
+.bwr-td-person {
+  background: var(--ga-paper) !important;
+}
 @media (max-width: 768px) {
   .admin-security {
     padding: 16px 12px 48px;
@@ -536,3 +599,4 @@ img {
     margin-left: 0;
   }
 }
+
