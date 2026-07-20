@@ -66,11 +66,41 @@
     transform 150ms var(--ga-ease), box-shadow 150ms var(--ga-ease);
 }
 
+@keyframes ga-page-enter-kf {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ga-drawer-slide-kf {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.ga-page-enter {
+  animation: ga-page-enter-kf 0.55s var(--ga-ease) both;
+}
+
+.ga-drawer-slide {
+  animation: ga-drawer-slide-kf 0.35s var(--ga-ease) both;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .ga-reveal,
   .ga-stagger > *,
   .ga-access-slide,
-  .ga-interactive {
+  .ga-interactive,
+  .ga-page-enter,
+  .ga-drawer-slide {
     animation: none !important;
     transition: none !important;
   }

@@ -8,17 +8,21 @@
   --ga-chrome: #212631;
   --ga-chrome-hi: #29303d;
   --ga-navy: #092856;
+  --ga-navy-2: #0e3a78;
   --ga-orange: #f0592c;
   --ga-orange-hi: #d64517;
   --ga-salmon: #fba287;
   --ga-green: #28a745;
   --ga-indigo: #5856d6;
+  --ga-panel: var(--ga-chrome-hi);
 
   --ga-font-display: 'Playfair Display', Georgia, serif;
   --ga-font-text: 'Jost', 'Segoe UI', sans-serif;
 
   --ga-radius: 4px;
   --ga-shadow-card: 0 18px 40px rgba(33, 38, 49, 0.1);
+  --ga-shadow: 0 14px 34px rgba(33, 38, 49, 0.1);
+  --ga-shadow-hi: 0 22px 48px rgba(33, 38, 49, 0.16);
   --ga-ease: cubic-bezier(0.16, 0.68, 0.3, 1);
 
   /* Back-compat aliases used by existing shells */

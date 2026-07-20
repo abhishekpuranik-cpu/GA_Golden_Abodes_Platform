@@ -5,6 +5,7 @@ import App from './App.jsx';
 import { ErrorBoundary } from './components/ErrorBoundary.jsx';
 import './theme/ga-tokens.css';
 import './theme/ga-motion.css';
+import './theme/ga-module.css';
 import './index.css';
 
 createRoot(document.getElementById('root')).render(

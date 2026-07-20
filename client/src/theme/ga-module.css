@@ -1,0 +1,449 @@
+/**
+ * GA module chrome — shared layout for React modules wrapped in <ModuleFrame>.
+ * Additive only: existing module CSS (hiring.css / post-sales.css / dm-governance.css /
+ * admin-security styles) keeps working unchanged inside `.ga-mod-content`.
+ */
+
+/* ---------- shell grid ---------- */
+
+.ga-mod {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  min-height: calc(100dvh - 64px);
+  background: var(--ga-canvas);
+}
+
+.ga-mod-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 860px) {
+  .ga-mod {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- sidebar chrome ---------- */
+
+.ga-mod-side {
+  background: var(--ga-chrome);
+  color: rgba(255, 255, 255, 0.86);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 64px;
+  height: calc(100dvh - 64px);
+  overflow: auto;
+}
+
+.ga-mod-side-brand {
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.ga-mod-side-brand-title {
+  font-family: var(--ga-font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.25;
+}
+
+.ga-mod-side-brand-sub {
+  margin-top: 4px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.ga-mod-side-nav {
+  flex: 1;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ga-mod-side-group-label {
+  margin: 10px 10px 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.ga-mod-side-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 4px;
+  border-left: 3px solid transparent;
+  color: rgba(255, 255, 255, 0.78);
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background-color 150ms var(--ga-ease), border-color 150ms var(--ga-ease), color 150ms var(--ga-ease);
+}
+
+.ga-mod-side-link:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.ga-mod-side-link.active {
+  background: rgba(240, 89, 44, 0.16);
+  border-left-color: var(--ga-orange);
+  color: #fff;
+  font-weight: 600;
+}
+
+.ga-mod-side-foot {
+  padding: 14px 16px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.ga-mod-side-foot strong {
+  display: block;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12px;
+  margin-bottom: 2px;
+}
+
+.ga-mod-side-vault {
+  display: inline-block;
+  margin-top: 10px;
+  color: var(--ga-salmon);
+  text-decoration: none;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ga-mod-side-vault:hover {
+  color: #fff;
+}
+
+.ga-mod-side-mobile {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .ga-mod-side {
+    position: static;
+    height: auto;
+    top: auto;
+    flex-direction: column;
+  }
+
+  .ga-mod-side-nav {
+    flex-direction: row;
+    flex-wrap: wrap;
+    overflow: auto;
+  }
+
+  .ga-mod-side-group-label {
+    display: none;
+  }
+}
+
+/* ---------- hero band ---------- */
+
+.ga-mod-hero {
+  position: relative;
+  background: linear-gradient(120deg, var(--ga-navy) 0%, var(--ga-navy-2) 100%);
+  color: #fff;
+  padding: 30px 28px 26px;
+  overflow: hidden;
+}
+
+.ga-mod-hero::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(560px 260px at 88% -10%, rgba(240, 89, 44, 0.28), transparent 70%);
+  pointer-events: none;
+}
+
+.ga-mod-hero-inner {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.ga-mod-hero-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ga-salmon);
+  margin-bottom: 8px;
+}
+
+.ga-mod-hero-title {
+  margin: 0;
+  font-family: var(--ga-font-display);
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.ga-mod-hero-sub {
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  max-width: 640px;
+}
+
+.ga-mod-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---------- content ---------- */
+
+.ga-mod-content {
+  padding: 22px 26px 40px;
+  flex: 1;
+}
+
+@media (max-width: 720px) {
+  .ga-mod-hero {
+    padding: 22px 18px 20px;
+  }
+  .ga-mod-content {
+    padding: 16px 14px 32px;
+  }
+}
+
+/* ---------- kpi cards ---------- */
+
+.ga-kpi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.ga-kpi {
+  position: relative;
+  background: var(--ga-paper);
+  border: 1px solid var(--ga-line);
+  border-radius: var(--ga-radius);
+  padding: 16px 18px 16px 20px;
+  box-shadow: var(--ga-shadow);
+  overflow: hidden;
+}
+
+.ga-kpi::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--ga-orange);
+}
+
+.ga-kpi.tone-navy::after {
+  background: var(--ga-navy);
+}
+.ga-kpi.tone-green::after {
+  background: var(--ga-green);
+}
+.ga-kpi.tone-salmon::after {
+  background: var(--ga-salmon);
+}
+.ga-kpi.tone-orange::after {
+  background: var(--ga-orange);
+}
+
+.ga-kpi-value {
+  font-family: var(--ga-font-display);
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--ga-ink);
+  line-height: 1.1;
+}
+
+.ga-kpi-label {
+  margin-top: 6px;
+  color: var(--ga-body);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ---------- data table micro-heads ---------- */
+
+.ga-mod-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--ga-paper);
+  border: 1px solid var(--ga-line);
+  border-radius: var(--ga-radius);
+  overflow: hidden;
+}
+
+.ga-mod-table th {
+  text-align: left;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ga-body);
+  background: var(--ga-canvas);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--ga-line);
+}
+
+.ga-mod-table td {
+  font-size: 13px;
+  color: var(--ga-ink);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--ga-line);
+}
+
+.ga-mod-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ---------- aging chips ---------- */
+
+.ga-age-1,
+.ga-age-2,
+.ga-age-3 {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.ga-age-1 {
+  color: var(--ga-green);
+  background: rgba(40, 167, 69, 0.12);
+}
+
+.ga-age-2 {
+  color: #8a6a2f;
+  background: #f3e8d4;
+}
+
+.ga-age-3 {
+  color: var(--ga-orange-hi);
+  background: rgba(240, 89, 44, 0.14);
+}
+
+/* ---------- progress ring ---------- */
+
+.ga-ring {
+  --ga-ring-pct: 0;
+  --ga-ring-color: var(--ga-orange);
+  position: relative;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: conic-gradient(
+    var(--ga-ring-color) calc(var(--ga-ring-pct) * 1%),
+    var(--ga-line) 0
+  );
+}
+
+.ga-ring-inner {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--ga-paper);
+  display: grid;
+  place-items: center;
+  text-align: center;
+  line-height: 1.1;
+}
+
+.ga-ring-value {
+  font-family: var(--ga-font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ga-ink);
+}
+
+.ga-ring-label {
+  font-size: 9px;
+  color: var(--ga-body);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ---------- buttons ---------- */
+
+.ga-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--ga-radius);
+  border: 1px solid var(--ga-line);
+  background: var(--ga-paper);
+  color: var(--ga-ink);
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.ga-btn:hover,
+.ga-btn:focus-visible {
+  border-color: var(--ga-orange);
+  outline: none;
+}
+
+.ga-btn-primary {
+  background: var(--ga-orange);
+  border-color: var(--ga-orange);
+  color: #fff;
+}
+
+.ga-btn-primary:hover,
+.ga-btn-primary:focus-visible {
+  background: var(--ga-orange-hi);
+  border-color: var(--ga-orange-hi);
+}
+
+.ga-btn-ghost {
+  background: transparent;
+  border-color: var(--ga-line);
+  color: var(--ga-navy);
+}
+
+.ga-btn-ghost:hover,
+.ga-btn-ghost:focus-visible {
+  background: rgba(9, 40, 86, 0.06);
+}
+
+.ga-btn-glass {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.35);
+  color: #fff;
+}
+
+.ga-btn-glass:hover,
+.ga-btn-glass:focus-visible {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: #fff;
+}

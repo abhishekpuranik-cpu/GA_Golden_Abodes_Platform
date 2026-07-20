@@ -2,7 +2,13 @@ export function Drawer({ open, title, children, onClose }) {
   if (!open) return null;
   return (
     <div style={scrim} onClick={onClose} role="presentation">
-      <aside style={panel} role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+      <aside
+        className="ga-drawer-slide"
+        style={panel}
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
           <strong style={{ fontFamily: 'var(--ga-font-display)', fontSize: 22 }}>{title}</strong>
           <button type="button" onClick={onClose} style={closeBtn} aria-label="Close">

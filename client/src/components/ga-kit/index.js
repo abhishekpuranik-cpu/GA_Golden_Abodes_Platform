@@ -8,3 +8,6 @@ export { Drawer } from './Drawer.jsx';
 export { Toast } from './Toast.jsx';
 export { DataTable } from './DataTable.jsx';
 export { STATUS_TONE } from './statusMap.js';
+export { HeroBand } from './HeroBand.jsx';
+export { SidebarChrome } from './SidebarChrome.jsx';
+export { ProgressRing } from './ProgressRing.jsx';

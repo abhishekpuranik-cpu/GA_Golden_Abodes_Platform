@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import '../../theme/ga-module.css';
 
 function useCountUp(value, enabled) {
   const [n, setN] = useState(0);
@@ -22,7 +23,8 @@ function useCountUp(value, enabled) {
   return n;
 }
 
-export function KpiCard({ label, value, prefix = '', suffix = '' }) {
+/** `tone` picks the accent-spine color: orange (default) | navy | green | salmon. */
+export function KpiCard({ label, value, prefix = '', suffix = '', tone = 'orange' }) {
   const ref = useRef(null);
   const [seen, setSeen] = useState(false);
   useEffect(() => {
@@ -39,20 +41,13 @@ export function KpiCard({ label, value, prefix = '', suffix = '' }) {
   }, []);
   const n = useCountUp(value, seen);
   return (
-    <div ref={ref} className="ga-kpi-card ga-interactive" style={cardStyle}>
-      <div style={{ fontSize: 28, fontWeight: 500, color: 'var(--ga-ink)', fontFamily: 'var(--ga-font-text)' }}>
+    <div ref={ref} className={`ga-kpi-card ga-kpi ga-interactive tone-${tone}`}>
+      <div className="ga-kpi-value">
         {prefix}
         {n}
         {suffix}
       </div>
-      <div style={{ marginTop: 6, color: 'var(--ga-body)', fontSize: 12, fontWeight: 600 }}>{label}</div>
+      <div className="ga-kpi-label">{label}</div>
     </div>
   );
 }
-
-const cardStyle = {
-  background: 'var(--ga-paper)',
-  border: '1px solid var(--ga-line)',
-  borderRadius: 'var(--ga-radius)',
-  padding: '16px 18px',
-};
