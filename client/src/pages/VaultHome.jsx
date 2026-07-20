@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { authApi } from '../lib/api.js';
 import { APP_IDS } from '../appRegistry.js';
@@ -87,18 +87,20 @@ function initials(user) {
   return n.slice(0, 2).toUpperCase();
 }
 
-/** Every app opens in a new browser tab. */
+/** Every app opens in a new browser tab. Drag uses the wrap — anchors must not be draggable. */
 function ModuleCard({
   mod,
   locked,
   href,
   deskMode,
+  canDrag,
   onDragStart,
   onDragOver,
   onDrop,
   onDragEnd,
   dragging,
   dragOver,
+  suppressClickRef,
 }) {
   const status = locked ? 'LOCKED' : mod.status || 'LIVE';
   const body = (
@@ -125,6 +127,7 @@ function ModuleCard({
 
   const wrapClass = [
     'ga-module-card-wrap',
+    canDrag ? 'ga-module-card-wrap--draggable' : '',
     deskMode ? 'ga-module-card-wrap--desk' : '',
     dragging ? 'is-dragging' : '',
     dragOver ? 'is-drag-over' : '',
@@ -132,12 +135,16 @@ function ModuleCard({
     .filter(Boolean)
     .join(' ');
 
-  const dragProps = deskMode
+  const dragProps = canDrag
     ? {
         draggable: true,
-        onDragStart: (e) => onDragStart?.(e, mod.id),
-        onDragOver: (e) => onDragOver?.(e, mod.id),
-        onDrop: (e) => onDrop?.(e, mod.id),
+        onDragStart: (e) => {
+          // Prevent the browser from treating this as a URL/link drag.
+          e.stopPropagation();
+          onDragStart?.(e, mod.id, deskMode ? 'desk' : 'catalog');
+        },
+        onDragOver: (e) => onDragOver?.(e, mod.id, deskMode ? 'desk' : 'catalog'),
+        onDrop: (e) => onDrop?.(e, mod.id, deskMode ? 'desk' : 'catalog'),
         onDragEnd: () => onDragEnd?.(),
       }
     : {};
@@ -152,7 +159,20 @@ function ModuleCard({
 
   return (
     <div className={wrapClass} {...dragProps}>
-      <a href={toNewTabHref(href)} {...VAULT_LINK_PROPS} className={classNames}>
+      <a
+        href={toNewTabHref(href)}
+        {...VAULT_LINK_PROPS}
+        className={classNames}
+        draggable={false}
+        onDragStart={(e) => e.preventDefault()}
+        onClick={(e) => {
+          if (suppressClickRef?.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            suppressClickRef.current = false;
+          }
+        }}
+      >
         {body}
       </a>
     </div>
@@ -177,7 +197,10 @@ export default function VaultHome() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [deskOrder, setDeskOrder] = useState(() => loadDeskIds());
   const [dragId, setDragId] = useState(null);
+  const [dragSource, setDragSource] = useState(null);
   const [dragOverId, setDragOverId] = useState(null);
+  const [deskDropActive, setDeskDropActive] = useState(false);
+  const suppressClickRef = useRef(false);
   useCommandPaletteHotkey(setPaletteOpen);
 
   const v3Url = '/app/org-planner';
@@ -249,43 +272,112 @@ export default function VaultHome() {
     saveDeskIds(cleaned);
   }
 
-  function onDeskDragStart(e, id) {
+  function readDragId(e) {
+    if (dragId) return dragId;
+    try {
+      return e.dataTransfer.getData('text/plain') || null;
+    } catch {
+      return null;
+    }
+  }
+
+  function onCardDragStart(e, id, source) {
+    suppressClickRef.current = true;
     setDragId(id);
+    setDragSource(source);
     try {
       e.dataTransfer.effectAllowed = 'move';
       e.dataTransfer.setData('text/plain', id);
+      e.dataTransfer.setData('application/x-ga-desk-source', source);
     } catch {
       /* ignore */
     }
   }
 
-  function onDeskDragOver(e, id) {
+  function onCardDragOver(e, id, zone) {
     e.preventDefault();
-    if (dragOverId !== id) setDragOverId(id);
+    try {
+      e.dataTransfer.dropEffect = 'move';
+    } catch {
+      /* ignore */
+    }
+    if (zone === 'desk') {
+      setDeskDropActive(true);
+      if (dragOverId !== id) setDragOverId(id);
+    }
   }
 
-  function onDeskDrop(e, targetId) {
+  function onCardDrop(e, targetId, zone) {
     e.preventDefault();
-    const fromId = dragId || (() => {
-      try {
-        return e.dataTransfer.getData('text/plain');
-      } catch {
-        return null;
+    e.stopPropagation();
+    const fromId = readDragId(e);
+    const fromSource =
+      dragSource ||
+      (() => {
+        try {
+          return e.dataTransfer.getData('application/x-ga-desk-source') || null;
+        } catch {
+          return null;
+        }
+      })();
+    setDragId(null);
+    setDragSource(null);
+    setDragOverId(null);
+    setDeskDropActive(false);
+    if (!fromId) return;
+
+    if (zone === 'catalog') {
+      // Drop onto All modules → unpin from desk
+      if (fromSource === 'desk' || deskOrder.includes(fromId)) {
+        persistDesk(deskOrder.filter((x) => x !== fromId));
       }
-    })();
-    setDragId(null);
-    setDragOverId(null);
-    if (!fromId || fromId === targetId) return;
-    const next = deskOrder.filter((x) => x !== fromId);
-    const at = next.indexOf(targetId);
-    if (at < 0) next.push(fromId);
-    else next.splice(at, 0, fromId);
-    persistDesk(next);
+      return;
+    }
+
+    // Desk zone: pin from catalog, or reorder within desk
+    if (fromId === targetId && fromSource === 'desk') return;
+    const without = deskOrder.filter((x) => x !== fromId);
+    if (!targetId) {
+      persistDesk([...without, fromId]);
+      return;
+    }
+    const at = without.indexOf(targetId);
+    if (at < 0) persistDesk([...without, fromId]);
+    else {
+      without.splice(at, 0, fromId);
+      persistDesk(without);
+    }
   }
 
-  function onDeskDragEnd() {
-    setDragId(null);
+  function onDeskSectionDragOver(e) {
+    e.preventDefault();
+    setDeskDropActive(true);
     setDragOverId(null);
+  }
+
+  function onDeskSectionDrop(e) {
+    onCardDrop(e, null, 'desk');
+  }
+
+  function onCatalogSectionDragOver(e) {
+    if (dragSource === 'desk' || (dragId && deskOrder.includes(dragId))) {
+      e.preventDefault();
+    }
+  }
+
+  function onCatalogSectionDrop(e) {
+    onCardDrop(e, null, 'catalog');
+  }
+
+  function onCardDragEnd() {
+    setDragId(null);
+    setDragSource(null);
+    setDragOverId(null);
+    setDeskDropActive(false);
+    // Keep suppress briefly so the trailing click after a drag does not open the app.
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 80);
   }
 
   function setCustomDashboardUrl(label, lsKey, setValue) {
@@ -507,10 +599,15 @@ export default function VaultHome() {
           ) : null}
         </div>
 
-        <section className="ga-vault-section">
+        <section
+          className={`ga-vault-section ga-vault-section--desk${deskDropActive ? ' is-drop-target' : ''}`}
+          onDragOver={onDeskSectionDragOver}
+          onDrop={onDeskSectionDrop}
+          onDragLeave={() => setDeskDropActive(false)}
+        >
           <div className="ga-vault-section-head">
             <h2>Your desk</h2>
-            <p className="ga-vault-section-hint">Drag apps to rearrange</p>
+            <p className="ga-vault-section-hint">Drag apps to pin, rearrange, or drag away to unpin</p>
           </div>
           {deskModules.length ? (
             <div className="ga-vault-grid ga-stagger">
@@ -521,21 +618,27 @@ export default function VaultHome() {
                   locked={m.locked || !m.href}
                   href={m.href}
                   deskMode
-                  onDragStart={onDeskDragStart}
-                  onDragOver={onDeskDragOver}
-                  onDrop={onDeskDrop}
-                  onDragEnd={onDeskDragEnd}
+                  canDrag={!m.locked && !!m.href}
+                  onDragStart={onCardDragStart}
+                  onDragOver={onCardDragOver}
+                  onDrop={onCardDrop}
+                  onDragEnd={onCardDragEnd}
                   dragging={dragId === m.id}
                   dragOver={dragOverId === m.id && dragId !== m.id}
+                  suppressClickRef={suppressClickRef}
                 />
               ))}
             </div>
           ) : (
-            <p className="ga-vault-desk-empty">Your desk is empty.</p>
+            <p className="ga-vault-desk-empty">Your desk is empty — drag an app here from All modules.</p>
           )}
         </section>
 
-        <section className="ga-vault-section">
+        <section
+          className="ga-vault-section"
+          onDragOver={onCatalogSectionDragOver}
+          onDrop={onCatalogSectionDrop}
+        >
           <h2>All modules</h2>
           <div className="ga-vault-grid ga-stagger">
             {allModules.map((m) => (
@@ -544,6 +647,14 @@ export default function VaultHome() {
                 mod={m}
                 locked={m.locked || !m.href}
                 href={m.href}
+                canDrag={!m.locked && !!m.href}
+                onDragStart={onCardDragStart}
+                onDragOver={onCardDragOver}
+                onDrop={onCardDrop}
+                onDragEnd={onCardDragEnd}
+                dragging={dragId === m.id}
+                dragOver={false}
+                suppressClickRef={suppressClickRef}
               />
             ))}
           </div>
