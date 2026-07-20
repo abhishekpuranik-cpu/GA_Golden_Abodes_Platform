@@ -1,0 +1,50 @@
+/**
+ * GA reskin — Cashflow V1 scoped overrides.
+ *
+ * Loaded after ga-reskin-theme.css (which already retints this file's --blue/--gold/
+ * --blue-b/--gold-b custom properties, recoloring every var()-based .btn-primary/
+ * .btn-outline/.planning-menu rule). This file only touches the handful of Cashflow
+ * selectors that use hardcoded hex instead of a custom property — #topbar's gradient
+ * and the active-tab underline — plus a light polish pass on .cf-table headers.
+ * Additive only: no class names added/removed, no markup or JS touched.
+ *
+ * Note: Cashflow uses `--gold` as its amber "warning/notice" color (unmapped
+ * amounts, sync callouts, phase-level hints) rather than a button accent —
+ * unlike the other legacy apps, it has no `.btn-gold`. We restore its original
+ * amber value here so ga-reskin-theme.css's brand-orange `--gold` (meant for
+ * buttons elsewhere) doesn't relabel Cashflow's warnings as call-to-action orange.
+ */
+
+:root {
+  --gold: #a07800;
+  --gold-b: #6b5000;
+  --gold-l: #fdf8ec;
+}
+
+#topbar {
+  background: linear-gradient(90deg, #092856, #0e3a78);
+}
+
+#topbar .logo {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+.tab-btn.on {
+  border-bottom-color: #f0592c;
+}
+
+.cf-table thead th {
+  background: #f3f4f7;
+  color: #68717a;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.btn-primary {
+  border-radius: 4px;
+}
+
+.btn-outline {
+  border-radius: 4px;
+}

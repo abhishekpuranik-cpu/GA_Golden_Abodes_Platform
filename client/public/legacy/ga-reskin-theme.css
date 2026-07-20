@@ -1,0 +1,61 @@
+/**
+ * GA reskin — shared scoped theme for legacy single-file HTML apps.
+ *
+ * Injected into every LegacyAppShell iframe (see injectLegacyMobileCss.js) after the
+ * page's own <style> block, so plain-specificity overrides win by source order alone —
+ * no !important, no markup changes, no JS changes.
+ *
+ * Strategy: each legacy app already defines its own CSS custom properties (--gold,
+ * --blue, --accent, ...) that its buttons/headers/tabs reference via var(...). We only
+ * re-declare those custom properties to GA brand values; every selector inside the app
+ * keeps working exactly as before, it just resolves to a different color/font.
+ *
+ * Deep structural restyles of these apps remain out of scope (see docs/reskin/DEFERRED.md
+ * and root DEFERRED.md — "Deep restyle of legacy HTML apps").
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
+
+/* ---------- Finance KPI / Resource Planner V2 / Org Resource Planner V3 (shared token set) ---------- */
+:root {
+  --gold: #f0592c;
+  --gold-l: #fdeee8;
+  --gold-b: #d64517;
+  --blue: #092856;
+  --blue-l: #eaf1fb;
+  --blue-b: #092856;
+  --bg: #f3f4f7;
+  --card: #ffffff;
+  --border: #e4e7ec;
+  --text: #212631;
+  --muted: #68717a;
+}
+
+/* ---------- GA Sales Dashboard (dark command-hub palette; retint gold accent only) ---------- */
+:root {
+  --gold: #f0592c;
+}
+
+/* ---------- Marketing KPI (dark command-hub palette; retint accent only) ---------- */
+:root {
+  --accent: #f0592c;
+  --accent-soft: rgba(240, 89, 44, 0.14);
+}
+
+/* ---------- brand / logo type — Playfair Display where a short label already exists ---------- */
+.logo,
+.brand,
+.hdr .logo,
+.topbar .brand,
+.sidebar .brand {
+  font-family: 'Playfair Display', Georgia, serif !important;
+}
+
+/* ---------- gold/blue-var buttons already resolve to GA orange/navy via the custom
+   properties above (.btn-gold, .btn-blue, .btn-primary, .tab.on, .planning-menu text,
+   ...); this just gives them the platform's slightly tighter corner radius. ---------- */
+.btn,
+.dash-btn,
+.tab-btn {
+  border-radius: 6px;
+}
