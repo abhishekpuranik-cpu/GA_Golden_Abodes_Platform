@@ -20,7 +20,7 @@ import '../theme/ga-shell.css';
 
 const VAULT_LINK_PROPS = { target: '_blank', rel: 'noopener noreferrer' };
 const VAULT_EXEC_VERSION = '20260511-exec-progress-roadmap';
-const VAULT_PRE_VERSION = '20260720-restore-guard';
+const VAULT_PRE_VERSION = '20260720-force11e';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
 const PRE_URL_LS_KEY = 'ga_preconstruction_url';
 const V2_URL_LS_KEY = 'ga_v2_url';

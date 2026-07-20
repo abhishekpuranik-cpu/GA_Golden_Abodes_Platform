@@ -49,13 +49,12 @@ export function repairPreconstructionForRead(data) {
 /**
  * Merge workspace envelopes.
  *
- * CRITICAL: Never treat "project missing from client payload" as a delete.
- * Incomplete admin autosaves used to tombstone every missing project and wipe the portfolio.
- * Deletes only apply via explicit `_removedProjectIds` (set by delProject).
+ * Rules that prevent portfolio wipe:
+ * 1. Never infer deletes from "missing in client projects array".
+ * 2. Never accept a mass new tombstone list from a poisoned client (cap new deletes).
+ * 3. If the client still sends a project, clear that id from tombstones (revive).
  *
- * @param {object|null|undefined} existingRow app_states.data
- * @param {object} incoming PUT body.data (full workspace envelope)
- * @param {{ allowProjectRemoval?: boolean }} [opts] kept for API compat; does not infer mass deletes
+ * Legitimate Delete still works: delProject omits the project and adds one id to `_removedProjectIds`.
  */
 export function mergePreconstructionState(existingRow, incoming, opts = {}) {
   void opts;
@@ -64,8 +63,25 @@ export function mergePreconstructionState(existingRow, incoming, opts = {}) {
   const exProjects = Array.isArray(ex.projects) ? ex.projects : [];
   const inProjects = Array.isArray(inc.projects) ? inc.projects : [];
 
-  // Explicit tombstones only (union of server + client lists).
-  const removedIds = normalizeRemovedIds(ex, inc);
+  const exRemoved = new Set(normalizeRemovedIds(ex));
+  const incRemoved = normalizeRemovedIds(inc);
+  const inIds = new Set(inProjects.map((p) => String(p?.id)).filter(Boolean));
+
+  const removedIds = new Set(exRemoved);
+
+  // Revive anything the client still has in its catalog.
+  for (const id of inIds) removedIds.delete(id);
+
+  // Accept only a small number of NEW explicit deletes (real Delete clicks).
+  const newDeletes = incRemoved.filter((id) => !inIds.has(id) && !exRemoved.has(id));
+  const MAX_NEW_DELETES_PER_SAVE = 2;
+  if (newDeletes.length > 0 && newDeletes.length <= MAX_NEW_DELETES_PER_SAVE) {
+    for (const id of newDeletes) removedIds.add(id);
+  } else if (newDeletes.length > MAX_NEW_DELETES_PER_SAVE) {
+    console.warn(
+      `[precon-merge] ignored mass tombstone attempt (${newDeletes.length} ids) — likely poisoned client state`,
+    );
+  }
 
   const byId = new Map();
   for (const p of exProjects) {
@@ -90,7 +106,7 @@ export function mergePreconstructionState(existingRow, incoming, opts = {}) {
     cloudUrl: inc.cloudUrl != null && String(inc.cloudUrl).trim() ? inc.cloudUrl : ex.cloudUrl || '',
     departments,
     activityLog: mergeActivityLogs(ex.activityLog, inc.activityLog),
-    _removedProjectIds: removedIds,
+    _removedProjectIds: [...removedIds],
     projects: [...byId.values()],
   };
 }
