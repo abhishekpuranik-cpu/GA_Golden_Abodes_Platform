@@ -268,15 +268,18 @@
   min-width: 0;
 }
 
-.ga-module-card-wrap .ga-module-card {
-  height: 100%;
-  width: 100%;
+.ga-module-card-wrap--draggable .ga-module-card,
+.ga-module-card-wrap--desk .ga-module-card {
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
+.ga-module-card-wrap--draggable,
 .ga-module-card-wrap--desk {
   cursor: grab;
 }
 
+.ga-module-card-wrap--draggable:active,
 .ga-module-card-wrap--desk:active {
   cursor: grabbing;
 }
@@ -284,6 +287,12 @@
 .ga-module-card-wrap.is-dragging,
 .ga-module-card-wrap--desk.is-dragging {
   opacity: 0.55;
+}
+
+.ga-vault-section--desk.is-drop-target {
+  outline: 2px dashed rgba(240, 89, 44, 0.45);
+  outline-offset: 8px;
+  border-radius: 16px;
 }
 
 .ga-module-card-wrap.is-drag-over .ga-module-card,
