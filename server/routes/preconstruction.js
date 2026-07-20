@@ -155,7 +155,13 @@ preconstructionRouter.put(
         },
         { upsert: true }
       );
-      res.json({ ok: true, updatedAt: now, version: nextVersion, appId: APP_ID });
+      res.json({
+        ok: true,
+        updatedAt: now,
+        version: nextVersion,
+        appId: APP_ID,
+        data: repairPreconstructionForRead(toSave)
+      });
     } catch (e) {
       if (e instanceof SyntaxError) {
         return res.status(400).json({ error: 'Invalid JSON in body.data string' });
