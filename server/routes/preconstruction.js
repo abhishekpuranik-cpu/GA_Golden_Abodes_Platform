@@ -321,10 +321,13 @@ preconstructionRouter.get(
     try {
       const opened = await openAttachmentStream(db, req.params.id);
       if (!opened) return res.status(404).json({ error: 'Attachment not found' });
+      const fileName = opened.meta.fileName || 'file';
+      const isCad =
+        opened.meta.kind === 'drawing' || /\.(dwg|dxf|dwf)$/i.test(fileName);
       res.setHeader('Content-Type', opened.meta.mimeType || 'application/octet-stream');
       res.setHeader(
         'Content-Disposition',
-        `inline; filename="${encodeURIComponent(opened.meta.fileName || 'file')}"`
+        `${isCad ? 'attachment' : 'inline'}; filename="${encodeURIComponent(fileName)}"`
       );
       opened.stream.pipe(res);
     } catch (e) {

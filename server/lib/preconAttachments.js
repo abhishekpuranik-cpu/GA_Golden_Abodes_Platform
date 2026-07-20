@@ -16,17 +16,42 @@ const ALLOWED_MIME_EXACT = new Set([
   'application/vnd.ms-powerpoint',
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'application/zip',
-  'application/octet-stream'
+  'application/octet-stream',
+  // AutoCAD / drawing (browsers report these inconsistently)
+  'image/vnd.dwg',
+  'image/x-dwg',
+  'application/acad',
+  'application/x-acad',
+  'application/autocad_dwg',
+  'application/dwg',
+  'application/x-dwg',
+  'drawing/dwg',
+  'image/vnd.dxf',
+  'image/x-dxf',
+  'application/dxf',
+  'application/x-dxf',
+  'drawing/x-dxf',
+  'model/vnd.dwf',
+  'application/x-dwf',
+  'drawing/x-dwf'
 ]);
 
-export function attachmentKind(mimeType) {
+const CAD_EXT_RE = /\.(dwg|dxf|dwf)$/i;
+
+export function isCadFileName(fileName) {
+  return CAD_EXT_RE.test(String(fileName || ''));
+}
+
+export function attachmentKind(mimeType, fileName) {
   const m = String(mimeType || '').toLowerCase();
+  if (isCadFileName(fileName) || /acad|dwg|dxf|dwf/i.test(m)) return 'drawing';
   if (m.startsWith('image/')) return 'image';
   if (m.startsWith('video/')) return 'video';
   return 'document';
 }
 
-export function isAllowedMime(mimeType) {
+export function isAllowedMime(mimeType, fileName) {
+  if (isCadFileName(fileName)) return true;
   const m = String(mimeType || '').toLowerCase();
   if (!m) return false;
   if (ALLOWED_MIME_EXACT.has(m)) return true;
@@ -51,15 +76,20 @@ export async function storePreconFile(db, file) {
   if (buffer.length > MAX_UPLOAD_BYTES) {
     throw new Error(`File exceeds ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`);
   }
-  if (!isAllowedMime(mimeType)) throw new Error('File type not allowed');
+  if (!isAllowedMime(mimeType, fileName)) throw new Error('File type not allowed');
 
   const bucket = gfsBucket(db);
   const gridId = new ObjectId();
   const attId = newAttachmentId();
+  const kind = attachmentKind(mimeType, fileName);
+  const contentType =
+    isCadFileName(fileName) && (!mimeType || mimeType === 'application/octet-stream')
+      ? 'application/acad'
+      : mimeType;
 
   await new Promise((resolve, reject) => {
     const stream = bucket.openUploadStreamWithId(gridId, fileName, {
-      contentType: mimeType,
+      contentType,
       metadata: { ...meta, attId }
     });
     stream.on('error', reject);
@@ -71,9 +101,9 @@ export async function storePreconFile(db, file) {
     _id: attId,
     gridId: String(gridId),
     fileName: String(fileName || 'file').slice(0, 240),
-    mimeType,
+    mimeType: contentType,
     size: buffer.length,
-    kind: attachmentKind(mimeType),
+    kind,
     projectId: meta.projectId || '',
     taskId: meta.taskId || '',
     scope: meta.scope || 'comment',
