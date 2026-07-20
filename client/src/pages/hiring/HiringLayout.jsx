@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Outlet } from 'react-router-dom';
 import { authApi } from '../../lib/api.js';
 import { hiringApi } from '../../lib/hiringApi.js';
 import { HIRING_NAV } from '../../lib/hiringTabs.js';
 import { VaultAskAi } from '../../components/ask/VaultAskAi.jsx';
 import { buildHiringAskContext } from '../../lib/vaultAskContextBuilders.js';
-import { PlatformShell } from '../../components/PlatformShell.jsx';
+import { ModuleFrame } from '../../components/ModuleFrame.jsx';
 import '../../hiring.css';
 
 export default function HiringLayout() {
@@ -23,37 +23,31 @@ export default function HiringLayout() {
     (user?.allowedApps || []).includes('hiring');
 
   return (
-    <PlatformShell title="Hiring & Sourcing" breadcrumb="Vault / Hiring">
-      <div className="hr-app">
-        <header className="hr-topbar">
-          <div>
-            <h1>GA Hiring &amp; Sourcing</h1>
-            <div className="hr-topbar-sub">
-              {user?.email || '—'}
-              {health && <span> · Sourcing: {health.sourcingMode === 'auto' ? 'Metaview' : 'Manual import'}</span>}
-            </div>
-          </div>
-          <nav className="hr-nav">
-            {HIRING_NAV.map((n) => (
-              <NavLink key={n.path} to={n.path} end={n.end} className={({ isActive }) => (isActive ? 'active' : '')}>
-                {n.label}
-              </NavLink>
-            ))}
-          </nav>
-          <Link to="/" className="hr-vault-link">
-            ← Vault
-          </Link>
-        </header>
-        <main className="hr-body">
+    <>
+      <ModuleFrame
+        title="Hiring & Sourcing"
+        breadcrumb="Vault / Hiring"
+        heroTitle="Hiring & Sourcing"
+        heroSub={
+          <>
+            {user?.email || '—'}
+            {health && <span> · Sourcing: {health.sourcingMode === 'auto' ? 'Metaview' : 'Manual import'}</span>}
+          </>
+        }
+        navItems={HIRING_NAV}
+        brandTitle="GA Hiring"
+        brandSub="Sourcing"
+      >
+        <div className="hr-app">
           <Outlet context={{ user, canWrite, sourcingAuto: health?.sourcingMode === 'auto' }} />
-        </main>
-        <VaultAskAi
-          appId="hiring"
-          appLabel="Hiring & Sourcing"
-          exampleKey="hiring"
-          buildContext={buildHiringAskContext}
-        />
-      </div>
-    </PlatformShell>
+        </div>
+      </ModuleFrame>
+      <VaultAskAi
+        appId="hiring"
+        appLabel="Hiring & Sourcing"
+        exampleKey="hiring"
+        buildContext={buildHiringAskContext}
+      />
+    </>
   );
 }

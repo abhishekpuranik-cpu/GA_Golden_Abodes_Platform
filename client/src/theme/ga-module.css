@@ -217,6 +217,23 @@
   flex: 1;
 }
 
+/* Modules that keep their own body wrapper (.hr-body / .ps-body / .dm-body) already carry
+   their own padding + max-width; avoid doubling up on the outer content padding. */
+.ga-mod-content:has(.hr-body),
+.ga-mod-content:has(.ps-body),
+.ga-mod-content:has(.dm-body) {
+  padding: 0;
+}
+
+/* Legacy module wrapper classes (.hr-app / .ps-app / .dm-app) still scope their own
+   CSS custom properties for descendant styles, but their full-viewport `min-height`
+   no longer applies once nested under the sidebar/hero layout — neutralize just that. */
+.ga-mod-content .hr-app,
+.ga-mod-content .ps-app,
+.ga-mod-content .dm-app {
+  min-height: 0;
+}
+
 @media (max-width: 720px) {
   .ga-mod-hero {
     padding: 22px 18px 20px;

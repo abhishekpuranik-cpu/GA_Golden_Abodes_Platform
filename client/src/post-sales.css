@@ -21,6 +21,13 @@
   font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
 }
 
+/* PostSalesLayout now renders nav via ga-kit SidebarChrome inside ModuleFrame;
+   defensively hide the legacy horizontal topbar/nav if ever nested under .ga-mod. */
+.ga-mod .ps-topbar,
+.ga-mod .ps-nav {
+  display: none;
+}
+
 .ps-topbar {
   display: flex;
   flex-wrap: wrap;

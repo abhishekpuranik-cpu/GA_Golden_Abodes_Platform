@@ -7,6 +7,13 @@
   --hr-muted: #64748b;
 }
 
+/* HiringLayout now renders nav via ga-kit SidebarChrome inside ModuleFrame;
+   defensively hide the legacy horizontal topbar/nav if ever nested under .ga-mod. */
+.ga-mod .hr-topbar,
+.ga-mod .hr-nav {
+  display: none;
+}
+
 .hr-app {
   min-height: 100vh;
   background: var(--hr-bg);

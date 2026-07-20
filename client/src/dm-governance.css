@@ -38,6 +38,13 @@
   line-height: 1.5;
 }
 
+/* DmGovernanceLayout now renders nav via ga-kit SidebarChrome inside ModuleFrame;
+   defensively hide the legacy horizontal topbar/nav if ever nested under .ga-mod. */
+.ga-mod .dm-topbar,
+.ga-mod .dm-nav {
+  display: none;
+}
+
 .dm-app h2 {
   color: var(--dm-text);
   font-weight: 700;

@@ -1,12 +1,12 @@
 ﻿import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, Outlet } from 'react-router-dom';
 import { authApi } from '../../lib/api.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import { invalidatePostSalesCache } from '../../lib/postsales/postSalesCache.js';
 import { PS_NAV } from '../../lib/postSalesTabs.js';
 import { VaultAskAi } from '../../components/ask/VaultAskAi.jsx';
 import { buildPostSalesAskContext } from '../../lib/vaultAskContextBuilders.js';
-import { PlatformShell } from '../../components/PlatformShell.jsx';
+import { ModuleFrame } from '../../components/ModuleFrame.jsx';
 import '../../post-sales.css';
 
 export default function PostSalesLayout() {
@@ -66,48 +66,42 @@ export default function PostSalesLayout() {
   }, []);
 
   return (
-    <PlatformShell title="Post Sales Operations" breadcrumb="Vault / Post Sales">
-      <div className="ps-app">
-        <header className="ps-topbar">
-          <div>
-            <h1>GA Post Sales Operations</h1>
-            <div className="ps-topbar-sub">
-              Your working app for sold units, collections, pipeline &amp; allocation · {user?.email || '—'}
-            </div>
-          </div>
-          <nav className="ps-nav">
-            {PS_NAV.map((n) => (
-              <NavLink key={n.path} to={n.path} end={n.end} className={({ isActive }) => (isActive ? 'active' : '')}>
-                {n.label}
-              </NavLink>
-            ))}
-          </nav>
-          <Link to="/" className="ps-vault-link">
-            ← Vault
-          </Link>
-        </header>
-        {syncing ? (
-          <div className="ps-sync-banner" role="status">
-            Syncing sold units &amp; collections in the background…
-          </div>
-        ) : null}
-        {!syncing && syncNote ? (
-          <div className="ps-card ps-sync-note">
-            {syncNote}. Achieved dates: <Link to="/app/post-sales/milestones">Milestones</Link> → Save &amp; sync →
-            Reports &amp; Step 12. Collections: <Link to="/app/post-sales/demands">Demands</Link> — Cashflow V1 reads from
-            here.
-          </div>
-        ) : null}
-        <main className="ps-body">
-          <Outlet context={{ user }} />
-        </main>
-        <VaultAskAi
-          appId="post_sales"
-          appLabel="Post Sales Operations"
-          exampleKey="post_sales"
-          buildContext={buildPostSalesAskContext}
-        />
-      </div>
-    </PlatformShell>
+    <>
+      <ModuleFrame
+        title="Post Sales Operations"
+        breadcrumb="Vault / Post Sales"
+        heroTitle="Post Sales Operations"
+        heroSub={
+          <>Your working app for sold units, collections, pipeline &amp; allocation · {user?.email || '—'}</>
+        }
+        navItems={PS_NAV}
+        brandTitle="GA Post Sales"
+        brandSub="Operations"
+      >
+        <div className="ps-app">
+          <main className="ps-body">
+            {syncing ? (
+              <div className="ps-sync-banner" role="status">
+                Syncing sold units &amp; collections in the background…
+              </div>
+            ) : null}
+            {!syncing && syncNote ? (
+              <div className="ps-card ps-sync-note">
+                {syncNote}. Achieved dates: <Link to="/app/post-sales/milestones">Milestones</Link> → Save &amp; sync
+                → Reports &amp; Step 12. Collections: <Link to="/app/post-sales/demands">Demands</Link> — Cashflow V1
+                reads from here.
+              </div>
+            ) : null}
+            <Outlet context={{ user }} />
+          </main>
+        </div>
+      </ModuleFrame>
+      <VaultAskAi
+        appId="post_sales"
+        appLabel="Post Sales Operations"
+        exampleKey="post_sales"
+        buildContext={buildPostSalesAskContext}
+      />
+    </>
   );
 }
