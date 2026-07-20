@@ -199,13 +199,13 @@ export function toNewTabHref(href) {
   }
 }
 
-/** Desk pins — local only (no schema). Defaults to mockup-style priority when unset. */
+/** Desk pins — local only (no schema). Defaults once; after save, empty desks stay empty. */
 export function loadDeskIds() {
   try {
     const raw = window.localStorage.getItem(DESK_LS_KEY);
-    if (raw) {
+    if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length) return parsed.map(String).slice(0, 4);
+      if (Array.isArray(parsed)) return parsed.map(String);
     }
   } catch {
     /* ignore */
@@ -215,36 +215,20 @@ export function loadDeskIds() {
 
 export function saveDeskIds(ids) {
   try {
-    window.localStorage.setItem(DESK_LS_KEY, JSON.stringify((ids || []).slice(0, 4)));
+    window.localStorage.setItem(DESK_LS_KEY, JSON.stringify(Array.isArray(ids) ? ids.map(String) : []));
   } catch {
     /* ignore */
   }
 }
 
-export function pickDeskModules(modules) {
-  const pinned = loadDeskIds();
+/** Resolve desk apps from an ordered id list (no auto-fill). */
+export function pickDeskModules(modules, orderedIds) {
+  const pinned = Array.isArray(orderedIds) ? orderedIds : loadDeskIds();
   const byId = new Map(modules.map((m) => [m.id, m]));
   const desk = [];
   for (const id of pinned) {
     const m = byId.get(id);
     if (m && !m.locked && m.href) desk.push(m);
-    if (desk.length >= 4) break;
-  }
-  if (desk.length < 4) {
-    for (const m of modules) {
-      if (desk.some((d) => d.id === m.id)) continue;
-      if (m.locked || !m.href) continue;
-      if (m.desk || m.featured) desk.push(m);
-      if (desk.length >= 4) break;
-    }
-  }
-  if (desk.length < 4) {
-    for (const m of modules) {
-      if (desk.some((d) => d.id === m.id)) continue;
-      if (m.locked || !m.href) continue;
-      desk.push(m);
-      if (desk.length >= 4) break;
-    }
   }
   return desk;
 }

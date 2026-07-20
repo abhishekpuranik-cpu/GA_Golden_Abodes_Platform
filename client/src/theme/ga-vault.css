@@ -22,10 +22,25 @@
 .ga-vault-brand {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   text-decoration: none;
   color: var(--ga-ink);
   flex-shrink: 0;
+}
+
+.ga-vault-brand-logo {
+  display: block;
+  width: auto;
+  height: 44px;
+  max-width: min(200px, 42vw);
+  object-fit: contain;
+  object-position: left center;
+}
+
+.ga-vault-brand-logo--hero {
+  height: 72px;
+  max-width: min(260px, 80vw);
+  margin: 0 auto;
 }
 
 .ga-vault-brand-mark {
@@ -209,6 +224,18 @@
   margin-bottom: 32px;
 }
 
+.ga-vault-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  margin-bottom: 14px;
+}
+
+.ga-vault-section-head h2 {
+  margin: 0;
+}
+
 .ga-vault-section h2 {
   margin: 0 0 14px;
   font-size: 11px;
@@ -216,6 +243,122 @@
   text-transform: uppercase;
   color: var(--ga-body);
   font-weight: 700;
+}
+
+.ga-vault-section-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ga-body);
+  opacity: 0.85;
+}
+
+.ga-vault-desk-empty {
+  margin: 0;
+  padding: 28px 20px;
+  border: 1px dashed var(--ga-line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.55);
+  color: var(--ga-body);
+  font-size: 14px;
+  text-align: center;
+}
+
+.ga-module-card-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.ga-module-card-wrap .ga-module-card {
+  height: 100%;
+  width: 100%;
+}
+
+.ga-module-card-wrap--desk {
+  cursor: grab;
+}
+
+.ga-module-card-wrap--desk:active {
+  cursor: grabbing;
+}
+
+.ga-module-card-wrap.is-dragging,
+.ga-module-card-wrap--desk.is-dragging {
+  opacity: 0.55;
+}
+
+.ga-module-card-wrap.is-drag-over .ga-module-card,
+.ga-module-card.is-drag-over {
+  border-color: var(--ga-orange);
+  box-shadow: 0 0 0 2px rgba(240, 89, 44, 0.25), var(--ga-shadow-card);
+}
+
+.ga-desk-chrome {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.ga-desk-handle {
+  pointer-events: none;
+  font-size: 14px;
+  letter-spacing: 1px;
+  color: var(--ga-body);
+  opacity: 0.55;
+  line-height: 1;
+  padding: 4px 2px;
+}
+
+.ga-desk-remove,
+.ga-desk-pin {
+  pointer-events: auto;
+  border: 1px solid var(--ga-line);
+  background: rgba(255, 255, 255, 0.95);
+  color: var(--ga-body);
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  transition: background 150ms var(--ga-ease), color 150ms var(--ga-ease), border-color 150ms var(--ga-ease);
+}
+
+.ga-desk-remove {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+}
+
+.ga-desk-remove:hover {
+  background: #fff5f2;
+  border-color: var(--ga-orange);
+  color: var(--ga-orange-hi);
+}
+
+.ga-desk-pin {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 2;
+  height: 28px;
+  padding: 0 10px;
+}
+
+.ga-desk-pin:hover {
+  background: #fff5f2;
+  border-color: var(--ga-orange);
+  color: var(--ga-orange-hi);
+}
+
+.ga-module-card--desk .ga-module-top {
+  padding-top: 18px;
 }
 
 .ga-vault-grid {
@@ -342,6 +485,10 @@
   }
   .ga-vault-brand-name {
     display: none;
+  }
+  .ga-vault-brand-logo {
+    height: 36px;
+    max-width: min(140px, 36vw);
   }
   .ga-vault-search {
     min-width: 0;

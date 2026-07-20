@@ -2,7 +2,7 @@
   min-height: 100vh;
   min-height: 100dvh;
   display: grid;
-  grid-template-columns: 45fr 55fr;
+  grid-template-columns: minmax(320px, 48fr) minmax(340px, 52fr);
   background: var(--ga-paper);
   color: var(--ga-ink);
   font-family: var(--ga-font-text);
@@ -10,36 +10,53 @@
 
 .ga-access-left {
   position: relative;
-  background: var(--ga-chrome);
+  background: #141820;
   color: #fff;
   overflow: hidden;
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 28px;
+  padding: 28px 32px 36px;
 }
 
 .ga-access-logo {
   position: relative;
-  z-index: 2;
+  z-index: 3;
   display: inline-flex;
   align-items: center;
-  gap: 10px;
   text-decoration: none;
-  color: #fff;
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  width: fit-content;
 }
 
-.ga-access-mark {
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  border: 2px solid var(--ga-orange);
-  display: grid;
-  place-items: center;
-  font-family: var(--ga-font-display);
-  font-size: 16px;
+.ga-access-logo-plate {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(10px);
+}
+
+.ga-access-logo-img,
+.ga-access-form-logo {
+  display: block;
+  width: auto;
+  max-width: min(220px, 58vw);
+  height: 52px;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.ga-access-form-logo {
+  height: 58px;
+  max-width: 220px;
+  margin: 0 auto 18px;
+}
+
+.ga-access-form-brand {
+  text-align: center;
+  margin-bottom: 4px;
 }
 
 .ga-access-slides {
@@ -52,59 +69,83 @@
   inset: 0;
   background-size: cover;
   background-position: center;
+  background-repeat: no-repeat;
   opacity: 0;
-  animation: ga-crossfade 14s var(--ga-ease) infinite;
+  transform: scale(1.04);
+  transition: opacity 1.1s var(--ga-ease), transform 7s var(--ga-ease);
+  will-change: opacity, transform;
 }
 
-.ga-access-slide:nth-child(1) {
-  animation-delay: 0s;
-  background-image: linear-gradient(160deg, rgba(33, 38, 49, 0.35), rgba(9, 40, 86, 0.55)),
-    url('/brand/access-renders.webp');
-  background-position: 8% center;
+.ga-access-slide.is-active {
+  opacity: 1;
+  transform: scale(1);
 }
-.ga-access-slide:nth-child(2) {
-  animation-delay: 4.6s;
-  background-image: linear-gradient(160deg, rgba(33, 38, 49, 0.4), rgba(240, 89, 44, 0.25)),
-    url('/brand/access-renders.webp');
-  background-position: 50% center;
-}
-.ga-access-slide:nth-child(3) {
-  animation-delay: 9.2s;
-  background-image: linear-gradient(160deg, rgba(33, 38, 49, 0.45), rgba(9, 40, 86, 0.45)),
-    url('/brand/access-renders.webp');
-  background-position: 88% center;
+
+.ga-access-veil {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(12, 16, 24, 0.28) 0%, rgba(12, 16, 24, 0.12) 38%, rgba(12, 16, 24, 0.72) 100%),
+    linear-gradient(90deg, rgba(9, 40, 86, 0.22), transparent 55%);
 }
 
 .ga-access-copy {
   margin-top: auto;
   position: relative;
   z-index: 2;
-  max-width: 420px;
+  max-width: 440px;
 }
 
 .ga-access-eyebrow {
-  color: var(--ga-salmon);
+  color: #f7a58a;
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.24em;
   text-transform: uppercase;
   margin-bottom: 12px;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.45);
 }
 
 .ga-access-tagline {
-  margin: 0;
+  margin: 0 0 20px;
   font-family: var(--ga-font-display);
-  font-size: clamp(28px, 3.4vw, 42px);
-  line-height: 1.15;
+  font-size: clamp(28px, 3.4vw, 44px);
+  line-height: 1.12;
   font-weight: 600;
   color: #fff;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.45);
+}
+
+.ga-access-dots {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ga-access-dot {
+  width: 28px;
+  height: 3px;
+  border: none;
+  border-radius: 999px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.35);
+  cursor: pointer;
+  transition: background 180ms var(--ga-ease), width 180ms var(--ga-ease);
+}
+
+.ga-access-dot.is-active {
+  width: 42px;
+  background: var(--ga-orange);
 }
 
 .ga-access-right {
   display: grid;
   place-items: center;
-  padding: 32px 20px;
-  background: var(--ga-paper);
+  padding: 40px 24px;
+  background:
+    radial-gradient(ellipse 80% 50% at 100% 0%, rgba(240, 89, 44, 0.06), transparent 55%),
+    var(--ga-paper);
 }
 
 .ga-access-form {
@@ -210,18 +251,34 @@
   font-weight: 600;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .ga-access-slide {
+    transition: opacity 0.2s linear;
+    transform: none;
+  }
+  .ga-access-slide.is-active {
+    transform: none;
+  }
+}
+
 @media (max-width: 900px) {
   .ga-access {
     grid-template-columns: 1fr;
   }
   .ga-access-left {
-    min-height: 200px;
+    min-height: 42vh;
     padding: 20px;
+  }
+  .ga-access-logo-img {
+    height: 44px;
   }
   .ga-access-copy {
     margin-top: 48px;
   }
   .ga-access-tagline {
     font-size: 28px;
+  }
+  .ga-access-form-logo {
+    height: 48px;
   }
 }

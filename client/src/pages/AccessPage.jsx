@@ -3,6 +3,19 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { authApi } from '../lib/api.js';
 import '../theme/ga-access.css';
 
+const GA_LOGO_SRC = '/brand/ga-logo.png';
+
+const LOGIN_SLIDES = [
+  {
+    src: '/brand/login-carousel-1.png',
+    label: 'Signature skyline',
+  },
+  {
+    src: '/brand/login-carousel-2.png',
+    label: 'Terraced living',
+  },
+];
+
 export default function AccessPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -12,6 +25,7 @@ export default function AccessPage() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [slide, setSlide] = useState(0);
   const next = useMemo(() => {
     const n = String(searchParams.get('next') || '/');
     return n.startsWith('/') ? n : '/';
@@ -74,26 +88,65 @@ export default function AccessPage() {
       .catch(() => {});
   }, [navigate, next]);
 
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setSlide((i) => (i + 1) % LOGIN_SLIDES.length);
+    }, 6500);
+    return () => window.clearInterval(id);
+  }, []);
+
   return (
     <div className="ga-access">
       <aside className="ga-access-left" aria-hidden={false}>
-        <Link to="/" className="ga-access-logo">
-          <span className="ga-access-mark">G</span>
-          <span>GOLDEN ABODES</span>
-        </Link>
         <div className="ga-access-slides" aria-hidden>
-          <div className="ga-access-slide" />
-          <div className="ga-access-slide" />
-          <div className="ga-access-slide" />
+          {LOGIN_SLIDES.map((s, i) => (
+            <div
+              key={s.src}
+              className={`ga-access-slide${i === slide ? ' is-active' : ''}`}
+              style={{ backgroundImage: `url(${s.src})` }}
+              role="img"
+              aria-label={s.label}
+            />
+          ))}
+          <div className="ga-access-veil" />
         </div>
+
+        <Link to="/" className="ga-access-logo" aria-label="Golden Abodes home">
+          <span className="ga-access-logo-plate">
+            <img src={GA_LOGO_SRC} alt="Golden Abodes" className="ga-access-logo-img" width={180} height={60} decoding="async" />
+          </span>
+        </Link>
+
         <div className="ga-access-copy">
           <div className="ga-access-eyebrow">GOLDEN ABODES · PLATFORM</div>
           <p className="ga-access-tagline">Curated Addresses. Considered Lives.</p>
+          <div className="ga-access-dots" role="tablist" aria-label="Project gallery">
+            {LOGIN_SLIDES.map((s, i) => (
+              <button
+                key={s.src}
+                type="button"
+                className={`ga-access-dot${i === slide ? ' is-active' : ''}`}
+                aria-label={s.label}
+                aria-selected={i === slide}
+                onClick={() => setSlide(i)}
+              />
+            ))}
+          </div>
         </div>
       </aside>
 
       <main className="ga-access-right">
         <form className="ga-access-form access-page-form" onSubmit={onSubmit}>
+          <div className="ga-access-form-brand">
+            <img
+              src={GA_LOGO_SRC}
+              alt="Golden Abodes"
+              className="ga-access-form-logo"
+              width={200}
+              height={66}
+              decoding="async"
+            />
+          </div>
           <div className="ga-access-form-eyebrow">SIGN IN</div>
           <h1>{bootstrapMode ? 'Create admin.' : 'The vault.'}</h1>
           <p className="ga-access-form-sub">

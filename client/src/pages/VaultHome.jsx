@@ -14,11 +14,14 @@ import {
   platformEnvTag,
   toNewTabHref,
   pickDeskModules,
+  loadDeskIds,
+  saveDeskIds,
 } from '../lib/vaultModules.js';
 import '../theme/ga-vault.css';
 import '../theme/ga-shell.css';
 
 const VAULT_LINK_PROPS = { target: '_blank', rel: 'noopener noreferrer' };
+const GA_LOGO_SRC = '/brand/ga-logo.png';
 const VAULT_EXEC_VERSION = '20260511-exec-progress-roadmap';
 const VAULT_PRE_VERSION = '20260720-force11e';
 const EXEC_URL_LS_KEY = 'ga_execution_dashboard_url';
@@ -85,7 +88,20 @@ function initials(user) {
 }
 
 /** Every app opens in a new browser tab. */
-function ModuleCard({ mod, locked, href }) {
+function ModuleCard({
+  mod,
+  locked,
+  href,
+  deskMode,
+  onRemoveFromDesk,
+  onAddToDesk,
+  onDragStart,
+  onDragOver,
+  onDrop,
+  onDragEnd,
+  dragging,
+  dragOver,
+}) {
   const status = locked ? 'LOCKED' : mod.status || 'LIVE';
   const body = (
     <>
@@ -100,18 +116,89 @@ function ModuleCard({ mod, locked, href }) {
     </>
   );
 
+  const deskChrome = deskMode ? (
+    <div className="ga-desk-chrome">
+      <span className="ga-desk-handle" title="Drag to reorder" aria-hidden>
+        ⠿
+      </span>
+      <button
+        type="button"
+        className="ga-desk-remove"
+        title="Remove from Your desk"
+        aria-label={`Remove ${mod.title} from Your desk`}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onRemoveFromDesk?.(mod.id);
+        }}
+      >
+        ✕
+      </button>
+    </div>
+  ) : null;
+
+  const pinBtn =
+    !deskMode && !locked && href && onAddToDesk ? (
+      <button
+        type="button"
+        className="ga-desk-pin"
+        title="Add to Your desk"
+        aria-label={`Add ${mod.title} to Your desk`}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          onAddToDesk(mod.id);
+        }}
+      >
+        + Desk
+      </button>
+    ) : null;
+
+  const classNames = [
+    'ga-module-card',
+    locked || !href ? 'locked' : 'ga-interactive',
+    'ga-reveal',
+    deskMode ? 'ga-module-card--desk' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const wrapClass = [
+    'ga-module-card-wrap',
+    deskMode ? 'ga-module-card-wrap--desk' : '',
+    dragging ? 'is-dragging' : '',
+    dragOver ? 'is-drag-over' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  const dragProps = deskMode
+    ? {
+        draggable: true,
+        onDragStart: (e) => onDragStart?.(e, mod.id),
+        onDragOver: (e) => onDragOver?.(e, mod.id),
+        onDrop: (e) => onDrop?.(e, mod.id),
+        onDragEnd: () => onDragEnd?.(),
+      }
+    : {};
+
   if (locked || !href) {
     return (
-      <div className="ga-module-card locked ga-reveal" aria-disabled="true" title="Not assigned to your account">
+      <div className={`${wrapClass} ${classNames}`.trim()} aria-disabled="true" title="Not assigned to your account" {...dragProps}>
+        {deskChrome}
         {body}
       </div>
     );
   }
 
   return (
-    <a href={toNewTabHref(href)} {...VAULT_LINK_PROPS} className="ga-module-card ga-interactive ga-reveal">
-      {body}
-    </a>
+    <div className={wrapClass} {...dragProps}>
+      {deskChrome}
+      {pinBtn}
+      <a href={toNewTabHref(href)} {...VAULT_LINK_PROPS} className={classNames}>
+        {body}
+      </a>
+    </div>
   );
 }
 
@@ -131,6 +218,9 @@ export default function VaultHome() {
   const [apiOk, setApiOk] = useState(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [deskOrder, setDeskOrder] = useState(() => loadDeskIds());
+  const [dragId, setDragId] = useState(null);
+  const [dragOverId, setDragOverId] = useState(null);
   useCommandPaletteHotkey(setPaletteOpen);
 
   const v3Url = '/app/org-planner';
@@ -192,9 +282,63 @@ export default function VaultHome() {
     });
   }, [auth.user, resolvedHref]);
 
-  const deskModules = useMemo(() => pickDeskModules(modules), [modules]);
-  const deskIds = useMemo(() => new Set(deskModules.map((m) => m.id)), [deskModules]);
-  const allModules = useMemo(() => modules.filter((m) => !deskIds.has(m.id)), [modules, deskIds]);
+  const deskModules = useMemo(() => pickDeskModules(modules, deskOrder), [modules, deskOrder]);
+  const deskIdSet = useMemo(() => new Set(deskModules.map((m) => m.id)), [deskModules]);
+  const allModules = useMemo(() => modules.filter((m) => !deskIdSet.has(m.id)), [modules, deskIdSet]);
+
+  function persistDesk(nextIds) {
+    const cleaned = (nextIds || []).map(String).filter(Boolean);
+    setDeskOrder(cleaned);
+    saveDeskIds(cleaned);
+  }
+
+  function removeFromDesk(id) {
+    persistDesk(deskOrder.filter((x) => x !== id));
+  }
+
+  function addToDesk(id) {
+    if (deskOrder.includes(id)) return;
+    persistDesk([...deskOrder, id]);
+  }
+
+  function onDeskDragStart(e, id) {
+    setDragId(id);
+    try {
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', id);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function onDeskDragOver(e, id) {
+    e.preventDefault();
+    if (dragOverId !== id) setDragOverId(id);
+  }
+
+  function onDeskDrop(e, targetId) {
+    e.preventDefault();
+    const fromId = dragId || (() => {
+      try {
+        return e.dataTransfer.getData('text/plain');
+      } catch {
+        return null;
+      }
+    })();
+    setDragId(null);
+    setDragOverId(null);
+    if (!fromId || fromId === targetId) return;
+    const next = deskOrder.filter((x) => x !== fromId);
+    const at = next.indexOf(targetId);
+    if (at < 0) next.push(fromId);
+    else next.splice(at, 0, fromId);
+    persistDesk(next);
+  }
+
+  function onDeskDragEnd() {
+    setDragId(null);
+    setDragOverId(null);
+  }
 
   function setCustomDashboardUrl(label, lsKey, setValue) {
     const next = window.prompt(`${label} URL\n\nExample: https://your-app.onrender.com`, localUrl(lsKey) || 'https://');
@@ -306,7 +450,15 @@ export default function VaultHome() {
     return (
       <div className="ga-vault">
         <div className="ga-vault-main" style={{ textAlign: 'center', paddingTop: '12vh' }}>
-          <div className="ga-vault-eyebrow-row">
+          <img
+            src={GA_LOGO_SRC}
+            alt="Golden Abodes"
+            className="ga-vault-brand-logo ga-vault-brand-logo--hero"
+            width={220}
+            height={72}
+            decoding="async"
+          />
+          <div className="ga-vault-eyebrow-row" style={{ justifyContent: 'center', marginTop: 28 }}>
             <span className="ga-vault-accent" aria-hidden />
             <div className="ga-vault-eyebrow">GOLDEN ABODES · APP VAULT</div>
           </div>
@@ -340,10 +492,14 @@ export default function VaultHome() {
     <div className="ga-vault">
       <header className="ga-vault-topbar">
         <a href="/" className="ga-vault-brand" onClick={(e) => e.preventDefault()}>
-          <span className="ga-vault-brand-mark" aria-hidden>
-            G
-          </span>
-          <span className="ga-vault-brand-name">Golden Abodes</span>
+          <img
+            src={GA_LOGO_SRC}
+            alt="Golden Abodes"
+            className="ga-vault-brand-logo"
+            width={168}
+            height={56}
+            decoding="async"
+          />
           <span className="ga-vault-env">{platformEnvTag()}</span>
         </a>
 
@@ -404,19 +560,45 @@ export default function VaultHome() {
         </div>
 
         <section className="ga-vault-section">
-          <h2>Your desk</h2>
-          <div className="ga-vault-grid ga-stagger">
-            {deskModules.map((m) => (
-              <ModuleCard key={m.id} mod={m} locked={m.locked || !m.href} href={m.href} />
-            ))}
+          <div className="ga-vault-section-head">
+            <h2>Your desk</h2>
+            <p className="ga-vault-section-hint">Drag to reorder · Remove to unpin · Pin from All modules</p>
           </div>
+          {deskModules.length ? (
+            <div className="ga-vault-grid ga-stagger">
+              {deskModules.map((m) => (
+                <ModuleCard
+                  key={m.id}
+                  mod={m}
+                  locked={m.locked || !m.href}
+                  href={m.href}
+                  deskMode
+                  onRemoveFromDesk={removeFromDesk}
+                  onDragStart={onDeskDragStart}
+                  onDragOver={onDeskDragOver}
+                  onDrop={onDeskDrop}
+                  onDragEnd={onDeskDragEnd}
+                  dragging={dragId === m.id}
+                  dragOver={dragOverId === m.id && dragId !== m.id}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="ga-vault-desk-empty">Your desk is empty. Pin apps from All modules below.</p>
+          )}
         </section>
 
         <section className="ga-vault-section">
           <h2>All modules</h2>
           <div className="ga-vault-grid ga-stagger">
             {allModules.map((m) => (
-              <ModuleCard key={m.id} mod={m} locked={m.locked || !m.href} href={m.href} />
+              <ModuleCard
+                key={m.id}
+                mod={m}
+                locked={m.locked || !m.href}
+                href={m.href}
+                onAddToDesk={addToDesk}
+              />
             ))}
           </div>
           <div className="ga-vault-tools-row">
