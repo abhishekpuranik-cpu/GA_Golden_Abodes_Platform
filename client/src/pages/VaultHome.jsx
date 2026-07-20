@@ -93,8 +93,6 @@ function ModuleCard({
   locked,
   href,
   deskMode,
-  onRemoveFromDesk,
-  onAddToDesk,
   onDragStart,
   onDragOver,
   onDrop,
@@ -115,44 +113,6 @@ function ModuleCard({
       <p className="ga-module-purpose">{mod.purpose}</p>
     </>
   );
-
-  const deskChrome = deskMode ? (
-    <div className="ga-desk-chrome">
-      <span className="ga-desk-handle" title="Drag to reorder" aria-hidden>
-        ⠿
-      </span>
-      <button
-        type="button"
-        className="ga-desk-remove"
-        title="Remove from Your desk"
-        aria-label={`Remove ${mod.title} from Your desk`}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onRemoveFromDesk?.(mod.id);
-        }}
-      >
-        ✕
-      </button>
-    </div>
-  ) : null;
-
-  const pinBtn =
-    !deskMode && !locked && href && onAddToDesk ? (
-      <button
-        type="button"
-        className="ga-desk-pin"
-        title="Add to Your desk"
-        aria-label={`Add ${mod.title} to Your desk`}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          onAddToDesk(mod.id);
-        }}
-      >
-        + Desk
-      </button>
-    ) : null;
 
   const classNames = [
     'ga-module-card',
@@ -185,7 +145,6 @@ function ModuleCard({
   if (locked || !href) {
     return (
       <div className={`${wrapClass} ${classNames}`.trim()} aria-disabled="true" title="Not assigned to your account" {...dragProps}>
-        {deskChrome}
         {body}
       </div>
     );
@@ -193,8 +152,6 @@ function ModuleCard({
 
   return (
     <div className={wrapClass} {...dragProps}>
-      {deskChrome}
-      {pinBtn}
       <a href={toNewTabHref(href)} {...VAULT_LINK_PROPS} className={classNames}>
         {body}
       </a>
@@ -290,15 +247,6 @@ export default function VaultHome() {
     const cleaned = (nextIds || []).map(String).filter(Boolean);
     setDeskOrder(cleaned);
     saveDeskIds(cleaned);
-  }
-
-  function removeFromDesk(id) {
-    persistDesk(deskOrder.filter((x) => x !== id));
-  }
-
-  function addToDesk(id) {
-    if (deskOrder.includes(id)) return;
-    persistDesk([...deskOrder, id]);
   }
 
   function onDeskDragStart(e, id) {
@@ -562,7 +510,7 @@ export default function VaultHome() {
         <section className="ga-vault-section">
           <div className="ga-vault-section-head">
             <h2>Your desk</h2>
-            <p className="ga-vault-section-hint">Drag to reorder · Remove to unpin · Pin from All modules</p>
+            <p className="ga-vault-section-hint">Drag apps to rearrange</p>
           </div>
           {deskModules.length ? (
             <div className="ga-vault-grid ga-stagger">
@@ -573,7 +521,6 @@ export default function VaultHome() {
                   locked={m.locked || !m.href}
                   href={m.href}
                   deskMode
-                  onRemoveFromDesk={removeFromDesk}
                   onDragStart={onDeskDragStart}
                   onDragOver={onDeskDragOver}
                   onDrop={onDeskDrop}
@@ -584,7 +531,7 @@ export default function VaultHome() {
               ))}
             </div>
           ) : (
-            <p className="ga-vault-desk-empty">Your desk is empty. Pin apps from All modules below.</p>
+            <p className="ga-vault-desk-empty">Your desk is empty.</p>
           )}
         </section>
 
@@ -597,7 +544,6 @@ export default function VaultHome() {
                 mod={m}
                 locked={m.locked || !m.href}
                 href={m.href}
-                onAddToDesk={addToDesk}
               />
             ))}
           </div>
