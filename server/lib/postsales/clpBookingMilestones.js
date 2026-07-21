@@ -1,4 +1,7 @@
 /** First N project schedule rows use unit booking date when no project achieved date is set. */
+import { formatMilestoneLabel } from './milestoneLabels.js';
+import { milestoneKey } from './milestoneKey.js';
+
 export const BOOKING_ANCHORED_COUNT = 4;
 
 export function parseAchievedDate(v) {
@@ -26,8 +29,23 @@ export function isBookingAnchoredRow(row, sortedRows) {
 }
 
 export function resolveAchievedDateForUnitRow(row, unit, sortedRows) {
-  const project = parseAchievedDate(row?.achievedDate);
-  if (project) return project;
+  const label = String(row?.milestone || '').trim();
+  if (label && unit?.clpMilestoneDates) {
+    const dates = unit.clpMilestoneDates instanceof Map
+      ? Object.fromEntries(unit.clpMilestoneDates)
+      : unit.clpMilestoneDates;
+    const key = milestoneKey(formatMilestoneLabel(label));
+    const unitDate = dates[key] || dates[label];
+    const parsed = parseAchievedDate(unitDate);
+    if (parsed) return parsed;
+  }
+
+  const achieved = parseAchievedDate(row?.achievedDate);
+  if (achieved) return achieved;
+
+  const target = parseAchievedDate(row?.targetDate);
+  if (target && unit?.clpScheduleOverride?.rows?.length) return target;
+
   if (unit?.bookingDate && isBookingAnchoredRow(row, sortedRows)) {
     return parseAchievedDate(unit.bookingDate);
   }

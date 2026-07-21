@@ -17,6 +17,7 @@ import { formatDueDate, formatSlaTarget, slaCountdown } from '../../lib/postSale
 import { getStepTaskKind, defaultAssigneeForKind, TASK_KINDS } from '../../data/postsales/taskKinds.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import ClpLetterQueue from '../../components/postsales/ClpLetterQueue.jsx';
+import UnitClpOverrideModal from '../../components/postsales/UnitClpOverrideModal.jsx';
 import ActivityLogPanel from '../../components/postsales/ActivityLogPanel.jsx';
 
 function documentOpenUrl(doc) {
@@ -73,12 +74,12 @@ export default function UnitPipeline() {
 
   const { unit, loading: unitLoading, error: unitError, refresh: refreshUnit } = useUnit(id);
 
-  const { steps, loading: stepsLoading, error: stepsError, updateStep, toggleChecklist, addStepComment } = useSteps(id, actor, {
-    seedSteps: unit?.steps,
-    waitForSeed: unitLoading,
+  const { steps, loading: stepsLoading, error: stepsError, refresh: refreshSteps, updateStep, toggleChecklist, addStepComment } = useSteps(id, actor, {
+    waitForUnit: unitLoading,
   });
 
-  const { documents, uploadDocument, refresh: refreshDocuments } = useDocuments(id);
+  const needDocuments = selected === 12 || tab === 'documents';
+  const { documents, uploadDocument } = useDocuments(needDocuments ? id : null);
 
   const { cxTeam, backendTeam } = useAssignees();
 
@@ -99,6 +100,8 @@ export default function UnitPipeline() {
   const [nextAction, setNextAction] = useState('');
   const [nextActionDate, setNextActionDate] = useState('');
   const [savingCommentAndDate, setSavingCommentAndDate] = useState(false);
+  const [showUnitClp, setShowUnitClp] = useState(false);
+  const [clpReloadToken, setClpReloadToken] = useState(0);
 
 
 
@@ -191,7 +194,7 @@ export default function UnitPipeline() {
 
       await updateStep(selected, { status: 'completed', notes });
 
-      await refreshUnit({ silent: true });
+      await refreshSteps({ silent: true });
 
       if (selected < 20 && selected !== 12) setSelected(selected + 1);
 
@@ -448,6 +451,10 @@ export default function UnitPipeline() {
 
         <span className="ps-chip">{fmt(unit.totalCost)}</span>
 
+        <button type="button" className="ps-btn ps-reports-mini-btn" onClick={() => setShowUnitClp(true)} title="Unit-specific CLP schedule">
+          Unit CLP{unit?.clpScheduleOverride?.rows?.length ? ` (${unit.clpScheduleOverride.rows.length})` : ''}
+        </button>
+
         {breachCount > 0 && <span className="ps-badge ps-badge-red">{breachCount} SLA breach</span>}
 
       </div>
@@ -592,7 +599,8 @@ export default function UnitPipeline() {
                     bookingDate={unit?.bookingDate}
                     actor={actor}
                     highlightMilestone={highlightMilestone}
-                    onRefresh={() => refreshUnit({ silent: true })}
+                    reloadToken={clpReloadToken}
+                    onRefresh={() => refreshSteps({ silent: true })}
                     documents={documents}
                     uploadDocument={uploadDocument}
                   />
@@ -1029,6 +1037,16 @@ export default function UnitPipeline() {
         </div>
 
       </div>
+
+      <UnitClpOverrideModal
+        unitId={id}
+        open={showUnitClp}
+        onClose={() => setShowUnitClp(false)}
+        onSaved={() => {
+          setClpReloadToken((t) => t + 1);
+          refreshUnit({ silent: true });
+        }}
+      />
 
     </div>
 

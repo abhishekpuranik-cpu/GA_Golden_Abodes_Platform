@@ -161,12 +161,31 @@ function SlabNotesForm({ task, actor, frozen, enabled, onSaved }) {
   );
 }
 
+function mergeTaskLists(prev, incoming) {
+  if (!prev?.length) return incoming || [];
+  if (!incoming?.length) return prev;
+  const prevById = new Map(prev.map((t) => [String(t._id), t]));
+  return incoming.map((remote) => {
+    const local = prevById.get(String(remote._id));
+    if (!local?.checklist?.length) return remote;
+    const mergedChecklist = (remote.checklist || []).map((item, i) => {
+      const localItem = local.checklist[i];
+      if (localItem?.done && !item.done) {
+        return { ...item, done: true, doneAt: localItem.doneAt, doneBy: localItem.doneBy };
+      }
+      return item;
+    });
+    return { ...remote, checklist: mergedChecklist };
+  });
+}
+
 export default function ClpLetterQueue({
   unitId,
   bookingDate,
   actor,
   highlightMilestone,
   onRefresh,
+  reloadToken = 0,
   documents = [],
   uploadDocument,
   docsMode = false,
@@ -182,26 +201,24 @@ export default function ClpLetterQueue({
   const [busyId, setBusyId] = useState(null);
   const [msg, setMsg] = useState('');
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ sync = false } = {}) => {
+    if (!unitId) return;
     setError(null);
-    let showedCached = false;
+    setLoading(true);
     try {
       const list = await postSalesApi.listClpLetterTasksForUnit(unitId);
-      if (list.tasks?.length) {
-        setTasks(list.tasks);
-        setInstallmentCount(list.tasks.length);
-        setLoading(false);
-        showedCached = true;
-      } else {
-        setLoading(true);
+      setTasks((prev) => mergeTaskLists(prev, list.tasks || []));
+      setInstallmentCount(list.tasks?.length || 0);
+
+      if (sync || !(list.tasks?.length)) {
+        setSyncing(true);
+        const synced = await postSalesApi.syncClpLetterTasksForUnit(unitId, { by: actor || 'Pipeline' });
+        setTasks((prev) => mergeTaskLists(prev, synced.tasks || []));
+        setInstallmentCount(synced.total || synced.tasks?.length || 0);
+        setLoadNote(synced.message || '');
       }
-      setSyncing(true);
-      const synced = await postSalesApi.syncClpLetterTasksForUnit(unitId, { by: actor || 'Pipeline' });
-      setTasks(synced.tasks || []);
-      setInstallmentCount(synced.total || synced.tasks?.length || 0);
-      setLoadNote(synced.message || '');
     } catch (e) {
-      if (!showedCached) setError(e.message);
+      setError(e.message);
     } finally {
       setLoading(false);
       setSyncing(false);
@@ -209,6 +226,10 @@ export default function ClpLetterQueue({
   }, [unitId, actor]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (reloadToken > 0) load({ sync: true });
+  }, [reloadToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const sorted = useMemo(() => [...tasks].sort(taskSort), [tasks]);
 
@@ -259,7 +280,7 @@ export default function ClpLetterQueue({
     try {
       const updated = await postSalesApi.updateClpLetterTaskStatus(task._id, { status, note, by: actor });
       setTasks((prev) => prev.map((t) => (t._id === task._id ? updated : t)));
-      if (status === 'complete') onRefresh?.();
+      if (status === 'complete') onRefresh?.(updated);
       setMsg(status === 'complete' ? `${task.milestoneName} marked complete.` : 'Status updated.');
     } catch (e) {
       setMsg(e.message);
@@ -337,6 +358,9 @@ export default function ClpLetterQueue({
           </button>
         </div>
         <div className="ps-clp-queue-head-actions">
+          <button type="button" className="ps-btn ps-reports-mini-btn" onClick={() => load({ sync: true })} disabled={syncing}>
+            {syncing ? 'Syncing…' : 'Sync CLP'}
+          </button>
           <button type="button" className="ps-btn ps-reports-mini-btn" onClick={expandAll}>Expand</button>
           <button type="button" className="ps-btn ps-reports-mini-btn" onClick={collapseAll}>Collapse</button>
         </div>
