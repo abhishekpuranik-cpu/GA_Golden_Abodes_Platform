@@ -14,7 +14,7 @@ import {
   repairV3OrgPlannerForRead,
   V3_ORG_PLANNER_APP_ID
 } from '../lib/v3OrgPlannerMerge.js';
-import { mergePreconstructionState, repairPreconstructionForRead } from '../lib/preconstructionMerge.js';
+import { mergePreconstructionState, repairPreconstructionForRead, repairPreconstructionForWrite } from '../lib/preconstructionMerge.js';
 import { resolveSession, userHasPermission } from './auth.js';
 
 export const PRECONSTRUCTION_APP_ID = 'preconstruction';
@@ -177,7 +177,7 @@ appStatesRouter.put(
             allowProjectRemoval: canDeletePreconProjects(authUser)
           });
         } else {
-          toSave = repairPreconstructionForRead(data);
+          toSave = repairPreconstructionForWrite(data);
         }
       } else if (appId === V1_CASHFLOW_APP_ID) {
         const existingEnv = existing?.data ? await repairV1CashflowForRead(db, existing.data) : null;
@@ -228,7 +228,7 @@ appStatesRouter.put(
           appId,
           version: nextVersion,
           updatedAt: now,
-          data: repairPreconstructionForRead(toSave)
+          data: repairPreconstructionForWrite(toSave)
         });
       }
       res.json({ ok: true, appId, version: nextVersion, updatedAt: now });

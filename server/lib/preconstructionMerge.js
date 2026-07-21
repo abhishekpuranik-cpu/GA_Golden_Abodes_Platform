@@ -26,7 +26,7 @@ function applyProjectTombstones(projects, removedIds) {
   return (projects || []).filter((p) => p?.id != null && !drop.has(String(p.id)));
 }
 
-/** Strip tombstoned projects on read (GET / state load). */
+/** Strip tombstoned projects on read (GET / state load). Keep GET cheap — comment repair runs on PUT + client hydrate. */
 export function repairPreconstructionForRead(data) {
   if (!isPlainObject(data)) return data;
   const removedIds = normalizeRemovedIds(data);
@@ -42,6 +42,13 @@ export function repairPreconstructionForRead(data) {
   for (const proj of repaired.projects || []) {
     applyTaskTombstonesToProject(proj);
   }
+  return repaired;
+}
+
+/** Full repair for writes (keeps comment clusters healthy without blocking first paint). */
+export function repairPreconstructionForWrite(data) {
+  const repaired = repairPreconstructionForRead(data);
+  if (!isPlainObject(repaired)) return repaired;
   repairAllTaskComments(repaired);
   return repaired;
 }

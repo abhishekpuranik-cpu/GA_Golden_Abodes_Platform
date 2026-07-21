@@ -3,7 +3,8 @@ import multer from 'multer';
 import { withDb } from '../lib/mongo.js';
 import {
   mergePreconstructionState,
-  repairPreconstructionForRead
+  repairPreconstructionForRead,
+  repairPreconstructionForWrite
 } from '../lib/preconstructionMerge.js';
 import { resolveSession, userHasApp } from './auth.js';
 import {
@@ -160,7 +161,7 @@ preconstructionRouter.put(
         updatedAt: now,
         version: nextVersion,
         appId: APP_ID,
-        data: repairPreconstructionForRead(toSave)
+        data: repairPreconstructionForWrite(toSave)
       });
     } catch (e) {
       if (e instanceof SyntaxError) {

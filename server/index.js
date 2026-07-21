@@ -95,12 +95,13 @@ app.use(createRbacMiddleware());
 
 const preconPublicDir = path.join(rootDir, 'client', 'public', 'preconstruction');
 const preconBundled = fs.existsSync(path.join(preconPublicDir, 'index.html'));
-const PRECON_BOOT_VERSION = 'boot-11-20260721-comments';
+const PRECON_BOOT_VERSION = 'boot-11-20260721-fast';
 
 function sendPreconIndex(res) {
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
   let html = fs.readFileSync(path.join(preconPublicDir, 'index.html'), 'utf8');
-  const boot = `<script>(function(){try{var v=${JSON.stringify(PRECON_BOOT_VERSION)};if(sessionStorage.getItem('ga_precon_boot')===v)return;sessionStorage.setItem('ga_precon_boot',v);if(String(location.search||'').indexOf(v)===-1){location.replace('/preconstruction/?v='+encodeURIComponent(v)+'&_='+Date.now());}}catch(e){}})();</script>`;
+  // Mark boot version only — do NOT location.replace (that forced a double load and long "Loading workspace…").
+  const boot = `<script>(function(){try{sessionStorage.setItem('ga_precon_boot',${JSON.stringify(PRECON_BOOT_VERSION)});}catch(e){}})();</script>`;
   if (html.includes('</head>')) html = html.replace('</head>', `${boot}</head>`);
   else html = boot + html;
   res.type('html').send(html);
