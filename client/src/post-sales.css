@@ -793,6 +793,62 @@
 .ps-task-unscheduled { margin-top: 18px; padding-top: 12px; border-top: 1px dashed var(--ps-border); }
 .ps-cal-day-panel { margin-top: 14px; padding: 14px 16px; }
 .ps-task-overdue-strip { margin-bottom: 14px; }
+.ps-task-modal-backdrop {
+  position: fixed; inset: 0; z-index: 1400;
+  background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.ps-task-modal {
+  width: min(920px, 100%); max-height: min(92vh, 900px);
+  background: #fff; border-radius: 12px; border: 1px solid var(--ps-border);
+  box-shadow: 0 24px 48px rgba(15, 23, 42, 0.18);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.ps-task-modal-hero {
+  padding: 16px 18px 14px;
+  background: linear-gradient(135deg, var(--ps-accent-soft) 0%, #fff 70%);
+  border-bottom: 1px solid var(--ps-border);
+}
+.ps-task-modal-hero-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+.ps-task-modal-kicker { font-size: 0.72rem; color: var(--ps-text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.ps-task-modal-close {
+  border: 1px solid var(--ps-border); background: #fff; border-radius: 6px;
+  width: 32px; height: 32px; cursor: pointer; font-size: 1rem; line-height: 1;
+}
+.ps-task-modal-title { margin: 8px 0 10px; font-size: 1.15rem; line-height: 1.3; }
+.ps-task-modal-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.ps-task-modal-unit { font-size: 0.82rem; }
+.ps-task-modal-body {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0; min-height: 240px;
+  border-bottom: 1px solid var(--ps-border);
+}
+@media (max-width: 760px) { .ps-task-modal-body { grid-template-columns: 1fr; } }
+.ps-task-modal-pane {
+  padding: 14px 16px; display: flex; flex-direction: column; min-height: 0;
+}
+.ps-task-modal-pane + .ps-task-modal-pane { border-left: 1px solid var(--ps-border); }
+@media (max-width: 760px) { .ps-task-modal-pane + .ps-task-modal-pane { border-left: none; border-top: 1px solid var(--ps-border); } }
+.ps-task-modal-pane-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 10px;
+}
+.ps-task-modal-pane-head h3 { margin: 0; font-size: 0.85rem; }
+.ps-task-modal-scroll { flex: 1; overflow: auto; max-height: 220px; }
+.ps-task-modal-comment { padding: 8px 0; border-bottom: 1px solid var(--ps-border); font-size: 0.8rem; line-height: 1.4; }
+.ps-task-modal-comment-meta { font-size: 0.68rem; color: var(--ps-text-muted); margin-bottom: 3px; }
+.ps-task-modal-form { display: flex; flex-direction: column; gap: 10px; }
+.ps-task-modal-form label { display: flex; flex-direction: column; gap: 4px; font-size: 0.72rem; font-weight: 600; color: var(--ps-text-muted); }
+.ps-task-modal-form textarea, .ps-task-modal-form input, .ps-task-modal-form select {
+  font-weight: 400; font-size: 0.82rem; padding: 8px; border: 1px solid var(--ps-border); border-radius: 6px; font-family: inherit;
+}
+.ps-task-modal-complete-opt { flex-direction: row !important; align-items: center; gap: 8px !important; font-weight: 500 !important; }
+.ps-task-modal-checklist { padding: 12px 16px; border-bottom: 1px solid var(--ps-border); }
+.ps-task-modal-checklist-items { max-height: 160px; overflow: auto; }
+.ps-task-modal-foot {
+  padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+}
+.ps-task-modal-foot-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
 .ps-task-drawer-backdrop {
   position: fixed; inset: 0; z-index: 1300; background: rgba(15, 23, 42, 0.35);
   display: flex; justify-content: flex-end;

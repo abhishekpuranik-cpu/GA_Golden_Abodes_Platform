@@ -5,7 +5,7 @@ import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.j
 import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import ActivityCalendarShell from '../../components/postsales/ActivityCalendarShell.jsx';
 import TaskAgendaCard from '../../components/postsales/TaskAgendaCard.jsx';
-import TaskEditDrawer from '../../components/postsales/TaskEditDrawer.jsx';
+import TaskWorkModal from '../../components/postsales/TaskWorkModal.jsx';
 import { TASK_KINDS } from '../../data/postsales/taskKinds.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import { parseYmd, todayYmd } from '../../lib/postsales/activityCalendarUtils.js';
@@ -53,7 +53,6 @@ export default function MyTasks() {
   const [taskKind, setTaskKind] = useState('');
   const [editTask, setEditTask] = useState(null);
   const [busyId, setBusyId] = useState(null);
-  const [drawerBusy, setDrawerBusy] = useState(false);
   const [toast, setToast] = useState('');
 
   const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
@@ -110,39 +109,15 @@ export default function MyTasks() {
     }
   };
 
-  const handleSave = async (body) => {
-    if (!editTask) return;
-    setDrawerBusy(true);
-    try {
-      const updated = await postSalesApi.updateStep(editTask.unitId, editTask.stepNumber, { ...body, by: actor });
-      setTasks((prev) => prev.map((t) => (t._id === editTask._id ? { ...t, ...updated, ...body } : t)));
-      showToast('Task updated.');
-    } catch (e) {
-      showToast(e.message);
-      await refresh();
-    } finally {
-      setDrawerBusy(false);
-    }
+  const handleTaskUpdated = (patch) => {
+    setTasks((prev) => prev.map((t) => (t._id === patch._id ? { ...t, ...patch } : t)));
+    showToast('Task updated.');
   };
 
-  const handleDrawerComplete = async () => {
-    if (!editTask) return;
-    setDrawerBusy(true);
-    try {
-      if (editTask.taskType === 'clp_letter') {
-        await postSalesApi.completeClpLetterTask(editTask.clpLetterTaskId, { by: actor });
-      } else {
-        await postSalesApi.updateStep(editTask.unitId, editTask.stepNumber, { status: 'completed', by: actor });
-      }
-      setTasks((prev) => prev.filter((t) => t._id !== editTask._id));
-      showToast(editTask.taskType === 'clp_letter' ? 'CLP letter activity complete.' : `Step ${editTask.stepNumber} marked complete.`);
-      setEditTask(null);
-    } catch (e) {
-      showToast(e.message);
-      await refresh();
-    } finally {
-      setDrawerBusy(false);
-    }
+  const handleTaskCompleted = (task) => {
+    setTasks((prev) => prev.filter((t) => t._id !== task._id));
+    showToast(task.taskType === 'clp_letter' ? 'CLP activity complete.' : `Step ${task.stepNumber} marked complete.`);
+    setEditTask(null);
   };
 
   return (
@@ -151,7 +126,7 @@ export default function MyTasks() {
         <div>
           <h2 style={{ margin: 0 }}>My Tasks</h2>
           <p className="ps-reports-sub">
-            Calendar view — click a task to edit or complete pipeline steps.
+            Calendar view — click a task to work it in a popup (comments, checklist, complete).
             {assignee ? ` · ${assignee}` : ''}
           </p>
         </div>
@@ -275,16 +250,16 @@ export default function MyTasks() {
         </>
       )}
 
-      <TaskEditDrawer
-        task={editTask}
-        assignees={assignees}
-        actor={actor}
-        onClose={() => setEditTask(null)}
-        onSave={handleSave}
-        onComplete={handleDrawerComplete}
-        onRefresh={refresh}
-        busy={drawerBusy}
-      />
+      {editTask && (
+        <TaskWorkModal
+          task={editTask}
+          assignees={assignees}
+          actor={actor}
+          onClose={() => setEditTask(null)}
+          onUpdated={handleTaskUpdated}
+          onCompleted={handleTaskCompleted}
+        />
+      )}
 
       {toast && <div className="ps-toast">{toast}</div>}
     </div>
