@@ -16,10 +16,19 @@ import {
   processCrmImport,
   sheetToRows,
 } from '../../lib/postsales/crmUnitImport.js';
+import {
+  clearUnitClpOverride,
+  getUnitClpOverridePayload,
+  saveUnitClpOverride,
+  uploadUnitClpOverride,
+} from '../../lib/postsales/unitClpOverride.js';
+import { parseClpScheduleWorkbook } from '../../lib/postsales/projectClpSchedule.js';
+import { actorLabel } from '../../lib/postsales/activity.js';
 
 const router = Router();
 const PURGE_CONFIRM = 'DELETE_ALL_UNITS';
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
+const clpUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 async function createPipelineSteps(unit, fundingType) {
   await PipelineStep.insertMany(buildPipelineStepDocs(unit, fundingType));
 }
@@ -156,6 +165,47 @@ router.get('/', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:id/clp-override', async (req, res) => {
+  try {
+    res.json(await getUnitClpOverridePayload(req.params.id));
+  } catch (err) {
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+router.put('/:id/clp-override', async (req, res) => {
+  try {
+    const by = actorLabel(req, req.body);
+    res.json(await saveUnitClpOverride(req.params.id, req.body.rows || [], by));
+  } catch (err) {
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+router.delete('/:id/clp-override', async (req, res) => {
+  try {
+    const by = actorLabel(req, req.body);
+    res.json(await clearUnitClpOverride(req.params.id, by));
+  } catch (err) {
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+router.post('/:id/clp-override/upload', clpUpload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) return res.status(400).json({ error: 'Excel/CSV file required (field: file)' });
+    const by = actorLabel(req, req.body);
+    const rawRows = parseClpScheduleWorkbook(req.file.buffer);
+    res.json(await uploadUnitClpOverride(req.params.id, rawRows, by));
+  } catch (err) {
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
   }
 });
 

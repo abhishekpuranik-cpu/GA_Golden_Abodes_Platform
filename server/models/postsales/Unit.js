@@ -23,6 +23,21 @@ const UnitSchema = new mongoose.Schema({
   v1UnitKey: String,
   firstImportedAt: Date,
   lastImportBatchId: String,
+  /** Full CLP schedule for this unit only — overrides project Milestones tab CLP. */
+  clpScheduleOverride: {
+    rows: [{
+      milestone: String,
+      percentDue: Number,
+      constructionLinked: { type: Boolean, default: true },
+      targetDate: Date,
+      achievedDate: Date,
+      scheduleOrder: { type: Number, default: 0 },
+    }],
+    updatedBy: String,
+    updatedAt: Date,
+  },
+  /** Per-milestone date overrides when using project CLP (milestoneKey → date). */
+  clpMilestoneDates: { type: Map, of: Date },
 }, { timestamps: true });
 
 UnitSchema.index({ crmUnitKey: 1 });

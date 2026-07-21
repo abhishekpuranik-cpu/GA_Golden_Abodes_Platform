@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 
 function mergeStep(prev, stepNumber, patch) {
@@ -8,16 +8,36 @@ function mergeStep(prev, stepNumber, patch) {
   return prev.map((s) => (s.stepNumber === stepNumber ? { ...s, ...patch } : s));
 }
 
-export function useSteps(unitId, actor = '', { seedSteps = null, waitForSeed = false } = {}) {
+function mergeChecklistFromServer(prevSteps, serverSteps) {
+  const byNum = new Map(serverSteps.map((s) => [s.stepNumber, s]));
+  return prevSteps.map((local) => {
+    const remote = byNum.get(local.stepNumber);
+    if (!remote) return local;
+    const localCl = local.checklist || [];
+    const remoteCl = remote.checklist || [];
+    if (!localCl.length) return remote;
+    const mergedChecklist = remoteCl.map((item, i) => {
+      const localItem = localCl[i];
+      if (!localItem) return item;
+      if (localItem.done && !item.done) return { ...item, done: true, doneAt: localItem.doneAt, doneBy: localItem.doneBy };
+      return item;
+    });
+    return { ...remote, checklist: mergedChecklist };
+  });
+}
+
+export function useSteps(unitId, actor = '', { waitForUnit = false } = {}) {
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const loadedForUnit = useRef(null);
 
   const refresh = useCallback(async ({ silent = false } = {}) => {
     if (!unitId) return;
     if (!silent) setLoading(true);
     try {
-      setSteps(await postSalesApi.getSteps(unitId));
+      const serverSteps = await postSalesApi.getSteps(unitId);
+      setSteps((prev) => (prev.length ? mergeChecklistFromServer(prev, serverSteps) : serverSteps));
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -27,16 +47,11 @@ export function useSteps(unitId, actor = '', { seedSteps = null, waitForSeed = f
   }, [unitId]);
 
   useEffect(() => {
-    if (!unitId) return;
-    if (waitForSeed) return;
-    if (Array.isArray(seedSteps) && seedSteps.length) {
-      setSteps(seedSteps);
-      setLoading(false);
-      setError(null);
-      return;
-    }
+    if (!unitId || waitForUnit) return;
+    if (loadedForUnit.current === unitId) return;
+    loadedForUnit.current = unitId;
     refresh();
-  }, [unitId, seedSteps, waitForSeed, refresh]);
+  }, [unitId, waitForUnit, refresh]);
 
   const updateStep = async (stepNumber, body) => {
     const step = await postSalesApi.updateStep(unitId, stepNumber, { ...body, by: actor });

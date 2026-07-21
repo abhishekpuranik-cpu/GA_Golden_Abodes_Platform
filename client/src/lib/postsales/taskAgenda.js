@@ -49,23 +49,31 @@ export function dateKey(d) {
   return x.toISOString().slice(0, 10);
 }
 
-export function taskAnchorDate(task) {
-  const dates = taskCalendarDates(task);
-  return dates.length ? new Date(`${dates[0]}T12:00:00`) : null;
+/** Primary calendar anchor — next action date wins over due date (matches PreConstruction). */
+export function taskEffectiveDate(task) {
+  if (task?.nextActionDate) {
+    const d = new Date(task.nextActionDate);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (task?.dueDate) {
+    const d = new Date(task.dueDate);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  if (task?.triggerDate) {
+    const d = new Date(task.triggerDate);
+    if (!Number.isNaN(d.getTime())) return d;
+  }
+  return null;
 }
 
-/** YYYY-MM-DD keys for calendar indexing — next action and due date both appear. */
+export function taskAnchorDate(task) {
+  return taskEffectiveDate(task);
+}
+
+/** YYYY-MM-DD keys — task appears on one day only (next action wins). */
 export function taskCalendarDates(task) {
-  const dates = [];
-  const add = (raw) => {
-    if (!raw) return;
-    const d = new Date(raw);
-    if (!Number.isNaN(d.getTime())) dates.push(dateKey(d));
-  };
-  add(task.nextActionDate);
-  add(task.dueDate);
-  if (!dates.length) add(task.triggerDate);
-  return [...new Set(dates)];
+  const anchor = taskEffectiveDate(task);
+  return anchor ? [dateKey(anchor)] : [];
 }
 
 export function taskMatchesCalendarDay(task, ymd) {
@@ -73,19 +81,18 @@ export function taskMatchesCalendarDay(task, ymd) {
 }
 
 export function calendarDateLabel(task, ymd) {
-  const parts = [];
   const na = task.nextActionDate ? dateKey(new Date(task.nextActionDate)) : '';
   const due = task.dueDate ? dateKey(new Date(task.dueDate)) : '';
-  if (na === ymd) parts.push('Next action');
-  if (due === ymd) parts.push('Due');
-  return parts.join(' · ') || 'Scheduled';
+  if (na === ymd) return 'Next action';
+  if (due === ymd) return 'Due';
+  return 'Scheduled';
 }
 
 export function isOverdueTask(task, asOf = new Date()) {
   if (task.status === 'completed') return false;
   if (task.status === 'overdue' || task.slaBreach) return true;
-  const due = task.dueDate ? new Date(task.dueDate) : null;
-  if (!due || Number.isNaN(due.getTime())) return false;
+  const due = taskEffectiveDate(task);
+  if (!due) return false;
   return endOfDay(due) < startOfDay(asOf);
 }
 

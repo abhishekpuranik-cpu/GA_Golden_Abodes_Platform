@@ -1,6 +1,6 @@
 import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import PipelineStep from '../../models/postsales/PipelineStep.js';
-import ProjectClpSchedule from '../../models/postsales/ProjectClpSchedule.js';
+import { getEffectiveClpRowsForUnit } from './unitClpOverride.js';
 import Unit from '../../models/postsales/Unit.js';
 import { pushActivity } from './activity.js';
 import {
@@ -213,8 +213,7 @@ export async function ensureClpLetterTasksForUnit(unitId, by = 'Pipeline') {
     }
   }
 
-  const schedule = await ProjectClpSchedule.findOne({ project: unit.project }).lean();
-  const sortedRows = sortScheduleRows(schedule?.rows || []);
+  const sortedRows = await getEffectiveClpRowsForUnit(unit);
 
   if (!sortedRows.length) {
     return {
