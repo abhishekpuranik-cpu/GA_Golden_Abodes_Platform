@@ -78,16 +78,15 @@ export default function UnitPipeline() {
     waitForUnit: unitLoading,
   });
 
+  const [selected, setSelected] = useState(1);
+  const [tab, setTab] = useState('checklist');
+
   const needDocuments = selected === 12 || tab === 'documents';
   const { documents, uploadDocument } = useDocuments(needDocuments ? id : null);
 
   const { cxTeam, backendTeam } = useAssignees();
 
   const highlightMilestone = searchParams.get('milestone') || searchParams.get('milestoneName') || '';
-
-  const [selected, setSelected] = useState(1);
-
-  const [tab, setTab] = useState('checklist');
 
   const [notes, setNotes] = useState('');
 
