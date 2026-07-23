@@ -14,7 +14,7 @@ import {
   repairV3OrgPlannerForRead,
   V3_ORG_PLANNER_APP_ID
 } from '../lib/v3OrgPlannerMerge.js';
-import { mergePreconstructionState, repairPreconstructionForRead, repairPreconstructionForWrite } from '../lib/preconstructionMerge.js';
+import { mergePreconstructionState, repairPreconstructionForRead, repairPreconstructionForWrite, slimPreconstructionForBoot } from '../lib/preconstructionMerge.js';
 import { resolveSession, userHasPermission } from './auth.js';
 
 export const PRECONSTRUCTION_APP_ID = 'preconstruction';
@@ -113,7 +113,25 @@ appStatesRouter.get(
     if (!appId) return;
     try {
       const states = db.collection('app_states');
-      let row = await states.findOne({ _id: appId });
+      const wantFullPrecon =
+        appId === PRECONSTRUCTION_APP_ID &&
+        (String(req.query?.full || '') === '1' || String(req.query?.view || '') === 'full');
+      // Boot GET: skip shipping activityLog from Atlas (~1MB+) — biggest first-paint win.
+      const findOpts =
+        appId === PRECONSTRUCTION_APP_ID && !wantFullPrecon
+          ? {
+              projection: {
+                version: 1,
+                updatedAt: 1,
+                updatedBy: 1,
+                'data.cloudUrl': 1,
+                'data.departments': 1,
+                'data.projects': 1,
+                'data._removedProjectIds': 1,
+              },
+            }
+          : undefined;
+      let row = await states.findOne({ _id: appId }, findOpts);
       if (!row) row = await migrateLegacyWorkspaceForApp(db, appId);
       if (!row?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
       let outData = row.data;
@@ -122,7 +140,9 @@ appStatesRouter.get(
       } else if (appId === V1_CASHFLOW_APP_ID) {
         outData = await repairV1CashflowForRead(db, row.data);
       } else if (appId === PRECONSTRUCTION_APP_ID) {
-        outData = repairPreconstructionForRead(row.data);
+        outData = wantFullPrecon
+          ? repairPreconstructionForRead(row.data)
+          : slimPreconstructionForBoot({ ...row.data, activityLog: row.data.activityLog || [] });
       }
       res.json({
         appId,
@@ -172,13 +192,13 @@ appStatesRouter.put(
           const sess = await resolveSession(db, req);
           authUser = sess?.user;
         }
-        if (existing?.data) {
-          toSave = mergePreconstructionState(existing.data, data, {
-            allowProjectRemoval: canDeletePreconProjects(authUser)
-          });
-        } else {
-          toSave = repairPreconstructionForWrite(data);
-        }
+        const merged = existing?.data
+          ? mergePreconstructionState(existing.data, data, {
+              allowProjectRemoval: canDeletePreconProjects(authUser),
+            })
+          : data;
+        // Cap activity log on every write so the Mongo doc stays lean for future GETs.
+        toSave = repairPreconstructionForWrite(merged);
       } else if (appId === V1_CASHFLOW_APP_ID) {
         const existingEnv = existing?.data ? await repairV1CashflowForRead(db, existing.data) : null;
         const merged = await mergeV1CashflowForPut(db, existing?.data, data);

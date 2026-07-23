@@ -4,7 +4,8 @@ import { withDb } from '../lib/mongo.js';
 import {
   mergePreconstructionState,
   repairPreconstructionForRead,
-  repairPreconstructionForWrite
+  repairPreconstructionForWrite,
+  slimPreconstructionForBoot
 } from '../lib/preconstructionMerge.js';
 import { resolveSession, userHasApp } from './auth.js';
 import {
@@ -97,12 +98,15 @@ function collectProjectAssigneeNames(projects, projectId) {
 
 preconstructionRouter.get(
   '/preconstruction-state',
-  withDb(async (_req, res, db) => {
+  withDb(async (req, res, db) => {
     try {
       const doc = await db.collection('app_states').findOne({ _id: APP_ID });
       if (!doc?.data) return res.status(404).json({ error: 'No saved PreConstruction workspace' });
+      const wantFull = String(req.query?.full || '') === '1' || String(req.query?.view || '') === 'full';
       res.json({
-        data: repairPreconstructionForRead(doc.data),
+        data: wantFull
+          ? repairPreconstructionForRead(doc.data)
+          : slimPreconstructionForBoot(doc.data),
         updatedAt: doc.updatedAt,
         version: doc.version || 1,
         appId: APP_ID

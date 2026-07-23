@@ -43,10 +43,72 @@ export function repairPreconstructionForRead(data) {
     applyTaskTombstonesToProject(proj);
   }
   // Cap activity log on read so first paint / GET stay small (full history remains in DB until next write trims).
-  if (Array.isArray(repaired.activityLog) && repaired.activityLog.length > 300) {
-    repaired.activityLog = repaired.activityLog.slice(0, 300);
+  if (Array.isArray(repaired.activityLog) && repaired.activityLog.length > 200) {
+    repaired.activityLog = repaired.activityLog.slice(0, 200);
   }
   return repaired;
+}
+
+function slimCommentRow(c) {
+  if (!c || typeof c !== 'object') return c;
+  return {
+    id: c.id,
+    text: c.text,
+    author: c.author,
+    createdAt: c.createdAt,
+    updatedAt: c.updatedAt,
+    ts: c.ts,
+    nextAction: c.nextAction,
+    nextActionDate: c.nextActionDate,
+    flag: !!c.flag,
+    markedComplete: !!c.markedComplete,
+    attachments: Array.isArray(c.attachments) ? c.attachments.slice(0, 8) : undefined,
+  };
+}
+
+function slimTaskComments(comments) {
+  const list = Array.isArray(comments) ? comments : [];
+  // Keep every comment (calendar + task history) but drop heavy notify/email fields.
+  return list.map(slimCommentRow);
+}
+
+/**
+ * Boot/slim projection for first paint.
+ * Activity log alone is often >1MB — omit it on boot (PUT merge preserves server history).
+ * Comments stay complete (field-slimmed). Use ?full=1 for activity log + raw comment fields.
+ */
+export function slimPreconstructionForBoot(data) {
+  const base = repairPreconstructionForRead(data);
+  if (!isPlainObject(base)) return base;
+  return {
+    cloudUrl: base.cloudUrl || '',
+    departments: base.departments || [],
+    _removedProjectIds: base._removedProjectIds || [],
+    activityLog: [],
+    __slimBoot: true,
+    projects: (base.projects || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      loc: p.loc,
+      type: p.type,
+      floors: p.floors,
+      status: p.status,
+      ko: p.ko,
+      col: p.col,
+      _removedTaskIds: p._removedTaskIds,
+      phases: (p.phases || []).map((ph) => ({
+        id: ph.id,
+        name: ph.name,
+        col: ph.col,
+        open: ph.open,
+        tasks: (ph.tasks || []).map((t) => ({
+          ...t,
+          comments: slimTaskComments(t.comments),
+          attachments: Array.isArray(t.attachments) ? t.attachments.slice(0, 8) : t.attachments,
+        })),
+      })),
+    })),
+  };
 }
 
 /** Full repair for writes (keeps comment clusters healthy without blocking first paint). */
