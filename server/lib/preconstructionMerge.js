@@ -42,6 +42,10 @@ export function repairPreconstructionForRead(data) {
   for (const proj of repaired.projects || []) {
     applyTaskTombstonesToProject(proj);
   }
+  // Cap activity log on read so first paint / GET stay small (full history remains in DB until next write trims).
+  if (Array.isArray(repaired.activityLog) && repaired.activityLog.length > 300) {
+    repaired.activityLog = repaired.activityLog.slice(0, 300);
+  }
   return repaired;
 }
 

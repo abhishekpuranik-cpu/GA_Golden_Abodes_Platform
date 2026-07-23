@@ -223,13 +223,17 @@ appStatesRouter.put(
         { upsert: true }
       );
       if (appId === PRECONSTRUCTION_APP_ID) {
-        return res.json({
+        const wantData = req.body?.returnData === true || req.body?.includeData === true;
+        const payload = {
           ok: true,
           appId,
           version: nextVersion,
-          updatedAt: now,
-          data: repairPreconstructionForWrite(toSave)
-        });
+          updatedAt: now
+        };
+        if (wantData) {
+          payload.data = repairPreconstructionForWrite(toSave);
+        }
+        return res.json(payload);
       }
       res.json({ ok: true, appId, version: nextVersion, updatedAt: now });
     } catch (e) {

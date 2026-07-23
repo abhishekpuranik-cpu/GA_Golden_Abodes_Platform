@@ -161,7 +161,9 @@ preconstructionRouter.put(
         updatedAt: now,
         version: nextVersion,
         appId: APP_ID,
-        data: repairPreconstructionForWrite(toSave)
+        ...(req.body?.returnData === true || req.body?.includeData === true
+          ? { data: repairPreconstructionForWrite(toSave) }
+          : {})
       });
     } catch (e) {
       if (e instanceof SyntaxError) {
