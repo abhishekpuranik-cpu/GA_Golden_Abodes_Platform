@@ -19,8 +19,8 @@ export default function Dashboard() {
   const { data, loading, error } = useDashboard(query);
   const navigate = useNavigate();
 
-  if (loading) return <div className="ps-empty">Loading dashboard…</div>;
-  if (error) return <div className="ps-error">{error}</div>;
+  if (loading && !data) return <div className="ps-empty">Loading dashboard…</div>;
+  if (error && !data) return <div className="ps-error">{error}</div>;
   if (!data) return <div className="ps-empty">No data</div>;
 
   const cf = data.cashflowHealth || {};

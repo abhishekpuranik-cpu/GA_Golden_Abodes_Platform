@@ -24,6 +24,7 @@ import {
 } from '../../lib/postsales/unitClpOverride.js';
 import { parseClpScheduleWorkbook } from '../../lib/postsales/projectClpSchedule.js';
 import { actorLabel } from '../../lib/postsales/activity.js';
+import { cacheKeyFromQuery, readHttpCache, writeHttpCache } from '../../lib/postsales/httpCache.js';
 
 const router = Router();
 const PURGE_CONFIRM = 'DELETE_ALL_UNITS';
@@ -128,6 +129,10 @@ router.get('/list', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
+    const cacheKey = `units:${cacheKeyFromQuery(req.query)}`;
+    const cached = readHttpCache(cacheKey);
+    if (cached) return res.json(cached);
+
     const filter = {};
     if (req.query.project) filter.project = req.query.project;
     if (req.query.entity) filter.entity = req.query.entity;
@@ -140,8 +145,8 @@ router.get('/', async (req, res) => {
     if (req.query.importBatchId) filter.lastImportBatchId = req.query.importBatchId;
 
     const units = sortUnitsChronologically(await Unit.find(filter)
-      .populate('customerId', 'name email phone fundingType')
-      .select('-steps')
+      .populate('customerId', 'name fundingType')
+      .select('project unitNumber phase building tower entity fundingType bookingDate totalCost currentStepNumber overallStatus lastImportBatchId cxExecutive backendExecutive crmExecutive customerId')
       .lean());
     const unitIds = units.map((u) => u._id);
     const steps = unitIds.length
@@ -165,6 +170,7 @@ router.get('/', async (req, res) => {
       steps: (stepsByUnit[u._id] || []).sort((a, b) => a.stepNumber - b.stepNumber),
       slaBreachCount: (stepsByUnit[u._id] || []).filter((s) => s.slaBreach || s.status === 'overdue').length,
     }));
+    writeHttpCache(cacheKey, result, 45 * 1000);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

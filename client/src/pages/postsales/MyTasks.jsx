@@ -166,7 +166,7 @@ export default function MyTasks() {
       />
 
       {error && <div className="ps-error">{error}</div>}
-      {loading && <div className="ps-empty">Loading your tasks…</div>}
+      {loading && !tasks.length && <div className="ps-empty">Loading your tasks…</div>}
 
       {!loading && !tasks.length && (
         <div className="ps-card ps-empty">
@@ -174,7 +174,7 @@ export default function MyTasks() {
         </div>
       )}
 
-      {!loading && tasks.length > 0 && (
+      {(loading || tasks.length > 0) && (
         <>
           <ActivityCalendarShell
             eyebrow="My Tasks"

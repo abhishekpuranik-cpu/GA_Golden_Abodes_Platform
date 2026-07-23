@@ -179,37 +179,28 @@ export async function buildInventoryFilterOptions(db, { project, phase } = {}) {
   if (project) unitFilter.project = project;
   if (phase) unitFilter.phase = phase;
 
-  const units = await Unit.find(unitFilter, { project: 1, phase: 1, building: 1, tower: 1 }).lean();
-
-  let v1Rows = [];
-  try {
-    const envelope = await loadCashflowEnvelope(db);
-    if (envelope) {
-      v1Rows = extractV1SoldInventory(envelope);
-      if (project) v1Rows = v1Rows.filter((r) => r.project === project);
-      if (phase) v1Rows = v1Rows.filter((r) => r.phase === phase);
-    }
-  } catch {
-    /* optional */
-  }
+  const [unitProjects, unitPhases, unitBuildings, unitTowers] = await Promise.all([
+    Unit.distinct('project', unitFilter),
+    Unit.distinct('phase', unitFilter),
+    Unit.distinct('building', unitFilter),
+    Unit.distinct('tower', unitFilter),
+  ]);
 
   const projects = [...new Set([
     ...fromCatalog.projects,
     ...POST_SALES_PROJECTS.map((p) => p.name),
-    ...units.map((u) => u.project).filter(Boolean),
-    ...v1Rows.map((r) => r.project).filter(Boolean),
+    ...unitProjects.filter(Boolean),
   ])].sort();
 
   const phases = [...new Set([
     ...fromCatalog.phases,
-    ...units.map((u) => u.phase).filter(Boolean),
-    ...v1Rows.map((r) => r.phase).filter(Boolean),
+    ...unitPhases.filter(Boolean),
   ])].sort();
 
   const buildings = [...new Set([
     ...fromCatalog.buildings,
-    ...units.map((u) => u.building || u.tower).filter(Boolean),
-    ...v1Rows.map((r) => r.building).filter(Boolean),
+    ...unitBuildings.filter(Boolean),
+    ...unitTowers.filter(Boolean),
   ])].sort();
 
   return { projects, phases, buildings };

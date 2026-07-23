@@ -170,7 +170,7 @@ export default function Units() {
 
       {syncMsg && <div className="ps-card" style={{ background: 'var(--ps-accent-soft)', fontSize: '0.9rem', marginBottom: 12 }}>{syncMsg}</div>}
       {error && <div className="ps-error">{error}</div>}
-      {loading && <div className="ps-empty">Loading units…</div>}
+      {loading && !sortedUnits.length && <div className="ps-empty">Loading units…</div>}
 
       {!loading && !sortedUnits.length && (
         <div className="ps-empty">

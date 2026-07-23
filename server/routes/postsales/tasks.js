@@ -9,6 +9,8 @@ import { hydrateStepTaskKinds } from '../../lib/postsales/helpers.js';
 import { getStepTaskKind, TASK_KINDS } from '../../lib/postsales/taskKinds.js';
 import { CLP_STEP, mapClpLetterTaskToMyTask } from '../../lib/postsales/clpLetterTasks.js';
 
+import { cacheKeyFromQuery, readHttpCache, writeHttpCache } from '../../lib/postsales/httpCache.js';
+
 const router = Router();
 
 function escapeRegex(s) {
@@ -254,6 +256,10 @@ router.get('/my', async (req, res) => {
     const needles = explicit ? [explicit] : assigneeNeedles(sess?.user);
     if (!needles.length) return res.status(401).json({ error: 'Authentication required' });
 
+    const cacheKey = `tasks-my:${needles[0]}:${cacheKeyFromQuery(req.query)}`;
+    const cached = readHttpCache(cacheKey);
+    if (cached) return res.json(cached);
+
     const taskKind = String(req.query.taskKind || '').trim();
     const { tasks: allTasks } = await fetchOpenTasks(req.query, {
       assigneeNeedles: needles,
@@ -263,14 +269,16 @@ router.get('/my', async (req, res) => {
     const cxCount = allTasks.filter((t) => t.taskKind === 'cx').length;
     const backendCount = allTasks.filter((t) => t.taskKind === 'backend').length;
 
-    res.json({
+    const payload = {
       tasks,
       assignee: needles[0],
       count: tasks.length,
       cxCount,
       backendCount,
       taskKinds: TASK_KINDS,
-    });
+    };
+    writeHttpCache(cacheKey, payload, 45 * 1000);
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

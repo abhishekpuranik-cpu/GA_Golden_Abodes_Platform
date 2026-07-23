@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
-import { cacheKey, getCached, setCached } from '../../lib/postsales/postSalesCache.js';
+import { cacheKey, cachedFetch, getCached } from '../../lib/postsales/postSalesCache.js';
 
 export function useDemands(params = {}) {
   const [demands, setDemands] = useState([]);
@@ -9,26 +9,27 @@ export function useDemands(params = {}) {
   const [error, setError] = useState(null);
   const paramKey = JSON.stringify(params);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async ({ silent = false } = {}) => {
     const key = cacheKey(['demands', paramKey]);
-    const cached = getCached(key);
-    if (cached) {
-      setDemands(cached.demands || []);
-      setSummary(cached.summary || {});
-      setLoading(false);
-    } else {
-      setLoading(true);
+    if (!silent) {
+      const cached = getCached(key);
+      if (cached) {
+        setDemands(cached.demands || []);
+        setSummary(cached.summary || {});
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
     }
     try {
-      const data = await postSalesApi.listDemands(params);
-      setCached(key, data, 90 * 1000);
+      const data = await cachedFetch(key, () => postSalesApi.listDemands(params), 90 * 1000);
       setDemands(data.demands || []);
       setSummary(data.summary || {});
       setError(null);
     } catch (e) {
       setError(e.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [paramKey]);
 
@@ -39,7 +40,7 @@ export function useDemands(params = {}) {
     if (silent) {
       setDemands((prev) => prev.map((row) => (row._id === id ? { ...row, ...d } : row)));
     } else {
-      await refresh();
+      await refresh({ silent: true });
     }
     return d;
   };

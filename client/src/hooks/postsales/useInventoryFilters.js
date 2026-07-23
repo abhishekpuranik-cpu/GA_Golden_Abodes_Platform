@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
-import { cacheKey, cachedFetch } from '../../lib/postsales/postSalesCache.js';
+import { cacheKey, cachedFetch, getCached } from '../../lib/postsales/postSalesCache.js';
+
+const PostSalesFilterContext = createContext(null);
 
 const FILTER_STORAGE_KEY = 'ps_inventory_filters';
 
@@ -27,7 +29,7 @@ function writeStoredFilters(project, phase, building) {
   }
 }
 
-export function useInventoryFilters(initial = {}) {
+export function useInventoryFiltersInternal(initial = {}) {
   const stored = readStoredFilters();
   const [project, setProject] = useState(initial.project ?? stored.project ?? '');
   const [phase, setPhase] = useState(initial.phase ?? stored.phase ?? '');
@@ -40,13 +42,19 @@ export function useInventoryFilters(initial = {}) {
   }, [project, phase, building]);
 
   const loadOptions = useCallback(async () => {
-    setLoadingOptions(true);
+    const key = cacheKey(['inv-filters', project || '', phase || '']);
+    const cached = getCached(key);
+    if (cached) {
+      setOptions(cached);
+      setLoadingOptions(false);
+    } else {
+      setLoadingOptions(true);
+    }
     try {
-      const key = cacheKey(['inv-filters', project || '', phase || '']);
       const data = await cachedFetch(key, () => postSalesApi.getInventoryFilters({
         project: project || undefined,
         phase: phase || undefined,
-      }));
+      }), 10 * 60 * 1000);
       setOptions(data);
     } catch {
       setOptions({ projects: [], phases: [], buildings: [] });
@@ -109,4 +117,15 @@ export function useInventoryFilters(initial = {}) {
       setBuilding('');
     },
   };
+}
+
+export function PostSalesFilterProvider({ children }) {
+  const value = useInventoryFiltersInternal();
+  return createElement(PostSalesFilterContext.Provider, { value }, children);
+}
+
+export function useInventoryFilters(initial = {}) {
+  const ctx = useContext(PostSalesFilterContext);
+  if (ctx) return ctx;
+  return useInventoryFiltersInternal(initial);
 }

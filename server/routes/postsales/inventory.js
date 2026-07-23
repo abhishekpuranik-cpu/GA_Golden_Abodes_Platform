@@ -1,15 +1,11 @@
 import { Router } from 'express';
 
 import { ensureMongo } from '../../lib/mongo.js';
-
+import { cacheKeyFromQuery, readHttpCache, writeHttpCache } from '../../lib/postsales/httpCache.js';
 import {
-
   buildInventoryFilterOptions,
-
   getV1InventoryStatus,
-
   syncSoldUnitsFromCashflowV1,
-
 } from '../../lib/postsales/cashflowV1Sync.js';
 
 import {
@@ -47,27 +43,21 @@ const router = Router();
 
 
 router.get('/filters', async (req, res) => {
-
   try {
+    const cacheKey = `inv-filters:${cacheKeyFromQuery(req.query)}`;
+    const cached = readHttpCache(cacheKey);
+    if (cached) return res.json(cached);
 
     const db = await ensureMongo();
-
     const options = await buildInventoryFilterOptions(db, {
-
       project: req.query.project || undefined,
-
       phase: req.query.phase || undefined,
-
     });
-
+    writeHttpCache(cacheKey, options, 5 * 60 * 1000);
     res.json(options);
-
   } catch (err) {
-
     res.status(500).json({ error: err.message });
-
   }
-
 });
 
 

@@ -121,6 +121,9 @@ export const accessApi = {
 };
 
 export const authApi = {
+  _sessionCache: null,
+  _sessionExp: 0,
+  _sessionInflight: null,
   async bootstrapStatus() {
     const { ok, data, status } = await apiFetch('/api/auth/bootstrap-status');
     if (!ok) throw new Error(data?.error || `Bootstrap status failed (${status})`);
@@ -146,16 +149,36 @@ export const authApi = {
   },
   async logout() {
     const { ok, data, status } = await apiFetch('/api/auth/logout', { method: 'POST' });
+    authApi.clearSessionCache();
     if (!ok) throw new Error(data?.error || `Logout failed (${status})`);
     return data;
   },
   async session() {
-    const { ok, data, status } = await apiFetch('/api/auth/session');
-    if (!ok) {
-      if (status === 401) return { authenticated: false };
-      throw new Error(data?.error || `Session failed (${status})`);
+    const now = Date.now();
+    if (authApi._sessionCache && authApi._sessionExp > now) {
+      return authApi._sessionCache;
     }
-    return data;
+    if (authApi._sessionInflight) return authApi._sessionInflight;
+
+    authApi._sessionInflight = apiFetch('/api/auth/session')
+      .then(({ ok, data, status }) => {
+        if (!ok) {
+          if (status === 401) return { authenticated: false };
+          throw new Error(data?.error || `Session failed (${status})`);
+        }
+        authApi._sessionCache = data;
+        authApi._sessionExp = Date.now() + 60_000;
+        return data;
+      })
+      .finally(() => {
+        authApi._sessionInflight = null;
+      });
+
+    return authApi._sessionInflight;
+  },
+  clearSessionCache() {
+    authApi._sessionCache = null;
+    authApi._sessionExp = 0;
   },
   async listRoles() {
     const { ok, data, status } = await apiFetch('/api/auth/admin/roles');

@@ -10,9 +10,9 @@ import { milestoneKey } from '../../lib/postsales/milestoneKey.js';
 import { isGstDemand, readGstDue, readGstReceived } from '../../lib/postsales/demandAmounts.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { sortDemandsByClpChronology } from '../../lib/postsales/clpMilestoneOrder.js';
-import { backfillMilestoneOrders, backfillPostStageOrders } from '../../lib/postsales/milestoneOrderBackfill.js';
 import { exportCollectionsForCashflow, syncDemandsFromV1 } from '../../lib/postsales/demandsV1Sync.js';
 import { syncSoldUnitsFromCashflowV1 } from '../../lib/postsales/cashflowV1Sync.js';
+import { cacheKeyFromQuery, readHttpCache, writeHttpCache } from '../../lib/postsales/httpCache.js';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 15 * 1024 * 1024 } });
@@ -154,6 +154,10 @@ router.post('/sync-from-v1', async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
+    const cacheKey = `demands:${cacheKeyFromQuery(req.query)}`;
+    const cached = readHttpCache(cacheKey);
+    if (cached) return res.json(cached);
+
     const filter = {};
     if (req.query.unitId) filter.unitId = req.query.unitId;
     if (req.query.entity) filter.entity = req.query.entity;
@@ -163,14 +167,19 @@ router.get('/', async (req, res) => {
     if (scopedUnitIds) filter.unitId = { $in: scopedUnitIds };
 
     const demands = await Demand.find(filter).sort({ issuedDate: -1 }).lean();
-    await backfillMilestoneOrders(Demand, demands);
-    await backfillPostStageOrders(Demand, demands);
     const unitIds = [...new Set(demands.map((d) => String(d.unitId)))];
-    const units = await Unit.find({ _id: { $in: unitIds } }).populate('customerId').lean();
+    const units = unitIds.length
+      ? await Unit.find({ _id: { $in: unitIds } })
+        .populate('customerId', 'name')
+        .select('unitNumber project phase building tower customerId')
+        .lean()
+      : [];
     const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));
     const demandIds = demands.map((d) => d._id);
     const clpTasks = demandIds.length
-      ? await ClpLetterTask.find({ demandId: { $in: demandIds } }).lean()
+      ? await ClpLetterTask.find({ demandId: { $in: demandIds } })
+        .select('demandId status')
+        .lean()
       : [];
     const clpMap = Object.fromEntries(clpTasks.map((t) => [String(t.demandId), t]));
 
@@ -179,7 +188,7 @@ router.get('/', async (req, res) => {
     const totalDue = enriched.reduce((s, d) => s + (d.dueAmount || 0), 0);
     const totalReceived = enriched.reduce((s, d) => s + (d.receivedAmount || 0), 0);
 
-    res.json({
+    const payload = {
       demands: enriched,
       summary: {
         totalDemanded: totalDue,
@@ -189,7 +198,9 @@ router.get('/', async (req, res) => {
         totalOutstanding: totalDue - totalReceived,
         totalPending: totalDue - totalReceived,
       },
-    });
+    };
+    writeHttpCache(cacheKey, payload, 60 * 1000);
+    res.json(payload);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
