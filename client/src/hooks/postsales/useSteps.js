@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
+import { cacheKey, cachedFetch, getCached, setCached } from '../../lib/postsales/postSalesCache.js';
 
 function mergeStep(prev, stepNumber, patch) {
   if (typeof patch === 'function') {
@@ -26,7 +27,7 @@ function mergeChecklistFromServer(prevSteps, serverSteps) {
   });
 }
 
-export function useSteps(unitId, actor = '', { waitForUnit = false } = {}) {
+export function useSteps(unitId, actor = '') {
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,9 +35,21 @@ export function useSteps(unitId, actor = '', { waitForUnit = false } = {}) {
 
   const refresh = useCallback(async ({ silent = false } = {}) => {
     if (!unitId) return;
-    if (!silent) setLoading(true);
+    const key = cacheKey(['steps', unitId]);
+    if (!silent) {
+      const cached = getCached(key);
+      if (cached?.length) {
+        setSteps(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+    }
     try {
-      const serverSteps = await postSalesApi.getSteps(unitId);
+      const serverSteps = silent
+        ? await postSalesApi.getSteps(unitId)
+        : await cachedFetch(key, () => postSalesApi.getSteps(unitId), 3 * 60 * 1000);
+      if (silent) setCached(key, serverSteps, 3 * 60 * 1000);
       setSteps((prev) => (prev.length ? mergeChecklistFromServer(prev, serverSteps) : serverSteps));
       setError(null);
     } catch (e) {
@@ -47,15 +60,23 @@ export function useSteps(unitId, actor = '', { waitForUnit = false } = {}) {
   }, [unitId]);
 
   useEffect(() => {
-    if (!unitId || waitForUnit) return;
+    if (!unitId) return;
     if (loadedForUnit.current === unitId) return;
     loadedForUnit.current = unitId;
     refresh();
-  }, [unitId, waitForUnit, refresh]);
+  }, [unitId, refresh]);
+
+  const syncCache = (nextSteps) => {
+    if (unitId) setCached(cacheKey(['steps', unitId]), nextSteps, 3 * 60 * 1000);
+  };
 
   const updateStep = async (stepNumber, body) => {
     const step = await postSalesApi.updateStep(unitId, stepNumber, { ...body, by: actor });
-    setSteps((prev) => mergeStep(prev, stepNumber, step));
+    setSteps((prev) => {
+      const next = mergeStep(prev, stepNumber, step);
+      syncCache(next);
+      return next;
+    });
     return step;
   };
 
@@ -74,7 +95,11 @@ export function useSteps(unitId, actor = '', { waitForUnit = false } = {}) {
     }));
     try {
       const step = await postSalesApi.toggleChecklist(unitId, stepNumber, index, { done, by: actor });
-      setSteps((prev) => mergeStep(prev, stepNumber, step));
+      setSteps((prev) => {
+        const next = mergeStep(prev, stepNumber, step);
+        syncCache(next);
+        return next;
+      });
       return step;
     } catch (e) {
       await refresh({ silent: true });
@@ -84,7 +109,11 @@ export function useSteps(unitId, actor = '', { waitForUnit = false } = {}) {
 
   const addStepComment = async (stepNumber, text) => {
     const step = await postSalesApi.addStepComment(unitId, stepNumber, { text, by: actor });
-    setSteps((prev) => mergeStep(prev, stepNumber, step));
+    setSteps((prev) => {
+      const next = mergeStep(prev, stepNumber, step);
+      syncCache(next);
+      return next;
+    });
     return step;
   };
 

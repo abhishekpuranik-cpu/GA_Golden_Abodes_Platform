@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
-import { cachedFetch } from '../../lib/postsales/postSalesCache.js';
+import { cacheKey, cachedFetch, getCached } from '../../lib/postsales/postSalesCache.js';
 
 export function useMyTasks(filters = {}) {
   const [tasks, setTasks] = useState([]);
@@ -12,10 +12,22 @@ export function useMyTasks(filters = {}) {
 
   const filterKey = JSON.stringify(filters);
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async ({ silent = false } = {}) => {
+    const key = cacheKey(['my-tasks', filterKey]);
+    if (!silent) {
+      const cached = getCached(key);
+      if (cached) {
+        setTasks(cached.tasks || []);
+        setAssignee(cached.assignee || '');
+        setCxCount(cached.cxCount ?? null);
+        setBackendCount(cached.backendCount ?? null);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+    }
     try {
-      const data = await postSalesApi.getMyTasks(filters);
+      const data = await cachedFetch(key, () => postSalesApi.getMyTasks(filters), 90 * 1000);
       setTasks(data.tasks || []);
       setAssignee(data.assignee || '');
       setCxCount(data.cxCount ?? null);
@@ -24,7 +36,7 @@ export function useMyTasks(filters = {}) {
     } catch (e) {
       setError(e.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [filterKey]);
 

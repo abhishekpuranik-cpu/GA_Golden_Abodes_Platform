@@ -93,6 +93,13 @@ export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmE
   });
 }
 
+export function hydrateStepTaskKinds(steps) {
+  for (const s of steps) {
+    if (!s.taskKind) s.taskKind = getStepTaskKind(s.stepNumber);
+  }
+  return steps;
+}
+
 export async function backfillStepTaskKinds(steps, PipelineStep) {
   const missing = steps.filter((s) => !s.taskKind);
   if (!missing.length) return steps;
@@ -104,7 +111,7 @@ export async function backfillStepTaskKinds(steps, PipelineStep) {
       },
     }))
   );
-  for (const s of missing) s.taskKind = getStepTaskKind(s.stepNumber);
+  hydrateStepTaskKinds(missing);
   return steps;
 }
 

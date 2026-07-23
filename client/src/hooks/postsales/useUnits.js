@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
-import { cacheKey, getCached, setCached } from '../../lib/postsales/postSalesCache.js';
+import { cacheKey, cachedFetch, getCached, setCached } from '../../lib/postsales/postSalesCache.js';
 
 export function useUnits(filters = {}) {
   const [units, setUnits] = useState([]);
@@ -19,8 +19,7 @@ export function useUnits(filters = {}) {
     }
     setError(null);
     try {
-      const data = await postSalesApi.listUnits(filters);
-      setCached(key, data, 2 * 60 * 1000);
+      const data = await cachedFetch(key, () => postSalesApi.listUnits(filters), 2 * 60 * 1000);
       setUnits(data);
     } catch (e) {
       setError(e.message);
@@ -65,8 +64,7 @@ export function useUnitsLite(filters = {}) {
     }
     setError(null);
     try {
-      const data = await postSalesApi.listUnitsLite(filters);
-      setCached(key, data, 3 * 60 * 1000);
+      const data = await cachedFetch(key, () => postSalesApi.listUnitsLite(filters), 3 * 60 * 1000);
       setUnits(data);
     } catch (e) {
       setError(e.message);
@@ -87,9 +85,22 @@ export function useUnit(id) {
 
   const refresh = useCallback(async ({ silent = false } = {}) => {
     if (!id) return;
-    if (!silent) setLoading(true);
+    const key = cacheKey(['unit', id]);
+    if (!silent) {
+      const cached = getCached(key);
+      if (cached) {
+        setUnit(cached);
+        setLoading(false);
+      } else {
+        setLoading(true);
+      }
+    }
     try {
-      setUnit(await postSalesApi.getUnit(id));
+      const data = silent
+        ? await postSalesApi.getUnit(id)
+        : await cachedFetch(key, () => postSalesApi.getUnit(id), 3 * 60 * 1000);
+      if (silent) setCached(key, data, 3 * 60 * 1000);
+      setUnit(data);
       setError(null);
     } catch (e) {
       setError(e.message);

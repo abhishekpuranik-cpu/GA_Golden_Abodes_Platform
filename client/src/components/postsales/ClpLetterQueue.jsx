@@ -210,12 +210,14 @@ export default function ClpLetterQueue({
       setTasks((prev) => mergeTaskLists(prev, list.tasks || []));
       setInstallmentCount(list.tasks?.length || 0);
 
-      if (sync || !(list.tasks?.length)) {
+      if (sync) {
         setSyncing(true);
         const synced = await postSalesApi.syncClpLetterTasksForUnit(unitId, { by: actor || 'Pipeline' });
         setTasks((prev) => mergeTaskLists(prev, synced.tasks || []));
         setInstallmentCount(synced.total || synced.tasks?.length || 0);
         setLoadNote(synced.message || '');
+      } else if (!(list.tasks?.length)) {
+        setLoadNote('No CLP tasks yet — click Sync CLP to generate from schedule.');
       }
     } catch (e) {
       setError(e.message);

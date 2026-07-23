@@ -74,14 +74,12 @@ export default function UnitPipeline() {
 
   const { unit, loading: unitLoading, error: unitError, refresh: refreshUnit } = useUnit(id);
 
-  const { steps, loading: stepsLoading, error: stepsError, refresh: refreshSteps, updateStep, toggleChecklist, addStepComment } = useSteps(id, actor, {
-    waitForUnit: unitLoading,
-  });
+  const { steps, loading: stepsLoading, error: stepsError, refresh: refreshSteps, updateStep, toggleChecklist, addStepComment } = useSteps(id, actor);
 
   const [selected, setSelected] = useState(1);
   const [tab, setTab] = useState('checklist');
 
-  const needDocuments = selected === 12 || tab === 'documents';
+  const needDocuments = tab === 'documents' || (selected === 12 && tab === 'checklist');
   const { documents, uploadDocument } = useDocuments(needDocuments ? id : null);
 
   const { cxTeam, backendTeam } = useAssignees();
@@ -406,9 +404,9 @@ export default function UnitPipeline() {
 
 
 
-  if (unitLoading || stepsLoading) return <div className="ps-empty">Loading pipeline…</div>;
+  if (unitLoading && !unit) return <div className="ps-empty">Loading pipeline…</div>;
 
-  if (unitError || stepsError) return <div className="ps-error">{unitError || stepsError}</div>;
+  if (unitError) return <div className="ps-error">{unitError}</div>;
 
   if (!unit) return <div className="ps-empty">Unit not found</div>;
 
@@ -463,6 +461,10 @@ export default function UnitPipeline() {
       <div className="ps-pipeline-layout">
 
         <div className="ps-step-list">
+
+          {stepsError && <div className="ps-error" style={{ margin: 8 }}>{stepsError}</div>}
+
+          {stepsLoading && !steps.length && <div className="ps-empty" style={{ padding: 12 }}>Loading steps…</div>}
 
           {Object.entries(grouped).map(([phase, phaseSteps]) => (
 

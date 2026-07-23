@@ -6,7 +6,7 @@ import Unit from '../../models/postsales/Unit.js';
 
 import { STEPS } from '../../lib/postsales/steps.js';
 
-import { checkBlockedSteps, computeDueDate, getStepDef, backfillStepTaskKinds } from '../../lib/postsales/helpers.js';
+import { checkBlockedSteps, computeDueDate, getStepDef, hydrateStepTaskKinds } from '../../lib/postsales/helpers.js';
 
 import { getStepTaskKind, defaultAssigneeForKind } from '../../lib/postsales/taskKinds.js';
 
@@ -35,11 +35,12 @@ router.get('/', async (req, res) => {
 
     if (!unitId) return res.status(400).json({ error: 'unitId required' });
 
-    const steps = await PipelineStep.find({ unitId }).sort({ stepNumber: 1 }).lean();
+    const steps = await PipelineStep.find({ unitId })
+      .sort({ stepNumber: 1 })
+      .select('-activityLog')
+      .lean();
 
-    await backfillStepTaskKinds(steps, PipelineStep);
-
-    res.json(steps);
+    res.json(hydrateStepTaskKinds(steps));
 
   } catch (err) {
 
@@ -58,6 +59,20 @@ router.get('/:stepNumber/log', async (req, res) => {
     const step = await PipelineStep.findOne({ unitId, stepNumber }).lean();
     if (!step) return res.status(404).json({ error: 'Step not found' });
     res.json({ log: step.activityLog || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
+
+router.get('/:stepNumber', async (req, res) => {
+  try {
+    const unitId = req.params.unitId;
+    const stepNumber = Number(req.params.stepNumber);
+    const step = await PipelineStep.findOne({ unitId, stepNumber }).select('-activityLog').lean();
+    if (!step) return res.status(404).json({ error: 'Step not found' });
+    res.json(hydrateStepTaskKinds([step])[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

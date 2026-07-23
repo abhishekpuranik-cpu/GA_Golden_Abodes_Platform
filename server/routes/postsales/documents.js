@@ -47,7 +47,10 @@ router.get('/', async (req, res) => {
     if (req.query.unitId) filter.unitId = req.query.unitId;
     if (req.query.stepNumber) filter.stepNumber = Number(req.query.stepNumber);
     if (req.query.clpLetterTaskId) filter.clpLetterTaskId = req.query.clpLetterTaskId;
-    const docs = await Document.find(filter).sort({ stepNumber: 1, checklistIndex: 1, createdAt: -1 }).lean();
+    const docs = await Document.find(filter)
+      .select('unitId stepNumber docType label fileName fileId driveLink status checklistIndex clpLetterTaskId milestoneName checklistItem createdAt updatedAt')
+      .sort({ stepNumber: 1, checklistIndex: 1, createdAt: -1 })
+      .lean();
     const grouped = {};
     for (const d of docs) {
       const key = d.stepNumber || 0;

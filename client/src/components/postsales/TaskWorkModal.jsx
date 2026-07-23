@@ -44,8 +44,7 @@ export default function TaskWorkModal({
         setNextActionDate(toInputDate(full.nextActionDate || task.nextActionDate));
         setAssignedTo(full.assignee || task.assignedTo || '');
       } else {
-        const steps = await postSalesApi.getSteps(task.unitId);
-        const step = steps.find((s) => s.stepNumber === task.stepNumber);
+        const step = await postSalesApi.getStep(task.unitId, task.stepNumber);
         setDetail(step || null);
         setNextAction(step?.nextAction || task.nextAction || '');
         setNextActionDate(toInputDate(step?.nextActionDate || task.nextActionDate));

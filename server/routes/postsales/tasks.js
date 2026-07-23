@@ -5,7 +5,7 @@ import Unit from '../../models/postsales/Unit.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { resolveSession } from '../auth.js';
 import { STEPS } from '../../lib/postsales/steps.js';
-import { backfillStepTaskKinds } from '../../lib/postsales/helpers.js';
+import { hydrateStepTaskKinds } from '../../lib/postsales/helpers.js';
 import { getStepTaskKind, TASK_KINDS } from '../../lib/postsales/taskKinds.js';
 import { CLP_STEP, mapClpLetterTaskToMyTask } from '../../lib/postsales/clpLetterTasks.js';
 
@@ -181,8 +181,10 @@ async function fetchOpenTasks(query, { assigneeNeedles: needles, taskKind, inclu
     ];
   }
 
-  let steps = await PipelineStep.find(stepFilter).lean();
-  await backfillStepTaskKinds(steps, PipelineStep);
+  let steps = await PipelineStep.find(stepFilter)
+    .select('unitId stepNumber stepName phase status taskKind assignedTo assignedRole triggerDate dueDate nextAction nextActionDate slaBreach slaBreachDays notes')
+    .lean();
+  hydrateStepTaskKinds(steps);
   steps = steps.filter((s) => s.stepNumber !== CLP_STEP);
 
   const missingUnitIds = [...new Set(steps.map((s) => String(s.unitId)))].filter((id) => !unitMap[id]);

@@ -139,7 +139,10 @@ router.get('/', async (req, res) => {
     if (req.query.status) filter.overallStatus = req.query.status;
     if (req.query.importBatchId) filter.lastImportBatchId = req.query.importBatchId;
 
-    const units = sortUnitsChronologically(await Unit.find(filter).populate('customerId').lean());
+    const units = sortUnitsChronologically(await Unit.find(filter)
+      .populate('customerId', 'name email phone fundingType')
+      .select('-steps')
+      .lean());
     const unitIds = units.map((u) => u._id);
     const steps = unitIds.length
       ? await PipelineStep.find(
@@ -211,10 +214,11 @@ router.post('/:id/clp-override/upload', clpUpload.single('file'), async (req, re
 
 router.get('/:id', async (req, res) => {
   try {
-    const unit = await Unit.findById(req.params.id).populate('customerId').lean();
+    const unit = await Unit.findById(req.params.id)
+      .populate('customerId', 'name email phone fundingType pan aadhaar address')
+      .lean();
     if (!unit) return res.status(404).json({ error: 'Unit not found' });
-    const steps = await PipelineStep.find({ unitId: unit._id }).sort({ stepNumber: 1 }).lean();
-    res.json({ ...unit, customer: unit.customerId, steps });
+    res.json({ ...unit, customer: unit.customerId, customerId: unit.customerId?._id || unit.customerId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
