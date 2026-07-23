@@ -14,7 +14,8 @@ import {
   repairV3OrgPlannerForRead,
   V3_ORG_PLANNER_APP_ID
 } from '../lib/v3OrgPlannerMerge.js';
-import { mergePreconstructionState, repairPreconstructionForRead, repairPreconstructionForWrite, slimPreconstructionForBoot } from '../lib/preconstructionMerge.js';
+import { mergePreconstructionState, repairPreconstructionForRead, repairPreconstructionForWrite } from '../lib/preconstructionMerge.js';
+import { loadPreconProjection, writePreconCompanions } from '../lib/preconStateCache.js';
 import { resolveSession, userHasPermission } from './auth.js';
 
 export const PRECONSTRUCTION_APP_ID = 'preconstruction';
@@ -113,25 +114,42 @@ appStatesRouter.get(
     if (!appId) return;
     try {
       const states = db.collection('app_states');
-      const wantFullPrecon =
-        appId === PRECONSTRUCTION_APP_ID &&
-        (String(req.query?.full || '') === '1' || String(req.query?.view || '') === 'full');
-      // Boot GET: skip shipping activityLog from Atlas (~1MB+) — biggest first-paint win.
-      const findOpts =
-        appId === PRECONSTRUCTION_APP_ID && !wantFullPrecon
-          ? {
-              projection: {
-                version: 1,
-                updatedAt: 1,
-                updatedBy: 1,
-                'data.cloudUrl': 1,
-                'data.departments': 1,
-                'data.projects': 1,
-                'data._removedProjectIds': 1,
-              },
-            }
-          : undefined;
-      let row = await states.findOne({ _id: appId }, findOpts);
+
+      // PreConstruction: catalog (tiny) or work (tasks) from companion docs / memory — never wait on activityLog.
+      if (appId === PRECONSTRUCTION_APP_ID) {
+        const wantFull =
+          String(req.query?.full || '') === '1' || String(req.query?.view || '') === 'full';
+        const viewRaw = String(req.query?.view || '').toLowerCase();
+        const view = wantFull ? 'full' : viewRaw === 'work' || viewRaw === 'slim' ? 'work' : 'catalog';
+
+        if (view !== 'full') {
+          const proj = await loadPreconProjection(db, view);
+          if (!proj?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
+          res.setHeader('X-GA-Precon-Source', proj.source || 'unknown');
+          res.setHeader('Cache-Control', 'private, max-age=5');
+          return res.json({
+            appId,
+            data: proj.data,
+            version: proj.version || 1,
+            updatedAt: proj.updatedAt || null,
+            updatedBy: proj.updatedBy || null,
+            view,
+          });
+        }
+
+        const row = await states.findOne({ _id: appId });
+        if (!row?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
+        return res.json({
+          appId,
+          data: repairPreconstructionForRead(row.data),
+          version: row.version || 1,
+          updatedAt: row.updatedAt || null,
+          updatedBy: row.updatedBy || null,
+          view: 'full',
+        });
+      }
+
+      let row = await states.findOne({ _id: appId });
       if (!row) row = await migrateLegacyWorkspaceForApp(db, appId);
       if (!row?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
       let outData = row.data;
@@ -139,10 +157,6 @@ appStatesRouter.get(
         outData = repairV3OrgPlannerForRead(row.data);
       } else if (appId === V1_CASHFLOW_APP_ID) {
         outData = await repairV1CashflowForRead(db, row.data);
-      } else if (appId === PRECONSTRUCTION_APP_ID) {
-        outData = wantFullPrecon
-          ? repairPreconstructionForRead(row.data)
-          : slimPreconstructionForBoot({ ...row.data, activityLog: row.data.activityLog || [] });
       }
       res.json({
         appId,
@@ -243,6 +257,16 @@ appStatesRouter.put(
         { upsert: true }
       );
       if (appId === PRECONSTRUCTION_APP_ID) {
+        try {
+          await writePreconCompanions(db, {
+            data: toSave,
+            version: nextVersion,
+            updatedAt: now,
+            updatedBy: typeof updatedBy === 'string' && updatedBy.trim() ? updatedBy.trim() : 'system',
+          });
+        } catch (e) {
+          console.warn('[precon-companions]', e?.message || e);
+        }
         const wantData = req.body?.returnData === true || req.body?.includeData === true;
         const payload = {
           ok: true,

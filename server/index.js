@@ -27,6 +27,8 @@ import { ensureHiringIndexes } from './lib/hiring/ensureIndexes.js';
 import { isDevAuthBypass } from './lib/devAuthBypass.js';
 import { maybePurgePostSalesOnStart } from './lib/postsales/purgeUnitData.js';
 import { createRbacMiddleware } from './lib/rbac.js';
+import { ensureMongo } from './lib/mongo.js';
+import { warmPreconStateCache } from './lib/preconStateCache.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
@@ -95,7 +97,7 @@ app.use(createRbacMiddleware());
 
 const preconPublicDir = path.join(rootDir, 'client', 'public', 'preconstruction');
 const preconBundled = fs.existsSync(path.join(preconPublicDir, 'index.html'));
-const PRECON_BOOT_VERSION = 'boot-12-20260723-slim';
+const PRECON_BOOT_VERSION = 'boot-13-20260723-fast';
 
 function sendPreconIndex(res) {
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
@@ -188,6 +190,11 @@ async function boot() {
       console.warn('[DEV] Auth bypass ON — login not required (DEV_BYPASS_AUTH). Disabled in production.');
     }
   });
+
+  // Warm PreConstruction catalog/work companions so first user open is memory-fast.
+  ensureMongo()
+    .then((db) => (db ? warmPreconStateCache(db) : null))
+    .catch((e) => console.warn('[precon-cache]', e?.message || e));
 
   function shutdown(signal) {
     console.log(`${signal} — closing…`);

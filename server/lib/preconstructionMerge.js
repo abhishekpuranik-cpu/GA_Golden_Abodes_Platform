@@ -72,12 +72,39 @@ function slimTaskComments(comments) {
   return list.map(slimCommentRow);
 }
 
+function projectCardStats(proj) {
+  let total = 0;
+  let comp = 0;
+  let ip = 0;
+  let ov = 0;
+  let nextName = '';
+  for (const ph of proj.phases || []) {
+    for (const t of ph.tasks || []) {
+      total += 1;
+      const st = String(t?.status || '')
+        .toLowerCase()
+        .replace(/\s+/g, '');
+      if (st === 'completed' || st === 'done' || st === 'complete') comp += 1;
+      else if (st === 'inprogress' || st === 'active') ip += 1;
+      else if (st === 'overdue' || st === 'delayed' || st === 'late') ov += 1;
+      else if (!nextName && t?.name) nextName = String(t.name);
+    }
+  }
+  return {
+    total,
+    comp,
+    ip,
+    ov,
+    pct: total ? Math.round((comp / total) * 100) : 0,
+    nextName,
+  };
+}
+
 /**
- * Boot/slim projection for first paint.
- * Activity log alone is often >1MB — omit it on boot (PUT merge preserves server history).
- * Comments stay complete (field-slimmed). Use ?full=1 for activity log + raw comment fields.
+ * Tiny catalog for first paint — project cards + rollup stats, no phase/task trees.
+ * Typically a few KB; safe to ship on every open.
  */
-export function slimPreconstructionForBoot(data) {
+export function buildPreconstructionCatalog(data) {
   const base = repairPreconstructionForRead(data);
   if (!isPlainObject(base)) return base;
   return {
@@ -85,7 +112,7 @@ export function slimPreconstructionForBoot(data) {
     departments: base.departments || [],
     _removedProjectIds: base._removedProjectIds || [],
     activityLog: [],
-    __slimBoot: true,
+    __boot: 'catalog',
     projects: (base.projects || []).map((p) => ({
       id: p.id,
       name: p.name,
@@ -96,15 +123,62 @@ export function slimPreconstructionForBoot(data) {
       ko: p.ko,
       col: p.col,
       _removedTaskIds: p._removedTaskIds,
+      _stats: projectCardStats(p),
+      phases: [],
+    })),
+  };
+}
+
+/**
+ * Work projection for Tasks / Calendar / My Work — tasks + field-slimmed comments, no activityLog.
+ * PUT merge unions comments so a catalog/work client cannot wipe server history.
+ */
+export function slimPreconstructionForBoot(data) {
+  const base = repairPreconstructionForRead(data);
+  if (!isPlainObject(base)) return base;
+  return {
+    cloudUrl: base.cloudUrl || '',
+    departments: base.departments || [],
+    _removedProjectIds: base._removedProjectIds || [],
+    activityLog: [],
+    __slimBoot: true,
+    __boot: 'work',
+    projects: (base.projects || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      loc: p.loc,
+      type: p.type,
+      floors: p.floors,
+      status: p.status,
+      ko: p.ko,
+      col: p.col,
+      _removedTaskIds: p._removedTaskIds,
+      _stats: projectCardStats(p),
       phases: (p.phases || []).map((ph) => ({
         id: ph.id,
         name: ph.name,
         col: ph.col,
         open: ph.open,
         tasks: (ph.tasks || []).map((t) => ({
-          ...t,
+          id: t.id,
+          name: t.name,
+          dur: t.dur,
+          pred: t.pred,
+          par: t.par,
+          ms: t.ms,
+          who: t.who,
+          roles: t.roles,
+          as: t.as,
+          ae: t.ae,
+          status: t.status,
+          msManual: t.msManual,
+          source: t.source,
+          whoUpdatedAt: t.whoUpdatedAt,
+          offsetFromKo: t.offsetFromKo,
+          parentId: t.parentId,
+          plannedEnd: t.plannedEnd,
           comments: slimTaskComments(t.comments),
-          attachments: Array.isArray(t.attachments) ? t.attachments.slice(0, 8) : t.attachments,
+          attachments: Array.isArray(t.attachments) ? t.attachments.slice(0, 4) : undefined,
         })),
       })),
     })),
