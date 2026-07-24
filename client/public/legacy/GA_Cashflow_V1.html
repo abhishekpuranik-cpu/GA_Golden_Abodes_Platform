@@ -99,6 +99,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .sales-subtab{display:inline-flex;gap:4px;margin-bottom:12px;padding:4px;background:var(--border);border-radius:8px}
 .sales-subtab button{border:none;padding:8px 14px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;background:transparent;color:var(--muted)}
 .sales-subtab button.on{background:#fff;color:var(--blue-b);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.sales-bridge{border:1px solid #BFD4EA;border-radius:12px;padding:14px 16px;background:linear-gradient(135deg,#F4F8FD 0%,#FFFFFF 55%,#F7FBFF 100%);box-shadow:0 1px 0 rgba(21,88,160,.06)}
+.sales-bridge__row{display:flex;flex-wrap:wrap;align-items:flex-start;justify-content:space-between;gap:12px 16px}
+.sales-bridge__title{font-size:13px;font-weight:800;color:var(--blue-b);letter-spacing:.01em}
+.sales-bridge__lead{font-size:11px;color:var(--muted);line-height:1.5;margin-top:4px;max-width:62ch}
+.sales-bridge__actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.sales-bridge__status{font-size:10px;color:var(--muted);margin-top:10px;line-height:1.45}
+.sales-bridge__status.is-ok{color:#166534}
+.sales-bridge__status.is-warn{color:#92400E}
+.sales-bridge__status.is-err{color:#991B1B}
+.sales-bridge__fallback{margin-top:10px;padding-top:10px;border-top:1px dashed #D5E2F0}
+.sales-bridge__fallback summary{cursor:pointer;font-size:10px;font-weight:700;color:var(--blue-b);user-select:none}
+.sales-bridge__fallback-body{margin-top:8px;font-size:10px;color:var(--muted);line-height:1.5}
 .ms-milestone-title{word-break:normal;overflow-wrap:break-word;white-space:normal;line-height:1.35;hyphens:auto}
 .ps-dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-bottom:14px}
 .ps-dash-card{border-radius:10px;padding:12px 14px;border:1.5px solid var(--border);background:linear-gradient(145deg,#fff,#F8FAFC)}
@@ -211,6 +223,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
     <button type="button" class="btn btn-outline" data-action="mongo-load-now" style="font-size:10px;padding:4px 8px">Load</button>
     <button type="button" class="btn btn-outline" data-action="mongo-restore-snapshot" style="font-size:10px;padding:4px 8px;color:#166534;border-color:#86efac" title="Restore from automatic server backup">↺ Snapshot</button>
     <button type="button" class="btn btn-outline" data-action="mongo-server-setup" style="font-size:10px;padding:4px 8px" title="API base + enable flag">Setup</button>
+    <button type="button" class="btn btn-outline" data-action="mongo-sync-postsales" style="font-size:10px;padding:4px 8px;color:#0D4D30;border-color:#86efac" title="Pull collection installments from Post Sales Demands into matching sold units">↺ Post Sales</button>
   </span>
   <span class="sync-group" title="GA Accounting Categories V3 — source of truth for L1/L2/L3">
     <span style="font-weight:700;color:var(--blue-b)">Coding</span>
@@ -254,7 +267,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 72;
+var CF_VERSION = 73;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
@@ -2731,8 +2744,12 @@ var _curTab = 'sales';
 var _cfTabGateInited = false;
 var _lastProjHash = '';
 var _collapseGroups = {inflows:false, outflows:false}; // false = expanded
-var _salesUIPanel = 'inventory'; // 'inventory' | 'postsales'
-var _postSalesSubPanel = 'overview'; // 'overview' | 'monthly' — nested under post-sales dashboard
+var _salesUIPanel = 'inventory'; // 'inventory' | 'postsales' (collections analytics)
+var _postSalesSubPanel = 'overview'; // 'overview' | 'monthly' — nested under collections analytics
+var _psCollSyncBusy = false;
+var _psCollLastSyncAt = 0;
+var _psCollLastMsg = '';
+var _psCollLastOk = null;
 /** month | quarter | month-collapsed-per-Q — quarter = one col per Q; month = month cols; qCollapsed[qk]=true merges that Q to one col */
 var _salesGridMode = 'month';
 var _salesQCollapsed = {}; // { '2025-Q3': true }
@@ -2869,6 +2886,12 @@ function postSalesCollectionsApiUrl(){
   try{ base=String(localStorage.getItem(GA_MONGO_API_BASE_KEY)||'').trim().replace(/\/$/,''); }catch(e){}
   return (base?base:'')+'/api/postsales/demands/export';
 }
+function postSalesOpsAppUrl(){
+  try{
+    if(window.location.protocol==='file:') return '/app/post-sales';
+    return String(window.location.origin||'')+'/app/post-sales';
+  }catch(e){ return '/app/post-sales'; }
+}
 function normCfUnitKey(u){
   return String(u||'').trim().toLowerCase().replace(/\s+/g,'');
 }
@@ -2909,23 +2932,92 @@ function mergePostSalesCollectionsExport(payload){
   }
   return merged;
 }
+function setPsCollSyncUi(ok, msg){
+  _psCollLastOk=ok;
+  _psCollLastMsg=String(msg||'');
+  _psCollLastSyncAt=Date.now();
+}
 function syncCollectionsFromPostSales(opts){
   opts=opts||{};
   if(!canUseMongoState()&&!opts.force) return Promise.resolve(0);
+  if(_psCollSyncBusy) return Promise.resolve(0);
+  _psCollSyncBusy=true;
+  if(_curTab==='sales'){ try{ renderSales(); }catch(e0){} }
   return fetch(postSalesCollectionsApiUrl(),{credentials:'include',cache:'no-store'})
     .then(function(r){ return r.json().then(function(j){ return {ok:r.ok,j:j}; }); })
     .then(function(res){
       if(!res.ok) throw new Error((res.j&&res.j.error)||'Post Sales collections fetch failed');
       var n=mergePostSalesCollectionsExport(res.j);
+      var when=(res.j&&res.j.updatedAt)||'';
       if(n>0){
+        setPsCollSyncUi(true, 'Updated collections on '+n+' sold unit(s)'+(when?' · Post Sales '+when:''));
         try{ renderAll(); }catch(e){}
-        mongoStateStatus('Synced '+n+' sold unit(s) from Post Sales · '+((res.j&&res.j.updatedAt)||''),'green');
+        mongoStateStatus('Synced '+n+' sold unit(s) from Post Sales · '+when,'green');
         updateMongoStatusLabel();
-      }else if(opts.alertIfEmpty){
-        setSS('Post Sales returned no collection rows to merge (upload in Post Sales Demands first).','gold');
+      }else{
+        setPsCollSyncUi(null, 'No matching collection rows to merge — upload CRM in Post Sales (Units / Demands), or ensure units are linked to this workbook.');
+        if(opts.alertIfEmpty){
+          setSS('Post Sales returned no collection rows to merge (upload in Post Sales Demands first).','gold');
+        }
       }
       return n;
+    })
+    .catch(function(e){
+      var msg=String(e&&e.message||e).slice(0,120);
+      setPsCollSyncUi(false, 'Sync failed: '+msg);
+      if(!opts.quiet) setSS('Post Sales sync failed: '+msg,'red');
+      if(opts.quiet) return 0;
+      throw e;
+    })
+    .finally(function(){
+      _psCollSyncBusy=false;
+      if(_curTab==='sales'){ try{ renderSales(); }catch(e1){} }
     });
+}
+/** Soft refresh while on Sales — never overwrites workbook if Post Sales has nothing to merge. */
+function maybeAutoSyncCollectionsFromPostSales(){
+  if(!canUseMongoState()) return;
+  if(_psCollSyncBusy) return;
+  if(_psCollLastSyncAt && (Date.now()-_psCollLastSyncAt)<5*60*1000) return;
+  syncCollectionsFromPostSales({quiet:true}).catch(function(){});
+}
+function htmlSalesCollectionsBridge(){
+  var last='';
+  if(_psCollLastSyncAt){
+    try{ last=new Date(_psCollLastSyncAt).toLocaleString(); }catch(eL){ last=''; }
+  }
+  var stClass='sales-bridge__status';
+  if(_psCollLastOk===true) stClass+=' is-ok';
+  else if(_psCollLastOk===false) stClass+=' is-err';
+  else if(_psCollLastOk===null&&_psCollLastMsg) stClass+=' is-warn';
+  var h='';
+  h+='<div class="sales-bridge">';
+  h+='<div class="sales-bridge__row">';
+  h+='<div style="flex:1;min-width:220px">';
+  h+='<div class="sales-bridge__title">Collections live from Post Sales</div>';
+  h+='<div class="sales-bridge__lead">Upload the CRM dump once in <strong>Post Sales → Units</strong>. Cashflow pulls installment due / received into matching sold units — milestones, unsold inventory, and sales pace stay here for the forecast.</div>';
+  h+='</div>';
+  h+='<div class="sales-bridge__actions">';
+  h+='<button type="button" class="btn btn-primary" data-action="mongo-sync-postsales" '+( _psCollSyncBusy?'disabled':'')+' style="font-size:11px;padding:7px 14px;background:#0D4D30;border-color:#0D4D30">'+( _psCollSyncBusy?'Syncing…':'↺ Sync collections')+'</button>';
+  h+='<a class="btn btn-outline" href="'+escAttr(postSalesOpsAppUrl())+'" target="_blank" rel="noopener" style="font-size:11px;padding:7px 14px;text-decoration:none">Open Post Sales ↗</a>';
+  h+='</div></div>';
+  if(_psCollSyncBusy){
+    h+='<div class="sales-bridge__status">Syncing collections from Post Sales…</div>';
+  }else if(_psCollLastMsg){
+    h+='<div class="'+stClass+'">'+escHtml(_psCollLastMsg)+(last?' <span style="opacity:.75">· '+escHtml(last)+'</span>':'')+'</div>';
+  }else if(canUseMongoState()){
+    h+='<div class="sales-bridge__status">Auto-syncs when you open Sales (every 5 min) and after Load from server. Click Sync anytime after a CRM upload in Post Sales.</div>';
+  }else{
+    h+='<div class="sales-bridge__status is-warn">Enable Server / Mongo (sync bar → Setup) to pull collections from Post Sales.</div>';
+  }
+  h+='<details class="sales-bridge__fallback">';
+  h+='<summary>Emergency / offline: import CRM directly into Cashflow</summary>';
+  h+='<div class="sales-bridge__fallback-body">Use only if Post Sales is unavailable. Prefer the Post Sales upload so ops and cashflow stay aligned. Direct import still works and does not change other forecast inputs.</div>';
+  h+='<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:8px">';
+  h+='<button type="button" class="btn btn-outline" data-action="ul-crm-postsales" style="font-size:10px;padding:5px 10px">CRM → Cashflow (fallback)</button>';
+  h+='</div></details>';
+  h+='</div>';
+  return h;
 }
 var _mongoAutoMorningRestoreTried=false;
 function paradiseSoldUnitsInWorkbook(dataMap){
@@ -4031,7 +4123,7 @@ function loadAllFromMongo(){
       var loadedUnits=countWorkbookSoldUnits(_cfData);
       mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion+' · '+loadedUnits+' sold units','green');
       updateMongoStatusLabel();
-      return syncCollectionsFromPostSales().then(function(){ return {ok:true, units:loadedUnits}; });
+      return syncCollectionsFromPostSales({quiet:true}).then(function(){ return {ok:true, units:loadedUnits}; });
     })
     .catch(function(e){
       mongoStateStatus('Mongo load failed: '+String(e&&e.message||e).slice(0,90),'red');
@@ -7826,7 +7918,7 @@ function buildPostSalesMonthlyPerformanceTableHtml(series, seriesFull, curMo){
   });
   h+='</tr></thead><tbody>';
   if(!series.length){
-    h+='<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--muted)">Upload sold-unit schedules (CRM Post-Sales) and unsold inventory to populate monthly performance.</td></tr>';
+    h+='<tr><td colspan="10" style="padding:20px;text-align:center;color:var(--muted)">Sync collections from Post Sales (or use CRM fallback) and add unsold inventory to populate monthly performance.</td></tr>';
   } else {
     series.forEach(function(r){
       var c=atMoMap[r.mo]||{cumDemand:0,cumReal:0};
@@ -8070,7 +8162,7 @@ function renderPostSalesPanel(cfg){
   var h='';
   h+='<div class="card" style="border-top:3px solid #1558A0">';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">';
-  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Post-sales command center</div>';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Collections command center</div>';
   h+='<label style="font-size:10px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none">';
   h+='<input type="checkbox" data-action="toggle-prior-years" '+(showPriorCalendarYears()?'checked':'')+' style="accent-color:var(--blue)"/>';
   h+='Show prior calendar years</label></div>';
@@ -8098,7 +8190,7 @@ function renderPostSalesPanel(cfg){
   h+='<span style="font-size:10px;color:var(--blue-b)">Next 12-mo scheduled: <strong>'+cr(base12)+'</strong> → delayed: <strong>'+cr(del12)+'</strong> · Δ <strong>'+cr(slip)+'</strong> stays in window</span></div></div>';
   h+='</div>';
 
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Post-sales monthly board'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Collections monthly board'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
   h+=buildPostSalesMonthlyTableHtml(series, seriesFull, curMo);
 
   h+='<div style="margin-top:14px;padding:12px;background:var(--gold-l);border-radius:8px;font-size:10px;color:#744210;line-height:1.5">';
@@ -8124,7 +8216,7 @@ function renderPostSalesPanelRollup(vis){
   var h='';
   h+='<div class="card" style="border-top:3px solid #1558A0">';
   h+='<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:4px">';
-  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Post-sales command center — rollup ('+(vis||[]).length+' selected projects)</div>';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Collections command center — rollup ('+(vis||[]).length+' selected projects)</div>';
   h+='<label style="font-size:10px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;cursor:pointer;user-select:none">';
   h+='<input type="checkbox" data-action="toggle-prior-years" '+(showPriorCalendarYears()?'checked':'')+' style="accent-color:var(--blue)"/>';
   h+='Show prior calendar years</label></div>';
@@ -8136,7 +8228,7 @@ function renderPostSalesPanelRollup(vis){
   h+='<div class="ps-dash-card"><h4>Amount received to date</h4><div class="v">'+cr(totReal)+'</div></div>';
   h+='<div class="ps-dash-card"><h4>Unsold projection</h4><div class="v">'+cr(totUnsVisible)+'</div><div style="font-size:10px;color:var(--muted);margin-top:4px">Full horizon: <strong>'+cr(totUns)+'</strong></div></div>';
   h+='</div>';
-  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Post-sales monthly board — rollup'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
+  h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b);margin:16px 0 8px">Collections monthly board — rollup'+(showPriorCalendarYears()?'':' <span style="font-size:10px;font-weight:600;color:var(--muted)">(from '+cutY+')</span>')+'</div>';
   h+=buildPostSalesMonthlyTableHtml(series, seriesFull, curMo);
   h+='</div>';
   return h;
@@ -8154,13 +8246,19 @@ function renderSales(){
   var unitCr=crL;
   var msDefs=getMilestoneDefs(cfg);
   var h='';
-  h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b);margin-bottom:10px">Sales &amp; Revenue — '+cfg.projName+'</div>';
+  h+='<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px">';
+  h+='<div>';
+  h+='<div style="font-size:15px;font-weight:800;color:var(--blue-b)">Sales &amp; forecast inputs — '+escHtml(cfg.projName||'')+'</div>';
+  h+='<div style="font-size:11px;color:var(--muted);margin-top:3px;line-height:1.4">Milestone dates · sold schedule · unsold pace — cashflow timing stays here</div>';
+  h+='</div></div>';
+  h+=htmlSalesCollectionsBridge();
   h+='<div class="sales-subtab">';
-  h+='<button type="button" class="'+(_salesUIPanel==='inventory'?'on':'')+'" data-action="sales-sub" data-panel="inventory">Sales &amp; Inventory</button>';
-  h+='<button type="button" class="'+(_salesUIPanel==='postsales'?'on':'')+'" data-action="sales-sub" data-panel="postsales">Post-sales dashboard</button>';
+  h+='<button type="button" class="'+(_salesUIPanel==='inventory'?'on':'')+'" data-action="sales-sub" data-panel="inventory">Forecast inputs</button>';
+  h+='<button type="button" class="'+(_salesUIPanel==='postsales'?'on':'')+'" data-action="sales-sub" data-panel="postsales">Collections analytics</button>';
   h+='</div>';
 
   if(_salesUIPanel==='postsales'){
+    maybeAutoSyncCollectionsFromPostSales();
     h+=htmlPostSalesInnerSubtabNav();
     if(_postSalesSubPanel==='monthly'){
       h+=(vis.length>1)?renderPostSalesMonthlyPerformanceRollup(vis):renderPostSalesMonthlyPerformance(cfg);
@@ -8171,9 +8269,10 @@ function renderSales(){
     return;
   }
 
+  maybeAutoSyncCollectionsFromPostSales();
   h+='<div class="card" style="margin-bottom:10px;padding:10px 12px 12px">';
   h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b);margin-bottom:4px">Construction milestone dates</div>';
-  h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.4"><strong>CLP (Construction-linked):</strong> set unit pay type to <strong>Construction-linked</strong> and upload milestone target dates. Tranches whose target is <strong>on or before booking</strong> are scheduled in the <strong>booking month</strong> (cumulative site progress through booking); later tranches use uploaded target months. <strong>Installment</strong> units use per-line dates from CRM/imports. <strong>Customer Collections</strong> in Cashflow follow cash received. Achieved dates are for tracking.</div>';
+  h+='<div style="font-size:11px;color:var(--muted);margin-bottom:8px;line-height:1.4"><strong>CLP (Construction-linked):</strong> set unit pay type to <strong>Construction-linked</strong> and set milestone target dates. Tranches whose target is <strong>on or before booking</strong> are scheduled in the <strong>booking month</strong> (cumulative site progress through booking); later tranches use target months. <strong>Installment</strong> units use per-line dates from CRM / Post Sales sync. <strong>Customer Collections</strong> in Cashflow follow cash received. Achieved dates are for tracking.</div>';
   h+=htmlPostSalesRoadmap(cfg);
   var ma=cfg.milestonesAchievedDates||{};
   h+='<div style="overflow-x:auto;margin-top:2px;max-height:320px;overflow-y:auto">';
@@ -8244,7 +8343,7 @@ function renderSales(){
   h+='<div style="font-size:12px;font-weight:700;color:var(--blue-b)">Sold Units ('+sold+') — revenue timing</div>';
   if(!sold&&canUseMongoState()){
     h+='<div style="width:100%;margin:-2px 0 8px;padding:8px 10px;background:#FEF3C7;border:1px solid #F59E0B;border-radius:8px;font-size:10px;color:#92400E;line-height:1.45">';
-    h+='<strong>No sold units in this project.</strong> If you had CRM / inventory data before, use <strong>Load from server</strong> or <strong>↺ Restore snapshot</strong> in the Server / Mongo bar (do not save until data is back).';
+    h+='<strong>No sold units in this project.</strong> Prefer <strong>Load from server</strong> / <strong>↺ Snapshot</strong>, or seed units via the bridge fallback CRM import. Daily CRM should land in <strong>Post Sales</strong>, then use <strong>Sync collections</strong> for amounts.';
     h+='</div>';
   }
   h+='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">';
@@ -8256,7 +8355,6 @@ function renderSales(){
   h+='<button class="btn btn-outline" data-action="dl-sold-units-xlsx" style="font-size:10px;padding:4px 8px">⬇ Sold Units Excel</button>';
   h+='<button class="btn btn-outline" data-action="dl-inv-template" style="font-size:10px;padding:4px 8px">⬇ Template</button>';
   h+='<button class="btn btn-outline" data-action="ul-inv-template" style="font-size:10px;padding:4px 8px">⬆ Upload</button>';
-  h+='<button class="btn btn-outline" data-action="ul-crm-postsales" style="font-size:10px;padding:4px 8px">CRM Post-Sales</button>';
   h+='<button class="btn btn-green" data-action="add-unit" style="font-size:10px;padding:4px 8px">+ Add Unit</button>';
   h+='<label style="font-size:10px;color:var(--muted);display:inline-flex;align-items:center;gap:5px;margin-left:4px;cursor:pointer;user-select:none">';
   h+='<input type="checkbox" data-action="toggle-prior-years" '+(showPriorCalendarYears()?'checked':'')+' style="accent-color:var(--blue)"/>';
@@ -11078,7 +11176,7 @@ function dlInventoryTemplate(){
     [''],
     ['1) Simple inventory (this sheet): one row per unit. Sale Value is always full rupees. Pay Type "install" = use installment grid in app; "const" = construction milestones + dates.'],
     [''],
-    ['2) CRM Post-Sales import: use button "CRM Post-Sales" with the Golden Abodes Post Sales Reporting Tracker V3 .xlsx (no need to use this sheet). Each project tab must keep row 18 headers and 3-line Due/Received/Pending blocks.'],
+    ['2) Preferred: upload CRM in Post Sales → Units, then Sync collections on Cashflow Sales. Fallback: bridge “CRM → Cashflow” with the Golden Abodes Post Sales Reporting Tracker V3 .xlsx. Each project tab must keep row 18 headers and 3-line Due/Received/Pending blocks.'],
     [''],
     ['3) For stronger post-sales → cashflow (add to CRM or notes when available):'],
     ['   • GST component split per milestone (net of GST cash timing)'],
@@ -11113,7 +11211,7 @@ function importInventoryTemplate(input){
       var rows=XLSX.utils.sheet_to_json(ws,{header:1,defval:''});
       if(!rows.length){alert('Template appears empty.');return;}
       if(typeof crmColumnMapFromHeader==='function'&&crmColumnMapFromHeader(rows[0])){
-        alert('This workbook matches a CRM Post-Sales dump (Building Name, Agreement Amount, Amount Due / Received / Pending blocks), not the GA inventory template.\n\nUse the **CRM Post-Sales** button (not ⬆ Upload) on Sales & Revenue, and select the correct project in the top bar before importing.');
+        alert('This workbook matches a CRM Post-Sales dump (Building Name, Agreement Amount, Amount Due / Received / Pending blocks), not the GA inventory template.\n\nPrefer uploading that dump in Post Sales → Units, then Sync collections here.\n\nFallback: open the bridge “Emergency / offline” section and use CRM → Cashflow (select the correct project first).');
         input.value='';
         return;
       }
@@ -12215,9 +12313,7 @@ document.addEventListener('click',function(e){
     return;
   }
   if(a==='mongo-sync-postsales'){
-    syncCollectionsFromPostSales({alertIfEmpty:true, force:true}).catch(function(e){
-      setSS('Post Sales sync failed: '+String(e&&e.message||e).slice(0,90),'red');
-    });
+    syncCollectionsFromPostSales({alertIfEmpty:true, force:true}).catch(function(){});
     return;
   }
   if(a==='mongo-load-now'){
@@ -12226,7 +12322,7 @@ document.addEventListener('click',function(e){
       try{ renderAll(); }catch(e3){ if(typeof setSS==='function') setSS('Re-render: '+e3,'red'); }
       if(r&&r.ok){
         var u=r.units||0;
-        if(u===0) alert('Load from server completed, but the server workbook currently has 0 sold units.\n\nUse ↺ Restore snapshot and pick a line with a positive unit count, or re-import CRM Post-Sales.');
+        if(u===0) alert('Load from server completed, but the server workbook currently has 0 sold units.\n\nUse ↺ Restore snapshot and pick a line with a positive unit count, or seed via Post Sales / CRM fallback on Sales.');
         else alert('Loaded from server: '+u+' sold units across all projects. Check the correct project in the top bar.');
       }else{
         alert('Load from server failed or returned no data. Check the sync bar for the error, then try ↺ Restore snapshot.');
