@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260616.2';
+var GA_V3_BUILD = '20260724.1';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1086,8 +1086,8 @@ const FUND_MILESTONES = window.FUND_MILESTONES;
 if(!window.INVESTORS) window.INVESTORS = {};
 const INVESTORS = window.INVESTORS;
 function getInvestors(pid){ if(!INVESTORS[pid]) INVESTORS[pid]=[]; return INVESTORS[pid]; }
-function addInvestor(pid){ var inv=getInvestors(pid); inv.push({id:'INV'+Date.now(),name:'Investor '+(inv.length+1),principal:25000000,ratePct:18,profitSharePct:15,durationYrs:2,notes:''}); renderFinModelInPlace(pid); }
-function delInvestor(pid,iid){ if(INVESTORS[pid]) INVESTORS[pid]=INVESTORS[pid].filter(function(x){return x.id!==iid;}); renderFinModelInPlace(pid); }
+function addInvestor(pid){ var inv=getInvestors(pid); inv.push({id:'INV'+Date.now(),name:'Investor '+(inv.length+1),principal:25000000,ratePct:18,profitSharePct:15,durationYrs:2,notes:''}); renderFinModelInPlace(pid); if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave(); }
+function delInvestor(pid,iid){ if(INVESTORS[pid]) INVESTORS[pid]=INVESTORS[pid].filter(function(x){return x.id!==iid;}); renderFinModelInPlace(pid); if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave(); }
 function uinv(pid,iid,key,val){
   var inv=(INVESTORS[pid]||[]).find(function(x){return x.id===iid;});
   if(!inv) return;
@@ -1102,6 +1102,7 @@ function uinv(pid,iid,key,val){
   // Debounced update: only refresh results panel, NOT full innerHTML (prevents scroll-to-top)
   clearTimeout(inv._uinvTimer);
   inv._uinvTimer=setTimeout(function(){
+    if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
     var panel=document.getElementById('inv-results-'+pid+'-'+iid);
     if(panel){
       var C=finCalc(pid),p=PROJS.find(function(x){return x.id===pid;})||{};
@@ -1249,6 +1250,7 @@ function addConsultantRow(pid){
   if(!Array.isArray(ST.fin[pid].dmConsultants)) ST.fin[pid].dmConsultants = [];
   ST.fin[pid].dmConsultants.push({name:'', rate:0});
   renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
 }
 function setConsultantRow(pid, idx, key, val){
   if(!ST.fin[pid]) ST.fin[pid] = {};
@@ -1257,11 +1259,13 @@ function setConsultantRow(pid, idx, key, val){
   if(key==='name') ST.fin[pid].dmConsultants[idx].name = String(val || '');
   else ST.fin[pid].dmConsultants[idx].rate = parseFloat(val) || 0;
   renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
 }
 function removeConsultantRow(pid, idx){
   if(!ST.fin[pid] || !Array.isArray(ST.fin[pid].dmConsultants)) return;
   ST.fin[pid].dmConsultants.splice(idx, 1);
   renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
 }
 
 function ensurePlotAreaList(pid, key){
@@ -1276,6 +1280,7 @@ function sumPlotAreaRows(rows, uSqmt){
 function addPlotAreaRow(pid, key){
   ensurePlotAreaList(pid, key).push({label:'', area:0});
   renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
 }
 function setPlotAreaRow(pid, key, idx, field, val){
   var list = ensurePlotAreaList(pid, key);
@@ -1283,11 +1288,13 @@ function setPlotAreaRow(pid, key, idx, field, val){
   if(field === 'label') list[idx].label = String(val || '');
   else list[idx].area = Math.max(0, parseFloat(val) || 0);
   renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
 }
 function removePlotAreaRow(pid, key, idx){
   var list = ensurePlotAreaList(pid, key);
   list.splice(idx, 1);
   renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
 }
 
 // ── ufin: update a single financial field ──────────────────────
@@ -2035,6 +2042,7 @@ function deleteProject(id){
   if(expandedFinId===id) expandedFinId=null;
   if(window.FUND_MILESTONES&&FUND_MILESTONES[id]) delete FUND_MILESTONES[id];
   initProjBtns(); writeGaRpProjects();
+  if(typeof gaAutoSave==='function') gaAutoSave();
   renderAll();
 }
 
@@ -2051,7 +2059,9 @@ function createProjectFromDD(pid){
   else if(sqf){ST.fin[newId].fsiMode='simple';ST.fin[newId].plotArea=sqf;}
   if(ex.dpRoadDeductionSqmt) ST.fin[newId].dpRoadSqmt=ex.dpRoadDeductionSqmt;
   ST.dd[newId]=Object.assign({},ST.dd[pid],{pid:newId,pname:name});
-  initProjBtns(); renderAll();
+  initProjBtns();
+  if(typeof gaAutoSave==='function') gaAutoSave();
+  renderAll();
   alert('Project "'+name+'" created! Go to Project Planning → ▼ Model to review financials.');
 }
 
@@ -2102,6 +2112,7 @@ function saveProjectModal(){
   closeProjectModal();
   initProjBtns();
   try{ writeGaRpProjects(); }catch(e){}
+  if(typeof gaAutoSave==='function') gaAutoSave();
   renderAll();
 }
 
@@ -4974,6 +4985,17 @@ function gaLoadLocal() {
     return data.ts;
   } catch(e) { return false; }
 }
+/** Vault shell + iframe flush expect these on window. */
+window.gaAutoSave = gaAutoSave;
+window.gaApply = gaApply;
+window.gaLoadLocal = gaLoadLocal;
+window.gaSerialise = gaSerialise;
+try {
+  window.addEventListener('pagehide', function(){ try{ if(!GA_IS_DRAFT_MODE) gaAutoSave(); }catch(e){} });
+  document.addEventListener('visibilitychange', function(){
+    if(document.visibilityState==='hidden' && !GA_IS_DRAFT_MODE) try{ gaAutoSave(); }catch(e){}
+  });
+} catch(e) {}
 /** Relay base for cloud — must match page origin on LAN (e.g. http://192.168.x.x:8765). Proxy tries ports 8765–8775; use the port shown in the PowerShell window. */
 function gaCloudRelayBase() {
   try {

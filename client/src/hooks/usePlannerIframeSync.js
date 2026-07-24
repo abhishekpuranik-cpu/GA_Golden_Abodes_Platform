@@ -59,6 +59,19 @@ function isValidWorkspaceBlob(raw) {
   }
 }
 
+/** Local workspace edit time (ms) from blob.ts — 0 if missing/invalid. */
+function readLocalWorkspaceTs(win, workspaceBlobKey) {
+  if (!win?.localStorage || !workspaceBlobKey) return 0;
+  try {
+    const raw = win.localStorage.getItem(workspaceBlobKey);
+    if (!isValidWorkspaceBlob(raw)) return 0;
+    const o = JSON.parse(raw);
+    return Number(o?.ts) || 0;
+  } catch {
+    return 0;
+  }
+}
+
 function flushLegacyIframeSave(win) {
   try {
     if (typeof win?.gaAutoSave === 'function') win.gaAutoSave();
@@ -393,6 +406,24 @@ export function usePlannerIframeSync({
       if (!needsBlob && !serverAhead) {
         autoHydrateBusy.current = false;
         return;
+      }
+
+      // Local edits (autosave-to-localStorage) can be newer than Mongo while cloud auto-save is off.
+      // Do not silently overwrite fresher browser data — surface "Load latest" instead.
+      if (!needsBlob && serverAhead) {
+        const localTs = readLocalWorkspaceTs(win, workspaceBlobKey);
+        const remoteTs = metaAt ? Date.parse(metaAt) : 0;
+        if (localTs > 0 && (!remoteTs || localTs > remoteTs)) {
+          setVersion(metaVer || 0);
+          setMongoAt(metaAt || null);
+          setHasRemoteUpdate(true);
+          setStatus({
+            level: 'info',
+            text: `Cloud has v${metaVer}, but this browser has newer local edits — Save to cloud, or Load latest to discard them.`
+          });
+          autoHydrateBusy.current = false;
+          return;
+        }
       }
 
       try {
