@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260724.1';
+var GA_V3_BUILD = '20260724.2';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -750,10 +750,11 @@ function renderDashboard() {
     var dmFee=has?C.dmFee:gdv*((f2.dmFeePct||10)/100);
     var lc=(f2.spvLandCost||0)+(f2.nonRefundableDeposit||0);
     var cs=C&&C.consCost?C.consCost:0;
+    var ex=C&&C.extraCostsTotal?C.extraCostsTotal:0;
     var sp=has?C.spvNetProfit:null;
     totGDV+=gdv;totDMFee+=dmFee;totLandCost+=lc;totConsCost+=cs;
     if(sp!==null)totSPVProfit+=sp;
-    return {p:p,C:C||{},f:f2,gdv:gdv,dmFee:dmFee,lc:lc,cs:cs,sp:sp,has:has};
+    return {p:p,C:C||{},f:f2,gdv:gdv,dmFee:dmFee,lc:lc,cs:cs,ex:ex,sp:sp,has:has};
   });
   var anyModel=rows.some(function(r){return r.has;});
   var avgCmp=allOn.length?Math.round(allOn.reduce(function(s,p){return s+(p.cmp||0);},0)/allOn.length):0;
@@ -842,7 +843,9 @@ function renderDashboard() {
   // Waterfall
   html+='<div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)">';
   html+='<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:12px">SPV P&amp;L Waterfall</div>';
-  var wb=[{l:'Revenue',v:totGDV,c:'#1558A0'},{l:'Land Costs',v:-totLandCost,c:'#A07800'},{l:'Construction',v:-totConsCost,c:'#A8301E'},{l:'Operational Cost',v:-totDMFee,c:'#1A7244'},{l:'SPV Profit',v:totSPVProfit,c:totSPVProfit>=0?'#0B7070':'#A8301E'}];
+  var totExtraCost=rows.reduce(function(s,r){return s+(r.ex||0);},0);
+  var wb=[{l:'Revenue',v:totGDV,c:'#1558A0'},{l:'Land Costs',v:-totLandCost,c:'#A07800'},{l:'Construction',v:-totConsCost,c:'#A8301E'},{l:'Operational Cost',v:-totDMFee,c:'#1A7244'},{l:'Additional Costs',v:-totExtraCost,c:'#9F1239'},{l:'SPV Profit',v:totSPVProfit,c:totSPVProfit>=0?'#0B7070':'#A8301E'}];
+  wb=wb.filter(function(b){ return b.l==='Revenue'||b.l==='SPV Profit'||Math.abs(b.v||0)>0; });
   var maxW2=Math.max.apply(null,wb.map(function(b){return Math.abs(b.v||0);}));
   if(!maxW2)maxW2=1;
   wb.forEach(function(b){
@@ -892,7 +895,8 @@ function renderDashboard() {
           datasets:[
             {label:'Land+Dep',data:dvis.map(function(r){return +(r.lc/10000000).toFixed(2);}),backgroundColor:'#A07800'},
             {label:'Construction',data:dvis.map(function(r){return +(r.cs/10000000).toFixed(2);}),backgroundColor:'#A8301E'},
-            {label:'Operational Cost',data:dvis.map(function(r){return +(r.dmFee/10000000).toFixed(2);}),backgroundColor:'#1A7244'}
+            {label:'Operational Cost',data:dvis.map(function(r){return +(r.dmFee/10000000).toFixed(2);}),backgroundColor:'#1A7244'},
+            {label:'Additional',data:dvis.map(function(r){return +((r.ex||0)/10000000).toFixed(2);}),backgroundColor:'#9F1239'}
           ]},
         options:{responsive:true,maintainAspectRatio:true,plugins:{legend:{position:'bottom',labels:{font:{size:9}}}},
           scales:{x:{stacked:true,grid:{display:false}},y:{stacked:true,beginAtZero:true,ticks:{callback:function(v){return v+' Cr';}}}}}});
@@ -955,13 +959,14 @@ function renderDashboard() {
     if(ccv){
       if(ccv._chart)ccv._chart.destroy();
       var miscTot = rows.reduce(function(s,r){ return s + (r.C.miscCost||0); }, 0);
+      var extraTot = rows.reduce(function(s,r){ return s + (r.C.extraCostsTotal||0); }, 0);
       ccv._chart = new Chart(ccv,{
         type:'doughnut',
         data:{
-          labels:['Land + Deposit','Construction','Approvals','Operational Cost','Interest','Misc'],
+          labels:['Land + Deposit','Construction','Approvals','Operational Cost','Interest','Misc','Additional'],
           datasets:[{
-            data:[totLandCost,totConsCost,rows.reduce(function(s,r){return s+(r.C.appCost||0);},0),totDMFee,rows.reduce(function(s,r){return s+(r.C.intCost||0);},0),miscTot].map(function(v){ return +(v/10000000).toFixed(2); }),
-            backgroundColor:['#A07800','#A8301E','#542B8A','#1A7244','#1558A0','#64748B'],
+            data:[totLandCost,totConsCost,rows.reduce(function(s,r){return s+(r.C.appCost||0);},0),totDMFee,rows.reduce(function(s,r){return s+(r.C.intCost||0);},0),miscTot,extraTot].map(function(v){ return +(v/10000000).toFixed(2); }),
+            backgroundColor:['#A07800','#A8301E','#542B8A','#1A7244','#1558A0','#64748B','#9F1239'],
             borderWidth:0
           }]
         },
@@ -1068,6 +1073,8 @@ const FIN_DEF = {
   /** Plotting mode: editable area lines (label + area in current input unit) */
   plotDeductions:[],
   plotAdditions:[],
+  /** User-added Projected Expense lines (name + amount ₹) — included in totExp */
+  extraCosts:[],
   projectLaunchDate:'', spvAbsorbConsultMktg:false,
   /** % of FAR retained after CRZ-II (default 50 → multiplier 0.5) */
   goaCrz2FarPct:50,
@@ -1218,6 +1225,7 @@ function gf(pid){
   if(!Array.isArray(out.dmConsultants)) out.dmConsultants = [];
   if(!Array.isArray(out.plotDeductions)) out.plotDeductions = [];
   if(!Array.isArray(out.plotAdditions)) out.plotAdditions = [];
+  if(!Array.isArray(out.extraCosts)) out.extraCosts = [];
   var canon=normalizeFsiMode(out.fsiMode);
   out.fsiMode=canon;
   if(ST.fin[pid].fsiMode!==canon) ST.fin[pid].fsiMode=canon;
@@ -1297,6 +1305,49 @@ function removePlotAreaRow(pid, key, idx){
   if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
 }
 
+/** User-added Projected Expense lines — absolute ₹ amounts, included in totExp. */
+function getExtraCostRows(f){
+  var list = Array.isArray(f && f.extraCosts) ? f.extraCosts : [];
+  return list.map(function(c, i){
+    return {
+      idx: i,
+      name: String((c && c.name) || ''),
+      amount: finNum(c && c.amount, 0),
+    };
+  });
+}
+function sumExtraCosts(f){
+  return getExtraCostRows(f).reduce(function(s, r){ return s + Math.max(0, r.amount || 0); }, 0);
+}
+function addExtraCostRow(pid){
+  if(!ST.fin[pid]) ST.fin[pid] = {};
+  if(!Array.isArray(ST.fin[pid].extraCosts)) ST.fin[pid].extraCosts = [];
+  ST.fin[pid].extraCosts.push({name:'', amount:0});
+  renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
+}
+function setExtraCostRow(pid, idx, key, val){
+  if(!ST.fin[pid]) ST.fin[pid] = {};
+  if(!Array.isArray(ST.fin[pid].extraCosts)) ST.fin[pid].extraCosts = [];
+  if(!ST.fin[pid].extraCosts[idx]) ST.fin[pid].extraCosts[idx] = {name:'', amount:0};
+  if(key==='name'){
+    ST.fin[pid].extraCosts[idx].name = String(val || '');
+  } else {
+    var n = parseFloat(val);
+    if(val===''||val===null||val===undefined) ST.fin[pid].extraCosts[idx].amount = undefined;
+    else if(isNaN(n)) ST.fin[pid].extraCosts[idx].amount = 0;
+    else ST.fin[pid].extraCosts[idx].amount = v3CroreToStored('extraCostAmount', n);
+  }
+  renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
+}
+function removeExtraCostRow(pid, idx){
+  if(!ST.fin[pid] || !Array.isArray(ST.fin[pid].extraCosts)) return;
+  ST.fin[pid].extraCosts.splice(idx, 1);
+  renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
+}
+
 // ── ufin: update a single financial field ──────────────────────
 function ufin(pid, key, val){
   if(!ST.fin[pid]) ST.fin[pid] = {};
@@ -1359,7 +1410,7 @@ function fmtC(n){ // crores
   return '₹' + (n/10000000).toFixed(2) + ' Cr';
 }
 // Large ₹ fields: type amounts in Crores (2 = ₹2 Cr, 0.3 = ₹30 L)
-var V3_CRORE_FIELDS={totalInvestment:1,landValue:1,constructionValue:1,miscCost:1,spvLandCost:1,refundableDeposit:1,nonRefundableDeposit:1,spvLegalCost:1,spvOtherCost:1,fundMilestoneAmount:1,dmSalesMonthly:1,dmConsMonthly:1,dmHoMonthly:1};
+var V3_CRORE_FIELDS={totalInvestment:1,landValue:1,constructionValue:1,miscCost:1,spvLandCost:1,refundableDeposit:1,nonRefundableDeposit:1,spvLegalCost:1,spvOtherCost:1,fundMilestoneAmount:1,dmSalesMonthly:1,dmConsMonthly:1,dmHoMonthly:1,extraCostAmount:1};
 function gaV3CroreInputOn(){
   try{
     var v=localStorage.getItem('ga_v3_money_crores');
@@ -1849,7 +1900,9 @@ function finCalc(pid){
   const mktgCP=totRev*_nz(f.dmMktgCpPct,0)/100;
   const spvLandCost=f.spvLandCost||0, spvLegalCost=f.spvLegalCost||0, spvOtherCost=f.spvOtherCost||0;
   const nonRefundableDeposit=finNum(f.nonRefundableDeposit,0);
-  const totExp=consCost+intCost+appCost+miscCost+dmFee+spvLandCost+nonRefundableDeposit+spvLegalCost+spvOtherCost+consultFee+mktgCP;
+  const extraCostRows=getExtraCostRows(f);
+  const extraCostsTotal=sumExtraCosts(f);
+  const totExp=consCost+intCost+appCost+miscCost+dmFee+spvLandCost+nonRefundableDeposit+spvLegalCost+spvOtherCost+consultFee+mktgCP+extraCostsTotal;
   const grossP=totRev-totExp, invPS=grossP*_nz(f.investorProfitSharePct,15)/100, netP=grossP-invPS;
   const absorb=!!f.spvAbsorbConsultMktg;
   const gaConsult=absorb?0:consultFee, gaMktg=absorb?0:mktgCP;
@@ -1894,6 +1947,7 @@ function finCalc(pid){
     dmCost,dmConsTotal,dmSalTotal,dmMktgCost,dmTotCost,
     stampLand,stampCon,totStamp,stampDutyNote,invTotal,
     spvLandCost,spvLegalCost,spvOtherCost,nonRefundableDeposit,spvTotCost,spvNetProfit,spvMargin,spvConsultShift,
+    extraCostRows,extraCostsTotal,
     netPlotDisp,basicFSIDisp,paidFSIDisp,tdrDisp,additionalDisp,
     permFSIDisp,ancFSIDisp,totPermDisp,dpRoadDisp,truckTermDisp,totalDeducDisp,totalPlotDisp,
     disp,gaConsult,gaMktg,absorbSpvFees:absorb,
@@ -2901,6 +2955,43 @@ function renderFinModel(pid){
             <td style="font-weight:700;padding:8px;font-size:12px">Marketing + Channel Partner commission</td>
             <td style="text-align:right;padding:8px">${ti(pid,'dmMktgCpPct',f.dmMktgCpPct,110,'% of GA revenue',.5)}<span style="font-size:10px;color:var(--muted);margin-left:3px">%</span></td>
             <td style="text-align:right;font-weight:700;font-size:14px;color:var(--red-b);padding:8px">${fmtC(C.dmMktgCost)}</td>
+          </tr>
+          <tr style="background:#FEF2F2">
+            <td style="color:var(--muted);padding:6px 8px">12</td>
+            <td style="padding:6px 8px;font-weight:700;color:var(--red-b)">Additional Costs
+              <div style="font-size:10px;color:var(--muted);font-weight:500;margin-top:2px">Custom expense lines — added to Total Projected Expenses, SPV profit, print &amp; dashboard</div>
+            </td>
+            <td style="padding:6px 8px;text-align:right;font-size:11px;color:var(--muted)">${(C.extraCostRows||[]).length} line(s)</td>
+            <td style="text-align:right;font-weight:700;color:var(--red-b);padding:6px 8px">${fmtC(C.extraCostsTotal||0)}</td>
+          </tr>
+          ${(C.extraCostRows||[]).map(function(r, i){
+            var zebra = i%2===0 ? 'background:var(--bg)' : '';
+            var amtDisp = (f.extraCosts&&f.extraCosts[r.idx]&&f.extraCosts[r.idx].amount!=null)
+              ? v3StoredToCroreDisplay('extraCostAmount', f.extraCosts[r.idx].amount) : '';
+            return `<tr style="${zebra}">
+              <td style="color:var(--muted);padding:6px 8px"></td>
+              <td style="padding:6px 8px">
+                <input type="text" value="${String(r.name||'').replace(/"/g,'&quot;')}" placeholder="Cost name (e.g. Brokerage, Infrastructure)"
+                  style="width:min(280px,100%);padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;font-size:12px;font-weight:600"
+                  onchange="setExtraCostRow('${pid}',${r.idx},'name',this.value)"/>
+              </td>
+              <td style="padding:5px 8px;text-align:right">
+                <input type="number" min="0" step="${gaV3CroreInputOn()?'0.01':'100000'}" value="${amtDisp===undefined||amtDisp===null?'':amtDisp}"
+                  placeholder="${gaV3CroreInputOn()?'Cr':'Amount ₹'}"
+                  style="width:160px;text-align:right;font-size:12px;font-weight:600;padding:5px 8px;border:1.5px solid #1558A0;border-radius:6px;background:#F0F6FF"
+                  onchange="setExtraCostRow('${pid}',${r.idx},'amount',this.value)"/>
+                <button type="button" onclick="removeExtraCostRow('${pid}',${r.idx})" title="Remove cost"
+                  style="margin-left:6px;padding:3px 7px;border:1px solid var(--red);background:transparent;color:var(--red-b);border-radius:5px;cursor:pointer">✕</button>
+              </td>
+              <td style="text-align:right;font-weight:700;color:var(--red-b);padding:6px 8px">${fmtC(r.amount||0)}</td>
+            </tr>`;
+          }).join('')}
+          <tr>
+            <td style="padding:6px 8px"></td>
+            <td colspan="3" style="padding:6px 8px">
+              <button type="button" onclick="addExtraCostRow('${pid}')"
+                style="padding:5px 12px;border-radius:6px;border:1.5px solid var(--red-b);background:#FEF2F2;color:var(--red-b);font-size:11px;font-weight:700;cursor:pointer">+ Add cost</button>
+            </td>
           </tr>
           <tr style="background:var(--red-l)">
             <td colspan="3" style="font-weight:700;padding:8px;font-size:13px">Total Projected Expenses</td>
@@ -5476,6 +5567,9 @@ function printFinModel(pid, sections, selInvId) {
       if(finHasAmount(C.consultFee)) tableRows += row2('Consultant Fees',crExp(C.consultFee),prConsultNote(),false,false,C.consultFee);
       if(finHasAmount(C.mktgCP||C.dmMktgCost)) tableRows += row2('Marketing + Channel Partner',crExp(C.mktgCP||C.dmMktgCost),(f2.dmMktgCpPct||0)+'% of Total Revenue',false,false,C.mktgCP||C.dmMktgCost);
       if(finHasAmount(f2.miscCost)) tableRows += row2('Misc',crExp(f2.miscCost),'',false,false,f2.miscCost);
+      (C.extraCostRows||[]).forEach(function(r){
+        if(finHasAmount(r.amount)) tableRows += row2(r.name||'Additional cost',crExp(r.amount),'Additional cost',false,false,r.amount);
+      });
     }else{
     if(finHasAmount(C.consCost)) tableRows += row2('Construction Cost',crExp(C.consCost),prRateNote(f2.constructionRate||0),false,false,C.consCost);
     if(finHasAmount(C.appCost)&&finHasAmount(f2.approvalsRate)) tableRows += row2('Approvals & Infrastructure',crExp(C.appCost),prRateNote(f2.approvalsRate),false,false,C.appCost);
@@ -5491,6 +5585,9 @@ function printFinModel(pid, sections, selInvId) {
       var _sn=C.stampDutyNote||'';
       tableRows += row2('Stamp duty (model)',crExp(C.totStamp),_sn.length>160?_sn.slice(0,157)+'…':_sn,false,false,C.totStamp);
     }
+    (C.extraCostRows||[]).forEach(function(r){
+      if(finHasAmount(r.amount)) tableRows += row2(r.name||'Additional cost',crExp(r.amount),'Additional cost',false,false,r.amount);
+    });
     }
     tableRows += row2('Total Projected Expenses',crExp(C.totExp),'',true,true,C.totExp);
     tableRows += spacer();
@@ -5557,6 +5654,10 @@ function printFinModel(pid, sections, selInvId) {
     {l:'Other SPV',v:C.spvOtherCost||0,c:'#8B5CF6'},
     {l:'Misc',v:f2.miscCost||0,c:'#64748B'}
   ];
+  var _extraPalette=['#9F1239','#BE185D','#A21CAF','#86198F','#6B21A8','#4C1D95'];
+  (C.extraCostRows||[]).forEach(function(r, i){
+    if(finHasAmount(r.amount)) costSegs.push({l:r.name||('Additional '+(i+1)), v:r.amount||0, c:_extraPalette[i%_extraPalette.length]});
+  });
   costSegs=costSegs.filter(function(x){return finHasAmount(x.v);});
   var revBarVal=Math.max(0,C.totRev||0);
   var costBarVal=Math.max(0,C.totExp||0);
