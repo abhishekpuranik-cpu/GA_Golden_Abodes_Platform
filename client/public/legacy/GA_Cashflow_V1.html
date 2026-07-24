@@ -255,6 +255,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 <input type="file" id="cf-import-input"   accept=".json" style="display:none"/>
 <input type="file" id="sales-milestones-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importMilestoneTemplate(this)"/>
 <input type="file" id="expense-schedule-input" accept=".xlsx,.xls" style="display:none" onchange="importExpenseSchedule(this)"/>
+<input type="file" id="stage-outflow-input" accept=".xlsx,.xls,.csv,.tsv,.txt" style="display:none" onchange="importStageOutflows(this)"/>
 <input type="file" id="sales-inventory-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importInventoryTemplate(this)"/>
 <input type="file" id="unsold-inventory-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importUnsoldInventoryTemplate(this)"/>
 <input type="file" id="crm-postsales-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importCRMPostSalesWorkbook(this)"/>
@@ -267,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 73;
+var CF_VERSION = 74;
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
@@ -3531,6 +3532,8 @@ function emptyProjData(pid){
     regulatoryConsultingSchedule:[], // GA L1 — statutory + professional (separate from NOC / Consultant rows if used)
     constructionSchedule:[], // [{month,amount}] month = 1-based offset from start
     marketingSchedule:[],  // [{month,amount}]
+    /** Future Construction amounts by CLP stage key — inject into monthly grid by Sales target date */
+    stageOutflows:{},
     gaMonthly:0,           // set in Expense schedule → ⑥ GA DM Fee — Monthly Fixed Cost (or V2 annual override)
     gaMktgAnnual:0,        // marketing from V2 P&L push
     gaGAAnnual:0,          // G&A from V2 P&L push
@@ -4851,6 +4854,18 @@ function buildCashflow(pid){
     var moC=scheduleMonthConsOrMkt(e,startDate);
     if(moC) consMap[moC]=(consMap[moC]||0)+amt;
   });
+  // Stage-level future expenses (Forecast CLP table) → Construction by Sales milestone target month
+  try{
+    ensureStageOutflows(cfg);
+    var axisInj=constructionMilestoneAxis(cfg);
+    Object.keys(cfg.stageOutflows||{}).forEach(function(msKey){
+      var amtS=coerceMoney(cfg.stageOutflows[msKey]);
+      if(!amtS) return;
+      var moS=stageOutflowMonthKey(cfg, msKey, axisInj);
+      if(!moS) return;
+      consMap[moS]=(consMap[moS]||0)+amtS;
+    });
+  }catch(eSt){}
   // Marketing schedule: same
   var mktgSchedMap={};
   (cfg.marketingSchedule||[]).forEach(function(e){
@@ -5221,30 +5236,227 @@ function buildL1MilestoneForecast(pid, opts){
 }
 /**
  * Simple, business-first forecast: one row per construction stage with its
- * target completion date, expected revenue realization, and expected outflow
- * (expandable into L1 categories). Reuses the milestone forecast engine.
+ * target completion date, expected revenue realization (Sales unsold × CLP),
+ * and editable expected outflow (stageOutflows → Construction on monthly grid).
  */
+function ensureStageOutflows(cfg){
+  if(!cfg) return;
+  if(!cfg.stageOutflows || typeof cfg.stageOutflows!=='object' || Array.isArray(cfg.stageOutflows)) cfg.stageOutflows={};
+}
+function stageOutflowMonthKey(cfg, msKey, axis){
+  var iso=normalizeToISODate(cfg&&cfg.milestonesDates&&cfg.milestonesDates[msKey])||'';
+  if(iso) return iso.slice(0,7);
+  if(axis&&axis.length){
+    for(var i=0;i<axis.length;i++){
+      if(axis[i]&&axis[i].key===msKey&&axis[i].targetMo) return axis[i].targetMo;
+    }
+  }
+  return '';
+}
+/** Unsold inventory sales forecast (Sales pace / CLP) binned onto construction stages. */
+function buildUnsoldRevenueByStage(pid, mode){
+  var cfg=getCF(pid);
+  var axis=constructionMilestoneAxis(cfg);
+  var byMs={};
+  axis.forEach(function(m){ byMs[m.key]=0; });
+  if(!axis.length) return byMs;
+  var startDate=cfg.startDate||(currentMonthStr()+'-01');
+  var map={};
+  try{ map=buildUnsoldRealization(cfg, startDate)||{}; }catch(eU){ map={}; }
+  var curMo=currentMonthStr();
+  var hasDates=axis.some(function(m){ return !!m.targetMo; });
+  var pctSum=axis.reduce(function(s,m){ return s+(m.pct||0); },0)||1;
+  Object.keys(map).forEach(function(mo){
+    if(mode==='future' && mo<curMo) return;
+    var amt=(map[mo]&&map[mo].sales)||0;
+    if(!amt) return;
+    if(hasDates){
+      var mi=milestoneIndexForMonth(mo, axis);
+      if(mi<0){
+        axis.forEach(function(m){ byMs[m.key]+=amt*((m.pct||0)/pctSum); });
+      } else {
+        byMs[axis[mi].key]=(byMs[axis[mi].key]||0)+amt;
+      }
+    } else {
+      axis.forEach(function(m){ byMs[m.key]+=amt*((m.pct||0)/pctSum); });
+    }
+  });
+  return byMs;
+}
 function buildSimpleStageForecast(pid, mode){
-  var M=buildL1MilestoneForecast(pid,{mode:mode||'future'});
-  var stages=(M.axis||[]).map(function(ms){
-    var outByL1=(M.outflowRows||[]).map(function(r){
-      return {l1:r.l1, amount:r.byMs[ms.key]||0};
-    }).filter(function(x){ return Math.abs(x.amount)>0.5; })
-      .sort(function(a,b){ return b.amount-a.amount; });
-    var revenue=M.colIn[ms.key]||0;
-    var outflow=M.colOut[ms.key]||0;
+  mode=mode||'future';
+  var cfg=getCF(pid);
+  ensureStageOutflows(cfg);
+  var axis=constructionMilestoneAxis(cfg);
+  var revBy=buildUnsoldRevenueByStage(pid, mode);
+  var curMo=currentMonthStr();
+  var stages=(axis||[]).map(function(ms){
+    var revenue=revBy[ms.key]||0;
+    var outflow=coerceMoney(cfg.stageOutflows&&cfg.stageOutflows[ms.key]);
+    var dated=!!ms.targetMo;
+    var futureSkip=mode==='future' && dated && ms.targetMo<curMo && !outflow && !revenue;
     return {
       key:ms.key, label:ms.label, pct:ms.pct,
       targetIso:ms.targetIso||'', targetMo:ms.targetMo||'',
       achievedIso:ms.achievedIso||'', isHere:!!ms.isHere,
       revenue:revenue, outflow:outflow, net:revenue-outflow,
-      outflowByL1:outByL1
+      missingDate:!dated && outflow>0,
+      _skip:futureSkip
     };
-  });
+  }).filter(function(st){ return !st._skip; });
+  var revenueTotal=stages.reduce(function(s,r){return s+(r.revenue||0);},0);
+  var outflowTotal=stages.reduce(function(s,r){return s+(r.outflow||0);},0);
   return {
-    stages:stages, hasDates:M.hasDates, mode:M.mode,
-    revenueTotal:M.inflowTotal, outflowTotal:M.outflowTotal, net:M.net
+    stages:stages, hasDates:axis.some(function(m){return !!m.targetMo;}), mode:mode,
+    revenueTotal:revenueTotal, outflowTotal:outflowTotal, net:revenueTotal-outflowTotal
   };
+}
+function setStageOutflowAmount(pid, msKey, raw){
+  if(!pid||!msKey) return;
+  var cfg=getCF(pid);
+  ensureStageOutflows(cfg);
+  var n=parseFloat(raw);
+  if(raw===''||raw===null||raw===undefined||isNaN(n)||n===0){
+    delete cfg.stageOutflows[msKey];
+  } else {
+    cfg.stageOutflows[msKey]=Math.max(0,n);
+  }
+  saveAll();
+  renderCashflow();
+  try{ refreshProjectCashflowViews(); }catch(eR){}
+}
+function setStageTargetDate(pid, msKey, raw){
+  if(!pid||!msKey) return;
+  var cfg=getCF(pid);
+  if(!cfg.milestonesDates||typeof cfg.milestonesDates!=='object') cfg.milestonesDates={};
+  var iso=normalizeToISODate(raw)||'';
+  if(iso) cfg.milestonesDates[msKey]=iso;
+  else delete cfg.milestonesDates[msKey];
+  try{ refreshPostSalesRoadmap(); }catch(eP){}
+  saveAll();
+  renderCashflow();
+  try{ refreshProjectCashflowViews(); }catch(eR){}
+}
+function dlStageOutflowTemplate(){
+  var pid=_curPid;
+  if(!pid||pid==='__rollup__'||String(pid)==='__ga__'){ alert('Select a project first.'); return; }
+  var cfg=getCF(pid);
+  ensureStageOutflows(cfg);
+  var axis=constructionMilestoneAxis(cfg);
+  var rows=[['Stage Key','Stage Label','CLP %','Target Date (YYYY-MM-DD)','Expected Outflow (₹)']];
+  axis.forEach(function(ms){
+    rows.push([
+      ms.key,
+      ms.label,
+      ms.pct,
+      (ms.targetIso||'').slice(0,10),
+      coerceMoney(cfg.stageOutflows[ms.key])||''
+    ]);
+  });
+  if(window.XLSX){
+    var wb=XLSX.utils.book_new();
+    var ws=XLSX.utils.aoa_to_sheet(rows);
+    ws['!cols']=[{wch:14},{wch:28},{wch:8},{wch:18},{wch:20}];
+    XLSX.utils.book_append_sheet(wb,ws,'Stage Outflows');
+    XLSX.writeFile(wb,'GA_Stage_Outflows_'+String(cfg.projName||pid).replace(/\s+/g,'_')+'_'+new Date().toISOString().slice(0,10)+'.xlsx');
+    return;
+  }
+  var csv=rows.map(function(r){
+    return r.map(function(c){
+      var s=String(c==null?'':c);
+      return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;
+    }).join(',');
+  }).join('\n');
+  var blob=new Blob([csv],{type:'text/csv'});
+  var a=document.createElement('a'); a.href=URL.createObjectURL(blob);
+  a.download='GA_Stage_Outflows_'+(_curPid||'proj')+'.csv'; a.click();
+}
+function importStageOutflows(input){
+  if(!input||!input.files||!input.files[0]) return;
+  var pid=_curPid;
+  if(!pid||pid==='__rollup__'||String(pid)==='__ga__'){ alert('Select a project first.'); input.value=''; return; }
+  var file=input.files[0];
+  var cfg=getCF(pid);
+  ensureStageOutflows(cfg);
+  if(!cfg.milestonesDates||typeof cfg.milestonesDates!=='object') cfg.milestonesDates={};
+  var axis=constructionMilestoneAxis(cfg);
+  function findMs(keyOrLabel){
+    var t=String(keyOrLabel||'').trim().toLowerCase();
+    if(!t) return null;
+    for(var i=0;i<axis.length;i++){
+      if(String(axis[i].key||'').toLowerCase()===t) return axis[i];
+      if(String(axis[i].label||'').toLowerCase()===t) return axis[i];
+    }
+    for(var j=0;j<axis.length;j++){
+      var lab=String(axis[j].label||'').toLowerCase();
+      if(lab.indexOf(t)>=0||t.indexOf(lab)>=0) return axis[j];
+    }
+    return null;
+  }
+  function applyRows(matrix){
+    if(!matrix||matrix.length<2){ alert('No data rows in stage outflow file.'); return; }
+    var hdr=matrix[0].map(function(c){ return String(c||'').toLowerCase().trim(); });
+    function colIdx(names){
+      for(var i=0;i<hdr.length;i++){
+        for(var j=0;j<names.length;j++){
+          if(hdr[i]===names[j]||hdr[i].indexOf(names[j])>=0) return i;
+        }
+      }
+      return -1;
+    }
+    var iKey=colIdx(['stage key','key','ms key','milestone key']);
+    var iLab=colIdx(['stage label','label','stage','milestone','construction stage']);
+    var iAmt=colIdx(['expected outflow','outflow','amount','expense','cost']);
+    var iDt=colIdx(['target date','date','target completion','completion']);
+    if(iAmt<0) iAmt=hdr.length>4?4:(hdr.length>1?hdr.length-1:1);
+    if(iKey<0&&iLab<0) iKey=0;
+    var nAmt=0, nDate=0;
+    matrix.slice(1).forEach(function(r){
+      var keyRaw=iKey>=0?r[iKey]:'';
+      var labRaw=iLab>=0?r[iLab]:'';
+      var ms=findMs(keyRaw)||findMs(labRaw);
+      if(!ms) return;
+      var amt=parseFloat(r[iAmt]);
+      if(!isNaN(amt)&&amt>0){ cfg.stageOutflows[ms.key]=amt; nAmt++; }
+      else if(r[iAmt]===''||r[iAmt]===null||r[iAmt]===undefined||amt===0){ delete cfg.stageOutflows[ms.key]; }
+      if(iDt>=0){
+        var iso=normalizeToISODate(r[iDt]);
+        if(iso){ cfg.milestonesDates[ms.key]=iso; nDate++; }
+      }
+    });
+    if(!nAmt&&!nDate){ alert('No matching stage rows found. Use Stage Key / Label from the download template.'); return; }
+    try{ refreshPostSalesRoadmap(); }catch(eP){}
+    saveAll();
+    renderCashflow();
+    try{ refreshProjectCashflowViews(); }catch(eR){}
+    alert('✓ Updated '+nAmt+' stage outflow(s)'+(nDate?' and '+nDate+' target date(s)':'')+'. Amounts land on Construction in the monthly grid by target month.');
+  }
+  var name=String(file.name||'').toLowerCase();
+  if(/\.(xlsx|xls|xlsm)$/.test(name)){
+    if(!window.XLSX){ alert('XLSX library not loaded.'); input.value=''; return; }
+    var reader=new FileReader();
+    reader.onload=function(e){
+      try{
+        var wb=XLSX.read(new Uint8Array(e.target.result),{type:'array',cellDates:true});
+        var ws=wb.Sheets[wb.SheetNames[0]];
+        applyRows(XLSX.utils.sheet_to_json(ws,{header:1,defval:'',raw:true}));
+      }catch(err){ alert('Could not read file: '+err.message); }
+      finally{ input.value=''; }
+    };
+    reader.readAsArrayBuffer(file);
+    return;
+  }
+  var tr=new FileReader();
+  tr.onload=function(e){
+    try{
+      var text=String(e.target.result||'');
+      var lines=text.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n').filter(function(l){return String(l).trim()!=='';});
+      var delim=lines[0]&&lines[0].indexOf('\t')>=0?'\t':',';
+      applyRows(lines.map(function(l){ return l.split(delim); }));
+    }catch(err){ alert('Could not read file: '+err.message); }
+    finally{ input.value=''; }
+  };
+  tr.readAsText(file);
 }
 function htmlSimpleStageForecast(pid){
   if(!pid||pid==='__rollup__'||String(pid)==='__ga__') return '';
@@ -5256,27 +5468,30 @@ function htmlSimpleStageForecast(pid){
       +'<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5">No construction-linked stages found (Plinth → Possession). Add milestone dates under <strong>Sales → milestones</strong> or upload a milestone template with <em>Construction linked = Y</em>.</div></div>';
   }
   var h='<div class="card" style="padding:16px;margin:0 0 12px;border-left:4px solid #0D4D30">';
-  // Header + mode toggle
   h+='<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">';
   h+='<div style="font-size:14px;font-weight:800;color:var(--blue-b)">Construction stage forecast</div>';
-  h+='<div style="display:flex;gap:6px">';
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
+  h+='<button type="button" class="btn btn-outline" data-action="dl-stage-outflows" style="font-size:10px;padding:4px 10px">⬇ Template</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="ul-stage-outflows" style="font-size:10px;padding:4px 10px">⬆ Upload / edit</button>';
   h+='<button type="button" class="btn '+(mode==='future'?'btn-primary':'btn-outline')+'" data-action="cf-ms-forecast-mode" data-mode="future" style="font-size:10px;padding:4px 10px">From this month</button>';
   h+='<button type="button" class="btn '+(mode==='all'?'btn-primary':'btn-outline')+'" data-action="cf-ms-forecast-mode" data-mode="all" style="font-size:10px;padding:4px 10px">All stages</button>';
   h+='</div></div>';
-  h+='<div style="font-size:10px;color:var(--muted);line-height:1.5;margin-bottom:12px">Each construction stage shows its <strong>target completion</strong>, the <strong>revenue expected to be realized</strong> around that stage, and the <strong>outflow</strong> it drives (click a stage to see L1 categories).'
-    +(S.hasDates?'':' <span style="color:var(--gold)">Add milestone target dates under Sales to place stages on the calendar — currently split by CLP %.</span>')+'</div>';
-  // Summary chips
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.5;margin-bottom:12px">'
+    +'<strong>Expected revenue</strong> = Sales unsold inventory forecast realized on the CLP (Project CLP / pace). '
+    +'<strong>Expected outflow</strong> = edit or upload stage expenses — saved as Construction on the <strong>monthly grid</strong> in each stage’s target month. '
+    +'Set target dates here or under Sales → milestones.'
+    +(S.hasDates?'':' <span style="color:var(--gold)">Add milestone target dates so outflows land on the calendar (otherwise amounts are stored but not yet placed on months).</span>')
+    +'</div>';
   h+='<div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px">';
   function chip(lbl,val,col){ return '<div style="flex:1;min-width:150px;background:#F8FAFF;border:1px solid var(--border);border-radius:10px;padding:10px 12px">'
     +'<div style="font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em">'+lbl+'</div>'
     +'<div style="font-size:18px;font-weight:800;color:'+col+';margin-top:2px">'+val+'</div></div>'; }
-  h+=chip('Expected revenue', cr(S.revenueTotal), '#166534');
-  h+=chip('Expected outflow', cr(S.outflowTotal), '#991B1B');
-  h+=chip('Net cashflow', cr(S.net,'+0'), (S.net>=0?'#166534':'#991B1B'));
+  h+=chip('Expected revenue (unsold CLP)', cr(S.revenueTotal), '#166534');
+  h+=chip('Expected outflow (stages)', cr(S.outflowTotal), '#991B1B');
+  h+=chip('Net', cr(S.net,'+0'), (S.net>=0?'#166534':'#991B1B'));
   h+='</div>';
-  // Table
   h+='<div style="overflow:auto;border:1px solid var(--border);border-radius:10px">';
-  h+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:640px">';
+  h+='<table style="width:100%;border-collapse:collapse;font-size:11px;min-width:720px">';
   h+='<thead><tr style="background:var(--blue-l)">'
     +'<th style="padding:9px 10px;text-align:left">Construction stage</th>'
     +'<th style="padding:9px 10px;text-align:left;white-space:nowrap">Target completion</th>'
@@ -5285,36 +5500,31 @@ function htmlSimpleStageForecast(pid){
     +'<th style="padding:9px 10px;text-align:right;color:#991B1B">Expected outflow</th>'
     +'<th style="padding:9px 10px;text-align:right">Net</th></tr></thead><tbody>';
   S.stages.forEach(function(st){
-    var open=!!_cfForecastStageOpen[st.key];
-    var dateCell=st.achievedIso
-      ? '<span style="color:#166534;font-weight:700">✓ '+formatMonthKey(st.achievedIso.slice(0,7))+'</span> <span style="color:var(--muted)">done</span>'
-      : (st.targetMo?formatMonthKey(st.targetMo):'<span style="color:var(--muted)">—</span>');
-    var caret=st.outflowByL1.length?('<span style="display:inline-block;width:12px;color:var(--muted)">'+(open?'▾':'▸')+'</span>'):'<span style="display:inline-block;width:12px"></span>';
-    var rowBg=st.isHere?'#FFFBEB':'#fff';
-    h+='<tr data-action="cf-stage-toggle" data-key="'+escAttr(st.key)+'" style="border-top:1px solid var(--border);cursor:'+(st.outflowByL1.length?'pointer':'default')+';background:'+rowBg+'">';
-    h+='<td style="padding:9px 10px;font-weight:700;color:var(--blue-b)">'+caret+' '+escHtml(st.label)+(st.isHere?' <span style="color:#b45309" title="Current roadmap stage">●</span>':'')+'</td>';
-    h+='<td style="padding:9px 10px;white-space:nowrap">'+dateCell+'</td>';
+    var rowBg=st.isHere?'#FFFBEB':(st.missingDate?'#FFF7ED':'#fff');
+    var dateVal=(st.targetIso||'').slice(0,10);
+    h+='<tr style="border-top:1px solid var(--border);background:'+rowBg+'">';
+    h+='<td style="padding:9px 10px;font-weight:700;color:var(--blue-b)">'+escHtml(st.label)+(st.isHere?' <span style="color:#b45309" title="Current roadmap stage">●</span>':'')
+      +(st.missingDate?' <span style="font-size:9px;color:#c2410c;font-weight:600">needs date</span>':'')+'</td>';
+    h+='<td style="padding:6px 10px;white-space:nowrap">'
+      +'<input type="date" data-action="stage-target-date" data-key="'+escAttr(st.key)+'" value="'+escAttr(dateVal)+'"'
+      +' style="padding:5px 6px;border:1.5px solid var(--border);border-radius:6px;font-size:11px;max-width:150px"/>'
+      +(st.achievedIso?' <span style="color:#166534;font-weight:700;font-size:10px">✓ done</span>':'')
+      +'</td>';
     h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:var(--muted)">'+formatMilestonePct(st.pct)+'%</td>';
-    h+='<td class="cf-num" style="padding:9px 10px;text-align:right;font-weight:700;color:#166534">'+cr(st.revenue)+'</td>';
-    h+='<td class="cf-num" style="padding:9px 10px;text-align:right;font-weight:700;color:#991B1B">'+cr(st.outflow)+'</td>';
+    h+='<td class="cf-num" style="padding:9px 10px;text-align:right;font-weight:700;color:#166534" title="From Sales unsold inventory × CLP">'+cr(st.revenue)+'</td>';
+    h+='<td style="padding:6px 10px;text-align:right">'
+      +'<input type="number" min="0" step="1000" data-action="stage-outflow-amt" data-key="'+escAttr(st.key)+'"'
+      +' value="'+(st.outflow?Math.round(st.outflow):'')+'" placeholder="₹"'
+      +' style="width:130px;text-align:right;padding:5px 8px;border:1.5px solid #FECACA;border-radius:6px;font-size:11px;font-weight:700;color:#991B1B;background:#FEF2F2"/>'
+      +'</td>';
     h+='<td class="cf-num" style="padding:9px 10px;text-align:right;font-weight:800;color:'+(st.net>=0?'#166534':'#991B1B')+'">'+cr(st.net,'+0')+'</td></tr>';
-    if(open && st.outflowByL1.length){
-      st.outflowByL1.forEach(function(x){
-        var share=st.outflow?Math.round(x.amount/st.outflow*100):0;
-        h+='<tr style="background:#FCFCFA;border-top:1px dashed var(--border)">';
-        h+='<td style="padding:5px 10px 5px 30px;color:var(--muted)" colspan="4">'+escHtml(x.l1)+'</td>';
-        h+='<td class="cf-num" style="padding:5px 10px;text-align:right;color:#991B1B">'+cr(x.amount)+'</td>';
-        h+='<td class="cf-num" style="padding:5px 10px;text-align:right;color:var(--muted)">'+share+'%</td></tr>';
-      });
-    }
   });
   h+='<tr style="background:#F1F5F9;font-weight:800;border-top:2px solid var(--border)">';
   h+='<td style="padding:9px 10px" colspan="3">Total</td>';
   h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:#166534">'+cr(S.revenueTotal)+'</td>';
   h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:#991B1B">'+cr(S.outflowTotal)+'</td>';
   h+='<td class="cf-num" style="padding:9px 10px;text-align:right;color:'+(S.net>=0?'#166534':'#991B1B')+'">'+cr(S.net,'+0')+'</td></tr>';
-  h+='</tbody></table></div>';
-  h+='</div>';
+  h+='</tbody></table></div></div>';
   return h;
 }
 function htmlL1MilestoneForecastMatrix(pid){
@@ -12206,6 +12416,8 @@ document.addEventListener('click',function(e){
   if(a==='ul-capital-template')    { document.getElementById('cap-template-input').click(); return; }
   if(a==='dl-expense-template')    { dlExpenseTemplate(); return; }
   if(a==='ul-expense-schedule')    { document.getElementById('expense-schedule-input').click(); return; }
+  if(a==='dl-stage-outflows')      { dlStageOutflowTemplate(); return; }
+  if(a==='ul-stage-outflows')      { document.getElementById('stage-outflow-input').click(); return; }
   if(a==='dl-milestone-template')  { dlMilestoneTemplate(); return; }
   if(a==='ul-milestone-template')  { document.getElementById('sales-milestones-input').click(); return; }
   if(a==='dl-sold-units-xlsx')     { exportSoldUnitsExcel(); return; }
@@ -12507,6 +12719,8 @@ document.addEventListener('change',function(e){
   var v=el.value, n=parseFloat(v)||0;
   var isNum=['amount','drawMonth','ratePct','termYrs','drawAmount','month','contingencyPct','gaMonthly','gaGAAnnual','gaMktgAnnual'];
   if(a==='set-milestone')          { if(!cfg.milestonesDates)cfg.milestonesDates={}; cfg.milestonesDates[el.dataset.key]=v; refreshPostSalesRoadmap(); saveAll(); refreshProjectCashflowViews(); return; }
+  if(a==='stage-outflow-amt')      { setStageOutflowAmount(_curPid, el.dataset.key, v); return; }
+  if(a==='stage-target-date')      { setStageTargetDate(_curPid, el.dataset.key, v); return; }
   if(a==='set-milestone-achieved'){ if(!cfg.milestonesAchievedDates)cfg.milestonesAchievedDates={}; if(v) cfg.milestonesAchievedDates[el.dataset.key]=v; else delete cfg.milestonesAchievedDates[el.dataset.key]; refreshPostSalesRoadmap(); saveAll(); return; }
   if(a==='set-inv-proj')           { if(!cfg.inventoryProjection)cfg.inventoryProjection={}; cfg.inventoryProjection[el.dataset.key]=parseFloat(v)||0; saveAll(); renderSales(); refreshProjectCashflowViews(); return; }
   if(a==='unsold-pace-mode')      { ensureUnsoldPaceCfg(cfg); cfg.unsoldPace.mode=el.value==='units'?'units':'sqft'; saveAll(); renderSales(); refreshProjectCashflowViews(); return; }
