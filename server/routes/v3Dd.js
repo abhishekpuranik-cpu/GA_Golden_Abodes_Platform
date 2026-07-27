@@ -1,6 +1,6 @@
 /**
- * Project Acquisition V3 — DD evidence upload/download.
- * Auth: session + v3_project_acquisition. No signed public links.
+ * Project Acquisition V3 — DD evidence upload/download + geocode + link resolve.
+ * Auth: session + v3_project_acquisition. No signed public links. No API keys to client.
  */
 import { Router } from 'express';
 import multer from 'multer';
@@ -13,6 +13,12 @@ import {
   openV3DdFileStream,
   storeV3DdFile
 } from '../lib/v3DdFiles.js';
+import {
+  allowGeocodeRequest,
+  ensureGeocodeCacheIndexes,
+  reverseGeocode
+} from '../lib/v3DdGeocode.js';
+import { extractCoordsFromText, resolveMapsShortLink } from '../lib/v3DdResolveLink.js';
 
 export const v3DdRouter = Router();
 
@@ -41,6 +47,7 @@ async function ensureIndexesOnce(db) {
   if (indexesReady) return;
   try {
     await ensureV3DdFileIndexes(db);
+    await ensureGeocodeCacheIndexes(db);
     indexesReady = true;
   } catch (e) {
     console.warn('[v3-dd] index ensure failed:', e?.message || e);
@@ -132,6 +139,117 @@ v3DdRouter.get(
       });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+v3DdRouter.post(
+  '/v3-dd/geocode',
+  withDb(async (req, res, db) => {
+    const sess = await requireV3DdSession(db, req, res);
+    if (!sess) return;
+    try {
+      await ensureIndexesOnce(db);
+      const sessionKey = sess.sid || sess.user.id || 'anon';
+      const rl = allowGeocodeRequest(sessionKey);
+      if (!rl.ok) {
+        res.setHeader('Retry-After', String(Math.max(1, rl.retryAfterSeconds || 60)));
+        return res.status(429).json({
+          error: 'Geocode rate limit exceeded',
+          retryAfterSeconds: rl.retryAfterSeconds
+        });
+      }
+      const lat = Number(req.body?.lat);
+      const lng = Number(req.body?.lng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return res.status(400).json({ error: 'lat and lng required' });
+      }
+      if (Math.abs(lat) > 90 || Math.abs(lng) > 180) {
+        return res.status(400).json({ error: 'lat/lng out of range' });
+      }
+      const result = await reverseGeocode(db, lat, lng);
+      if (result.unavailable) {
+        return res.json({
+          ok: false,
+          unavailable: true,
+          error: 'Geocoding unavailable',
+          cacheKey: result.cacheKey || null
+        });
+      }
+      if (!result.ok) {
+        return res.status(502).json({ ok: false, error: result.error || 'Geocode failed' });
+      }
+      res.json({
+        ok: true,
+        cached: !!result.cached,
+        village: result.village || '',
+        taluka: result.taluka || '',
+        district: result.district || '',
+        state: result.state || '',
+        formatted: result.formatted || '',
+        cacheKey: result.cacheKey || null
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+v3DdRouter.post(
+  '/v3-dd/resolve-link',
+  withDb(async (req, res, db) => {
+    const sess = await requireV3DdSession(db, req, res);
+    if (!sess) return;
+    try {
+      const sessionKey = `resolve:${sess.sid || sess.user.id || 'anon'}`;
+      const rl = allowGeocodeRequest(sessionKey, { windowMs: 60_000, max: 30 });
+      if (!rl.ok) {
+        res.setHeader('Retry-After', String(Math.max(1, rl.retryAfterSeconds || 60)));
+        return res.status(429).json({
+          error: 'Resolve rate limit exceeded',
+          retryAfterSeconds: rl.retryAfterSeconds
+        });
+      }
+      const raw = String(req.body?.url || req.body?.link || '').trim();
+      if (!raw) return res.status(400).json({ ok: false, code: 'PIN_UNRESOLVED', error: 'url required' });
+
+      const direct = extractCoordsFromText(raw);
+      if (direct && Number.isFinite(direct.lat) && Number.isFinite(direct.lng)) {
+        return res.json({
+          ok: true,
+          lat: direct.lat,
+          lng: direct.lng,
+          finalUrl: raw,
+          resolved: false
+        });
+      }
+
+      const resolved = await resolveMapsShortLink(raw);
+      if (!resolved.ok) {
+        return res.json({
+          ok: false,
+          code: 'PIN_UNRESOLVED',
+          error: resolved.error || 'Could not resolve link'
+        });
+      }
+      const coords = extractCoordsFromText(resolved.finalUrl);
+      if (!coords) {
+        return res.json({
+          ok: false,
+          code: 'PIN_UNRESOLVED',
+          error: 'Resolved URL had no coordinates',
+          finalUrl: resolved.finalUrl
+        });
+      }
+      res.json({
+        ok: true,
+        lat: coords.lat,
+        lng: coords.lng,
+        finalUrl: resolved.finalUrl,
+        resolved: true
+      });
+    } catch (e) {
+      res.status(500).json({ ok: false, code: 'PIN_UNRESOLVED', error: e?.message || String(e) });
     }
   })
 );
