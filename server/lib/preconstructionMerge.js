@@ -174,6 +174,7 @@ export function slimPreconstructionForBoot(data) {
           msManual: t.msManual,
           source: t.source,
           whoUpdatedAt: t.whoUpdatedAt,
+          msUpdatedAt: t.msUpdatedAt,
           offsetFromKo: t.offsetFromKo,
           parentId: t.parentId,
           plannedEnd: t.plannedEnd,

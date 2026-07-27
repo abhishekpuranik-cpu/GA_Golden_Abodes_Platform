@@ -86,8 +86,15 @@ export async function writePreconCompanions(db, { data, version, updatedAt, upda
 /** Load catalog/work from mem → companion → rebuild from main. */
 export async function loadPreconProjection(db, view = 'catalog') {
   const want = view === 'work' ? 'work' : 'catalog';
+  const states = db.collection('app_states');
+  const mainMeta = await states.findOne(
+    { _id: 'preconstruction' },
+    { projection: { version: 1, updatedAt: 1, updatedBy: 1 } },
+  );
+  const mainVersion = Number(mainMeta?.version) || 0;
+
   const cached = getPreconMemCache();
-  if (cached?.[want] && cached.version > 0) {
+  if (cached?.[want] && cached.version > 0 && cached.version >= mainVersion) {
     return {
       data: cached[want],
       version: cached.version,
@@ -96,11 +103,13 @@ export async function loadPreconProjection(db, view = 'catalog') {
       source: 'memory',
     };
   }
+  if (cached?.version && mainVersion && cached.version < mainVersion) {
+    clearPreconMemCache();
+  }
 
-  const states = db.collection('app_states');
   const docId = want === 'work' ? PRECON_WORK_DOC_ID : PRECON_CATALOG_DOC_ID;
   const row = await states.findOne({ _id: docId });
-  if (row?.data) {
+  if (row?.data && Number(row.version || 0) >= mainVersion) {
     if (want === 'catalog') setPreconMemCache({ version: row.version || 1, catalog: row.data });
     else setPreconMemCache({ version: row.version || 1, work: row.data });
     return {
@@ -112,7 +121,7 @@ export async function loadPreconProjection(db, view = 'catalog') {
     };
   }
 
-  // Rebuild companions from main document (one-time / after wipe).
+  // Rebuild companions from main document (stale companion or first boot).
   const main = await states.findOne(
     { _id: 'preconstruction' },
     {
@@ -124,7 +133,6 @@ export async function loadPreconProjection(db, view = 'catalog') {
         'data.departments': 1,
         'data.projects': 1,
         'data._removedProjectIds': 1,
-        // omit activityLog
       },
     },
   );
