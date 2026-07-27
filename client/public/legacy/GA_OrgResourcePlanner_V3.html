@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260724.2';
+var GA_V3_BUILD = '20260728.1';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1199,6 +1199,239 @@ if(!ST.alloc) ST.alloc = {};
 if(!ST.relevance) ST.relevance = {};
 if(!ST.collapse) ST.collapse = {};
 
+// ══════════════════════════════════════════════════════════════
+// DUE DILIGENCE ENGINE — data model (Deploy 1 §13 item 1)
+// Additive only. Feature flags OFF by default = zero UX change.
+// ══════════════════════════════════════════════════════════════
+var DD_LEGACY_BINARIES_BANNER =
+  'Document binaries were not retained prior to Deploy 1. Absent evidence here is an artefact of the old design, not a loss.';
+
+var DD_FEATURE_FLAGS_DEFAULT = {
+  deploy1_engine: false,
+  deploy1_new_dd_tab: false,
+  deploy1_pipeline_chip: false,
+  deploy1_model_strip: false,
+  deploy1_tier2: false,
+  deploy2_retire_old_dd: false,
+  deploy2_deposit_flags: false,
+  deploy2_exposure_summary: false,
+  deploy2_ground_truth: false
+};
+
+function ddEngineDefaults(){
+  return {
+    schemaVersion: 1,
+    legacyMigratedAt: null,
+    flags: Object.assign({}, DD_FEATURE_FLAGS_DEFAULT),
+    runs: [],
+    stages: [],
+    facts: [],
+    authority_register: [],
+    rulebooks: [],
+    commissions: [],
+    ground_truth: [],
+    jobs: [],
+    legacy: {},
+    economics: { targetMarginPct: null, softCostPct: null }
+  };
+}
+
+function ensureDdEngine(){
+  if(!ST.ddEngine || typeof ST.ddEngine !== 'object') ST.ddEngine = ddEngineDefaults();
+  var e = ST.ddEngine;
+  if(!e.flags || typeof e.flags !== 'object') e.flags = Object.assign({}, DD_FEATURE_FLAGS_DEFAULT);
+  Object.keys(DD_FEATURE_FLAGS_DEFAULT).forEach(function(k){
+    if(e.flags[k] === undefined) e.flags[k] = DD_FEATURE_FLAGS_DEFAULT[k];
+  });
+  ['runs','stages','facts','authority_register','rulebooks','commissions','ground_truth','jobs'].forEach(function(k){
+    if(!Array.isArray(e[k])) e[k] = [];
+  });
+  if(!e.legacy || typeof e.legacy !== 'object') e.legacy = {};
+  if(!e.economics || typeof e.economics !== 'object') e.economics = { targetMarginPct: null, softCostPct: null };
+  if(e.schemaVersion == null) e.schemaVersion = 1;
+  return e;
+}
+
+function ddFlag(name){
+  ensureDdEngine();
+  return !!(ST.ddEngine.flags && ST.ddEngine.flags[name]);
+}
+
+/** §4.1 project DD summary fields — additive defaults only. */
+function ensureProjectDdFields(p){
+  if(!p || typeof p !== 'object') return p;
+  if(p.dd_run_id === undefined) p.dd_run_id = null;
+  if(p.dd_status === undefined) p.dd_status = 'not_started';
+  if(p.dd_verdict === undefined) p.dd_verdict = null;
+  if(p.dd_confidence === undefined) p.dd_confidence = null;
+  if(p.dd_tier === undefined) p.dd_tier = 0;
+  if(p.dd_last_run_at === undefined) p.dd_last_run_at = null;
+  if(p.dd_pin_raw === undefined) p.dd_pin_raw = p.googlePin != null ? String(p.googlePin) : '';
+  if(p.dd_pin_lat === undefined) p.dd_pin_lat = null;
+  if(p.dd_pin_lng === undefined) p.dd_pin_lng = null;
+  return p;
+}
+
+function ddCloneJson(v){
+  try { return JSON.parse(JSON.stringify(v)); } catch(e){ return v; }
+}
+
+/**
+ * Forward migration: copy existing ST.dd outputs into read-only Legacy archive.
+ * Never deletes or mutates ST.dd. Idempotent per project id.
+ * In-flight pendingDocs: best-effort GridFS upload only — no retry UI.
+ */
+function migrateDdLegacyArchive(){
+  var eng = ensureDdEngine();
+  (PROJS || []).forEach(ensureProjectDdFields);
+
+  Object.keys(ST.dd || {}).forEach(function(pid){
+    var d = ST.dd[pid];
+    if(!d) return;
+    if(eng.legacy[pid] && eng.legacy[pid].archivedAt) return;
+
+    var pendingMeta = [];
+    (d.pendingDocs || []).forEach(function(doc){
+      if(!doc) return;
+      pendingMeta.push({
+        type: doc.type || '',
+        name: doc.name || '',
+        mimeType: doc.mimeType || '',
+        hasDataUrl: !!(doc.dataUrl)
+      });
+    });
+
+    eng.legacy[pid] = {
+      archivedAt: new Date().toISOString(),
+      binariesNotRetainedPriorToDeploy1: true,
+      banner: DD_LEGACY_BINARIES_BANNER,
+      snapshot: {
+        report: d.report || '',
+        statusMsg: d.statusMsg || '',
+        zoomResult: d.zoomResult || '',
+        extracted: d.extracted ? ddCloneJson(d.extracted) : {},
+        surveyNumber: d.surveyNumber || '',
+        village: d.village || '',
+        taluka: d.taluka || '',
+        district: d.district || '',
+        startTs: d.startTs || '',
+        doneTs: d.doneTs || '',
+        error: d.error || null,
+        pendingDocsMeta: pendingMeta,
+        evidenceFileIds: []
+      }
+    };
+  });
+
+  if(!eng.legacyMigratedAt) eng.legacyMigratedAt = new Date().toISOString();
+
+  try { ddLegacyBestEffortUploadPending(); } catch(e) {}
+}
+
+function ddDataUrlToBlob(dataUrl){
+  try {
+    var parts = String(dataUrl || '').split(',');
+    if(parts.length < 2) return null;
+    var meta = parts[0] || '';
+    var b64 = parts[1] || '';
+    var mime = 'application/octet-stream';
+    var m = /data:([^;]+)/.exec(meta);
+    if(m) mime = m[1];
+    var bin = atob(b64);
+    var arr = new Uint8Array(bin.length);
+    for(var i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return new Blob([arr], { type: mime });
+  } catch(e){ return null; }
+}
+
+/** Best-effort only. Failures keep text archive; no retry queue. */
+function ddLegacyBestEffortUploadPending(){
+  var eng = ensureDdEngine();
+  Object.keys(ST.dd || {}).forEach(function(pid){
+    var d = ST.dd[pid];
+    var leg = eng.legacy[pid];
+    if(!d || !leg || !leg.snapshot) return;
+    if(leg.snapshot._pendingUploadAttempted) return;
+    var docs = d.pendingDocs || [];
+    var withData = docs.filter(function(x){ return x && x.dataUrl; });
+    if(!withData.length){
+      leg.snapshot._pendingUploadAttempted = true;
+      return;
+    }
+    leg.snapshot._pendingUploadAttempted = true;
+    withData.forEach(function(doc){
+      try {
+        var blob = ddDataUrlToBlob(doc.dataUrl);
+        if(!blob) return;
+        var fd = new FormData();
+        fd.append('file', blob, doc.name || 'legacy-upload');
+        fd.append('projectId', pid);
+        fd.append('sourceType', 'document_upload');
+        fd.append('stageKey', 'LEGACY_MIGRATE');
+        fetch('/api/v3-dd/files', { method: 'POST', body: fd, credentials: 'include' })
+          .then(function(r){ return r.json().catch(function(){ return {}; }); })
+          .then(function(j){
+            if(j && j.ok && j.file && j.file.id){
+              if(!Array.isArray(leg.snapshot.evidenceFileIds)) leg.snapshot.evidenceFileIds = [];
+              if(leg.snapshot.evidenceFileIds.indexOf(j.file.id) < 0){
+                leg.snapshot.evidenceFileIds.push(j.file.id);
+              }
+              try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e2) {}
+            }
+          })
+          .catch(function(){ /* keep text only */ });
+      } catch(e) {}
+    });
+  });
+}
+
+/** Read-only Legacy archive renderer (used when Deploy 1 DD tab is enabled). */
+function renderDdLegacyArchiveHtml(){
+  var eng = ensureDdEngine();
+  var pids = Object.keys(eng.legacy || {});
+  var html = '<div class="info-banner" style="border-left-color:var(--orange);background:var(--orange-l);color:var(--orange-b)">'
+    + '<b>Legacy archive.</b> ' + DD_LEGACY_BINARIES_BANNER + '</div>';
+  if(!pids.length){
+    html += '<div style="font-size:12px;color:var(--muted);padding:12px">No pre-Deploy-1 Due Diligence outputs on file.</div>';
+    return html;
+  }
+  pids.forEach(function(pid){
+    var leg = eng.legacy[pid];
+    var snap = (leg && leg.snapshot) || {};
+    var p = (PROJS || []).find(function(x){ return x.id === pid; });
+    var title = (p && p.name) || pid;
+    html += '<div class="card" style="margin-bottom:12px">';
+    html += '<div class="card-title">' + (title || pid) + ' · archived '
+      + (leg.archivedAt ? new Date(leg.archivedAt).toLocaleString('en-IN') : '') + '</div>';
+    if(snap.village || snap.surveyNumber){
+      html += '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">'
+        + [snap.surveyNumber, snap.village, snap.taluka, snap.district].filter(Boolean).join(' · ')
+        + '</div>';
+    }
+    if(snap.extracted && Object.keys(snap.extracted).length){
+      html += '<div style="font-size:11px;margin-bottom:8px;color:var(--muted)">Extracted: '
+        + JSON.stringify(snap.extracted) + '</div>';
+    }
+    if(snap.report){
+      var safe = String(snap.report).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      html += '<div style="font-size:12px;line-height:1.7;white-space:pre-wrap;max-height:320px;overflow:auto">'
+        + safe + '</div>';
+    } else {
+      html += '<div style="font-size:12px;color:var(--muted)">No report text in archive.</div>';
+    }
+    if(Array.isArray(snap.evidenceFileIds) && snap.evidenceFileIds.length){
+      html += '<div style="font-size:11px;margin-top:8px;color:var(--muted)">Recovered session uploads: '
+        + snap.evidenceFileIds.map(function(id){
+          return '<a href="/api/v3-dd/files/' + encodeURIComponent(id) + '" target="_blank" rel="noopener">' + id + '</a>';
+        }).join(', ') + '</div>';
+    }
+    html += '</div>';
+  });
+  return html;
+}
+
+ensureDdEngine();
+
 // ── FSI mode: canonical values only (simple | pmrda | mumbai | goa | plotting). Trims; exact 'simple' wins before substring checks.
 function normalizeFsiMode(saved){
   var s=String(saved==null?'':saved).trim().toLowerCase();
@@ -2093,6 +2326,8 @@ function deleteProject(id){
     Object.keys(ST[k]).forEach(key=>{ if(key.includes(id)) delete ST[k][key]; });
   });
   delete ST.fin[id]; delete ST.dd[id];
+  // DD Engine evidence / legacy archive / runs are NOT cascade-deleted (§4.9).
+  // Files remain in GridFS with projectId retained for audit.
   if(expandedFinId===id) expandedFinId=null;
   if(window.FUND_MILESTONES&&FUND_MILESTONES[id]) delete FUND_MILESTONES[id];
   initProjBtns(); writeGaRpProjects();
@@ -4985,13 +5220,15 @@ function gaSerialise() {
     if (!d) return;
     ddOut[pid] = { report:d.report||'', statusMsg:d.statusMsg||'', zoomResult:d.zoomResult||'', extracted:d.extracted||{} };
   });
+  ensureDdEngine();
   return {
     v:2, ts:Date.now(),
     savedBy: localStorage.getItem('ga_user_name')||'User',
     cloudUrl: localStorage.getItem(GA_CONF_KEY)||'',
     workspace: gaCaptureWorkspace(),
-    projs: PROJS.map(function(p){ return Object.assign({}, p); }),
+    projs: PROJS.map(function(p){ ensureProjectDdFields(p); return Object.assign({}, p); }),
     fin:  ST.fin,   dd: ddOut,
+    ddEngine: ST.ddEngine,
     vaultMeta,      DM: DM,
     FUND: FUND_MILESTONES,
     INVESTORS: INVESTORS,
@@ -5034,6 +5271,33 @@ function gaApply(data) {
   gaApplyProjsFromCloud(data);
   gaMergeFlat(ST.fin,         data.fin);
   gaMergeFlat(ST.dd,          data.dd);
+  if (data.ddEngine && typeof data.ddEngine === 'object') {
+    ensureDdEngine();
+    try {
+      var incoming = data.ddEngine;
+      var cur = ST.ddEngine;
+      cur.schemaVersion = Math.max(Number(cur.schemaVersion) || 1, Number(incoming.schemaVersion) || 1);
+      cur.legacyMigratedAt = cur.legacyMigratedAt || incoming.legacyMigratedAt || null;
+      cur.flags = Object.assign({}, DD_FEATURE_FLAGS_DEFAULT, cur.flags || {}, incoming.flags || {});
+      ['runs','stages','facts','authority_register','rulebooks','commissions','ground_truth','jobs'].forEach(function(k){
+        var map = {};
+        (cur[k] || []).forEach(function(row){ if(row && row.id) map[row.id] = row; });
+        (incoming[k] || []).forEach(function(row){
+          if(!row || !row.id) return;
+          map[row.id] = map[row.id] ? Object.assign({}, map[row.id], row) : row;
+        });
+        cur[k] = Object.keys(map).map(function(id){ return map[id]; });
+      });
+      cur.legacy = Object.assign({}, cur.legacy || {}, incoming.legacy || {});
+      cur.economics = Object.assign(
+        { targetMarginPct: null, softCostPct: null },
+        cur.economics || {},
+        incoming.economics || {}
+      );
+    } catch (e) { console.warn('ddEngine merge', e); }
+  } else {
+    ensureDdEngine();
+  }
   gaMergeFlat(DM,             data.DM);
   gaMergeFlat(FUND_MILESTONES, data.FUND);
   gaMergeFlat(INVESTORS,      data.INVESTORS);
@@ -5043,6 +5307,7 @@ function gaApply(data) {
   gaMergeFlat(ST.alloc,       data.alloc);
   gaMergeFlat(ST.relevance,   data.relevance);
   gaEnsureProjsFromFinKeys();
+  try { migrateDdLegacyArchive(); } catch (e) { console.warn('dd legacy migrate', e); }
   renderAll();
 }
 function pushV3CashflowHints(){
@@ -5861,6 +6126,7 @@ try {
   initProjBtns();
   renderCloudBar();
   var _localTs = gaLoadLocal();
+  try { migrateDdLegacyArchive(); } catch (_migErr) { console.warn('dd legacy migrate', _migErr); }
   syncPlannerTabVisibility();
   if (!_localTs) {
     renderAll();
