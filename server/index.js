@@ -97,7 +97,7 @@ app.use(createRbacMiddleware());
 
 const preconPublicDir = path.join(rootDir, 'client', 'public', 'preconstruction');
 const preconBundled = fs.existsSync(path.join(preconPublicDir, 'index.html'));
-const PRECON_BOOT_VERSION = 'boot-15-20260727-manual-save';
+const PRECON_BOOT_VERSION = 'boot-16-20260727-unsaved-guard';
 
 function sendPreconIndex(res) {
   res.setHeader('Cache-Control', 'no-store, must-revalidate');
