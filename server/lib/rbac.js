@@ -80,6 +80,9 @@ function resolveApiRule(pathname) {
   if (pathname === '/api/hiring' || pathname.startsWith('/api/hiring/')) {
     return { appId: 'hiring' };
   }
+  if (pathname === '/api/v3-dd' || pathname.startsWith('/api/v3-dd/')) {
+    return { appId: 'v3_project_acquisition' };
+  }
   return null;
 }
 
