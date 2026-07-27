@@ -88,11 +88,13 @@ function mergeDdEngine(exEngine, inEngine) {
     stages: [],
     facts: [],
     authority_register: [],
+    authority_defaults: [],
     rulebooks: [],
     commissions: [],
     ground_truth: [],
     jobs: [],
     legacy: {},
+    pin_flags: {},
     economics: { targetMarginPct: null, softCostPct: null }
   };
   const ex = exEngine && typeof exEngine === 'object' ? exEngine : empty;
@@ -106,11 +108,13 @@ function mergeDdEngine(exEngine, inEngine) {
     stages: mergeById(ex.stages, inn.stages),
     facts: mergeById(ex.facts, inn.facts),
     authority_register: mergeById(ex.authority_register, inn.authority_register),
+    authority_defaults: mergeById(ex.authority_defaults, inn.authority_defaults),
     rulebooks: mergeById(ex.rulebooks, inn.rulebooks),
     commissions: mergeById(ex.commissions, inn.commissions),
     ground_truth: mergeById(ex.ground_truth, inn.ground_truth),
     jobs: mergeById(ex.jobs, inn.jobs),
     legacy: mergeLegacyMaps(ex.legacy, inn.legacy),
+    pin_flags: { ...(ex.pin_flags || {}), ...(inn.pin_flags || {}) },
     economics: {
       targetMarginPct:
         inn.economics && inn.economics.targetMarginPct != null

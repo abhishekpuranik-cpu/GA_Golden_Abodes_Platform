@@ -1,0 +1,4 @@
+{
+  "_comment": "Authority defaults seed — supply separately. Empty array by design until GA provides the file.",
+  "authority_defaults": []
+}
