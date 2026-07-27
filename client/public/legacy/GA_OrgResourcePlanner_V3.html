@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260728.2';
+var GA_V3_BUILD = '20260728.3';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1227,6 +1227,7 @@ function ddEngineDefaults(){
     stages: [],
     facts: [],
     authority_register: [],
+    authority_defaults: [],
     rulebooks: [],
     commissions: [],
     ground_truth: [],
@@ -1244,13 +1245,14 @@ function ensureDdEngine(){
   Object.keys(DD_FEATURE_FLAGS_DEFAULT).forEach(function(k){
     if(e.flags[k] === undefined) e.flags[k] = DD_FEATURE_FLAGS_DEFAULT[k];
   });
-  ['runs','stages','facts','authority_register','rulebooks','commissions','ground_truth','jobs'].forEach(function(k){
+  ['runs','stages','facts','authority_register','authority_defaults','rulebooks','commissions','ground_truth','jobs'].forEach(function(k){
     if(!Array.isArray(e[k])) e[k] = [];
   });
   if(!e.legacy || typeof e.legacy !== 'object') e.legacy = {};
   if(!e.pin_flags || typeof e.pin_flags !== 'object') e.pin_flags = {};
   if(!e.economics || typeof e.economics !== 'object') e.economics = { targetMarginPct: null, softCostPct: null };
   if(e.schemaVersion == null) e.schemaVersion = 1;
+  try { ddEnsureRulebookSeed(); } catch(_rb) {}
   return e;
 }
 
@@ -1624,23 +1626,805 @@ function ddProcessQueueTick(){
     return;
   }
   run.status = 'running';
-  // Stage handlers land in later Deploy 1 items; skeleton records intent only.
   if(!run.stages || !run.stages.length){
-    run.stages = [
-      { id: ddNewId('dds'), run_id: run.id, stage_key: 'LOCATE', sequence: 1, status: 'pending', blocking: true },
-      { id: ddNewId('dds'), run_id: run.id, stage_key: 'AUTHORITY', sequence: 2, status: 'pending', blocking: true },
-      { id: ddNewId('dds'), run_id: run.id, stage_key: 'RULEBOOK', sequence: 3, status: 'pending', blocking: true },
-      { id: ddNewId('dds'), run_id: run.id, stage_key: 'ZONE_READ', sequence: 4, status: 'pending', blocking: true },
-      { id: ddNewId('dds'), run_id: run.id, stage_key: 'RECORDS', sequence: 5, status: 'pending', blocking: true },
-      { id: ddNewId('dds'), run_id: run.id, stage_key: 'COMPUTE', sequence: 6, status: 'pending', blocking: false },
-      { id: ddNewId('dds'), run_id: run.id, stage_key: 'VERDICT', sequence: 7, status: 'pending', blocking: true }
-    ];
+    run.stages = ddCreateStageShell(run.id);
     eng.stages = (eng.stages || []).concat(run.stages);
   }
-  // Leave job pending-like: awaiting stage processors (item 3+)
-  job.status = 'awaiting_stages';
+  // Advance automatic stages 1–3; leave analyst stages pending without blocking the job forever
+  ddAdvanceAutoStages(run).then(function(){
+    var pendingAuto = (run.stages || []).some(function(s){
+      return s && s.status === 'pending' && (s.stage_key === 'LOCATE' || s.stage_key === 'AUTHORITY' || s.stage_key === 'RULEBOOK');
+    });
+    if(pendingAuto){
+      job.status = 'pending';
+      job.next_at = new Date(Date.now() + 500).toISOString();
+    } else {
+      job.status = 'awaiting_stages';
+      var p = (PROJS || []).find(function(x){ return x.id === run.project_id; });
+      if(p){
+        ensureProjectDdFields(p);
+        var blocked = (run.stages || []).some(function(s){ return s.blocking && s.status === 'awaiting_analyst'; });
+        p.dd_status = blocked ? 'awaiting_input' : 'running';
+      }
+    }
+    try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+    ddKickQueue();
+  }).catch(function(err){
+    job.status = 'pending';
+    job.error = String(err && err.message ? err.message : err);
+    job.next_at = new Date(Date.now() + 2000).toISOString();
+    try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+    ddKickQueue();
+  });
+}
+
+function ddCreateStageShell(runId){
+  return [
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'LOCATE', sequence: 1, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'AUTHORITY', sequence: 2, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'RULEBOOK', sequence: 3, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'ZONE_READ', sequence: 4, status: 'pending', blocking: true, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'RECORDS', sequence: 5, status: 'pending', blocking: true, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'COMPUTE', sequence: 6, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'VERDICT', sequence: 7, status: 'pending', blocking: true, started_at: null, completed_at: null, assigned_to: null }
+  ];
+}
+
+async function ddAdvanceAutoStages(run){
+  var order = ['LOCATE', 'AUTHORITY', 'RULEBOOK'];
+  for(var i = 0; i < order.length; i++){
+    var key = order[i];
+    var stage = (run.stages || []).find(function(s){ return s.stage_key === key; });
+    if(!stage || stage.status !== 'pending') continue;
+    // Prior auto stages must not be pending
+    var blockedByPrior = order.slice(0, i).some(function(pk){
+      var ps = (run.stages || []).find(function(s){ return s.stage_key === pk; });
+      return ps && ps.status === 'pending';
+    });
+    if(blockedByPrior) return;
+    stage.started_at = new Date().toISOString();
+    if(key === 'LOCATE') await ddStageLocate(run, stage);
+    else if(key === 'AUTHORITY') await ddStageAuthority(run, stage);
+    else if(key === 'RULEBOOK') await ddStageRulebook(run, stage);
+  }
+}
+
+// ── Normalisation / facts / rulebooks / authority cascade (item 3) ──
+function ddNormName(s){
+  return String(s || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+function ddCompositeKey(parts){
+  return ['state','district','taluka','village'].map(function(k){
+    return ddNormName(parts[k]);
+  }).join('|');
+}
+function ddAppendFact(fact){
+  var eng = ensureDdEngine();
+  var row = Object.assign({
+    id: ddNewId('ddf'),
+    captured_on: new Date().toISOString(),
+    captured_by: localStorage.getItem('ga_user_name') || 'System',
+    expires_on: null,
+    supersedes: null,
+    notes: '',
+    unit: null,
+    value_text: null,
+    value_number: null,
+    value_json: null
+  }, fact);
+  eng.facts.push(row);
+  return row;
+}
+function ddLatestFact(runId, fieldKey){
+  var eng = ensureDdEngine();
+  var list = (eng.facts || []).filter(function(f){ return f && f.run_id === runId && f.field_key === fieldKey; });
+  if(!list.length) return null;
+  var superseded = {};
+  list.forEach(function(f){ if(f.supersedes) superseded[f.supersedes] = 1; });
+  var live = list.filter(function(f){ return !superseded[f.id]; });
+  live.sort(function(a, b){ return String(b.captured_on).localeCompare(String(a.captured_on)); });
+  return live[0] || null;
+}
+function ddEnsureRulebookSeed(){
+  if(!ST.ddEngine || typeof ST.ddEngine !== 'object') return;
+  var eng = ST.ddEngine;
+  if(!Array.isArray(eng.rulebooks)) eng.rulebooks = [];
+  var byKey = {};
+  eng.rulebooks.forEach(function(r){ if(r && r.key) byKey[r.key] = r; });
+  var seeds = [
+    {
+      id: 'rb_udcpr_2020',
+      key: 'UDCPR_2020',
+      version: '2020.1',
+      effective_from: '2020-12-03',
+      effective_to: null,
+      applies_to_authorities: [],
+      excluded_authorities: [
+        'MCGM', 'Municipal Corporation of Greater Mumbai',
+        'MIDC', 'NAINA', 'JNPT', 'Jawaharlal Nehru Port Trust',
+        'Hill Station Municipal Councils', 'HILL_STATION_MC',
+        'Lonavala MC', 'Lonavala Municipal Council',
+        'MoEF ESA', 'ESA_WESTERN_GHATS'
+      ],
+      zones: [],
+      notes: 'UDCPR 2020 — exclusions first. Zones added as GA encounters them.'
+    },
+    {
+      id: 'rb_hill_station_excluded',
+      key: 'HILL_STATION_EXCLUDED',
+      version: '1.0',
+      effective_from: '2020-12-03',
+      effective_to: null,
+      applies_to_authorities: ['Lonavala MC', 'Lonavala Municipal Council', 'HILL_STATION_MC', 'Hill Station Municipal Councils'],
+      excluded_authorities: [],
+      zones: [],
+      notes: 'Hill-station / Lonavala exclusion from UDCPR — usable FSI constrained.'
+    },
+    {
+      id: 'rb_midc',
+      key: 'MIDC',
+      version: '1.0',
+      effective_from: '2020-01-01',
+      effective_to: null,
+      applies_to_authorities: ['MIDC'],
+      excluded_authorities: [],
+      zones: [],
+      notes: 'MIDC regime — excluded from UDCPR.'
+    },
+    {
+      id: 'rb_naina',
+      key: 'NAINA',
+      version: '1.0',
+      effective_from: '2020-01-01',
+      effective_to: null,
+      applies_to_authorities: ['NAINA'],
+      excluded_authorities: [],
+      zones: [],
+      notes: 'NAINA regime — excluded from UDCPR.'
+    },
+    {
+      id: 'rb_dcpr_2034',
+      key: 'DCPR_2034',
+      version: '2034.1',
+      effective_from: '2018-01-01',
+      effective_to: null,
+      applies_to_authorities: ['MCGM', 'Municipal Corporation of Greater Mumbai'],
+      excluded_authorities: [],
+      zones: [],
+      notes: 'Mumbai DCPR 2034.'
+    },
+    {
+      id: 'rb_gldbcr_2010',
+      key: 'GLDBCR_2010',
+      version: '2010.1',
+      effective_from: '2010-01-01',
+      effective_to: null,
+      applies_to_authorities: ['Goa TCP'],
+      excluded_authorities: [],
+      zones: [],
+      notes: 'Goa Land Development and Building Construction Regulations 2010.'
+    }
+  ];
+  seeds.forEach(function(s){
+    if(!byKey[s.key]) eng.rulebooks.push(s);
+  });
+}
+
+function ddAuthorityIsStale(row){
+  if(!row || !row.expires_on) return false;
+  return Date.parse(row.expires_on) < Date.now();
+}
+
+/**
+ * Cascade — never UNMAPPED.
+ * village register (architect 95 / analyst 90) → taluka default 70 → district default 50 → UNKNOWN
+ * Geocoding alone does NOT write register rows.
+ */
+function ddResolveAuthorityCascade(loc){
+  var eng = ensureDdEngine();
+  var state = loc.state || '', district = loc.district || '', taluka = loc.taluka || '', village = loc.village || '';
+  var nVillage = ddNormName(village);
+
+  // 1) authority_register — village (+ aliases), prefer highest confidence
+  var hits = (eng.authority_register || []).filter(function(r){
+    if(!r) return false;
+    if(ddNormName(r.state) && state && ddNormName(r.state) !== ddNormName(state)) return false;
+    if(ddNormName(r.district) && district && ddNormName(r.district) !== ddNormName(district)) return false;
+    var names = [r.village].concat(Array.isArray(r.aliases) ? r.aliases : []);
+    return names.some(function(n){ return ddNormName(n) === nVillage && nVillage; });
+  });
+  if(hits.length && nVillage){
+    hits.sort(function(a, b){ return (Number(b.confidence) || 0) - (Number(a.confidence) || 0); });
+    var best = hits[0];
+    var src = String(best.source_type || '');
+    var certainty = 'CONFIRMED';
+    var conf = Number(best.confidence);
+    if(!(conf >= 0)) conf = src === 'architect_opinion' ? 95 : 90;
+    return {
+      planning_authority: best.planning_authority,
+      overlays: Array.isArray(best.overlays) ? best.overlays.slice() : [],
+      rulebook_key: best.rulebook_key || null,
+      confidence: conf,
+      certainty: certainty,
+      provisional: false,
+      stale: ddAuthorityIsStale(best),
+      source_type: best.source_type || 'lookup_table',
+      source_ref: best.source_ref || best.id,
+      register_id: best.id,
+      match_level: 'village'
+    };
+  }
+
+  // 2) taluka default
+  var talukaHit = (eng.authority_defaults || []).find(function(d){
+    return d && ddNormName(d.taluka) && ddNormName(d.taluka) === ddNormName(taluka) &&
+      (!d.state || !state || ddNormName(d.state) === ddNormName(state)) &&
+      (!d.district || !district || ddNormName(d.district) === ddNormName(district));
+  });
+  if(talukaHit && ddNormName(taluka)){
+    return {
+      planning_authority: talukaHit.planning_authority,
+      overlays: Array.isArray(talukaHit.overlays) ? talukaHit.overlays.slice() : [],
+      rulebook_key: talukaHit.rulebook_key || null,
+      confidence: 70,
+      certainty: 'PROVISIONAL',
+      provisional: true,
+      stale: false,
+      source_type: 'lookup_table',
+      source_ref: 'authority_defaults:' + (talukaHit.id || ddCompositeKey(talukaHit)),
+      register_id: null,
+      match_level: 'taluka',
+      source_note: talukaHit.source_note || ''
+    };
+  }
+
+  // 3) district default (taluka empty on the default row)
+  var districtHit = (eng.authority_defaults || []).find(function(d){
+    return d && (!d.taluka || !String(d.taluka).trim()) &&
+      ddNormName(d.district) === ddNormName(district) && ddNormName(district) &&
+      (!d.state || !state || ddNormName(d.state) === ddNormName(state));
+  });
+  if(districtHit){
+    return {
+      planning_authority: districtHit.planning_authority,
+      overlays: Array.isArray(districtHit.overlays) ? districtHit.overlays.slice() : [],
+      rulebook_key: districtHit.rulebook_key || null,
+      confidence: 50,
+      certainty: 'PROVISIONAL',
+      provisional: true,
+      stale: false,
+      source_type: 'lookup_table',
+      source_ref: 'authority_defaults:' + (districtHit.id || ddCompositeKey(districtHit)),
+      register_id: null,
+      match_level: 'district',
+      source_note: districtHit.source_note || ''
+    };
+  }
+
+  return {
+    planning_authority: null,
+    overlays: [],
+    rulebook_key: null,
+    confidence: 0,
+    certainty: 'UNKNOWN',
+    provisional: false,
+    stale: false,
+    source_type: 'lookup_table',
+    source_ref: null,
+    register_id: null,
+    match_level: 'none'
+  };
+}
+
+/** Exclusions-first rulebook resolution. */
+function ddResolveRulebook(authorityName, overlays){
+  ddEnsureRulebookSeed();
+  var eng = ensureDdEngine();
+  var auth = String(authorityName || '').trim();
+  var ovs = Array.isArray(overlays) ? overlays : [];
+  var books = eng.rulebooks || [];
+
+  function nameMatch(list, name){
+    var n = ddNormName(name);
+    return (list || []).some(function(x){ return ddNormName(x) === n; });
+  }
+
+  // Overlay exclusions (e.g. ESA)
+  if(ovs.some(function(o){ return /ESA|ECO.?SENSITIVE|ECO.?FRAGILE/i.test(String(o)); })){
+    var esa = books.find(function(b){ return b.key === 'HILL_STATION_EXCLUDED'; });
+    if(esa) return { rulebook: esa, reason: 'overlay_exclusion', exclusion: true };
+  }
+
+  // Authority listed on a dedicated applies_to book that is an exclusion regime
+  var dedicated = books.find(function(b){
+    return b && nameMatch(b.applies_to_authorities, auth) && b.key !== 'UDCPR_2020';
+  });
+  if(dedicated){
+    return { rulebook: dedicated, reason: 'authority_applies_to', exclusion: /EXCLUDED|MIDC|NAINA|DCPR|GLDBCR/i.test(dedicated.key) };
+  }
+
+  // UDCPR exclusion list → map to exclusion book if possible
+  var udcpr = books.find(function(b){ return b && b.key === 'UDCPR_2020'; });
+  if(udcpr && nameMatch(udcpr.excluded_authorities, auth)){
+    var exclBook = books.find(function(b){
+      return b && b.key !== 'UDCPR_2020' && nameMatch(b.applies_to_authorities, auth);
+    }) || books.find(function(b){ return b && b.key === 'HILL_STATION_EXCLUDED'; });
+    if(exclBook) return { rulebook: exclBook, reason: 'udcpr_exclusion', exclusion: true };
+    return { rulebook: null, reason: 'excluded_no_book', exclusion: true, missing_key: true };
+  }
+
+  if(udcpr && auth){
+    return { rulebook: udcpr, reason: 'udcpr_default', exclusion: false };
+  }
+
+  // Missing rulebook file/key must break loudly later — here return null
+  return { rulebook: null, reason: 'unresolved', exclusion: false, missing_key: true };
+}
+
+async function ddStageLocate(run, stage){
+  var p = (PROJS || []).find(function(x){ return x.id === run.project_id; }) || {};
+  var lat = run.pin_lat, lng = run.pin_lng;
+  try {
+    var r = await fetch('/api/v3-dd/geocode', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: lat, lng: lng })
+    });
+    var j = await r.json().catch(function(){ return {}; });
+    if(j && j.unavailable){
+      ddAppendFact({ run_id: run.id, stage_key: 'LOCATE', field_key: 'geocode_status', value_text: 'Geocoding unavailable',
+        source_type: 'lookup_table', source_ref: 'GOOGLE_GEOCODING_API_KEY', confidence: 0, tier: 0 });
+      stage.status = 'unknown';
+      stage.completed_at = new Date().toISOString();
+      stage.notes = 'Geocoding unavailable';
+      return;
+    }
+    if(!j || !j.ok){
+      ddAppendFact({ run_id: run.id, stage_key: 'LOCATE', field_key: 'geocode_status', value_text: (j && j.error) || 'Geocode failed',
+        source_type: 'lookup_table', source_ref: 'geocode', confidence: 0, tier: 0 });
+      stage.status = 'unknown';
+      stage.completed_at = new Date().toISOString();
+      return;
+    }
+    var loc = { village: j.village || '', taluka: j.taluka || '', district: j.district || '', state: j.state || '', formatted: j.formatted || '' };
+    ['village','taluka','district','state'].forEach(function(k){
+      ddAppendFact({
+        run_id: run.id, stage_key: 'LOCATE', field_key: k,
+        value_text: loc[k] || '',
+        source_type: 'lookup_table', source_ref: j.cacheKey ? ('geocode_cache:' + j.cacheKey) : 'geocode',
+        confidence: j.cached ? 98 : 92, tier: 0
+      });
+    });
+    // BOUNDARY_AMBIGUOUS flag when geocoded village differs from Location/City — non-blocking
+    var locField = String(p.location || '').trim();
+    if(locField && loc.village && ddNormName(locField) !== ddNormName(loc.village) &&
+       ddNormName(locField).indexOf(ddNormName(loc.village)) < 0 &&
+       ddNormName(loc.village).indexOf(ddNormName(locField)) < 0){
+      ddAppendFact({
+        run_id: run.id, stage_key: 'LOCATE', field_key: 'boundary_flag',
+        value_text: 'BOUNDARY_AMBIGUOUS',
+        value_json: { geocoded_village: loc.village, project_location: locField },
+        source_type: 'lookup_table', source_ref: 'boundary_guard', confidence: 40, tier: 0,
+        notes: 'Geocoded village differs from project Location/City — confirm when convenient; does not block the run.'
+      });
+    }
+    // Do NOT write authority_register from geocoding alone
+    stage.status = 'auto_resolved';
+    stage.completed_at = new Date().toISOString();
+  } catch(e){
+    stage.status = 'unknown';
+    stage.completed_at = new Date().toISOString();
+    stage.notes = String(e && e.message ? e.message : e);
+  }
+}
+
+async function ddStageAuthority(run, stage){
+  var loc = {
+    village: (ddLatestFact(run.id, 'village') || {}).value_text || '',
+    taluka: (ddLatestFact(run.id, 'taluka') || {}).value_text || '',
+    district: (ddLatestFact(run.id, 'district') || {}).value_text || '',
+    state: (ddLatestFact(run.id, 'state') || {}).value_text || ''
+  };
+  var resolved = ddResolveAuthorityCascade(loc);
+  ddAppendFact({
+    run_id: run.id, stage_key: 'AUTHORITY', field_key: 'planning_authority',
+    value_text: resolved.planning_authority || 'UNKNOWN',
+    value_json: {
+      certainty: resolved.certainty,
+      provisional: !!resolved.provisional,
+      stale: !!resolved.stale,
+      match_level: resolved.match_level,
+      overlays: resolved.overlays,
+      register_id: resolved.register_id
+    },
+    source_type: resolved.source_type || 'lookup_table',
+    source_ref: resolved.source_ref || '',
+    confidence: resolved.confidence || 0,
+    tier: 0,
+    notes: resolved.provisional ? 'PROVISIONAL — not sole basis for KILL' : (resolved.stale ? 'STALE (displayed, not enforced)' : '')
+  });
+  ddAppendFact({
+    run_id: run.id, stage_key: 'AUTHORITY', field_key: 'authority_certainty',
+    value_text: resolved.certainty,
+    source_type: resolved.source_type || 'lookup_table',
+    source_ref: resolved.source_ref || '',
+    confidence: resolved.confidence || 0,
+    tier: 0
+  });
+  if(resolved.overlays && resolved.overlays.length){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'AUTHORITY', field_key: 'overlays',
+      value_json: resolved.overlays,
+      value_text: resolved.overlays.join(', '),
+      source_type: resolved.source_type || 'lookup_table',
+      source_ref: resolved.source_ref || '',
+      confidence: resolved.confidence || 0,
+      tier: 0
+    });
+  }
+  if(resolved.certainty === 'UNKNOWN'){
+    stage.status = 'unknown';
+  } else {
+    stage.status = 'auto_resolved';
+  }
+  stage.completed_at = new Date().toISOString();
+}
+
+async function ddStageRulebook(run, stage){
+  var authFact = ddLatestFact(run.id, 'planning_authority');
+  var certFact = ddLatestFact(run.id, 'authority_certainty');
+  var ovFact = ddLatestFact(run.id, 'overlays');
+  var authName = authFact && authFact.value_text !== 'UNKNOWN' ? authFact.value_text : '';
+  var overlays = (ovFact && ovFact.value_json) || [];
+  var certainty = (certFact && certFact.value_text) || 'UNKNOWN';
+  var provisional = certainty === 'PROVISIONAL';
+
+  if(!authName){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'RULEBOOK', field_key: 'rulebook_key',
+      value_text: 'UNKNOWN',
+      value_json: { provisional: false, exclusion: false, reason: 'no_authority' },
+      source_type: 'rulebook', source_ref: '', confidence: 0, tier: 0
+    });
+    stage.status = 'unknown';
+    stage.completed_at = new Date().toISOString();
+    return;
+  }
+
+  var res = ddResolveRulebook(authName, overlays);
+  if(!res.rulebook){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'RULEBOOK', field_key: 'rulebook_key',
+      value_text: 'MISSING',
+      value_json: { provisional: provisional, exclusion: !!res.exclusion, reason: res.reason, missing_key: true },
+      source_type: 'rulebook', source_ref: '', confidence: 0, tier: 0,
+      notes: 'Rulebook resolution failed loudly — no silent default.'
+    });
+    stage.status = 'failed';
+    stage.completed_at = new Date().toISOString();
+    run.rule_version = null;
+    return;
+  }
+
+  run.rule_version = res.rulebook.key + '@' + res.rulebook.version;
+  ddAppendFact({
+    run_id: run.id, stage_key: 'RULEBOOK', field_key: 'rulebook_key',
+    value_text: res.rulebook.key,
+    value_json: {
+      version: res.rulebook.version,
+      provisional: provisional,
+      exclusion: !!res.exclusion,
+      reason: res.reason
+    },
+    source_type: 'rulebook',
+    source_ref: res.rulebook.key + '@' + res.rulebook.version,
+    confidence: provisional ? Math.min(70, 99) : 99,
+    tier: 0,
+    notes: provisional ? 'PROVISIONAL — inherited from authority cascade' : (res.exclusion ? 'EXCLUSION rulebook' : '')
+  });
+  stage.status = 'auto_resolved';
+  stage.completed_at = new Date().toISOString();
+}
+
+/**
+ * Architect opinion confirmed → upsert authority_register at confidence 95.
+ * Primary path that fills the register. Does not require analyst entry.
+ */
+function ddAutoWriteAuthorityFromArchitect(findings, meta){
+  meta = meta || {};
+  findings = findings || {};
+  var village = findings.village || findings.village_name;
+  if(!village) return null;
+  var eng = ensureDdEngine();
+  var row = {
+    state: findings.state || '',
+    district: findings.district || '',
+    taluka: findings.taluka || '',
+    village: village,
+    village_lgd_code: findings.village_lgd_code || findings.lgd_code || null,
+    aliases: Array.isArray(findings.aliases) ? findings.aliases : [],
+    planning_authority: findings.planning_authority || findings.authority,
+    rulebook_key: findings.rulebook_key || null,
+    overlays: Array.isArray(findings.overlays) ? findings.overlays : [],
+    resolved_by: meta.confirmed_by || 'architect',
+    resolved_on: new Date().toISOString(),
+    last_confirmed_on: new Date().toISOString(),
+    expires_on: new Date(Date.now() + 183 * 24 * 3600 * 1000).toISOString(),
+    source_note: findings.source_note || 'Architect opinion (confirmed)',
+    source_type: 'architect_opinion',
+    source_ref: meta.source_ref || meta.report_file_ref || '',
+    confidence: 95
+  };
+  if(!row.planning_authority) return null;
+  var key = ddCompositeKey(row);
+  var existing = (eng.authority_register || []).find(function(r){
+    return r && (r.composite_key === key || ddCompositeKey(r) === key);
+  });
+  if(existing){
+    // Immutable evidence pattern: supersede via new row, keep history in register as append
+    var newRow = Object.assign({}, row, { id: ddNewId('aar'), composite_key: key, supersedes: existing.id });
+    eng.authority_register.push(newRow);
+    return newRow;
+  }
+  var created = Object.assign({ id: ddNewId('aar'), composite_key: key, supersedes: null }, row);
+  eng.authority_register.push(created);
+  return created;
+}
+
+/** Advocate report may establish tenure / overlay facts on the register. */
+function ddAutoWriteFromAdvocate(findings, meta){
+  meta = meta || {};
+  findings = findings || {};
+  var eng = ensureDdEngine();
+  var village = findings.village || findings.village_name;
+  if(!village) return null;
+  var keyParts = {
+    state: findings.state || '',
+    district: findings.district || '',
+    taluka: findings.taluka || '',
+    village: village
+  };
+  var key = ddCompositeKey(keyParts);
+  var existing = (eng.authority_register || []).find(function(r){
+    return r && (r.composite_key === key || ddCompositeKey(r) === key);
+  });
+  var overlays = Array.isArray(findings.overlays) ? findings.overlays : [];
+  if(existing){
+    // Append-only: new row merging overlays / tenure note
+    var mergedOverlays = Array.from(new Set([].concat(existing.overlays || [], overlays)));
+    var newRow = Object.assign({}, existing, {
+      id: ddNewId('aar'),
+      composite_key: key,
+      overlays: mergedOverlays,
+      last_confirmed_on: new Date().toISOString(),
+      expires_on: new Date(Date.now() + 183 * 24 * 3600 * 1000).toISOString(),
+      source_type: 'advocate_report',
+      source_ref: meta.source_ref || meta.report_file_ref || '',
+      source_note: findings.tenure_note || findings.source_note || existing.source_note || 'Advocate report (confirmed)',
+      confidence: Math.max(Number(existing.confidence) || 0, 90),
+      supersedes: existing.id,
+      tenure_class: findings.tenure_class || existing.tenure_class || null
+    });
+    eng.authority_register.push(newRow);
+    return newRow;
+  }
+  if(!findings.planning_authority && !overlays.length && !findings.tenure_class) return null;
+  var created = {
+    id: ddNewId('aar'),
+    composite_key: key,
+    state: keyParts.state,
+    district: keyParts.district,
+    taluka: keyParts.taluka,
+    village: village,
+    village_lgd_code: findings.village_lgd_code || null,
+    aliases: Array.isArray(findings.aliases) ? findings.aliases : [],
+    planning_authority: findings.planning_authority || null,
+    rulebook_key: findings.rulebook_key || null,
+    overlays: overlays,
+    tenure_class: findings.tenure_class || null,
+    resolved_by: meta.confirmed_by || 'advocate',
+    resolved_on: new Date().toISOString(),
+    last_confirmed_on: new Date().toISOString(),
+    expires_on: new Date(Date.now() + 183 * 24 * 3600 * 1000).toISOString(),
+    source_note: findings.source_note || 'Advocate report (confirmed)',
+    source_type: 'advocate_report',
+    source_ref: meta.source_ref || '',
+    confidence: 90,
+    supersedes: null
+  };
+  eng.authority_register.push(created);
+  return created;
+}
+
+/** Optional quiet confirm — never blocking, never required. */
+function ddOptionalConfirmAuthority(projectId, form){
+  form = form || {};
+  var eng = ensureDdEngine();
+  var p = (PROJS || []).find(function(x){ return x.id === projectId; });
+  var run = p && p.dd_run_id ? (eng.runs || []).find(function(r){ return r.id === p.dd_run_id; }) : null;
+  var loc = {
+    state: form.state || '',
+    district: form.district || '',
+    taluka: form.taluka || '',
+    village: form.village || ''
+  };
+  if(run){
+    loc.village = loc.village || (ddLatestFact(run.id, 'village') || {}).value_text || '';
+    loc.taluka = loc.taluka || (ddLatestFact(run.id, 'taluka') || {}).value_text || '';
+    loc.district = loc.district || (ddLatestFact(run.id, 'district') || {}).value_text || '';
+    loc.state = loc.state || (ddLatestFact(run.id, 'state') || {}).value_text || '';
+  }
+  if(!loc.village || !form.planning_authority) return null;
+  var row = {
+    id: ddNewId('aar'),
+    composite_key: ddCompositeKey(loc),
+    state: loc.state,
+    district: loc.district,
+    taluka: loc.taluka,
+    village: loc.village,
+    village_lgd_code: form.village_lgd_code || null,
+    aliases: Array.isArray(form.aliases) ? form.aliases : [],
+    planning_authority: form.planning_authority,
+    rulebook_key: form.rulebook_key || null,
+    overlays: Array.isArray(form.overlays) ? form.overlays : [],
+    resolved_by: localStorage.getItem('ga_user_name') || 'analyst',
+    resolved_on: new Date().toISOString(),
+    last_confirmed_on: new Date().toISOString(),
+    expires_on: new Date(Date.now() + 183 * 24 * 3600 * 1000).toISOString(),
+    source_note: form.source_note || 'Analyst optional confirm',
+    source_type: 'analyst_read',
+    source_ref: form.source_ref || 'analyst_confirm',
+    confidence: 90,
+    supersedes: null
+  };
+  var existing = (eng.authority_register || []).find(function(r){ return r && r.composite_key === row.composite_key; });
+  if(existing) row.supersedes = existing.id;
+  eng.authority_register.push(row);
+  if(run){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'AUTHORITY', field_key: 'planning_authority',
+      value_text: row.planning_authority,
+      value_json: { certainty: 'CONFIRMED', provisional: false, match_level: 'village', register_id: row.id },
+      source_type: 'analyst_read', source_ref: row.id, confidence: 90, tier: 0,
+      supersedes: (ddLatestFact(run.id, 'planning_authority') || {}).id || null,
+      notes: 'Optional analyst confirm'
+    });
+    ddAppendFact({
+      run_id: run.id, stage_key: 'AUTHORITY', field_key: 'authority_certainty',
+      value_text: 'CONFIRMED',
+      source_type: 'analyst_read', source_ref: row.id, confidence: 90, tier: 0,
+      supersedes: (ddLatestFact(run.id, 'authority_certainty') || {}).id || null
+    });
+  }
   try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
-  ddKickQueue();
+  return row;
+}
+
+function ddAuthorityLabelHtml(certainty, stale){
+  if(certainty === 'PROVISIONAL'){
+    return ' <span style="font-size:9px;font-weight:700;color:var(--orange-b);background:var(--orange-l);border:1px solid var(--orange);border-radius:4px;padding:1px 5px;margin-left:4px">PROVISIONAL</span>';
+  }
+  if(certainty === 'UNKNOWN'){
+    return ' <span style="font-size:9px;font-weight:700;color:var(--muted);background:var(--slate-l);border:1px solid var(--border);border-radius:4px;padding:1px 5px;margin-left:4px">UNKNOWN</span>';
+  }
+  if(stale){
+    return ' <span style="font-size:9px;font-weight:700;color:var(--gold-b);background:var(--gold-l);border:1px solid var(--gold);border-radius:4px;padding:1px 5px;margin-left:4px">STALE</span>';
+  }
+  return '';
+}
+
+function ddQuietConfirmAuthorityHtml(projectId){
+  if(!ddFlag('deploy1_engine')) return '';
+  var pid = String(projectId || '').replace(/'/g, '');
+  return '<details style="margin-top:8px;font-size:11px;color:var(--muted)">'
+    + '<summary style="cursor:pointer;font-weight:600;color:var(--muted)">Confirm authority (optional)</summary>'
+    + '<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:6px">'
+    + '<input id="dd-ca-auth-'+pid+'" class="proj-form-inp" placeholder="Planning authority"/>'
+    + '<input id="dd-ca-note-'+pid+'" class="proj-form-inp" placeholder="Source note"/>'
+    + '<input id="dd-ca-overlays-'+pid+'" class="proj-form-inp" placeholder="Overlays (comma-separated)" style="grid-column:1/-1"/>'
+    + '<button type="button" class="proj-plan-btn" onclick="ddSubmitQuietConfirm(\''+pid+'\')">Save confirm</button>'
+    + '</div></details>';
+}
+function ddSubmitQuietConfirm(projectId){
+  var auth = (document.getElementById('dd-ca-auth-'+projectId) || {}).value || '';
+  var note = (document.getElementById('dd-ca-note-'+projectId) || {}).value || '';
+  var ov = (document.getElementById('dd-ca-overlays-'+projectId) || {}).value || '';
+  ddOptionalConfirmAuthority(projectId, {
+    planning_authority: auth.trim(),
+    source_note: note.trim(),
+    overlays: ov.split(',').map(function(s){ return s.trim(); }).filter(Boolean)
+  });
+  try { renderDueDiligence(); } catch(e){}
+}
+
+/** Admin screen — authority_defaults + register (reference data; not required to edit). */
+function renderDdAuthorityAdmin(){
+  var eng = ensureDdEngine();
+  var defaults = eng.authority_defaults || [];
+  var register = eng.authority_register || [];
+  var html = '<div class="card" style="margin-bottom:14px">'
+    + '<div class="card-title">Authority defaults (reference)</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Seed file supplied separately. Editable here; cascade works with an empty table (returns UNKNOWN).</div>'
+    + '<div style="font-size:12px">Rows: <b>'+defaults.length+'</b></div>'
+    + '<div style="margin-top:8px;display:grid;grid-template-columns:repeat(3,1fr);gap:6px">'
+    + '<input id="dd-ad-state" class="proj-form-inp" placeholder="State"/>'
+    + '<input id="dd-ad-district" class="proj-form-inp" placeholder="District"/>'
+    + '<input id="dd-ad-taluka" class="proj-form-inp" placeholder="Taluka (blank = district default)"/>'
+    + '<input id="dd-ad-auth" class="proj-form-inp" placeholder="Planning authority"/>'
+    + '<input id="dd-ad-overlays" class="proj-form-inp" placeholder="Overlays comma-separated"/>'
+    + '<input id="dd-ad-note" class="proj-form-inp" placeholder="Source note"/>'
+    + '</div>'
+    + '<button type="button" class="proj-plan-btn primary" style="margin-top:8px" onclick="ddAdminAddDefault()">Add default row</button>'
+    + '</div>';
+  html += '<div class="card">'
+    + '<div class="card-title">Authority register</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Filled primarily by confirmed architect opinions. Staleness is displayed, not enforced.</div>'
+    + '<div style="font-size:12px;margin-bottom:8px">Rows: <b>'+register.length+'</b></div>';
+  if(!register.length){
+    html += '<div style="font-size:12px;color:var(--muted)">Empty — awaiting architect returns.</div>';
+  } else {
+    register.slice().reverse().slice(0, 40).forEach(function(r){
+      html += '<div style="padding:6px 0;border-bottom:1px solid var(--border);font-size:11px">'
+        + '<b>'+(r.village||'')+'</b> · '+(r.taluka||'')+' · '+(r.planning_authority||'')
+        + ddAuthorityLabelHtml('CONFIRMED', ddAuthorityIsStale(r))
+        + ' · conf '+(r.confidence||'')+' · '+(r.source_type||'')
+        + '</div>';
+    });
+  }
+  html += '</div>';
+  return html;
+}
+function ddAdminAddDefault(){
+  var eng = ensureDdEngine();
+  var row = {
+    id: ddNewId('aad'),
+    state: (document.getElementById('dd-ad-state') || {}).value || '',
+    district: (document.getElementById('dd-ad-district') || {}).value || '',
+    taluka: (document.getElementById('dd-ad-taluka') || {}).value || '',
+    planning_authority: (document.getElementById('dd-ad-auth') || {}).value || '',
+    overlays: String((document.getElementById('dd-ad-overlays') || {}).value || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean),
+    source_note: (document.getElementById('dd-ad-note') || {}).value || '',
+    confidence: (document.getElementById('dd-ad-taluka') || {}).value ? 70 : 50,
+    notes: ''
+  };
+  if(!row.planning_authority || !row.district){ alert('District and planning authority required.'); return; }
+  eng.authority_defaults.push(row);
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); } catch(e){}
+}
+
+function ddRenderEngineStripOnDdPage(){
+  if(!ddFlag('deploy1_engine')) return '';
+  var eng = ensureDdEngine();
+  var runs = (eng.runs || []).filter(function(r){ return r && !r.superseded_by; }).slice(-8).reverse();
+  var html = '<div style="margin:16px 0;padding-top:14px;border-top:2px solid var(--border)">'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:8px">DD Engine (Deploy 1)</div>';
+  if(!runs.length){
+    html += '<div style="font-size:11px;color:var(--muted)">No engine runs yet. Enable a pin on save to enqueue.</div>';
+  } else {
+    runs.forEach(function(run){
+      var p = (PROJS || []).find(function(x){ return x.id === run.project_id; }) || {};
+      var auth = ddLatestFact(run.id, 'planning_authority');
+      var cert = ddLatestFact(run.id, 'authority_certainty');
+      var rb = ddLatestFact(run.id, 'rulebook_key');
+      var certainty = (cert && cert.value_text) || '';
+      var stale = !!(auth && auth.value_json && auth.value_json.stale);
+      html += '<div class="card" style="margin-bottom:8px">'
+        + '<div style="font-size:12px;font-weight:700">'+(p.name||run.project_id)+'</div>'
+        + '<div style="font-size:10px;color:var(--muted)">Run '+run.id+' · '+run.status+' · pin '+run.pin_lat+', '+run.pin_lng+'</div>'
+        + '<div style="font-size:11px;margin-top:6px">Authority: <b>'+((auth&&auth.value_text)||'—')+'</b>'
+        + ddAuthorityLabelHtml(certainty, stale)
+        + (rb ? ' · Rulebook: <b>'+rb.value_text+'</b>' + (rb.value_json && rb.value_json.provisional ? ddAuthorityLabelHtml('PROVISIONAL', false) : '') + (rb.value_json && rb.value_json.exclusion ? ' <span style="color:var(--red-b);font-weight:700">EXCLUSION</span>' : '') : '')
+        + '</div>'
+        + ddQuietConfirmAuthorityHtml(run.project_id)
+        + '</div>';
+    });
+  }
+  html += '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted)">Authority admin</summary>'
+    + '<div style="margin-top:8px">'+renderDdAuthorityAdmin()+'</div></details>';
+  html += '</div>';
+  return html;
 }
 
 /**
@@ -4870,7 +5654,8 @@ function renderDueDiligence(){
   <div style="margin-top:28px;padding-top:16px;border-top:2px solid var(--border)">
     <div style="font-size:12px;font-weight:700;margin-bottom:8px">Legacy</div>
     ${renderDdLegacyArchiveHtml()}
-  </div>`;
+  </div>
+  ${typeof ddRenderEngineStripOnDdPage==='function'?ddRenderEngineStripOnDdPage():''}`;
 }
 
 // Spin animation
@@ -5590,7 +6375,7 @@ function gaApply(data) {
       cur.schemaVersion = Math.max(Number(cur.schemaVersion) || 1, Number(incoming.schemaVersion) || 1);
       cur.legacyMigratedAt = cur.legacyMigratedAt || incoming.legacyMigratedAt || null;
       cur.flags = Object.assign({}, DD_FEATURE_FLAGS_DEFAULT, cur.flags || {}, incoming.flags || {});
-      ['runs','stages','facts','authority_register','rulebooks','commissions','ground_truth','jobs'].forEach(function(k){
+      ['runs','stages','facts','authority_register','authority_defaults','rulebooks','commissions','ground_truth','jobs'].forEach(function(k){
         var map = {};
         (cur[k] || []).forEach(function(row){ if(row && row.id) map[row.id] = row; });
         (incoming[k] || []).forEach(function(row){
@@ -5600,6 +6385,7 @@ function gaApply(data) {
         cur[k] = Object.keys(map).map(function(id){ return map[id]; });
       });
       cur.legacy = Object.assign({}, cur.legacy || {}, incoming.legacy || {});
+      cur.pin_flags = Object.assign({}, cur.pin_flags || {}, incoming.pin_flags || {});
       cur.economics = Object.assign(
         { targetMarginPct: null, softCostPct: null },
         cur.economics || {},
