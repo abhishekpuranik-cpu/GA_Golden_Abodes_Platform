@@ -1,4 +1,603 @@
 {
-  "_comment": "Authority defaults seed — supply separately. Empty array by design until GA provides the file.",
-  "authority_defaults": []
+  "version": "1.0.0",
+  "generated_on": "2026-07-28",
+  "schema_note": "Taluka-level PROVISIONAL authority defaults for the DD engine cascade. These are NOT confirmed village-level facts. A rule here resolves at confidence 70 and must render as PROVISIONAL. carve_outs list the authorities that override the taluka default inside that taluka - if the project's Location/City or the geocoded locality matches a carve_out name or alias, the engine must NOT assert the taluka default; it returns PROVISIONAL_CONFLICT at confidence 50 and names the competing authorities. Village-level rows written from architect opinions always win over anything in this file.",
+  "confidence_taluka_default": 70,
+  "confidence_district_fallback": 50,
+  "confidence_provisional_conflict": 50,
+
+  "rules": [
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Haveli",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Pune Municipal Corporation", "aliases": ["PMC", "Pune city"], "authority": "PMC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Pimpri-Chinchwad Municipal Corporation", "aliases": ["PCMC", "Pimpri", "Chinchwad", "Bhosari", "Akurdi", "Nigdi", "Wakad", "Ravet", "Punawale", "Moshi", "Chikhali", "Tathawade"], "authority": "PCMC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Pune Cantonment Board", "aliases": ["Camp"], "authority": "Cantonment Board", "rulebook_key": "CANTONMENT" },
+        { "name": "Khadki Cantonment Board", "aliases": ["Kirkee"], "authority": "Cantonment Board", "rulebook_key": "CANTONMENT" },
+        { "name": "Dehu Road Cantonment Board", "aliases": ["Dehu Road"], "authority": "Cantonment Board", "rulebook_key": "CANTONMENT" },
+        { "name": "MIDC notified area", "aliases": ["Hadapsar Industrial Estate", "Bhosari MIDC"], "authority": "MIDC", "rulebook_key": "MIDC" },
+        { "name": "PCNTDA / Pradhikaran", "aliases": ["Pradhikaran", "PCNTDA"], "authority": "PCNTDA", "rulebook_key": "UDCPR_2020", "note": "Confirm current status - PCNTDA jurisdiction may have transferred to PCMC. Architect to verify." }
+      ],
+      "source_note": "PMRDA official taluka-wise village list (pmrda.gov.in/en/list-of-villages) - PMRDA covers 9 Pune district talukas.",
+      "reliability_note": "WEAK BOUNDARY TALUKA. Haveli is where PMC, PCMC and PMRDA all meet. High volume of GA deal flow, high error risk. Do not act on the default here without architect confirmation."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Mulshi",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS_WEST"],
+      "carve_outs": [
+        { "name": "Pimpri-Chinchwad Municipal Corporation", "aliases": ["PCMC"], "authority": "PCMC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Pune Municipal Corporation merged villages", "aliases": ["PMC"], "authority": "PMC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Hinjewadi", "aliases": ["Hinjewadi", "Rajiv Gandhi Infotech Park", "Man", "Maan"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "PMRDA official taluka-wise village list.",
+      "reliability_note": "WEAK. Hinjewadi sits in Mulshi taluka but is MIDC-notified, and MIDC is excluded from UDCPR. Western Mulshi carries Western Ghats ESA. Two live traps in one taluka."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Maval",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Lonavala Municipal Council", "aliases": ["Lonavala", "Lonavla", "Khandala", "Kusgaon", "Valvan", "Tungarli"], "authority": "Lonavala MC", "rulebook_key": "HILL_STATION_EXCLUDED", "note": "UDCPR EXPRESSLY EXCLUDES Lonavala Municipal Council. Separate rulebook." },
+        { "name": "Talegaon Dabhade Municipal Council", "aliases": ["Talegaon"], "authority": "Talegaon Dabhade MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Vadgaon Municipal Council", "aliases": ["Vadgaon Maval"], "authority": "Vadgaon MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Talegaon", "aliases": ["Talegaon MIDC"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "PMRDA village list; UDCPR-2020 clause 1.1 exclusion list names Lonavala Municipal Council and Hill Station Municipal Councils.",
+      "reliability_note": "HIGHEST RISK TALUKA IN THE SET. Lonavala MC is UDCPR-excluded AND the belt carries Western Ghats ESA. The taluka default of PMRDA is wrong for a large share of the parcels GA looks at here."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Khed",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Rajgurunagar Municipal Council", "aliases": ["Rajgurunagar", "Khed town"], "authority": "Rajgurunagar MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Chakan", "aliases": ["Chakan"], "authority": "Chakan MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Chakan", "aliases": ["Chakan MIDC", "Kharabwadi", "Mahalunge Ingale", "Nighoje"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "PMRDA village list.",
+      "reliability_note": "WEAK. Chakan MIDC phases are extensive and MIDC is UDCPR-excluded. Industrial-adjacent parcels here are frequently MIDC, not PMRDA."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Shirur",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Shirur Municipal Council", "aliases": ["Shirur", "Ghodnadi"], "authority": "Shirur MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Ranjangaon", "aliases": ["Ranjangaon MIDC", "Ranjangaon"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "PMRDA village list.",
+      "reliability_note": "Moderate. Wagholi-Shikrapur corridor is PMRDA but abuts PMC merged villages at the western end."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Purandar",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Saswad Municipal Council", "aliases": ["Saswad"], "authority": "Saswad MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Jejuri Municipal Council", "aliases": ["Jejuri"], "authority": "Jejuri MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Purandar airport notified area", "aliases": ["Purandar airport", "Pargaon", "Khanwadi", "Munjwadi", "Ekhatpur", "Kumbharvalan", "Udachiwadi", "Vanpuri"], "authority": "Special Planning Authority - confirm", "rulebook_key": "UNKNOWN", "note": "Airport notified area status and SPA appointment must be confirmed by architect. Land acquisition zone." }
+      ],
+      "source_note": "PMRDA village list.",
+      "reliability_note": "WEAK where the proposed Purandar airport notified area applies. Confirm before any commitment."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Daund",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Daund Municipal Council", "aliases": ["Daund"], "authority": "Daund MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Kurkumbh", "aliases": ["Kurkumbh"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "PMRDA village list."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Bhor",
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Bhor Municipal Council", "aliases": ["Bhor"], "authority": "Bhor MC", "rulebook_key": "UDCPR_2020" }
+      ],
+      "source_note": "PMRDA village list.",
+      "reliability_note": "Western Bhor carries Western Ghats ESA. UDCPR excludes MoEF-notified eco-sensitive regions."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Velhe",
+      "aliases": ["Rajgad"],
+      "planning_authority": "PMRDA",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [],
+      "source_note": "PMRDA village list. Taluka renamed Rajgad - keep both names as aliases.",
+      "reliability_note": "Entirely rural, heavy Western Ghats ESA coverage. Treat ESA as the operative constraint, not the zone."
+    },
+
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Junnar",
+      "planning_authority": "Collector / District Town Planning",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Junnar Municipal Council", "aliases": ["Junnar"], "authority": "Junnar MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Narayangaon", "aliases": ["Narayangaon"], "authority": "Nagar Panchayat", "rulebook_key": "UDCPR_2020" }
+      ],
+      "source_note": "Outside the 9 PMRDA talukas - Regional Plan area under the Collector.",
+      "reliability_note": "Confirm whether the parcel falls in a Regional Plan area or a council limit."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Ambegaon",
+      "planning_authority": "Collector / District Town Planning",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Manchar", "aliases": ["Manchar"], "authority": "Nagar Panchayat", "rulebook_key": "UDCPR_2020" },
+        { "name": "Ghodegaon", "aliases": ["Ghodegaon"], "authority": "Nagar Panchayat", "rulebook_key": "UDCPR_2020" }
+      ],
+      "source_note": "Outside the 9 PMRDA talukas."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Baramati",
+      "planning_authority": "Collector / District Town Planning",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Baramati Municipal Council", "aliases": ["Baramati"], "authority": "Baramati MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Baramati", "aliases": ["Baramati MIDC"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "Outside the 9 PMRDA talukas."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Pune",
+      "taluka": "Indapur",
+      "planning_authority": "Collector / District Town Planning",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Indapur Municipal Council", "aliases": ["Indapur"], "authority": "Indapur MC", "rulebook_key": "UDCPR_2020" }
+      ],
+      "source_note": "Outside the 9 PMRDA talukas."
+    },
+
+    {
+      "state": "Maharashtra",
+      "district": "Mumbai City",
+      "taluka": "*",
+      "planning_authority": "MCGM",
+      "rulebook_key": "DCPR_2034",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Mumbai Port Trust", "aliases": ["MbPT", "Port Trust"], "authority": "MbPT", "rulebook_key": "UNKNOWN" },
+        { "name": "SRA scheme area", "aliases": ["SRA"], "authority": "SRA", "rulebook_key": "DCPR_2034" }
+      ],
+      "source_note": "UDCPR-2020 clause 1.1 excludes Municipal Corporation of Greater Mumbai and all planning/special planning/development authorities within its limits.",
+      "reliability_note": "UDCPR NEVER APPLIES HERE. DCPR 2034 governs. Any FSI figure computed on UDCPR for a Mumbai parcel is wrong."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Mumbai Suburban",
+      "taluka": "*",
+      "planning_authority": "MCGM",
+      "rulebook_key": "DCPR_2034",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "MIDC notified area", "aliases": ["Andheri MIDC", "Marol"], "authority": "MIDC", "rulebook_key": "MIDC" },
+        { "name": "SRA scheme area", "aliases": ["SRA"], "authority": "SRA", "rulebook_key": "DCPR_2034" },
+        { "name": "Aarey / eco-sensitive", "aliases": ["Aarey", "SGNP", "Sanjay Gandhi National Park"], "authority": "MCGM", "rulebook_key": "DCPR_2034", "note": "ESZ around SGNP - separate clearance track." }
+      ],
+      "source_note": "UDCPR-2020 clause 1.1 exclusion list.",
+      "reliability_note": "UDCPR NEVER APPLIES HERE."
+    },
+
+    {
+      "state": "Maharashtra",
+      "district": "Thane",
+      "taluka": "Thane",
+      "planning_authority": "Thane Municipal Corporation",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Navi Mumbai Municipal Corporation", "aliases": ["NMMC", "Airoli", "Ghansoli", "Koparkhairane"], "authority": "NMMC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Mira-Bhayandar Municipal Corporation", "aliases": ["MBMC", "Mira Road", "Bhayandar"], "authority": "Mira-Bhayandar MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC notified area", "aliases": ["Wagle Estate", "Wagle Industrial Estate"], "authority": "MIDC", "rulebook_key": "MIDC" },
+        { "name": "CIDCO area", "aliases": ["CIDCO"], "authority": "CIDCO", "rulebook_key": "CIDCO" }
+      ],
+      "source_note": "MMRDA About MMR - MMR spans Mumbai City, Mumbai Suburban, Thane, Raigad and Palghar districts with 9 municipal corporations.",
+      "reliability_note": "WEAK. Thane taluka contains three separate corporations plus MIDC and CIDCO areas. Do not act on the default."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Thane",
+      "taluka": "Kalyan",
+      "planning_authority": "Kalyan-Dombivli Municipal Corporation",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Ulhasnagar Municipal Corporation", "aliases": ["Ulhasnagar"], "authority": "Ulhasnagar MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Kulgaon-Badlapur Municipal Council", "aliases": ["Badlapur", "Kulgaon"], "authority": "Kulgaon-Badlapur MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MMRDA growth centre", "aliases": ["MMRDA"], "authority": "MMRDA", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC notified area", "aliases": ["Dombivli MIDC"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "MMRDA About MMR."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Thane",
+      "taluka": "Bhiwandi",
+      "planning_authority": "Bhiwandi-Nizampur Municipal Corporation",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Bhiwandi Surrounding Notified Area", "aliases": ["BSNA", "Bhiwandi Surrounding"], "authority": "MMRDA (BSNA)", "rulebook_key": "UDCPR_2020_BSNA", "note": "UDCPR carries a dedicated Bhiwandi Surrounding Notified Area regulation. Warehousing belt - most GA-relevant parcels here are BSNA, not the corporation." }
+      ],
+      "source_note": "MMRDA About MMR; UDCPR-2020 contains a specific Bhiwandi Surrounding Notified Area provision.",
+      "reliability_note": "WEAK. The warehousing corridor along NH-3 is largely BSNA. Default to the corporation is wrong for most parcels."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Thane",
+      "taluka": "Ambarnath",
+      "planning_authority": "Ambarnath Municipal Council",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "MIDC Additional Ambernath", "aliases": ["Ambernath MIDC", "Anandnagar"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "MMRDA About MMR."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Thane",
+      "taluka": "Murbad",
+      "planning_authority": "Collector / MMRDA Regional Plan",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Murbad Municipal Council", "aliases": ["Murbad"], "authority": "Murbad MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Murbad", "aliases": ["Murbad MIDC"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "MMRDA About MMR.",
+      "reliability_note": "Confirm whether the parcel is inside or outside the MMR boundary - Murbad is partly in, partly out."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Thane",
+      "taluka": "Shahapur",
+      "planning_authority": "Collector / MMRDA Regional Plan",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [],
+      "source_note": "MMRDA About MMR.",
+      "reliability_note": "Partly outside MMR. Tansa and Bhatsa catchment restrictions apply in parts."
+    },
+
+    {
+      "state": "Maharashtra",
+      "district": "Raigad",
+      "taluka": "Panvel",
+      "planning_authority": "Panvel Municipal Corporation",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "NAINA", "aliases": ["NAINA", "Navi Mumbai Airport Influence Notified Area"], "authority": "CIDCO (NAINA)", "rulebook_key": "NAINA", "note": "UDCPR EXPRESSLY EXCLUDES NAINA. CIDCO is the Special Planning Authority." },
+        { "name": "CIDCO Navi Mumbai node", "aliases": ["CIDCO", "Kharghar", "Kamothe", "Kalamboli", "New Panvel", "Ulwe", "Taloja"], "authority": "CIDCO", "rulebook_key": "CIDCO" },
+        { "name": "Navi Mumbai Municipal Corporation", "aliases": ["NMMC", "Belapur"], "authority": "NMMC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Taloja", "aliases": ["Taloja MIDC"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "UDCPR-2020 clause 1.1 excludes NAINA, MIDC and JNPT; NAINA is a CIDCO-administered Special Planning Authority in Panvel and Uran talukas.",
+      "reliability_note": "HIGHEST RISK IN THE MUMBAI BELT. Four competing authorities and two UDCPR exclusions inside one taluka. The default is unreliable here - always require architect confirmation."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Raigad",
+      "taluka": "Uran",
+      "planning_authority": "CIDCO (NAINA)",
+      "rulebook_key": "NAINA",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Jawaharlal Nehru Port Trust", "aliases": ["JNPT", "JNPA", "Nhava Sheva"], "authority": "JNPT", "rulebook_key": "JNPT_EXCLUDED", "note": "UDCPR expressly excludes JNPT." },
+        { "name": "Uran Municipal Council", "aliases": ["Uran"], "authority": "Uran MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "CIDCO Navi Mumbai node", "aliases": ["CIDCO", "Dronagiri"], "authority": "CIDCO", "rulebook_key": "CIDCO" }
+      ],
+      "source_note": "NAINA jurisdiction covers Panvel and Uran; UDCPR-2020 clause 1.1 exclusion list.",
+      "reliability_note": "WEAK. Heavy CRZ exposure along the coast."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Raigad",
+      "taluka": "Karjat",
+      "planning_authority": "MMRDA Regional Plan / Collector",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Karjat Municipal Council", "aliases": ["Karjat"], "authority": "Karjat MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Matheran Municipal Council", "aliases": ["Matheran", "Neral"], "authority": "Matheran MC", "rulebook_key": "HILL_STATION_EXCLUDED", "note": "UDCPR excludes Hill Station Municipal Councils. Matheran also carries a notified Eco-Sensitive Zone." }
+      ],
+      "source_note": "MMR extended to include Karjat; UDCPR-2020 excludes Hill Station Municipal Councils; Matheran ESZ notified by MoEF.",
+      "reliability_note": "HIGH RISK. Matheran ESZ extends well beyond the council limit and catches parcels in surrounding villages."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Raigad",
+      "taluka": "Khalapur",
+      "planning_authority": "MMRDA Regional Plan / Collector",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Khopoli Municipal Council", "aliases": ["Khopoli"], "authority": "Khopoli MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "NAINA", "aliases": ["NAINA"], "authority": "CIDCO (NAINA)", "rulebook_key": "NAINA", "note": "NAINA notified villages extend into Khalapur." },
+        { "name": "MIDC Patalganga", "aliases": ["Patalganga", "Rasayani"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "MMR boundary extended September 2019 to include Khalapur, Pen and Alibag talukas.",
+      "reliability_note": "WEAK. NAINA notified villages and MIDC both present."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Raigad",
+      "taluka": "Pen",
+      "planning_authority": "MMRDA Regional Plan / Collector",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Pen Municipal Council", "aliases": ["Pen"], "authority": "Pen MC", "rulebook_key": "UDCPR_2020" }
+      ],
+      "source_note": "MMR boundary extended September 2019."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Raigad",
+      "taluka": "Alibag",
+      "planning_authority": "MMRDA Regional Plan / Collector",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Alibag Municipal Council", "aliases": ["Alibag", "Alibaug"], "authority": "Alibag MC", "rulebook_key": "UDCPR_2020" }
+      ],
+      "source_note": "MMR boundary extended September 2019.",
+      "reliability_note": "CRZ is the dominant constraint on the entire coastal strip. Zone is often irrelevant next to CRZ classification."
+    },
+
+    {
+      "state": "Maharashtra",
+      "district": "Palghar",
+      "taluka": "Vasai",
+      "planning_authority": "Vasai-Virar City Municipal Corporation",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "MIDC notified area", "aliases": ["Vasai MIDC", "Gauraipada"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "MMRDA About MMR."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Palghar",
+      "taluka": "Palghar",
+      "planning_authority": "MMRDA Regional Plan / Collector",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Palghar Municipal Council", "aliases": ["Palghar"], "authority": "Palghar MC", "rulebook_key": "UDCPR_2020" },
+        { "name": "MIDC Tarapur", "aliases": ["Tarapur", "Boisar"], "authority": "MIDC", "rulebook_key": "MIDC" }
+      ],
+      "source_note": "MMR boundary extended September 2019 to include Palghar taluka."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Palghar",
+      "taluka": "Dahanu",
+      "planning_authority": "Collector",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["CRZ", "ECO_FRAGILE_DAHANU"],
+      "carve_outs": [
+        { "name": "Dahanu Municipal Council", "aliases": ["Dahanu"], "authority": "Dahanu MC", "rulebook_key": "UDCPR_2020" }
+      ],
+      "source_note": "Dahanu taluka is a notified ecologically fragile area with a dedicated environment protection authority.",
+      "reliability_note": "HIGH RISK. Dahanu taluka carries a notified ecologically fragile designation covering the whole taluka. UDCPR excludes MoEF-notified eco-fragile regions. Treat every Dahanu parcel as constrained until an architect confirms otherwise."
+    },
+
+    {
+      "state": "Goa",
+      "district": "North Goa",
+      "taluka": "Bardez",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "North Goa Planning and Development Authority", "aliases": ["NGPDA", "Mapusa Planning Area", "Calangute-Candolim Planning Area", "Calangute", "Candolim", "Mapusa"], "authority": "NGPDA", "rulebook_key": "GLDBCR_2010", "note": "Notified planning area with its own Outline Development Plan - ODP overrides the Regional Plan." },
+        { "name": "Mapusa Municipal Council", "aliases": ["Mapusa"], "authority": "Mapusa MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview - Regional Plan covers the entire State; six planning areas notified; NGPDA has jurisdiction over Panaji, Mapusa and Calangute-Candolim planning areas.",
+      "reliability_note": "CRZ is the dominant constraint across the entire coastal belt - Calangute, Candolim, Anjuna, Assagao, Siolim. Zone classification is secondary to CRZ line."
+    },
+    {
+      "state": "Goa",
+      "district": "North Goa",
+      "taluka": "Tiswadi",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "North Goa Planning and Development Authority - Panaji Planning Area", "aliases": ["NGPDA", "Panaji Planning Area", "Greater Panaji", "Panjim", "Taleigao", "Dona Paula", "Kadamba Plateau"], "authority": "NGPDA", "rulebook_key": "GLDBCR_2010" },
+        { "name": "Corporation of the City of Panaji", "aliases": ["CCP", "Panaji", "Panjim"], "authority": "CCP", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview - NGPDA jurisdiction includes Panaji Planning Area."
+    },
+    {
+      "state": "Goa",
+      "district": "North Goa",
+      "taluka": "Pernem",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Pernem Municipal Council", "aliases": ["Pernem"], "authority": "Pernem MC", "rulebook_key": "GLDBCR_2010" },
+        { "name": "Mopa airport notified area", "aliases": ["Mopa", "Manohar International Airport"], "authority": "Confirm - special planning area", "rulebook_key": "UNKNOWN", "note": "Airport-adjacent planning provisions to be confirmed by architect." }
+      ],
+      "source_note": "Goa TCP Department overview; TCP publishes taluka land use plans including Pernem.",
+      "reliability_note": "Coastal Pernem - Morjim, Ashvem, Mandrem - is heavily CRZ constrained and also carries turtle nesting site restrictions in parts."
+    },
+    {
+      "state": "Goa",
+      "district": "North Goa",
+      "taluka": "Bicholim",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Bicholim Municipal Council", "aliases": ["Bicholim"], "authority": "Bicholim MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview.",
+      "reliability_note": "Mining lease areas and mining dump zones are a common constraint in this taluka."
+    },
+    {
+      "state": "Goa",
+      "district": "North Goa",
+      "taluka": "Sattari",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Valpoi Municipal Council", "aliases": ["Valpoi"], "authority": "Valpoi MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview.",
+      "reliability_note": "Western Ghats ESA and wildlife sanctuary buffers dominate."
+    },
+    {
+      "state": "Goa",
+      "district": "North Goa",
+      "taluka": "Ponda",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "South Goa Planning and Development Authority - Ponda Planning Area", "aliases": ["SGPDA", "Ponda Planning Area"], "authority": "SGPDA", "rulebook_key": "GLDBCR_2010" },
+        { "name": "Ponda Municipal Council", "aliases": ["Ponda"], "authority": "Ponda MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview; SGPDA office located at Ponda and administers the Ponda planning area.",
+      "reliability_note": "Ponda taluka sits in North Goa district but its planning area is administered by SGPDA. Do not infer the authority from the district name."
+    },
+
+    {
+      "state": "Goa",
+      "district": "South Goa",
+      "taluka": "Salcete",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "South Goa Planning and Development Authority - Margao Planning Area", "aliases": ["SGPDA", "Margao Planning Area", "Margao", "Madgaon"], "authority": "SGPDA", "rulebook_key": "GLDBCR_2010" },
+        { "name": "Margao Municipal Council", "aliases": ["Margao"], "authority": "Margao MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview - six planning areas notified, SGPDA administers Margao and Ponda planning areas.",
+      "reliability_note": "Coastal Salcete - Colva, Benaulim, Varca, Cavelossim - is CRZ dominated. Khazan land is a frequent title and development constraint."
+    },
+    {
+      "state": "Goa",
+      "district": "South Goa",
+      "taluka": "Mormugao",
+      "planning_authority": "Mormugao Planning and Development Authority",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["CRZ"],
+      "carve_outs": [
+        { "name": "Mormugao Municipal Council", "aliases": ["Vasco", "Vasco da Gama", "Mormugao"], "authority": "Mormugao MC", "rulebook_key": "GLDBCR_2010" },
+        { "name": "Mormugao Port Authority", "aliases": ["MPT", "MPA", "Port Trust"], "authority": "Mormugao Port Authority", "rulebook_key": "UNKNOWN" }
+      ],
+      "source_note": "Goa TCP Department overview - MPDA is one of the three PDAs; TCP approved the draft ODP for the Mormugao planning area."
+    },
+    {
+      "state": "Goa",
+      "district": "South Goa",
+      "taluka": "Quepem",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": [],
+      "carve_outs": [
+        { "name": "Quepem Municipal Council", "aliases": ["Quepem"], "authority": "Quepem MC", "rulebook_key": "GLDBCR_2010" },
+        { "name": "Curchorem-Cacora Municipal Council", "aliases": ["Curchorem", "Cacora"], "authority": "Curchorem-Cacora MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview."
+    },
+    {
+      "state": "Goa",
+      "district": "South Goa",
+      "taluka": "Sanguem",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Sanguem Municipal Council", "aliases": ["Sanguem"], "authority": "Sanguem MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview.",
+      "reliability_note": "Western Ghats ESA and wildlife sanctuary buffers dominate."
+    },
+    {
+      "state": "Goa",
+      "district": "South Goa",
+      "taluka": "Dharbandora",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [],
+      "source_note": "Goa TCP Department overview."
+    },
+    {
+      "state": "Goa",
+      "district": "South Goa",
+      "taluka": "Canacona",
+      "planning_authority": "Goa TCP (Regional Plan 2021)",
+      "rulebook_key": "GLDBCR_2010",
+      "overlays": ["CRZ", "ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Canacona Municipal Council", "aliases": ["Canacona", "Chaudi"], "authority": "Canacona MC", "rulebook_key": "GLDBCR_2010" }
+      ],
+      "source_note": "Goa TCP Department overview.",
+      "reliability_note": "Both CRZ and Western Ghats ESA. Palolem-Agonda belt is heavily constrained."
+    }
+  ],
+
+  "district_fallbacks": [
+    { "state": "Maharashtra", "district": "Pune", "planning_authority": "Collector / District Town Planning", "rulebook_key": "UDCPR_2020", "confidence": 50 },
+    { "state": "Maharashtra", "district": "Thane", "planning_authority": "Collector / MMRDA Regional Plan", "rulebook_key": "UDCPR_2020", "confidence": 50 },
+    { "state": "Maharashtra", "district": "Raigad", "planning_authority": "Collector / MMRDA Regional Plan", "rulebook_key": "UDCPR_2020", "confidence": 50 },
+    { "state": "Maharashtra", "district": "Palghar", "planning_authority": "Collector / MMRDA Regional Plan", "rulebook_key": "UDCPR_2020", "confidence": 50 },
+    { "state": "Maharashtra", "district": "Mumbai City", "planning_authority": "MCGM", "rulebook_key": "DCPR_2034", "confidence": 90 },
+    { "state": "Maharashtra", "district": "Mumbai Suburban", "planning_authority": "MCGM", "rulebook_key": "DCPR_2034", "confidence": 90 },
+    { "state": "Goa", "district": "North Goa", "planning_authority": "Goa TCP (Regional Plan 2021)", "rulebook_key": "GLDBCR_2010", "confidence": 60 },
+    { "state": "Goa", "district": "South Goa", "planning_authority": "Goa TCP (Regional Plan 2021)", "rulebook_key": "GLDBCR_2010", "confidence": 60 }
+  ]
 }

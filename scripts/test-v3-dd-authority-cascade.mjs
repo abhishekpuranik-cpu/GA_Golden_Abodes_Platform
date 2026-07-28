@@ -1,6 +1,15 @@
 /**
- * Unit-test authority cascade + exclusions-first rulebook (Node mirror of client logic).
+ * Cascade tests against the real authority_defaults.json seed.
  */
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const pack = JSON.parse(
+  fs.readFileSync(path.join(__dirname, '../client/public/legacy/dd_data/authority_defaults.json'), 'utf8')
+);
+
 function norm(s) {
   return String(s || '')
     .trim()
@@ -8,119 +17,127 @@ function norm(s) {
     .replace(/\s+/g, ' ');
 }
 
-function resolveCascade(eng, loc) {
+function haystack(...parts) {
+  return norm(parts.filter(Boolean).join(' | '));
+}
+
+function matchCarveOuts(carveOuts, hs) {
+  const hits = [];
+  for (const c of carveOuts || []) {
+    const names = [c.name, c.authority].concat(c.aliases || []);
+    if (names.some((n) => {
+      const nn = norm(n);
+      return nn && hs.includes(nn);
+    })) hits.push(c);
+  }
+  return hits;
+}
+
+function resolve(eng, loc, ctx = {}) {
+  const meta = eng.authority_defaults_meta || {};
+  const confTaluka = meta.confidence_taluka_default ?? 70;
+  const confConflict = meta.confidence_provisional_conflict ?? 50;
+  const hs = haystack(ctx.projectLocation, loc.village, loc.taluka);
+
   const nVillage = norm(loc.village);
-  const hits = (eng.authority_register || []).filter((r) => {
-    if (!r) return false;
-    if (norm(r.state) && loc.state && norm(r.state) !== norm(loc.state)) return false;
-    const names = [r.village].concat(Array.isArray(r.aliases) ? r.aliases : []);
+  const regHits = (eng.authority_register || []).filter((r) => {
+    const names = [r.village].concat(r.aliases || []);
     return names.some((n) => norm(n) === nVillage && nVillage);
   });
-  if (hits.length && nVillage) {
-    hits.sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
-    const best = hits[0];
-    return {
-      planning_authority: best.planning_authority,
-      confidence: Number(best.confidence) || (best.source_type === 'architect_opinion' ? 95 : 90),
-      certainty: 'CONFIRMED',
-      provisional: false,
-      match_level: 'village'
-    };
+  if (regHits.length) {
+    return { certainty: 'CONFIRMED', confidence: regHits[0].confidence || 95, match_level: 'village' };
   }
+
   const talukaHit = (eng.authority_defaults || []).find(
     (d) =>
-      d &&
-      norm(d.taluka) &&
       norm(d.taluka) === norm(loc.taluka) &&
       (!d.district || !loc.district || norm(d.district) === norm(loc.district))
   );
-  if (talukaHit && norm(loc.taluka)) {
+  if (talukaHit) {
+    const carve = matchCarveOuts(talukaHit.carve_outs, hs);
+    if (carve.length) {
+      return {
+        certainty: 'PROVISIONAL_CONFLICT',
+        confidence: confConflict,
+        match_level: 'taluka_carve_out',
+        planning_authority: null,
+        competing: carve.map((c) => c.authority)
+      };
+    }
     return {
-      planning_authority: talukaHit.planning_authority,
-      confidence: 70,
       certainty: 'PROVISIONAL',
-      provisional: true,
-      match_level: 'taluka'
+      confidence: confTaluka,
+      match_level: 'taluka',
+      planning_authority: talukaHit.planning_authority
     };
   }
-  const districtHit = (eng.authority_defaults || []).find(
-    (d) =>
-      d &&
-      (!d.taluka || !String(d.taluka).trim()) &&
-      norm(d.district) === norm(loc.district) &&
-      norm(loc.district)
-  );
-  if (districtHit) {
+
+  const df = (eng.district_fallbacks || []).find((d) => norm(d.district) === norm(loc.district));
+  if (df) {
     return {
-      planning_authority: districtHit.planning_authority,
-      confidence: 50,
-      certainty: 'PROVISIONAL',
-      provisional: true,
-      match_level: 'district'
+      certainty: (df.confidence ?? 50) >= 80 ? 'CONFIRMED' : 'PROVISIONAL',
+      confidence: df.confidence ?? 50,
+      match_level: 'district',
+      planning_authority: df.planning_authority
     };
   }
-  return {
-    planning_authority: null,
-    confidence: 0,
-    certainty: 'UNKNOWN',
-    provisional: false,
-    match_level: 'none'
-  };
+  return { certainty: 'UNKNOWN', confidence: 0, match_level: 'none' };
 }
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 
-// Empty tables → UNKNOWN (never UNMAPPED)
-let r = resolveCascade({ authority_register: [], authority_defaults: [] }, {
-  village: 'Mulshi',
-  taluka: 'Mulshi',
-  district: 'Pune',
-  state: 'Maharashtra'
+const eng = {
+  authority_defaults: pack.rules,
+  district_fallbacks: pack.district_fallbacks,
+  authority_register: [],
+  authority_defaults_meta: {
+    confidence_taluka_default: pack.confidence_taluka_default,
+    confidence_district_fallback: pack.confidence_district_fallback,
+    confidence_provisional_conflict: pack.confidence_provisional_conflict
+  }
+};
+
+assert(pack.rules.length === 42, `expected 42 rules, got ${pack.rules.length}`);
+assert(pack.district_fallbacks.length === 8, 'expected 8 district fallbacks');
+
+let r = resolve(eng, { village: 'Somewhere', taluka: 'Mulshi', district: 'Pune', state: 'Maharashtra' }, {});
+assert(r.certainty === 'PROVISIONAL' && r.planning_authority === 'PMRDA' && r.confidence === 70, 'Mulshi default PMRDA');
+
+r = resolve(
+  eng,
+  { village: 'Hinjewadi', taluka: 'Mulshi', district: 'Pune', state: 'Maharashtra' },
+  { projectLocation: 'Hinjewadi Pune' }
+);
+assert(r.certainty === 'PROVISIONAL_CONFLICT' && r.planning_authority == null, 'Hinjewadi carve-out → conflict');
+assert(r.competing.includes('MIDC'), 'competing includes MIDC');
+
+r = resolve(
+  eng,
+  { village: 'X', taluka: 'Maval', district: 'Pune', state: 'Maharashtra' },
+  { projectLocation: 'Lonavala' }
+);
+assert(r.certainty === 'PROVISIONAL_CONFLICT', 'Lonavala in Maval → conflict');
+
+r = resolve(eng, { village: 'X', taluka: 'UnknownTaluka', district: 'Pune', state: 'Maharashtra' }, {});
+assert(r.match_level === 'district' && r.planning_authority.includes('Collector'), 'Pune district fallback');
+
+r = resolve(eng, { village: 'X', taluka: 'Y', district: 'Mumbai City', state: 'Maharashtra' }, {});
+assert(r.certainty === 'CONFIRMED' && r.planning_authority === 'MCGM' && r.confidence === 90, 'Mumbai City MCGM');
+
+eng.authority_register = [
+  { village: 'Nande', aliases: ['Nande Budruk'], planning_authority: 'PMRDA', confidence: 95, source_type: 'architect_opinion' }
+];
+r = resolve(
+  eng,
+  { village: 'Nande Budruk', taluka: 'Mulshi', district: 'Pune' },
+  { projectLocation: 'Hinjewadi' }
+);
+assert(r.certainty === 'CONFIRMED' && r.match_level === 'village', 'architect register beats carve-out');
+
+console.log('authority_defaults seed cascade tests OK', {
+  rules: pack.rules.length,
+  fallbacks: pack.district_fallbacks.length,
+  version: pack.version
 });
-assert(r.certainty === 'UNKNOWN' && r.planning_authority === null, 'empty → UNKNOWN');
-
-// District default
-r = resolveCascade(
-  {
-    authority_register: [],
-    authority_defaults: [{ id: '1', district: 'Pune', taluka: '', planning_authority: 'PMRDA', confidence: 50 }]
-  },
-  { village: 'X', taluka: 'Y', district: 'Pune', state: 'Maharashtra' }
-);
-assert(r.match_level === 'district' && r.confidence === 50 && r.provisional, 'district default');
-
-// Taluka beats district
-r = resolveCascade(
-  {
-    authority_register: [],
-    authority_defaults: [
-      { id: '1', district: 'Pune', taluka: '', planning_authority: 'PMRDA' },
-      { id: '2', district: 'Pune', taluka: 'Mulshi', planning_authority: 'PCMC' }
-    ]
-  },
-  { village: 'X', taluka: 'Mulshi', district: 'Pune', state: 'Maharashtra' }
-);
-assert(r.match_level === 'taluka' && r.planning_authority === 'PCMC' && r.confidence === 70, 'taluka default');
-
-// Architect register beats defaults
-r = resolveCascade(
-  {
-    authority_register: [
-      {
-        village: 'Nande',
-        aliases: ['Nande Budruk'],
-        district: 'Pune',
-        planning_authority: 'PMRDA',
-        source_type: 'architect_opinion',
-        confidence: 95
-      }
-    ],
-    authority_defaults: [{ district: 'Pune', taluka: '', planning_authority: 'Collector' }]
-  },
-  { village: 'Nande Budruk', taluka: 'Mulshi', district: 'Pune', state: 'Maharashtra' }
-);
-assert(r.match_level === 'village' && r.certainty === 'CONFIRMED' && r.confidence === 95, 'architect register via alias');
-
-console.log('authority cascade tests OK');
