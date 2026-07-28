@@ -173,11 +173,20 @@ v3DdRouter.post(
           ok: false,
           unavailable: true,
           error: 'Geocoding unavailable',
-          cacheKey: result.cacheKey || null
+          cacheKey: result.cacheKey || null,
+          provider: result.provider || null
         });
       }
       if (!result.ok) {
-        return res.status(502).json({ ok: false, error: result.error || 'Geocode failed' });
+        // Empty / unreachable → Stage 1 UNKNOWN; do not guess nearby places
+        return res.json({
+          ok: false,
+          empty: !!result.empty,
+          error: result.error || 'Geocode failed',
+          cacheKey: result.cacheKey || null,
+          formatted: result.formatted || '',
+          provider: result.provider || null
+        });
       }
       res.json({
         ok: true,
@@ -187,7 +196,8 @@ v3DdRouter.post(
         district: result.district || '',
         state: result.state || '',
         formatted: result.formatted || '',
-        cacheKey: result.cacheKey || null
+        cacheKey: result.cacheKey || null,
+        provider: result.provider || null
       });
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
