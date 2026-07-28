@@ -123,7 +123,7 @@ export default function App() {
               <LegacyAppShell
                 title="Project Acquisition (V3)"
                 htmlFile="GA_OrgResourcePlanner_V3.html"
-                htmlCacheVersion="20260728.9"
+                htmlCacheVersion="20260728.10"
                 appId={APP_IDS.V3_ORG_PLANNER}
                 keysList={APP_LOCAL_STORAGE_KEYS[APP_IDS.V3_ORG_PLANNER]}
                 workspaceBlobKey="ga_planner_state_v1"

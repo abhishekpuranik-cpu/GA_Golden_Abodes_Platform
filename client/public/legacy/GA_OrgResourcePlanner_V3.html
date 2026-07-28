@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260728.9';
+var GA_V3_BUILD = '20260728.10';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1262,6 +1262,7 @@ function ensureDdEngine(){
   if(!e.pin_flags || typeof e.pin_flags !== 'object') e.pin_flags = {};
   if(!e.economics || typeof e.economics !== 'object') e.economics = ddEconomicsDefaults();
   else e.economics = Object.assign(ddEconomicsDefaults(), e.economics);
+  if(!e.vicinity_comps || typeof e.vicinity_comps !== 'object') e.vicinity_comps = {};
   if(e.schemaVersion == null) e.schemaVersion = 1;
   try { ddEnsureRulebookSeed(); } catch(_rb) {}
   return e;
@@ -3223,6 +3224,255 @@ function ddDecideKill(pid){
   try { renderDueDiligence(); renderProjects(); } catch(e){}
 }
 
+/** Title + vicinity insights for DD engine card (from facts / analysed docs / manual comps). */
+function ddEnsureProjectDocs(pid){
+  if(!ST.dd[pid]) ST.dd[pid] = {};
+  if(!Array.isArray(ST.dd[pid].engineDocs)) ST.dd[pid].engineDocs = [];
+  return ST.dd[pid];
+}
+function vaultGetDocs(pid){
+  var d = ddEnsureProjectDocs(pid);
+  var eng = d.engineDocs || [];
+  var pend = (d.pendingDocs || []).map(function(doc, i){
+    if(doc && doc.id) return doc;
+    return Object.assign({}, doc, {
+      id: 'pend_' + pid + '_' + i,
+      status: doc.status || (doc.structured ? 'done' : 'uploaded')
+    });
+  });
+  return eng.concat(pend);
+}
+function ddInsightRow(label, bodyHtml, actionHtml){
+  return '<div style="display:grid;grid-template-columns:72px 1fr auto;gap:8px;align-items:start;padding:8px 0;border-bottom:1px solid var(--border)">'
+    + '<div style="font-size:9px;font-weight:800;letter-spacing:.04em;color:var(--muted);padding-top:2px">'+ddEsc(label)+'</div>'
+    + '<div style="font-size:12px;line-height:1.45">'+bodyHtml+'</div>'
+    + '<div style="font-size:11px">'+ (actionHtml || '') +'</div></div>';
+}
+function ddTitleInsight(pid, run){
+  var holders = run ? ddLatestFact(run.id, 'title_holders') : null;
+  var hist = run ? ddLatestFact(run.id, 'title_history') : null;
+  var enc = run ? ddLatestFact(run.id, 'title_encumbrances') : null;
+  var owners = (holders && holders.value_json && holders.value_json.owners) || [];
+  if(!owners.length){
+    vaultGetDocs(pid).forEach(function(doc){
+      var s = doc && doc.structured;
+      if(s && Array.isArray(s.owners) && s.owners.length && s.owners[0].name) owners = s.owners;
+    });
+  }
+  var mutations = (hist && hist.value_json && hist.value_json.mutations) || [];
+  if(!mutations.length){
+    vaultGetDocs(pid).forEach(function(doc){
+      var s = doc && doc.structured;
+      if(s && Array.isArray(s.mutations) && s.mutations.length) mutations = s.mutations;
+    });
+  }
+  var encs = (enc && enc.value_json && enc.value_json.encumbrances) || [];
+  if(!encs.length){
+    vaultGetDocs(pid).forEach(function(doc){
+      var s = doc && doc.structured;
+      if(s && Array.isArray(s.encumbrances) && s.encumbrances.length && s.encumbrances[0].entry_no) encs = s.encumbrances;
+    });
+  }
+  var current = owners.filter(function(o){ return o && o.name; }).map(function(o){
+    return o.name + (o.share_fraction ? ' ('+o.share_fraction+')' : '');
+  });
+  var past = mutations.filter(function(m){ return m && (m.details || m.type); }).slice(0, 4).map(function(m){
+    return (m.date ? m.date+' · ' : '') + (m.type || 'Mutation') + (m.details ? ': '+String(m.details).slice(0, 60) : '');
+  });
+  var redEnc = encs.filter(function(e){ return e && /red/i.test(String(e.risk_level||'')); });
+  return { current: current, past: past, encCount: encs.length, redEnc: redEnc.length, hasDoc: current.length > 0 || past.length > 0 };
+}
+function ddVicinityInsight(pid, run){
+  var eng = ensureDdEngine();
+  var manual = Array.isArray(eng.vicinity_comps[pid]) ? eng.vicinity_comps[pid].slice() : [];
+  var fromFact = run ? ddLatestFact(run.id, 'vicinity_comps') : null;
+  var fromDocs = (fromFact && fromFact.value_json && fromFact.value_json.deals) ? fromFact.value_json.deals.slice() : [];
+  if(!fromDocs.length){
+    vaultGetDocs(pid).forEach(function(doc){
+      var s = doc && doc.structured;
+      if(s && Array.isArray(s.recent_transactions)){
+        s.recent_transactions.forEach(function(t){
+          if(!t) return;
+          var rate = Number(t.rate_per_sqft);
+          if(!(rate > 0) && t.consideration_inr && t.area_sqft){
+            rate = Number(t.consideration_inr) / Number(t.area_sqft);
+          }
+          if(rate > 0) fromDocs.push({ rate: rate, year: (t.date || '').slice(0, 4), note: t.deed_type || t.village || '', source: 'doc' });
+        });
+      }
+    });
+  }
+  var deals = manual.concat(fromDocs).filter(function(d){ return d && Number(d.rate) > 0; });
+  if(!deals.length) return { median: null, count: 0, years: '', deals: [] };
+  var rates = deals.map(function(d){ return Number(d.rate); }).sort(function(a,b){ return a-b; });
+  var mid = rates[Math.floor(rates.length / 2)];
+  var years = deals.map(function(d){ return String(d.year || ''); }).filter(Boolean).sort();
+  var yrTxt = years.length ? (years[0] + (years[years.length-1] !== years[0] ? '–'+years[years.length-1] : '')) : '';
+  return { median: mid, count: deals.length, years: yrTxt, deals: deals };
+}
+function ddApplyStructuredToEngine(pid, structured){
+  if(!structured) return;
+  var run = ddActiveRunForProject(pid);
+  if(!run) return;
+  var owners = (structured.owners || []).filter(function(o){ return o && o.name; });
+  if(owners.length){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'RECORDS', field_key: 'title_holders',
+      value_text: owners.map(function(o){ return o.name; }).join(', '),
+      value_json: { owners: owners },
+      source_type: 'document_upload', source_ref: structured.document_type || '7_12', confidence: 70, tier: 0
+    });
+  }
+  var mutations = (structured.mutations || []).filter(function(m){ return m && (m.details || m.type || m.mutation_no); });
+  if(mutations.length){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'RECORDS', field_key: 'title_history',
+      value_text: mutations.length + ' mutation(s)',
+      value_json: { mutations: mutations },
+      source_type: 'document_upload', source_ref: structured.document_type || '7_12', confidence: 65, tier: 0
+    });
+  }
+  var encs = (structured.encumbrances || []).filter(function(e){ return e && (e.entry_no || e.type || e.details); });
+  if(encs.length){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'RECORDS', field_key: 'title_encumbrances',
+      value_text: encs.length + ' encumbrance(s)',
+      value_json: { encumbrances: encs },
+      source_type: 'document_upload', source_ref: structured.document_type || '7_12', confidence: 70, tier: 0
+    });
+  }
+  var deals = [];
+  (structured.recent_transactions || []).forEach(function(t){
+    if(!t) return;
+    var rate = Number(t.rate_per_sqft);
+    if(!(rate > 0) && Number(t.consideration_inr) > 0 && Number(t.area_sqft) > 0){
+      rate = Number(t.consideration_inr) / Number(t.area_sqft);
+    }
+    if(rate > 0) deals.push({
+      rate: Math.round(rate),
+      year: String(t.date || '').slice(0, 4),
+      note: [t.deed_type, t.village, t.parties].filter(Boolean).join(' · '),
+      source: 'doc'
+    });
+  });
+  if(deals.length){
+    var rates = deals.map(function(d){ return d.rate; }).sort(function(a,b){ return a-b; });
+    var median = rates[Math.floor(rates.length / 2)];
+    ddAppendFact({
+      run_id: run.id, stage_key: 'RECORDS', field_key: 'vicinity_comps',
+      value_number: median,
+      value_text: 'Rs ' + Math.round(median).toLocaleString('en-IN') + '/sq.ft · ' + deals.length + ' deal(s)',
+      value_json: { deals: deals, median: median },
+      source_type: 'document_upload', source_ref: structured.document_type || 'index_II', confidence: 60, tier: 0
+    });
+  }
+  var recStage = (run.stages || []).find(function(s){ return s && s.stage_key === 'RECORDS'; });
+  if(recStage && (owners.length || mutations.length || deals.length)){
+    recStage.status = 'auto_resolved';
+    recStage.completed_at = new Date().toISOString();
+    recStage.notes = 'From uploaded record / registration extract';
+  }
+}
+
+function ddEngineUploadAndAnalyse(pid, fileList, kind){
+  if(!fileList || !fileList.length) return;
+  var file = fileList[0];
+  var reader = new FileReader();
+  reader.onload = function(e){
+    var bucket = ddEnsureProjectDocs(pid);
+    var doc = {
+      id: ddNewId('edoc'),
+      kind: kind || 'sevenbara',
+      type: kind || 'sevenbara',
+      name: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      dataUrl: e.target.result,
+      status: 'uploaded',
+      structured: null,
+      error: null
+    };
+    bucket.engineDocs.push(doc);
+    try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(err){}
+    ddEngineAnalyseDoc(pid, doc.id);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function ddEngineAnalyseDoc(pid, docId){
+  var docs = vaultGetDocs(pid);
+  var doc = docs.find(function(d){ return d && d.id === docId; });
+  if(!doc) return;
+  var mode = await detectConnection();
+  if(mode === 'offline'){
+    doc.status = 'error';
+    doc.error = 'API key / proxy needed to read title & registration docs';
+    try { renderDueDiligence(); } catch(e){}
+    return;
+  }
+  doc.status = 'analysing';
+  doc.error = null;
+  try { renderDueDiligence(); } catch(e){}
+  try {
+    var isPDF = (doc.mimeType === 'application/pdf') || /\.pdf$/i.test(doc.name || '');
+    var imgBlocks = [];
+    if(isPDF && typeof jsPdfToImageBlocks === 'function'){
+      imgBlocks = await jsPdfToImageBlocks(doc.dataUrl, 200, 4);
+    } else if(doc.dataUrl && doc.dataUrl.indexOf('data:image') === 0){
+      var mt = (doc.dataUrl.match(/data:([^;]+)/) || [])[1] || 'image/jpeg';
+      imgBlocks = [{ type: 'image', source: { type: 'base64', media_type: mt, data: doc.dataUrl.split(',')[1] } }];
+    } else if(isPDF && doc.dataUrl){
+      var b64 = doc.dataUrl.split(',')[1];
+      imgBlocks = [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } }];
+    }
+    if(!imgBlocks.length) throw new Error('Could not read document pages');
+    var raw = await Promise.race([
+      callAI([{ role: 'user', content: imgBlocks.concat([{ type: 'text', text: vaultGetPrompt() }]) }], 4000),
+      new Promise(function(_, rej){ setTimeout(function(){ rej(new Error('TIMEOUT')); }, 180000); })
+    ]);
+    var structured = null;
+    try { structured = parseStructuredAnalysis(raw); } catch(e2){}
+    doc.structured = structured;
+    doc.status = structured ? 'done' : 'error';
+    doc.error = structured ? null : 'Could not parse structured title/market extract';
+    if(structured) ddApplyStructuredToEngine(pid, structured);
+    try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e3){}
+  } catch(err){
+    doc.status = 'error';
+    doc.error = (err && err.message) || 'Analyse failed';
+  }
+  try { renderDueDiligence(); } catch(e4){}
+}
+
+function ddAddManualVicinityComp(pid){
+  var rateEl = document.getElementById('dd-vic-rate-'+pid);
+  var yearEl = document.getElementById('dd-vic-year-'+pid);
+  var noteEl = document.getElementById('dd-vic-note-'+pid);
+  var rate = rateEl ? Number(rateEl.value) : 0;
+  if(!(rate > 0)){ alert('Enter a vicinity deal rate (₹/sq.ft)'); return; }
+  var eng = ensureDdEngine();
+  if(!Array.isArray(eng.vicinity_comps[pid])) eng.vicinity_comps[pid] = [];
+  eng.vicinity_comps[pid].push({
+    rate: Math.round(rate),
+    year: (yearEl && yearEl.value) ? String(yearEl.value).slice(0, 4) : '',
+    note: noteEl ? String(noteEl.value || '').trim() : '',
+    source: 'manual',
+    at: new Date().toISOString()
+  });
+  var run = ddActiveRunForProject(pid);
+  if(run){
+    var insight = ddVicinityInsight(pid, run);
+    ddAppendFact({
+      run_id: run.id, stage_key: 'RECORDS', field_key: 'vicinity_comps',
+      value_number: insight.median,
+      value_text: insight.median != null ? ('Rs '+Math.round(insight.median).toLocaleString('en-IN')+'/sq.ft · '+insight.count+' deal(s)') : '',
+      value_json: { deals: insight.deals, median: insight.median },
+      source_type: 'analyst_read', source_ref: 'manual_vicinity', confidence: 55, tier: 0
+    });
+  }
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); } catch(e){}
+}
+
 function ddRenderEconomicsSettings(){
   var eng = ensureDdEngine();
   var e = eng.economics || ddEconomicsDefaults();
@@ -3300,87 +3550,105 @@ function ddRenderProjectEngineCard(p){
     }
   }
   html += '<div style="margin:12px 0;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
-  html += '<div style="margin-bottom:6px">'+(outcomes.length ? outcomes.map(ddOutcomeBadgeHtml).join('') : ddOutcomeBadgeHtml('OPEN'));
+  html += '<div style="margin-bottom:8px">'+(outcomes.length ? outcomes.map(ddOutcomeBadgeHtml).join('') : ddOutcomeBadgeHtml('OPEN'));
   if(rec.worst_case){
     html += ' <span style="font-size:10px;font-weight:700;color:var(--muted);border:1px solid var(--border);padding:1px 6px;border-radius:4px;margin-left:4px">worst case</span>';
   }
-  html += ' <span style="font-size:11px;color:var(--muted)">conf '+(run.confidence != null ? run.confidence : (p.dd_confidence != null ? p.dd_confidence : '—'))+' · tier '+(run.tier != null ? run.tier : (p.dd_tier||0))+'</span></div>';
-  html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'
-    + ddEsc((village&&village.value_text)||'')+(taluka&&taluka.value_text ? ' · '+ddEsc(taluka.value_text) : '')+'</div>';
+  html += ' <span style="font-size:11px;color:var(--muted)">conf '+(run.confidence != null ? run.confidence : (p.dd_confidence != null ? p.dd_confidence : '—'))
+    + ((village&&village.value_text) || (taluka&&taluka.value_text) ? ' · '+ddEsc([(village&&village.value_text)||'',(taluka&&taluka.value_text)||''].filter(Boolean).join(' · ')) : '')
+    + '</span></div>';
+
   if(rec.branches && rec.branches.length){
-    html += '<div style="font-size:12px;line-height:1.55;margin-bottom:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">';
-    html += '<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">BRANCH OUTCOMES (competing authorities)</div>';
+    html += '<div style="font-size:11px;margin-bottom:8px;padding:6px 8px;border:1px dashed var(--border);border-radius:6px">';
     rec.branches.forEach(function(br){
-      var brOut = (br.outcomes || []).join('+') || 'OPEN';
-      html += '<div style="margin:3px 0">If <b>'+ddEsc(br.authority || br.label || '—')+'</b> → '
-        + ddEsc(brOut)
-        + ((br.amount_unavailable && br.amount_unavailable.message) ? ' · '+ddEsc(br.amount_unavailable.message) : '')
-        + '</div>';
+      html += '<div>If <b>'+ddEsc(br.authority || br.label || '—')+'</b> → '+ddEsc((br.outcomes || []).join('+') || 'OPEN')+'</div>';
     });
-    if(rec.conflict_worth){
-      html += '<div style="margin-top:6px;font-weight:600">'+ddEsc(rec.conflict_worth)+'</div>';
-    }
+    if(rec.conflict_worth) html += '<div style="margin-top:4px;font-weight:600">'+ddEsc(rec.conflict_worth)+'</div>';
     html += '</div>';
   }
-  if(rec.plain_language){
-    html += '<div style="font-size:12px;line-height:1.55;margin-bottom:8px">'+ddEsc(rec.plain_language)+'</div>';
+
+  var titleI = ddTitleInsight(pid, run);
+  var vicI = ddVicinityInsight(pid, run);
+  var titleBody = titleI.hasDoc
+    ? ('<div><b>Now:</b> '+ddEsc(titleI.current.length ? titleI.current.join(', ') : '—')+'</div>'
+      + (titleI.past.length ? '<div style="margin-top:3px;color:var(--muted)"><b>Past:</b> '+ddEsc(titleI.past.join(' · '))+'</div>' : '')
+      + (titleI.encCount ? '<div style="margin-top:3px">'+(titleI.redEnc ? '<span style="color:var(--red-b);font-weight:700">'+titleI.redEnc+' red encumbrance(s)</span> · ' : '')+titleI.encCount+' on record</div>' : ''))
+    : '<span style="color:var(--muted)">No 7/12 / title extract yet</span>';
+  var titleAct = '<label class="proj-plan-btn" style="cursor:pointer;margin:0;display:inline-block;padding:4px 8px;font-size:10px">'
+    + '7/12<input type="file" accept="image/*,.pdf" style="display:none" onchange="ddEngineUploadAndAnalyse(\''+pid+'\',this.files,\'sevenbara\')"/></label>';
+  html += ddInsightRow('TITLE', titleBody, titleAct);
+
+  var gaKnown = mlr && !/UNKNOWN|unavailable/i.test(String(mlr.value_text || ''));
+  var marketBody = '';
+  if(vicI.median != null){
+    marketBody = '<div><b>Vicinity</b> Rs '+Math.round(vicI.median).toLocaleString('en-IN')+'/sq.ft'
+      + ' <span style="color:var(--muted)">('+vicI.count+' deal'+(vicI.count===1?'':'s')+(vicI.years ? ', '+ddEsc(vicI.years) : '')+')</span></div>';
+  } else {
+    marketBody = '<div style="color:var(--muted)">No vicinity deals yet — upload Index II / sale deed, or add a deal</div>';
   }
-  var amtUnavail = rec.amount_unavailable || (outcomes.indexOf('REPRICED') >= 0 && flags.some(function(f){ return f && f.amount_unavailable; })
-    ? { message: (flags.find(function(f){ return f && f.amount_unavailable; }) || {}).consequence }
-    : null);
-  if(outcomes.indexOf('REPRICED') >= 0 && (amtUnavail || (mlr && /unavailable|UNKNOWN/i.test(String(mlr.value_text||''))))){
-    var amtMsg = (amtUnavail && amtUnavail.message)
-      || ('Repriced — amount unavailable, ' + ((mlr && mlr.value_text) || 'Land rate unavailable — economics config not set'));
-    html += '<div style="font-size:12px;font-weight:700;margin-bottom:8px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--card)">'+ddEsc(amtMsg)+'</div>';
+  if(gaKnown){
+    marketBody += '<div style="margin-top:3px"><b>GA residual</b> '+ddEsc(mlr.value_text)
+      + (gapTxt !== '—' ? ' · gap '+ddEsc(gapTxt) : '')+'</div>';
+  } else if(ddResolveEconomics(pid).unknown){
+    marketBody += '<div style="margin-top:3px;color:var(--muted)">GA residual needs economics (set above)</div>';
   }
-  var changeBits = [];
-  if(certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT') changeBits.push('Architect confirm of planning authority');
-  if(!zone || zone.value_text === 'UNKNOWN' || !zone) changeBits.push('Zone capture from DP');
-  if(ddResolveEconomics(pid).unknown) changeBits.push('Economics defaults');
-  html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px"><b>What would change this:</b> '+(changeBits.length ? changeBits.join(' · ') : 'New evidence or re-run')+'</div>';
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">';
-  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">AUTHORITY</div><div style="font-size:12px;font-weight:700">'+ddEsc((auth&&auth.value_text)||'—')+ddAuthorityLabelHtml(certainty, stale)+'</div>'
-    +(auth&&auth.notes?'<div style="font-size:9px;color:var(--muted);margin-top:3px">'+ddEsc(auth.notes)+'</div>':'')+'</div>';
-  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">RULEBOOK</div><div style="font-size:12px;font-weight:700">'+ddEsc((rb&&rb.value_text)||'—')+(rb&&rb.value_json&&rb.value_json.exclusion?' <span style="color:var(--red-b)">EXCL</span>':'')+'</div></div>';
-  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">ZONE</div><div style="font-size:12px;font-weight:700">'+ddEsc((zone&&zone.value_text)||'UNKNOWN')+'</div></div>';
-  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">USABLE FSI</div><div style="font-size:12px;font-weight:700">'+ddEsc((fsi&&fsi.value_text)!=null?fsi.value_text:'—')+'</div></div>';
-  html += '</div>';
-  if(flags && flags.length){
-    var sortedFlags = flags.slice().sort(function(a, b){
-      if(a.id === 'match_degraded') return -1;
-      if(b.id === 'match_degraded') return 1;
-      return (a.severity || 9) - (b.severity || 9);
-    });
-    html += '<div style="font-size:11px;margin-bottom:8px"><b>Flags</b>';
-    sortedFlags.forEach(function(f){
-      if(f.id === 'match_degraded' || f.outcome === 'FLAG' && /Taluka not matched/i.test(String(f.consequence||''))){
-        html += '<div style="padding:8px 10px;margin:6px 0;border-radius:6px;border:1px solid var(--red);background:var(--red-l);color:var(--red-b);font-weight:700">'
-          + ddEsc(f.consequence || f.what || '') + '</div>';
-      } else {
-        html += '<div style="padding:4px 0;border-bottom:1px solid var(--border)">'+ddOutcomeBadgeHtml(f.outcome||'FLAG')+' '+ddEsc(f.consequence||f.what||'')+'</div>';
-      }
-    });
-    html += '</div>';
-  }
-  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;font-size:11px;margin-bottom:10px">'
-    + '<div>Net developable<br/><b>'+(net&&net.value_number!=null?Math.round(net.value_number).toLocaleString('en-IN'):'—')+'</b> sq.ft</div>'
-    + '<div>Buildable<br/><b>'+(build&&build.value_number!=null?Math.round(build.value_number).toLocaleString('en-IN'):'—')+'</b> sq.ft</div>'
-    + '<div>Ask<br/><b>'+(ask!=null?('Rs '+Math.round(ask)):'—')+'</b></div>'
-    + '<div>GA justifiable<br/><b>'+ddEsc((mlr&&mlr.value_text)||'—')+'</b></div>'
-    + '<div>Gap<br/><b>'+ddEsc(gapTxt)+'</b></div>'
+  if(ask != null) marketBody += '<div style="margin-top:3px">Ask Rs '+Math.round(ask).toLocaleString('en-IN')+'/sq.ft</div>';
+  var marketAct = '<label class="proj-plan-btn" style="cursor:pointer;margin:0;display:inline-block;padding:4px 8px;font-size:10px">'
+    + 'Index II<input type="file" accept="image/*,.pdf" style="display:none" onchange="ddEngineUploadAndAnalyse(\''+pid+'\',this.files,\'index_ii\')"/></label>';
+  html += ddInsightRow('MARKET', marketBody, marketAct);
+  html += '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:end;margin:4px 0 8px;padding-left:80px">'
+    + '<input id="dd-vic-rate-'+pid+'" class="proj-form-inp" type="number" placeholder="₹/sq.ft" style="width:100px"/>'
+    + '<input id="dd-vic-year-'+pid+'" class="proj-form-inp" type="number" placeholder="Year" style="width:72px"/>'
+    + '<input id="dd-vic-note-'+pid+'" class="proj-form-inp" type="text" placeholder="Village / deed note" style="min-width:140px;flex:1"/>'
+    + '<button type="button" class="proj-plan-btn" style="padding:6px 10px;font-size:10px" onclick="ddAddManualVicinityComp(\''+pid+'\')">+ Deal</button>'
     + '</div>';
-  // Stage tracker + zone form
-  html += '<div style="font-size:11px;font-weight:700;margin:10px 0 6px">Stages</div><div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">';
-  (run.stages || []).forEach(function(s){
-    html += '<span style="font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--card)">'+ddEsc(s.stage_key)+' · '+ddEsc(s.status)+'</span>';
+
+  var planBits = [];
+  planBits.push(ddEsc((auth && auth.value_text) || '—') + ddAuthorityLabelHtml(certainty, stale));
+  planBits.push(ddEsc((rb && rb.value_text) || '—') + (rb && rb.value_json && rb.value_json.exclusion ? ' EXCL' : ''));
+  if(zone && zone.value_text && zone.value_text !== 'UNKNOWN') planBits.push('Zone '+ddEsc(zone.value_text));
+  else planBits.push('Zone needed');
+  if(fsi && fsi.value_text && fsi.value_text !== 'UNKNOWN') planBits.push('FSI '+ddEsc(fsi.value_text));
+  if(net && net.value_number != null) planBits.push('Net '+Math.round(net.value_number).toLocaleString('en-IN')+' sq.ft');
+  if(build && build.value_number != null) planBits.push('Buildable '+Math.round(build.value_number).toLocaleString('en-IN'));
+  html += ddInsightRow('PLAN', planBits.join(' · '), '');
+
+  var nextBits = [];
+  if(!titleI.hasDoc) nextBits.push('7/12');
+  if(vicI.median == null) nextBits.push('vicinity deals');
+  if(!zone || zone.value_text === 'UNKNOWN') nextBits.push('zone');
+  if(ddResolveEconomics(pid).unknown) nextBits.push('economics');
+  if(certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT') nextBits.push('confirm authority');
+  if(nextBits.length){
+    html += '<div style="font-size:11px;color:var(--muted);margin:6px 0 8px">Next: '+ddEsc(nextBits.join(' · '))+'</div>';
+  }
+
+  if(flags && flags.length){
+    var topFlags = flags.slice().sort(function(a, b){ return (a.severity || 9) - (b.severity || 9); }).slice(0, 3);
+    topFlags.forEach(function(f){
+      html += '<div style="font-size:11px;padding:4px 0;border-bottom:1px solid var(--border)">'+ddOutcomeBadgeHtml(f.outcome||'FLAG')+' '+ddEsc((f.consequence||f.what||'').slice(0, 160))+'</div>';
+    });
+  }
+
+  // Compact stages (skip noisy pending noise — only show non-pending or awaiting)
+  var stageShow = (run.stages || []).filter(function(s){
+    return s && s.status && s.status !== 'pending';
   });
-  html += '</div>';
+  if(stageShow.length){
+    html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin:10px 0 8px">';
+    stageShow.forEach(function(s){
+      var hot = s.status === 'awaiting_analyst' || s.status === 'unknown';
+      html += '<span style="font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid '+(hot?'var(--gold)':'var(--border)')+';background:var(--card)">'
+        + ddEsc(s.stage_key)+' · '+ddEsc(s.status)+'</span>';
+    });
+    html += '</div>';
+  }
   var lat = run.pin_lat, lng = run.pin_lng;
   var zoneOpts = ddZoneSeedOptions().map(function(z){
     var sel = zone && zone.value_text === z ? ' selected' : '';
     return '<option value="'+ddEsc(z)+'"'+sel+'>'+ddEsc(z)+'</option>';
   }).join('');
-  html += '<details open style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;font-weight:700">Zone capture (optional, non-blocking)</summary>'
+  html += '<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;font-weight:700">Zone capture</summary>'
     + '<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">'
     + '<div><div class="proj-form-lbl">Zone</div><select id="dd-zone-'+pid+'" class="proj-form-inp">'+zoneOpts+'</select></div>'
     + '<div><div class="proj-form-lbl">Road width (m)</div><input id="dd-road-'+pid+'" class="proj-form-inp" type="number" step="0.1" placeholder="e.g. 12"/></div>'
@@ -3394,19 +3662,19 @@ function ddRenderProjectEngineCard(p){
     + '<a class="proj-plan-btn" style="text-decoration:none" href="https://www.google.com/maps/@'+lat+','+lng+',18z" target="_blank" rel="noopener">Open DP viewer</a>'
     + '<button type="button" class="proj-plan-btn primary" onclick="ddSubmitZoneCapture(\''+pid+'\')">Save zone</button>'
     + '</div></details>';
-  // Evidence
   var facts = (ensureDdEngine().facts || []).filter(function(f){ return f && f.run_id === run.id; }).slice(-12).reverse();
   html += '<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted)">Evidence ('+facts.length+')</summary><div style="max-height:160px;overflow:auto;font-size:10px;color:var(--muted);margin-top:6px">';
   facts.forEach(function(f){
     html += '<div style="padding:3px 0;border-bottom:1px solid var(--border)">'+ddEsc(f.stage_key)+' · '+ddEsc(f.field_key)+' · '+ddEsc(f.value_text||'')+' · conf '+(f.confidence!=null?f.confidence:'')+'</div>';
   });
   html += '</div></details>';
-  html += '<div style="font-size:11px;color:var(--muted);padding:8px;background:var(--slate-l);border-radius:6px;margin-bottom:10px">Commissions — stub (Deploy 2)</div>';
   // Decision bar
   if(!p.decision){
     var proceedLabel = 'Proceed';
-    if(outcomes.indexOf('REPRICED') >= 0 && mlr && mlr.value_text){
+    if(outcomes.indexOf('REPRICED') >= 0 && gaKnown){
       proceedLabel = 'Proceed — Negotiate at '+mlr.value_text;
+    } else if(vicI.median != null){
+      proceedLabel = 'Proceed — Vicinity ~Rs '+Math.round(vicI.median).toLocaleString('en-IN');
     }
     html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start">'
       + '<button type="button" class="proj-plan-btn primary" onclick="ddDecideProceed(\''+pid+'\')">'+ddEsc(proceedLabel)+'</button>'
@@ -7000,6 +7268,7 @@ function vaultGetPrompt() {
     owners: [{ serial_no:"", name:"", name_devanagari:"", share_fraction:"", cultivator_type:"", entry_reference:"" }],
     encumbrances: [{ entry_no:"", type:"Mortgage|Court Order|Lease|Loan|Gift|Partition|etc", date:"", parties:"", amount:"", details:"", status:"Active|Discharged|Unknown", risk_level:"green|amber|red", risk_reason:"" }],
     mutations:    [{ mutation_no:"", date:"", type:"", details:"" }],
+    recent_transactions: [{ date:"YYYY or DD/MM/YYYY", deed_type:"sale|gift|partition|mortgage|other", parties:"", village:"", area_sqft:0, consideration_inr:0, rate_per_sqft:0, source_note:"Index II / sale deed / EC entry" }],
     legal_flags:  [{ priority:1, flag:"", risk_level:"red|amber|green", action:"" }],
     financial_inputs: { plot_area_sqmt:0, dp_road_deduction_sqmt:0, truck_terminus_sqmt:0, fsi_recommendation:"" },
     mahabhulekh_verification: { district:"", taluka:"", village:"", survey_no:"" },
@@ -7016,10 +7285,11 @@ TASK: Analyse the document image(s) and return ONLY a valid JSON object matching
 CRITICAL RULES:
 1. Never hallucinate. If you cannot read a field, set confidence to "not_visible".
 2. Area: 1 Hectare = 100 Are = 10,000 sq.mt. Always compute total_sqmt.
-3. Owners: Extract EVERY name from the Kulh/Naam column. Do not skip co-owners.
+3. Owners: Extract EVERY name from the Kulh/Naam column. Do not skip co-owners. Current holders = latest owner list; put older transfers in mutations.
 4. Encumbrances: Read every Ferfer/Pher-far entry completely.
 5. Risk: RED=active loan/mortgage/court order/disputed ownership. AMBER=multiple co-owners/old unresolved entry. GREEN=discharged/historical only.
-6. Return valid JSON only with all special characters properly escaped.
+6. Vicinity rates: For Index II, sale deed, EC, or property card, fill recent_transactions for every sale consideration you can read (last ~5 years preferred). Compute rate_per_sqft = consideration_inr / area_sqft when both visible. Never invent rates.
+7. Return valid JSON only with all special characters properly escaped.
 
 SCHEMA:
 ${JSON.stringify(schema, null, 2)}
@@ -7088,6 +7358,9 @@ async function vaultAnalyseDoc(pid, docId) {
     if (ex.village)      ST.dd[pid].village      = ex.village;
     if (ex.taluka)       ST.dd[pid].taluka        = ex.taluka;
     if (ex.district)     ST.dd[pid].district      = ex.district;
+    if (structured && typeof ddApplyStructuredToEngine === 'function') {
+      try { ddApplyStructuredToEngine(pid, structured); } catch (_ing) {}
+    }
   } catch(e) {
     const isRL = e.message && (e.message.includes('rate limit') || e.message.includes('529'));
     if (isRL) {
