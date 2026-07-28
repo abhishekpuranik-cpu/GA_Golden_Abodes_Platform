@@ -99,8 +99,8 @@ const eng = {
   }
 };
 
-assert(pack.rules.length === 42, `expected 42 rules, got ${pack.rules.length}`);
-assert(pack.district_fallbacks.length === 8, 'expected 8 district fallbacks');
+assert(pack.rules.length === 44, `expected 44 rules, got ${pack.rules.length}`);
+assert(pack.district_fallbacks.length === 9, 'expected 9 district fallbacks');
 
 let r = resolve(eng, { village: 'Somewhere', taluka: 'Mulshi', district: 'Pune', state: 'Maharashtra' }, {});
 assert(r.certainty === 'PROVISIONAL' && r.planning_authority === 'PMRDA' && r.confidence === 70, 'Mulshi default PMRDA');

@@ -2,11 +2,57 @@
  * V3 DD Engine — pure deterministic logic (no DOM, no LLM).
  * Used by Node fixture tests and loaded by GA_OrgResourcePlanner_V3.html.
  */
+
+/** Case-insensitive, punctuation-stripped, whitespace-collapsed. */
 export function ddNormName(s) {
   return String(s || '')
     .trim()
     .toLowerCase()
-    .replace(/\s+/g, ' ');
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Spelling aliases for taluka matcher (canonical seed name → variants). */
+export const DD_TALUKA_ALIASES = {
+  maval: ['maval', 'mawal'],
+  haveli: ['haveli', 'havali'],
+  mulshi: ['mulshi', 'mulashi'],
+  shirur: ['shirur', 'shirur ghodnadi', 'shirurghodnadi'],
+  velhe: ['velhe', 'rajgad'],
+  ambarnath: ['ambarnath', 'ambernath'],
+  bardez: ['bardez', 'bardes'],
+  tiswadi: ['tiswadi', 'ilhas', 'ilhas de goa'],
+  salcete: ['salcete', 'salsette']
+};
+
+const TALUKA_SUFFIX_RE =
+  /\b(sub[\s-]?district|taluka|tehsil|tahsil|block|mandal)\b/gi;
+
+/** Strip administrative suffixes then normalise. */
+export function ddNormTaluka(s) {
+  const stripped = String(s || '')
+    .replace(TALUKA_SUFFIX_RE, ' ')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return ddNormName(stripped);
+}
+
+/** True if geocoded/raw taluka matches seed taluka name (aliases + suffix strip). */
+export function ddTalukaNamesMatch(seedTaluka, rawTaluka, opts) {
+  const a = ddNormTaluka(seedTaluka);
+  const b = ddNormTaluka(rawTaluka);
+  if (!a || !b) return false;
+  if (a === '*' || a === 'any') return true;
+  if (a === b) return true;
+  if (opts && opts.skipAliases) return false;
+  // alias groups: either side may be a known variant
+  for (const variants of Object.values(DD_TALUKA_ALIASES)) {
+    const set = variants.map(ddNormTaluka);
+    if (set.includes(a) && set.includes(b)) return true;
+  }
+  return false;
 }
 
 export function ddTextHaystack(...parts) {
@@ -28,6 +74,25 @@ export function ddMatchCarveOut(carveOuts, haystack) {
   return hits;
 }
 
+function ddDistrictTalukaRules(eng, state, district) {
+  return (eng.authority_defaults || []).filter((d) => {
+    if (!d) return false;
+    if (d.state && state && ddNormName(d.state) !== ddNormName(state)) return false;
+    if (!district || ddNormName(d.district) !== ddNormName(district)) return false;
+    const dt = ddNormTaluka(d.taluka);
+    return dt && dt !== '*' && dt !== 'any';
+  });
+}
+
+/**
+ * Cascade — never UNMAPPED.
+ * village/locality register → taluka (normalised) → MATCH_DEGRADED if district has taluka rules but none matched
+ * → true district fallback only when district has zero taluka rules → UNKNOWN
+ *
+ * loc.village = revenue village (may be null)
+ * loc.geocoded_locality = Nominatim town/locality
+ * Carve-outs match against geocoded_locality (+ project location), not revenue village alone.
+ */
 export function ddResolveAuthorityCascade(eng, loc, ctx) {
   ctx = ctx || {};
   eng = eng || {};
@@ -38,24 +103,33 @@ export function ddResolveAuthorityCascade(eng, loc, ctx) {
 
   const state = loc.state || '';
   const district = loc.district || '';
-  const taluka = loc.taluka || '';
-  const village = loc.village || '';
+  const talukaRaw = loc.taluka || '';
+  const village = loc.village || ''; // revenue village — may be empty
+  const locality = loc.geocoded_locality || loc.locality || '';
   const nVillage = ddNormName(village);
+  const nLocality = ddNormName(locality);
+
+  // Carve-outs: locality first (what Nominatim said), plus project location / formatted
   const haystack = ddTextHaystack(
     ctx.projectLocation,
+    locality,
     village,
     loc.formatted,
     Array.isArray(ctx.localityHints) ? ctx.localityHints.join(' ') : ctx.localityHints
   );
 
+  // 1) authority_register — revenue village if known, else geocoded locality
+  const registerKey = nVillage || nLocality;
   const hits = (eng.authority_register || []).filter((r) => {
-    if (!r) return false;
+    if (!r || !registerKey) return false;
     if (ddNormName(r.state) && state && ddNormName(r.state) !== ddNormName(state)) return false;
     if (ddNormName(r.district) && district && ddNormName(r.district) !== ddNormName(district)) return false;
-    const names = [r.village].concat(Array.isArray(r.aliases) ? r.aliases : []);
-    return names.some((n) => ddNormName(n) === nVillage && nVillage);
+    const names = [r.village, r.geocoded_locality]
+      .concat(Array.isArray(r.aliases) ? r.aliases : [])
+      .filter(Boolean);
+    return names.some((n) => ddNormName(n) === registerKey);
   });
-  if (hits.length && nVillage) {
+  if (hits.length && registerKey) {
     hits.sort((a, b) => (Number(b.confidence) || 0) - (Number(a.confidence) || 0));
     const best = hits[0];
     const src = String(best.source_type || '');
@@ -70,23 +144,32 @@ export function ddResolveAuthorityCascade(eng, loc, ctx) {
       provisional: false,
       stale: false,
       match_level: 'village',
+      register_key_type: best.register_key_type || (best.village ? 'village' : 'locality'),
       carve_outs_hit: [],
       competing_authorities: [],
-      reliability_note: ''
+      reliability_note: '',
+      geocoded_locality: locality || null,
+      village: village || null
     };
   }
 
-  // Wildcard taluka: empty taluka on rule matches any taluka in that district (e.g. Mumbai Suburban)
+  // 2) taluka rule (normalised + aliases). Wildcard * matches any taluka in district.
   const talukaHit = (eng.authority_defaults || []).find((d) => {
     if (!d) return false;
     if (d.state && state && ddNormName(d.state) !== ddNormName(state)) return false;
     if (d.district && district && ddNormName(d.district) !== ddNormName(district)) return false;
-    const dt = ddNormName(d.taluka);
+    const dt = ddNormTaluka(d.taluka);
     if (!dt || dt === '*' || dt === 'any') return !!ddNormName(district);
-    return dt === ddNormName(taluka) && !!ddNormName(taluka);
+    return ddTalukaNamesMatch(d.taluka, talukaRaw, { skipAliases: !!ctx.skipTalukaAliases }) && !!ddNormTaluka(talukaRaw);
   });
 
-  if (talukaHit && (ddNormName(taluka) || !ddNormName(talukaHit.taluka) || ddNormName(talukaHit.taluka) === '*' )) {
+  if (
+    talukaHit &&
+    (ddNormTaluka(talukaRaw) ||
+      !ddNormTaluka(talukaHit.taluka) ||
+      ddNormTaluka(talukaHit.taluka) === '*' ||
+      ddNormTaluka(talukaHit.taluka) === 'any')
+  ) {
     const carveHits = ddMatchCarveOut(talukaHit.carve_outs, haystack);
     if (carveHits.length) {
       const competing = [];
@@ -109,7 +192,11 @@ export function ddResolveAuthorityCascade(eng, loc, ctx) {
         carve_outs_hit: carveHits,
         competing_authorities: competing,
         reliability_note: talukaHit.reliability_note || '',
-        source_note: talukaHit.source_note || ''
+        source_note: talukaHit.source_note || '',
+        taluka_matched: talukaHit.taluka,
+        taluka_raw: talukaRaw,
+        geocoded_locality: locality || null,
+        village: village || null
       };
     }
     return {
@@ -124,10 +211,63 @@ export function ddResolveAuthorityCascade(eng, loc, ctx) {
       carve_outs_hit: [],
       competing_authorities: [],
       reliability_note: talukaHit.reliability_note || '',
-      source_note: talukaHit.source_note || ''
+      source_note: talukaHit.source_note || '',
+      taluka_matched: talukaHit.taluka,
+      taluka_raw: talukaRaw,
+      geocoded_locality: locality || null,
+      village: village || null
     };
   }
 
+  // 3) Silent-degradation guard: district has taluka rules but none matched
+  const districtTalukaRules = ddDistrictTalukaRules(eng, state, district);
+  if (districtTalukaRules.length > 0) {
+    const n = districtTalukaRules.length;
+    const rawStr = talukaRaw || '(empty)';
+    const flag =
+      'Taluka not matched - ' +
+      n +
+      ' rules exist for ' +
+      (district || '(unknown district)') +
+      " but none matched '" +
+      rawStr +
+      "'. Authority may be wrong.";
+    const districtHint =
+      (eng.district_fallbacks || []).find(
+        (d) =>
+          d &&
+          ddNormName(d.district) === ddNormName(district) &&
+          ddNormName(district) &&
+          (!d.state || !state || ddNormName(d.state) === ddNormName(state))
+      ) || null;
+    return {
+      planning_authority: null,
+      overlays: [],
+      rulebook_key: null,
+      confidence: 30,
+      certainty: 'MATCH_DEGRADED',
+      provisional: true,
+      stale: false,
+      match_level: 'district_degraded',
+      carve_outs_hit: [],
+      competing_authorities: [],
+      degradation_flag: flag,
+      flags: [flag],
+      taluka_raw: talukaRaw,
+      district_taluka_rule_count: n,
+      degraded_fallback_hint: districtHint
+        ? {
+            planning_authority: districtHint.planning_authority,
+            rulebook_key: districtHint.rulebook_key,
+            confidence: districtHint.confidence
+          }
+        : null,
+      geocoded_locality: locality || null,
+      village: village || null
+    };
+  }
+
+  // 4) True district fallback — only when district has zero taluka rules
   const districtHit =
     (eng.district_fallbacks || []).find(
       (d) =>
@@ -157,7 +297,9 @@ export function ddResolveAuthorityCascade(eng, loc, ctx) {
       match_level: 'district',
       carve_outs_hit: [],
       competing_authorities: [],
-      reliability_note: districtHit.reliability_note || ''
+      reliability_note: districtHit.reliability_note || '',
+      geocoded_locality: locality || null,
+      village: village || null
     };
   }
 
@@ -171,7 +313,9 @@ export function ddResolveAuthorityCascade(eng, loc, ctx) {
     stale: false,
     match_level: 'none',
     carve_outs_hit: [],
-    competing_authorities: []
+    competing_authorities: [],
+    geocoded_locality: locality || null,
+    village: village || null
   };
 }
 
@@ -389,6 +533,20 @@ export function ddRecommend(facts, rulesPack) {
   const maxLandUnknown = !!facts.max_land_rate_unknown;
   const maxLandMessage = facts.max_land_rate_message || '';
   const askRate = facts.ask_rate_per_sqft != null ? Number(facts.ask_rate_per_sqft) : null;
+  const degradationFlag = facts.degradation_flag || (facts.certainty === 'MATCH_DEGRADED' ? (facts.flags && facts.flags[0]) : null);
+
+  // MATCH_DEGRADED — flag only, top of list, never drives any outcome
+  if (certainty === 'MATCH_DEGRADED' || degradationFlag) {
+    flags.push({
+      id: 'match_degraded',
+      outcome: 'FLAG',
+      severity: 0,
+      consequence: String(degradationFlag || facts.degradation_flag || 'Taluka not matched — authority may be wrong.'),
+      what: String(degradationFlag || ''),
+      why: 'A more specific taluka rule exists for this district but did not match the geocoder string',
+      cost: 'Fix the taluka alias, then re-run — do not act on district hint'
+    });
+  }
 
   function pushFlag(rule, extraVars) {
     if (!rule || !rule.consequence_template) return; // no template → no flag
@@ -436,8 +594,21 @@ export function ddRecommend(facts, rulesPack) {
     return { low: d.low, high: d.high };
   }
 
+  // MATCH_DEGRADED never drives outcomes — skip all rule firing beyond the top flag
+  if (certainty === 'MATCH_DEGRADED') {
+    flags.sort((a, b) => a.severity - b.severity);
+    return {
+      outcomes: ['OPEN'],
+      flags,
+      awaiting_human_decision: true,
+      auto_decided: false,
+      band_pct: bandPct,
+      plain_language: flags[0] ? flags[0].consequence : ''
+    };
+  }
+
   // DEAD — closed list, conf ≥ 90, never from PROVISIONAL / raster zone alone
-  const provisionalBlocksDead = certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT';
+  const provisionalBlocksDead = certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT' || certainty === 'MATCH_DEGRADED';
   const zoneIsRaster = confidence < 90 && facts.zone_source === 'analyst_read';
 
   (rulesPack.dead_rules || []).forEach((rule) => {
@@ -580,7 +751,7 @@ export function ddRecommend(facts, rulesPack) {
     auto_decided: false,
     band_pct: bandPct,
     plain_language: flags
-      .filter((f) => f.outcome !== 'FLAG' || certainty === 'PROVISIONAL_CONFLICT')
+      .filter((f) => f.outcome !== 'FLAG' || certainty === 'PROVISIONAL_CONFLICT' || certainty === 'MATCH_DEGRADED' || f.id === 'match_degraded')
       .slice(0, 3)
       .map((f) => f.consequence)
       .join(' ')
@@ -610,6 +781,14 @@ export const DD_ZONE_SEED = [
 export function ddDefaultRulebookSeed() {
   return [
     {
+      key: 'UDCPR_2020_BSNA',
+      version: '2020.1',
+      applies_to_authorities: ['MMRDA (BSNA)', 'BSNA', 'Bhiwandi Surrounding Notified Area'],
+      excluded_authorities: [],
+      zones: [],
+      notes: 'UDCPR dedicated Bhiwandi Surrounding Notified Area regulation.'
+    },
+    {
       key: 'UDCPR_2020',
       version: '2020.1',
       applies_to_authorities: [],
@@ -620,7 +799,10 @@ export function ddDefaultRulebookSeed() {
         'JNPT',
         'Hill Station Municipal Councils',
         'Lonavala MC',
-        'Lonavala Municipal Council'
+        'Lonavala Municipal Council',
+        'Panchgani MC',
+        'Mahabaleshwar MC',
+        'Matheran MC'
       ],
       zones: [
         { zone_code: 'R1', zone_label: 'Residential R1', base_fsi: 1.1 },
@@ -631,7 +813,15 @@ export function ddDefaultRulebookSeed() {
     {
       key: 'HILL_STATION_EXCLUDED',
       version: '1.0',
-      applies_to_authorities: ['Lonavala MC', 'Lonavala Municipal Council', 'Hill Station Municipal Councils'],
+      applies_to_authorities: [
+        'Lonavala MC',
+        'Lonavala Municipal Council',
+        'Hill Station Municipal Councils',
+        'Panchgani MC',
+        'Mahabaleshwar MC',
+        'Matheran MC',
+        'Khandala'
+      ],
       excluded_authorities: [],
       zones: [{ zone_code: 'R1', zone_label: 'Residential', base_fsi: 0.6 }]
     },

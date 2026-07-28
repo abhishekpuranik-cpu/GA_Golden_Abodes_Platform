@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260728.5';
+var GA_V3_BUILD = '20260728.6';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1846,6 +1846,17 @@ function ddEnsureRulebookSeed(){
   eng.rulebooks.forEach(function(r){ if(r && r.key) byKey[r.key] = r; });
   var seeds = [
     {
+      id: 'rb_udcpr_2020_bsna',
+      key: 'UDCPR_2020_BSNA',
+      version: '2020.1',
+      effective_from: '2020-12-03',
+      effective_to: null,
+      applies_to_authorities: ['MMRDA (BSNA)', 'BSNA', 'Bhiwandi Surrounding Notified Area'],
+      excluded_authorities: [],
+      zones: [],
+      notes: 'UDCPR dedicated Bhiwandi Surrounding Notified Area regulation.'
+    },
+    {
       id: 'rb_udcpr_2020',
       key: 'UDCPR_2020',
       version: '2020.1',
@@ -1857,6 +1868,7 @@ function ddEnsureRulebookSeed(){
         'MIDC', 'NAINA', 'JNPT', 'Jawaharlal Nehru Port Trust',
         'Hill Station Municipal Councils', 'HILL_STATION_MC',
         'Lonavala MC', 'Lonavala Municipal Council',
+        'Panchgani MC', 'Mahabaleshwar MC', 'Matheran MC',
         'MoEF ESA', 'ESA_WESTERN_GHATS'
       ],
       zones: [],
@@ -1868,7 +1880,10 @@ function ddEnsureRulebookSeed(){
       version: '1.0',
       effective_from: '2020-12-03',
       effective_to: null,
-      applies_to_authorities: ['Lonavala MC', 'Lonavala Municipal Council', 'HILL_STATION_MC', 'Hill Station Municipal Councils'],
+      applies_to_authorities: [
+        'Lonavala MC', 'Lonavala Municipal Council', 'HILL_STATION_MC', 'Hill Station Municipal Councils',
+        'Panchgani MC', 'Mahabaleshwar MC', 'Matheran MC'
+      ],
       excluded_authorities: [],
       zones: [],
       notes: 'Hill-station / Lonavala exclusion from UDCPR — usable FSI constrained.'
@@ -2231,8 +2246,30 @@ async function ddStageLocate(run, stage){
       stage.completed_at = new Date().toISOString();
       return;
     }
-    var loc = { village: j.village || '', taluka: j.taluka || '', district: j.district || '', state: j.state || '', formatted: j.formatted || '' };
-    ['village','taluka','district','state'].forEach(function(k){
+    var loc = {
+      geocoded_locality: j.village || '',
+      village: '', // revenue village — null until human/architect supplies it
+      taluka: j.taluka || '',
+      district: j.district || '',
+      state: j.state || '',
+      formatted: j.formatted || ''
+    };
+    ddAppendFact({
+      run_id: run.id, stage_key: 'LOCATE', field_key: 'geocoded_locality',
+      value_text: loc.geocoded_locality || '',
+      source_type: 'lookup_table', source_ref: j.cacheKey ? ('geocode_cache:' + j.cacheKey) : 'geocode',
+      confidence: j.cached ? 98 : 92, tier: 0,
+      notes: 'Nominatim town/locality — not a revenue village'
+    });
+    ddAppendFact({
+      run_id: run.id, stage_key: 'LOCATE', field_key: 'village',
+      value_text: null,
+      value_json: { pending_revenue_village: true },
+      source_type: 'lookup_table', source_ref: 'geocode',
+      confidence: 0, tier: 0,
+      notes: 'Revenue village unknown until analyst/architect supplies it'
+    });
+    ['taluka','district','state'].forEach(function(k){
       ddAppendFact({
         run_id: run.id, stage_key: 'LOCATE', field_key: k,
         value_text: loc[k] || '',
@@ -2240,17 +2277,17 @@ async function ddStageLocate(run, stage){
         confidence: j.cached ? 98 : 92, tier: 0
       });
     });
-    // BOUNDARY_AMBIGUOUS flag when geocoded village differs from Location/City — non-blocking
+    // BOUNDARY_AMBIGUOUS: compare project Location to geocoded locality
     var locField = String(p.location || '').trim();
-    if(locField && loc.village && ddNormName(locField) !== ddNormName(loc.village) &&
-       ddNormName(locField).indexOf(ddNormName(loc.village)) < 0 &&
-       ddNormName(loc.village).indexOf(ddNormName(locField)) < 0){
+    if(locField && loc.geocoded_locality && ddNormName(locField) !== ddNormName(loc.geocoded_locality) &&
+       ddNormName(locField).indexOf(ddNormName(loc.geocoded_locality)) < 0 &&
+       ddNormName(loc.geocoded_locality).indexOf(ddNormName(locField)) < 0){
       ddAppendFact({
         run_id: run.id, stage_key: 'LOCATE', field_key: 'boundary_flag',
         value_text: 'BOUNDARY_AMBIGUOUS',
-        value_json: { geocoded_village: loc.village, project_location: locField },
+        value_json: { geocoded_locality: loc.geocoded_locality, project_location: locField },
         source_type: 'lookup_table', source_ref: 'boundary_guard', confidence: 40, tier: 0,
-        notes: 'Geocoded village differs from project Location/City — confirm when convenient; does not block the run.'
+        notes: 'Geocoded locality differs from project Location/City — confirm when convenient; does not block the run.'
       });
     }
     // Do NOT write authority_register from geocoding alone
@@ -2265,23 +2302,30 @@ async function ddStageLocate(run, stage){
 
 async function ddStageAuthority(run, stage){
   var p = (PROJS || []).find(function(x){ return x.id === run.project_id; }) || {};
+  var villageFact = ddLatestFact(run.id, 'village');
+  var localityFact = ddLatestFact(run.id, 'geocoded_locality');
   var loc = {
-    village: (ddLatestFact(run.id, 'village') || {}).value_text || '',
+    village: (villageFact && villageFact.value_text) || '',
+    geocoded_locality: (localityFact && localityFact.value_text) || '',
     taluka: (ddLatestFact(run.id, 'taluka') || {}).value_text || '',
     district: (ddLatestFact(run.id, 'district') || {}).value_text || '',
     state: (ddLatestFact(run.id, 'state') || {}).value_text || '',
     formatted: ''
   };
-  var resolved = ddResolveAuthorityCascade(loc, {
+  var logic = await ddGetLogic();
+  var resolved = logic.ddResolveAuthorityCascade(ensureDdEngine(), loc, {
     projectLocation: p.location || '',
-    localityHints: [loc.village, loc.taluka]
+    localityHints: [loc.geocoded_locality, loc.village, loc.taluka]
   });
   var authText = resolved.certainty === 'PROVISIONAL_CONFLICT'
     ? 'PROVISIONAL_CONFLICT'
-    : (resolved.planning_authority || 'UNKNOWN');
+    : (resolved.certainty === 'MATCH_DEGRADED'
+      ? 'MATCH_DEGRADED'
+      : (resolved.planning_authority || 'UNKNOWN'));
   var noteBits = [];
+  if(resolved.certainty === 'MATCH_DEGRADED') noteBits.push(resolved.degradation_flag || 'MATCH_DEGRADED');
   if(resolved.certainty === 'PROVISIONAL_CONFLICT') noteBits.push('PROVISIONAL_CONFLICT — not sole basis for KILL. Competing: ' + ((resolved.competing_authorities||[]).join('; ') || 'see carve-outs'));
-  else if(resolved.provisional) noteBits.push('PROVISIONAL — not sole basis for KILL');
+  else if(resolved.provisional && resolved.certainty !== 'MATCH_DEGRADED') noteBits.push('PROVISIONAL — not sole basis for KILL');
   if(resolved.stale) noteBits.push('STALE (displayed, not enforced)');
   if(resolved.reliability_note) noteBits.push(resolved.reliability_note);
   if(resolved.notes) noteBits.push(resolved.notes);
@@ -2299,7 +2343,12 @@ async function ddStageAuthority(run, stage){
       competing_authorities: resolved.competing_authorities || [],
       carve_outs_hit: (resolved.carve_outs_hit || []).map(function(c){
         return { name: c.name, authority: c.authority, rulebook_key: c.rulebook_key };
-      })
+      }),
+      degradation_flag: resolved.degradation_flag || null,
+      taluka_raw: resolved.taluka_raw || loc.taluka,
+      geocoded_locality: resolved.geocoded_locality || loc.geocoded_locality || null,
+      village: resolved.village || loc.village || null,
+      degraded_fallback_hint: resolved.degraded_fallback_hint || null
     },
     source_type: resolved.source_type || 'lookup_table',
     source_ref: resolved.source_ref || '',
@@ -2310,12 +2359,25 @@ async function ddStageAuthority(run, stage){
   ddAppendFact({
     run_id: run.id, stage_key: 'AUTHORITY', field_key: 'authority_certainty',
     value_text: resolved.certainty,
-    value_json: { competing_authorities: resolved.competing_authorities || [] },
+    value_json: {
+      competing_authorities: resolved.competing_authorities || [],
+      degradation_flag: resolved.degradation_flag || null,
+      match_level: resolved.match_level
+    },
     source_type: resolved.source_type || 'lookup_table',
     source_ref: resolved.source_ref || '',
     confidence: resolved.confidence || 0,
     tier: 0
   });
+  if(resolved.degradation_flag){
+    ddAppendFact({
+      run_id: run.id, stage_key: 'AUTHORITY', field_key: 'degradation_flag',
+      value_text: resolved.degradation_flag,
+      value_json: { taluka_raw: resolved.taluka_raw || loc.taluka, district: loc.district, rule_count: resolved.district_taluka_rule_count },
+      source_type: 'lookup_table', source_ref: 'match_degraded_guard', confidence: 30, tier: 0,
+      notes: 'Danger — taluka rules exist but none matched raw geocoder string'
+    });
+  }
   if(resolved.rulebook_key){
     ddAppendFact({
       run_id: run.id, stage_key: 'AUTHORITY', field_key: 'suggested_rulebook_key',
@@ -2335,8 +2397,10 @@ async function ddStageAuthority(run, stage){
       tier: 0
     });
   }
-  if(resolved.certainty === 'UNKNOWN' || resolved.certainty === 'PROVISIONAL_CONFLICT'){
-    stage.status = resolved.certainty === 'UNKNOWN' ? 'unknown' : 'auto_resolved';
+  if(resolved.certainty === 'UNKNOWN' || resolved.certainty === 'MATCH_DEGRADED'){
+    stage.status = 'unknown';
+  } else if(resolved.certainty === 'PROVISIONAL_CONFLICT'){
+    stage.status = 'auto_resolved';
   } else {
     stage.status = 'auto_resolved';
   }
@@ -2347,19 +2411,25 @@ async function ddStageRulebook(run, stage){
   var authFact = ddLatestFact(run.id, 'planning_authority');
   var certFact = ddLatestFact(run.id, 'authority_certainty');
   var ovFact = ddLatestFact(run.id, 'overlays');
-  var authName = authFact && authFact.value_text && authFact.value_text !== 'UNKNOWN' && authFact.value_text !== 'PROVISIONAL_CONFLICT'
+  var authName = authFact && authFact.value_text && authFact.value_text !== 'UNKNOWN' && authFact.value_text !== 'PROVISIONAL_CONFLICT' && authFact.value_text !== 'MATCH_DEGRADED'
     ? authFact.value_text : '';
   var overlays = (ovFact && ovFact.value_json) || [];
   var certainty = (certFact && certFact.value_text) || 'UNKNOWN';
-  var provisional = certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT';
+  var provisional = certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT' || certainty === 'MATCH_DEGRADED';
 
   if(!authName){
     ddAppendFact({
       run_id: run.id, stage_key: 'RULEBOOK', field_key: 'rulebook_key',
-      value_text: certainty === 'PROVISIONAL_CONFLICT' ? 'PROVISIONAL_CONFLICT' : 'UNKNOWN',
-      value_json: { provisional: provisional, exclusion: false, reason: certainty === 'PROVISIONAL_CONFLICT' ? 'authority_conflict' : 'no_authority', competing_authorities: (authFact && authFact.value_json && authFact.value_json.competing_authorities) || [] },
-      source_type: 'rulebook', source_ref: '', confidence: certainty === 'PROVISIONAL_CONFLICT' ? 50 : 0, tier: 0,
-      notes: provisional ? 'PROVISIONAL — inherited; not sole basis for KILL' : ''
+      value_text: certainty === 'PROVISIONAL_CONFLICT' ? 'PROVISIONAL_CONFLICT' : (certainty === 'MATCH_DEGRADED' ? 'MATCH_DEGRADED' : 'UNKNOWN'),
+      value_json: {
+        provisional: provisional,
+        exclusion: false,
+        reason: certainty === 'PROVISIONAL_CONFLICT' ? 'authority_conflict' : (certainty === 'MATCH_DEGRADED' ? 'taluka_match_degraded' : 'no_authority'),
+        competing_authorities: (authFact && authFact.value_json && authFact.value_json.competing_authorities) || [],
+        degradation_flag: (authFact && authFact.value_json && authFact.value_json.degradation_flag) || null
+      },
+      source_type: 'rulebook', source_ref: '', confidence: certainty === 'PROVISIONAL_CONFLICT' ? 50 : (certainty === 'MATCH_DEGRADED' ? 30 : 0), tier: 0,
+      notes: certainty === 'MATCH_DEGRADED' ? 'MATCH_DEGRADED — no rulebook asserted' : (provisional ? 'PROVISIONAL — inherited; not sole basis for KILL' : '')
     });
     stage.status = certainty === 'PROVISIONAL_CONFLICT' ? 'auto_resolved' : 'unknown';
     stage.completed_at = new Date().toISOString();
@@ -2563,6 +2633,7 @@ async function ddStageRecommend(run, stage){
   }
   var gross = ddGrossAreaSqftFromProject(p);
   var ask = ddAskRatePerSqft(run.project_id, gross);
+  var degFact = ddLatestFact(run.id, 'degradation_flag');
   var facts = {
     certainty: (cert && cert.value_text) || 'UNKNOWN',
     confidence: (auth && auth.confidence) || (zone && zone.confidence) || 0,
@@ -2576,6 +2647,7 @@ async function ddStageRecommend(run, stage){
     zone_source: (zone && zone.source_type) || '',
     tenure_class: (tenure && tenure.value_text) || '',
     flags: factFlags,
+    degradation_flag: (degFact && degFact.value_text) || (auth && auth.value_json && auth.value_json.degradation_flag) || null,
     reservation: !!(res && (res.value_text === 'Y' || res.value_text === 'yes' || (res.value_json && res.value_json.present))),
     max_land_rate: maxLand,
     max_land_rate_unknown: maxUnknown,
@@ -2721,14 +2793,18 @@ function ddZoneSeedOptions(){
 function ddAutoWriteAuthorityFromArchitect(findings, meta){
   meta = meta || {};
   findings = findings || {};
-  var village = findings.village || findings.village_name;
-  if(!village) return null;
+  var village = findings.village || findings.village_name || '';
+  var locality = findings.geocoded_locality || findings.locality || '';
+  if(!village && !locality) return null;
   var eng = ensureDdEngine();
+  var keyType = village ? 'village' : 'locality';
   var row = {
     state: findings.state || '',
     district: findings.district || '',
     taluka: findings.taluka || '',
-    village: village,
+    village: village || null,
+    geocoded_locality: locality || null,
+    register_key_type: keyType,
     village_lgd_code: findings.village_lgd_code || findings.lgd_code || null,
     aliases: Array.isArray(findings.aliases) ? findings.aliases : [],
     planning_authority: findings.planning_authority || findings.authority,
@@ -2744,12 +2820,14 @@ function ddAutoWriteAuthorityFromArchitect(findings, meta){
     confidence: 95
   };
   if(!row.planning_authority) return null;
-  var key = ddCompositeKey(row);
+  var key = ddCompositeKey({
+    state: row.state, district: row.district, taluka: row.taluka,
+    village: village || locality
+  });
   var existing = (eng.authority_register || []).find(function(r){
     return r && (r.composite_key === key || ddCompositeKey(r) === key);
   });
   if(existing){
-    // Immutable evidence pattern: supersede via new row, keep history in register as append
     var newRow = Object.assign({}, row, { id: ddNewId('aar'), composite_key: key, supersedes: existing.id });
     eng.authority_register.push(newRow);
     return newRow;
@@ -2889,6 +2967,9 @@ function ddOptionalConfirmAuthority(projectId, form){
 }
 
 function ddAuthorityLabelHtml(certainty, stale){
+  if(certainty === 'MATCH_DEGRADED'){
+    return ' <span style="font-size:9px;font-weight:700;color:var(--red-b);background:var(--red-l);border:1px solid var(--red);border-radius:4px;padding:1px 5px;margin-left:4px">MATCH DEGRADED</span>';
+  }
   if(certainty === 'PROVISIONAL_CONFLICT'){
     return ' <span style="font-size:9px;font-weight:700;color:var(--red-b);background:var(--red-l);border:1px solid var(--red);border-radius:4px;padding:1px 5px;margin-left:4px">PROVISIONAL CONFLICT</span>';
   }
@@ -3200,9 +3281,19 @@ function ddRenderProjectEngineCard(p){
   html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">USABLE FSI</div><div style="font-size:12px;font-weight:700">'+ddEsc((fsi&&fsi.value_text)!=null?fsi.value_text:'—')+'</div></div>';
   html += '</div>';
   if(flags && flags.length){
+    var sortedFlags = flags.slice().sort(function(a, b){
+      if(a.id === 'match_degraded') return -1;
+      if(b.id === 'match_degraded') return 1;
+      return (a.severity || 9) - (b.severity || 9);
+    });
     html += '<div style="font-size:11px;margin-bottom:8px"><b>Flags</b>';
-    flags.forEach(function(f){
-      html += '<div style="padding:4px 0;border-bottom:1px solid var(--border)">'+ddOutcomeBadgeHtml(f.outcome||'FLAG')+' '+ddEsc(f.consequence||f.what||'')+'</div>';
+    sortedFlags.forEach(function(f){
+      if(f.id === 'match_degraded' || f.outcome === 'FLAG' && /Taluka not matched/i.test(String(f.consequence||''))){
+        html += '<div style="padding:8px 10px;margin:6px 0;border-radius:6px;border:1px solid var(--red);background:var(--red-l);color:var(--red-b);font-weight:700">'
+          + ddEsc(f.consequence || f.what || '') + '</div>';
+      } else {
+        html += '<div style="padding:4px 0;border-bottom:1px solid var(--border)">'+ddOutcomeBadgeHtml(f.outcome||'FLAG')+' '+ddEsc(f.consequence||f.what||'')+'</div>';
+      }
     });
     html += '</div>';
   }

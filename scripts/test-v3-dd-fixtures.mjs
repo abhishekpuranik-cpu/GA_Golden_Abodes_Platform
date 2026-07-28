@@ -208,24 +208,22 @@ record(
   }
 );
 
-// 4 Wakad — deliberate seed-bug report (do not fix)
+// 4 Wakad — now fixed: Mulshi PCMC carve-out includes Wakad
 const wakad = runFixture(
   { state: 'Maharashtra', district: 'Pune', taluka: 'Mulshi', village: 'Wakad' },
   { projectLocation: 'Wakad' }
 );
-record(4, 'Mulshi / Wakad (seed-bug probe)', wakad, () => {
-  /* report only */
+record(4, 'Mulshi / Wakad', wakad, (out) => {
+  assert(out.auth.certainty === 'PROVISIONAL_CONFLICT', '4 Wakad conflict');
+  assert(out.competing.some((c) => /PCMC/i.test(c)), '4 PCMC');
 });
 console.log(
-  '  FIXTURE 4 REPORT: cascade returned',
+  '  FIXTURE 4: cascade returned',
   JSON.stringify({
     certainty: wakad.auth.certainty,
     authority: wakad.auth.planning_authority,
     confidence: wakad.auth.confidence,
-    match_level: wakad.auth.match_level,
-    competing: wakad.competing,
-    note:
-      'Wakad is listed under Haveli PCMC carve-out aliases, not Mulshi. Mulshi carve-out only aliases PCMC without Wakad — so village name Wakad under Mulshi may miss PCMC conflict.'
+    competing: wakad.competing
   })
 );
 
@@ -311,17 +309,18 @@ record(
   }
 );
 
-// 10 Panchgani / Wai — no taluka rule expected
+// 10 Panchgani / Wai — hill station carve-out (no longer UNKNOWN)
 record(
   10,
   'Wai / Panchgani',
-  runFixture({ state: 'Maharashtra', district: 'Satara', taluka: 'Wai', village: 'Panchgani' }, {}),
+  runFixture(
+    { state: 'Maharashtra', district: 'Satara', taluka: 'Wai', village: 'Panchgani' },
+    { projectLocation: 'Panchgani' }
+  ),
   (out) => {
-    assert(
-      out.auth.certainty === 'UNKNOWN' || out.auth.match_level === 'district' || out.auth.match_level === 'none',
-      '10 fallback or UNKNOWN'
-    );
-    assert(out.rec.outcomes.includes('OPEN') || !out.rec.outcomes.includes('DEAD'), '10 OPEN');
+    assert(out.auth.certainty === 'PROVISIONAL_CONFLICT', '10 Panchgani conflict');
+    assert(out.competing.some((c) => /Panchgani/i.test(c)), '10 Panchgani MC');
+    assert(out.rec.outcomes.includes('DELAYED') || out.rec.outcomes.includes('REPRICED'), '10 hill outcomes');
   }
 );
 

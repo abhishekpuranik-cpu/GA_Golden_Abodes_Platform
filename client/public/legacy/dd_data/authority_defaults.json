@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
+  "version": "1.1.0",
   "generated_on": "2026-07-28",
-  "schema_note": "Taluka-level PROVISIONAL authority defaults for the DD engine cascade. These are NOT confirmed village-level facts. A rule here resolves at confidence 70 and must render as PROVISIONAL. carve_outs list the authorities that override the taluka default inside that taluka - if the project's Location/City or the geocoded locality matches a carve_out name or alias, the engine must NOT assert the taluka default; it returns PROVISIONAL_CONFLICT at confidence 50 and names the competing authorities. Village-level rows written from architect opinions always win over anything in this file.",
+  "schema_note": "Taluka-level PROVISIONAL authority defaults for the DD engine cascade. These are NOT confirmed village-level facts. A rule here resolves at confidence 70 and must render as PROVISIONAL. carve_outs list the authorities that override the taluka default inside that taluka - if the project's Location/City or the geocoded_locality matches a carve_out name or alias, the engine must NOT assert the taluka default; it returns PROVISIONAL_CONFLICT at confidence 50 and names the competing authorities. Village-level rows written from architect opinions always win over anything in this file. If the district has taluka rules but none matched the geocoder taluka string, return MATCH_DEGRADED @30 — never a silent district fallback.",
   "confidence_taluka_default": 70,
   "confidence_district_fallback": 50,
   "confidence_provisional_conflict": 50,
@@ -34,7 +34,7 @@
       "rulebook_key": "UDCPR_2020",
       "overlays": ["ESA_WESTERN_GHATS_WEST"],
       "carve_outs": [
-        { "name": "Pimpri-Chinchwad Municipal Corporation", "aliases": ["PCMC"], "authority": "PCMC", "rulebook_key": "UDCPR_2020" },
+        { "name": "Pimpri-Chinchwad Municipal Corporation", "aliases": ["PCMC", "Wakad", "Punawale", "Tathawade", "Ravet", "Marunji", "Nere"], "authority": "PCMC", "rulebook_key": "UDCPR_2020", "note": "PCMC localities inside Mulshi taluka — Wakad and western belt." },
         { "name": "Pune Municipal Corporation merged villages", "aliases": ["PMC"], "authority": "PMC", "rulebook_key": "UDCPR_2020" },
         { "name": "MIDC Hinjewadi", "aliases": ["Hinjewadi", "Rajiv Gandhi Infotech Park", "Man", "Maan"], "authority": "MIDC", "rulebook_key": "MIDC" }
       ],
@@ -313,7 +313,7 @@
       "rulebook_key": "UDCPR_2020",
       "overlays": [],
       "carve_outs": [
-        { "name": "NAINA", "aliases": ["NAINA", "Navi Mumbai Airport Influence Notified Area"], "authority": "CIDCO (NAINA)", "rulebook_key": "NAINA", "note": "UDCPR EXPRESSLY EXCLUDES NAINA. CIDCO is the Special Planning Authority." },
+        { "name": "NAINA", "aliases": ["NAINA", "Navi Mumbai Airport Influence Notified Area", "Adai", "Akurli", "Belavali", "Bonshet", "Borle", "Chikhale", "Chipale", "Derawali", "Devad", "Kolkhe", "Kon", "Koproli", "Moho", "Nere", "Palaspe", "Pali Khurd", "Palidevad", "Sangade", "Shilottar Raichur", "Shivkar", "Usarli Khurd", "Vichumbe", "Vihighar"], "authority": "CIDCO (NAINA)", "rulebook_key": "NAINA", "note": "UDCPR EXPRESSLY EXCLUDES NAINA. Aliases include IDP-1 Panvel villages (23). Full NAINA notified list is larger (~174–224 villages) — INCOMPLETE; expand aliases as deals hit unlisted villages." },
         { "name": "CIDCO Navi Mumbai node", "aliases": ["CIDCO", "Kharghar", "Kamothe", "Kalamboli", "New Panvel", "Ulwe", "Taloja"], "authority": "CIDCO", "rulebook_key": "CIDCO" },
         { "name": "Navi Mumbai Municipal Corporation", "aliases": ["NMMC", "Belapur"], "authority": "NMMC", "rulebook_key": "UDCPR_2020" },
         { "name": "MIDC Taloja", "aliases": ["Taloja MIDC"], "authority": "MIDC", "rulebook_key": "MIDC" }
@@ -331,7 +331,8 @@
       "carve_outs": [
         { "name": "Jawaharlal Nehru Port Trust", "aliases": ["JNPT", "JNPA", "Nhava Sheva"], "authority": "JNPT", "rulebook_key": "JNPT_EXCLUDED", "note": "UDCPR expressly excludes JNPT." },
         { "name": "Uran Municipal Council", "aliases": ["Uran"], "authority": "Uran MC", "rulebook_key": "UDCPR_2020" },
-        { "name": "CIDCO Navi Mumbai node", "aliases": ["CIDCO", "Dronagiri"], "authority": "CIDCO", "rulebook_key": "CIDCO" }
+        { "name": "CIDCO Navi Mumbai node", "aliases": ["CIDCO", "Dronagiri"], "authority": "CIDCO", "rulebook_key": "CIDCO" },
+        { "name": "NAINA Uran villages", "aliases": ["NAINA", "Pohi", "Funde", "Chirner", "Dighode", "Jasai", "Karanjade", "Pagote", "Sai", "Bhendkhal"], "authority": "CIDCO (NAINA)", "rulebook_key": "NAINA", "note": "Sample Uran-side NAINA villages — INCOMPLETE vs full notified list." }
       ],
       "source_note": "NAINA jurisdiction covers Panvel and Uran; UDCPR-2020 clause 1.1 exclusion list.",
       "reliability_note": "WEAK. Heavy CRZ exposure along the coast."
@@ -359,7 +360,7 @@
       "overlays": ["ESA_WESTERN_GHATS"],
       "carve_outs": [
         { "name": "Khopoli Municipal Council", "aliases": ["Khopoli"], "authority": "Khopoli MC", "rulebook_key": "UDCPR_2020" },
-        { "name": "NAINA", "aliases": ["NAINA"], "authority": "CIDCO (NAINA)", "rulebook_key": "NAINA", "note": "NAINA notified villages extend into Khalapur." },
+        { "name": "NAINA", "aliases": ["NAINA", "Wangni", "Vadvihir", "Savroli", "Nigdoli", "Kelavali", "Chinchavali"], "authority": "CIDCO (NAINA)", "rulebook_key": "NAINA", "note": "NAINA notified villages extend into Khalapur — sample aliases INCOMPLETE vs full list." },
         { "name": "MIDC Patalganga", "aliases": ["Patalganga", "Rasayani"], "authority": "MIDC", "rulebook_key": "MIDC" }
       ],
       "source_note": "MMR boundary extended September 2019 to include Khalapur, Pen and Alibag talukas.",
@@ -587,6 +588,33 @@
       ],
       "source_note": "Goa TCP Department overview.",
       "reliability_note": "Both CRZ and Western Ghats ESA. Palolem-Agonda belt is heavily constrained."
+    },
+
+    {
+      "state": "Maharashtra",
+      "district": "Satara",
+      "taluka": "Wai",
+      "planning_authority": "Collector / District Town Planning",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Panchgani Municipal Council", "aliases": ["Panchgani", "Panchgani hill station"], "authority": "Panchgani MC", "rulebook_key": "HILL_STATION_EXCLUDED", "note": "UDCPR EXPRESSLY EXCLUDES Hill Station Municipal Councils." }
+      ],
+      "source_note": "UDCPR-2020 clause 1.1 exclusion list names Hill Station Municipal Councils.",
+      "reliability_note": "Panchgani is a hill-station council — UDCPR default is wrong for council area."
+    },
+    {
+      "state": "Maharashtra",
+      "district": "Satara",
+      "taluka": "Mahabaleshwar",
+      "planning_authority": "Collector / District Town Planning",
+      "rulebook_key": "UDCPR_2020",
+      "overlays": ["ESA_WESTERN_GHATS"],
+      "carve_outs": [
+        { "name": "Mahabaleshwar Municipal Council", "aliases": ["Mahabaleshwar", "Panchgani-Mahabaleshwar"], "authority": "Mahabaleshwar MC", "rulebook_key": "HILL_STATION_EXCLUDED", "note": "UDCPR EXPRESSLY EXCLUDES Hill Station Municipal Councils." }
+      ],
+      "source_note": "UDCPR-2020 hill-station exclusion.",
+      "reliability_note": "Mahabaleshwar MC is UDCPR-excluded."
     }
   ],
 
@@ -595,6 +623,7 @@
     { "state": "Maharashtra", "district": "Thane", "planning_authority": "Collector / MMRDA Regional Plan", "rulebook_key": "UDCPR_2020", "confidence": 50 },
     { "state": "Maharashtra", "district": "Raigad", "planning_authority": "Collector / MMRDA Regional Plan", "rulebook_key": "UDCPR_2020", "confidence": 50 },
     { "state": "Maharashtra", "district": "Palghar", "planning_authority": "Collector / MMRDA Regional Plan", "rulebook_key": "UDCPR_2020", "confidence": 50 },
+    { "state": "Maharashtra", "district": "Satara", "planning_authority": "Collector / District Town Planning", "rulebook_key": "UDCPR_2020", "confidence": 50 },
     { "state": "Maharashtra", "district": "Mumbai City", "planning_authority": "MCGM", "rulebook_key": "DCPR_2034", "confidence": 90 },
     { "state": "Maharashtra", "district": "Mumbai Suburban", "planning_authority": "MCGM", "rulebook_key": "DCPR_2034", "confidence": 90 },
     { "state": "Goa", "district": "North Goa", "planning_authority": "Goa TCP (Regional Plan 2021)", "rulebook_key": "GLDBCR_2010", "confidence": 60 },
