@@ -607,8 +607,13 @@ export function ddRecommend(facts, rulesPack) {
     };
   }
 
-  // DEAD — closed list, conf ≥ 90, never from PROVISIONAL / raster zone alone
-  const provisionalBlocksDead = certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT' || certainty === 'MATCH_DEGRADED';
+  // DEAD — closed list, conf ≥ 90, never from PROVISIONAL / branch hypothesis / raster zone alone
+  const provisionalBlocksDead =
+    certainty === 'PROVISIONAL' ||
+    certainty === 'PROVISIONAL_CONFLICT' ||
+    certainty === 'MATCH_DEGRADED' ||
+    certainty === 'BRANCH_HYPOTHESIS' ||
+    !!facts.branch_eval;
   const zoneIsRaster = confidence < 90 && facts.zone_source === 'analyst_read';
 
   (rulesPack.dead_rules || []).forEach((rule) => {
@@ -632,8 +637,13 @@ export function ddRecommend(facts, rulesPack) {
 
   // REPRICED — exclusion must be asserted OR a hill-station exclusion is named in competing carve-outs.
   // MIDC/NAINA/CIDCO conflict alone is DELAYED, not REPRICED.
-  const hillExclusionFlagged = competing.some((c) => /HILL_STATION|Lonavala/i.test(String(c)));
-  const exclusionDrivesReprice = (exclusion && certainty !== 'PROVISIONAL_CONFLICT') || (exclusion && hillExclusionFlagged) || hillExclusionFlagged;
+  // REPRICED may fire without a number; must then carry an explicit amount-unavailable reason.
+  const hillExclusionFlagged = competing.some((c) => /HILL_STATION|Lonavala|Panchgani|Mahabaleshwar|Matheran/i.test(String(c)));
+  const exclusionDrivesReprice =
+    (exclusion && certainty !== 'PROVISIONAL_CONFLICT') ||
+    (exclusion && hillExclusionFlagged) ||
+    hillExclusionFlagged ||
+    (exclusion && (certainty === 'BRANCH_HYPOTHESIS' || facts.branch_eval));
 
   (rulesPack.repriced_rules || []).forEach((rule) => {
     const m = rule.match || {};
@@ -641,21 +651,21 @@ export function ddRecommend(facts, rulesPack) {
     if (m.rulebook_exclusion && exclusionDrivesReprice) hit = true;
     if (m.reservation && reservation) hit = true;
     if (m.tenure_classes && listHas(m.tenure_classes, tenure)) hit = true;
-    // PROVISIONAL alone cannot drive
+    // PROVISIONAL alone cannot drive (BRANCH_HYPOTHESIS may)
     if (certainty === 'PROVISIONAL') return;
     if (hit) {
+      outcomes.add('REPRICED');
+      pushFlag(rule);
       if (maxLandUnknown || maxLand == null) {
-        // REPRICED without a number → OPEN with config error instead
+        const reason = maxLandMessage || 'Land rate unavailable — economics config not set';
         flags.push({
-          id: rule.id + '_config',
-          outcome: 'OPEN',
-          severity: 5,
-          consequence: maxLandMessage || 'Land rate unavailable — economics config not set',
-          config_error: true
+          id: rule.id + '_amount_unavailable',
+          outcome: 'REPRICED',
+          severity: 2,
+          consequence: 'Repriced — amount unavailable, ' + reason,
+          amount_unavailable: true,
+          reason
         });
-      } else {
-        outcomes.add('REPRICED');
-        pushFlag(rule);
       }
     }
   });
@@ -697,6 +707,7 @@ export function ddRecommend(facts, rulesPack) {
     }
     // PROVISIONAL never drives an outcome on its own — overlays from a provisional
     // taluka default are not sufficient. CONFLICT competing authorities may DELAYED.
+    // BRANCH_HYPOTHESIS is an explicit per-authority evaluation and may drive.
     if (certainty === 'PROVISIONAL') return;
     if (certainty === 'PROVISIONAL_CONFLICT' && hitViaOverlay && !hitViaCompeting && !(m.rulebook_keys && listHas(m.rulebook_keys, rulebookKey))) {
       // allow overlay DELAYED on conflict when hill/ESA is part of the conflict story (e.g. Maval)
@@ -726,11 +737,8 @@ export function ddRecommend(facts, rulesPack) {
     }
   });
 
-  // If REPRICED was wanted but config unset left only OPEN config flags, ensure OPEN
-  const hasConfigError = flags.some((f) => f.config_error);
+  // If REPRICED was wanted but config unset — keep REPRICED with amount-unavailable line (do not demote to OPEN)
   if (!outcomes.size) outcomes.add('OPEN');
-  if (hasConfigError && outcomes.has('REPRICED')) outcomes.delete('REPRICED');
-  if (hasConfigError && !outcomes.size) outcomes.add('OPEN');
 
   // Hard rule: automatic layer never produces DEAD without ≥90 evidence — already gated
   // Nothing auto-decides
@@ -744,17 +752,134 @@ export function ddRecommend(facts, rulesPack) {
   if (list.includes('DELAYED')) ordered.push('DELAYED');
   if (!ordered.length) ordered.push('OPEN');
 
+  const amountUnavailable = flags.find((f) => f.amount_unavailable);
+
   return {
     outcomes: ordered,
     flags,
     awaiting_human_decision: true,
     auto_decided: false,
     band_pct: bandPct,
+    amount_unavailable: amountUnavailable
+      ? { reason: amountUnavailable.reason, message: amountUnavailable.consequence }
+      : null,
     plain_language: flags
       .filter((f) => f.outcome !== 'FLAG' || certainty === 'PROVISIONAL_CONFLICT' || certainty === 'MATCH_DEGRADED' || f.id === 'match_degraded')
       .slice(0, 3)
       .map((f) => f.consequence)
       .join(' ')
+  };
+}
+
+function outcomeSeverityRank(outcomes) {
+  const o = outcomes || [];
+  if (o.includes('DEAD')) return 4;
+  if (o.includes('REPRICED')) return 3;
+  if (o.includes('DELAYED')) return 2;
+  return 1; // OPEN
+}
+
+function parseCompetingBranch(label) {
+  const s = String(label || '').trim();
+  if (!s) return null;
+  const parts = s.split(/\s*\/\s*/);
+  return {
+    label: s,
+    authority: (parts[0] || s).trim(),
+    rulebook_key: (parts[1] || '').trim() || null
+  };
+}
+
+/**
+ * For PROVISIONAL_CONFLICT: run recommend once per competing authority.
+ * Overall badge = worst branch, marked worst_case. Never silently asserts one branch.
+ */
+export function ddRecommendWithBranches(facts, rulesPack, rulebooks) {
+  const base = ddRecommend(facts, rulesPack);
+  const competing = Array.isArray(facts.competing_authorities) ? facts.competing_authorities : [];
+  if (facts.certainty !== 'PROVISIONAL_CONFLICT' || competing.length < 2) {
+    return Object.assign({}, base, { branches: null, conflict_worth: null, worst_case: false });
+  }
+
+  const books = rulebooks || [];
+  const overlays = Array.isArray(facts.overlays) ? facts.overlays : [];
+  const branches = [];
+
+  competing.forEach((label) => {
+    const parsed = parseCompetingBranch(label);
+    if (!parsed) return;
+    const rbRes = ddResolveRulebook(books, parsed.authority, overlays);
+    const rbKey = parsed.rulebook_key || (rbRes.rulebook && rbRes.rulebook.key) || '';
+    const exclusion =
+      !!rbRes.exclusion ||
+      /EXCLUDED|HILL_STATION|MIDC|NAINA|CIDCO/i.test(rbKey) ||
+      /Lonavala|Panchgani|Mahabaleshwar|Matheran|MIDC|NAINA|CIDCO/i.test(parsed.authority);
+
+    // Branch overlays: ESA/hill stick with exclusion regimes; plain PMRDA/Collector → no overlay drive
+    const branchOverlays = exclusion ? overlays.slice() : [];
+
+    const branchRec = ddRecommend(
+      Object.assign({}, facts, {
+        certainty: 'BRANCH_HYPOTHESIS',
+        branch_eval: true,
+        planning_authority: parsed.authority,
+        rulebook_key: rbKey,
+        rulebook_exclusion: exclusion,
+        overlays: branchOverlays,
+        competing_authorities: [],
+        degradation_flag: null
+      }),
+      rulesPack
+    );
+    branches.push({
+      authority: parsed.authority,
+      rulebook_key: rbKey,
+      label: parsed.label,
+      outcomes: branchRec.outcomes,
+      flags: branchRec.flags,
+      amount_unavailable: branchRec.amount_unavailable,
+      rank: outcomeSeverityRank(branchRec.outcomes)
+    });
+  });
+
+  branches.sort((a, b) => b.rank - a.rank);
+  const worst = branches[0];
+  const best = branches[branches.length - 1];
+  const worstOut = (worst && worst.outcomes) || base.outcomes;
+  const bestOut = (best && best.outcomes) || ['OPEN'];
+  const worstTxt = worstOut.join('+');
+  const bestTxt = bestOut.join('+');
+  let conflict_worth = null;
+  if (worstTxt !== bestTxt) {
+    conflict_worth =
+      'Confirming the authority moves this from ' + worstTxt + ' to ' + bestTxt + '.';
+  } else {
+    conflict_worth = 'Confirming the authority does not change the outcome (' + worstTxt + ').';
+  }
+
+  // Merge flags: conflict flag-only + worst branch flags (dedupe by id)
+  const flagMap = {};
+  (base.flags || []).forEach((f) => {
+    if (f && f.id) flagMap[f.id] = f;
+  });
+  ((worst && worst.flags) || []).forEach((f) => {
+    if (f && f.id && !flagMap[f.id]) flagMap[f.id] = f;
+  });
+  const flags = Object.values(flagMap).sort((a, b) => a.severity - b.severity);
+
+  return {
+    outcomes: worstOut,
+    flags,
+    awaiting_human_decision: true,
+    auto_decided: false,
+    band_pct: base.band_pct,
+    amount_unavailable: (worst && worst.amount_unavailable) || base.amount_unavailable,
+    plain_language: base.plain_language,
+    branches,
+    worst_case: true,
+    conflict_worth,
+    best_branch: best,
+    worst_branch: worst
   };
 }
 

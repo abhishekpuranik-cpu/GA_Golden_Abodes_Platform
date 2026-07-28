@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260728.6';
+var GA_V3_BUILD = '20260728.8';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1207,7 +1207,7 @@ var DD_LEGACY_BINARIES_BANNER =
   'Document binaries were not retained prior to Deploy 1. Absent evidence here is an artefact of the old design, not a loss.';
 
 var DD_FEATURE_FLAGS_DEFAULT = {
-  deploy1_engine: false,
+  deploy1_engine: true,
   deploy1_new_dd_tab: false,
   deploy1_pipeline_chip: false,
   deploy1_model_strip: false,
@@ -1252,6 +1252,8 @@ function ensureDdEngine(){
   Object.keys(DD_FEATURE_FLAGS_DEFAULT).forEach(function(k){
     if(e.flags[k] === undefined) e.flags[k] = DD_FEATURE_FLAGS_DEFAULT[k];
   });
+  // Deploy 1 engine enabled for live use (overrides any persisted false).
+  e.flags.deploy1_engine = true;
   ['runs','stages','facts','authority_register','authority_defaults','district_fallbacks','rulebooks','commissions','ground_truth','jobs'].forEach(function(k){
     if(!Array.isArray(e[k])) e[k] = [];
   });
@@ -2654,18 +2656,27 @@ async function ddStageRecommend(run, stage){
     max_land_rate_message: (mlr && mlr.value_text) || (econSt && econSt.value_json && econSt.value_json.message) || '',
     ask_rate_per_sqft: ask
   };
-  var rec = logic.ddRecommend(facts, rules);
+  var engRec = ensureDdEngine();
+  var rec = (logic.ddRecommendWithBranches
+    ? logic.ddRecommendWithBranches(facts, rules, engRec.rulebooks || [])
+    : logic.ddRecommend(facts, rules));
   ddAppendFact({
     run_id: run.id, stage_key: 'RECOMMEND', field_key: 'recommendation_outcomes',
     value_text: (rec.outcomes || []).join('+'),
-    value_json: { outcomes: rec.outcomes, awaiting_human_decision: true },
-    source_type: 'computed', source_ref: 'ddRecommend', confidence: facts.confidence || 50, tier: 0
+    value_json: {
+      outcomes: rec.outcomes,
+      awaiting_human_decision: true,
+      worst_case: !!rec.worst_case,
+      branches: rec.branches || null,
+      conflict_worth: rec.conflict_worth || null
+    },
+    source_type: 'computed', source_ref: 'ddRecommendWithBranches', confidence: facts.confidence || 50, tier: 0
   });
   ddAppendFact({
     run_id: run.id, stage_key: 'RECOMMEND', field_key: 'recommendation_flags',
     value_json: rec.flags || [],
     value_text: (rec.flags || []).length ? ((rec.flags || []).length + ' flags') : 'none',
-    source_type: 'computed', source_ref: 'ddRecommend', confidence: facts.confidence || 50, tier: 0
+    source_type: 'computed', source_ref: 'ddRecommendWithBranches', confidence: facts.confidence || 50, tier: 0
   });
   run.recommendation = {
     outcomes: rec.outcomes || [],
@@ -2674,6 +2685,10 @@ async function ddStageRecommend(run, stage){
     awaiting_human_decision: true,
     auto_decided: false,
     band_pct: rec.band_pct,
+    amount_unavailable: rec.amount_unavailable || null,
+    branches: rec.branches || null,
+    worst_case: !!rec.worst_case,
+    conflict_worth: rec.conflict_worth || null,
     at: new Date().toISOString()
   };
   run.verdict = (rec.outcomes || []).join('+');
@@ -3262,11 +3277,37 @@ function ddRenderProjectEngineCard(p){
   }
   html += '<div style="margin:12px 0;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
   html += '<div style="margin-bottom:6px">'+(outcomes.length ? outcomes.map(ddOutcomeBadgeHtml).join('') : ddOutcomeBadgeHtml('OPEN'));
+  if(rec.worst_case){
+    html += ' <span style="font-size:10px;font-weight:700;color:var(--muted);border:1px solid var(--border);padding:1px 6px;border-radius:4px;margin-left:4px">worst case</span>';
+  }
   html += ' <span style="font-size:11px;color:var(--muted)">conf '+(run.confidence != null ? run.confidence : (p.dd_confidence != null ? p.dd_confidence : '—'))+' · tier '+(run.tier != null ? run.tier : (p.dd_tier||0))+'</span></div>';
   html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'
     + ddEsc((village&&village.value_text)||'')+(taluka&&taluka.value_text ? ' · '+ddEsc(taluka.value_text) : '')+'</div>';
+  if(rec.branches && rec.branches.length){
+    html += '<div style="font-size:12px;line-height:1.55;margin-bottom:8px;padding:8px;border:1px dashed var(--border);border-radius:6px">';
+    html += '<div style="font-size:10px;font-weight:700;color:var(--muted);margin-bottom:4px">BRANCH OUTCOMES (competing authorities)</div>';
+    rec.branches.forEach(function(br){
+      var brOut = (br.outcomes || []).join('+') || 'OPEN';
+      html += '<div style="margin:3px 0">If <b>'+ddEsc(br.authority || br.label || '—')+'</b> → '
+        + ddEsc(brOut)
+        + ((br.amount_unavailable && br.amount_unavailable.message) ? ' · '+ddEsc(br.amount_unavailable.message) : '')
+        + '</div>';
+    });
+    if(rec.conflict_worth){
+      html += '<div style="margin-top:6px;font-weight:600">'+ddEsc(rec.conflict_worth)+'</div>';
+    }
+    html += '</div>';
+  }
   if(rec.plain_language){
     html += '<div style="font-size:12px;line-height:1.55;margin-bottom:8px">'+ddEsc(rec.plain_language)+'</div>';
+  }
+  var amtUnavail = rec.amount_unavailable || (outcomes.indexOf('REPRICED') >= 0 && flags.some(function(f){ return f && f.amount_unavailable; })
+    ? { message: (flags.find(function(f){ return f && f.amount_unavailable; }) || {}).consequence }
+    : null);
+  if(outcomes.indexOf('REPRICED') >= 0 && (amtUnavail || (mlr && /unavailable|UNKNOWN/i.test(String(mlr.value_text||''))))){
+    var amtMsg = (amtUnavail && amtUnavail.message)
+      || ('Repriced — amount unavailable, ' + ((mlr && mlr.value_text) || 'Land rate unavailable — economics config not set'));
+    html += '<div style="font-size:12px;font-weight:700;margin-bottom:8px;padding:8px;border-radius:6px;border:1px solid var(--border);background:var(--card)">'+ddEsc(amtMsg)+'</div>';
   }
   var changeBits = [];
   if(certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT') changeBits.push('Architect confirm of planning authority');

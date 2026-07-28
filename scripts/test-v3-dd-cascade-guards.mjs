@@ -8,6 +8,7 @@ import {
   ddResolveAuthorityCascade,
   ddResolveRulebook,
   ddRecommend,
+  ddRecommendWithBranches,
   ddDefaultRulebookSeed,
   ddComputeMaxLandRate,
   ddTalukaNamesMatch,
@@ -241,6 +242,74 @@ console.log('OK', pairs.length, 'taluka alias pairs + suffixes');
   assert(k.certainty === 'PROVISIONAL_CONFLICT', 'Khandala conflict');
   assert((k.competing_authorities || []).some((c) => /Lonavala/i.test(c)), 'Khandala → Lonavala MC');
   console.log('OK Khandala → Lonavala MC carve-out');
+}
+
+// --- Branch-labelled outcomes under PROVISIONAL_CONFLICT (live Maval pin style) ---
+{
+  const maval = ddResolveAuthorityCascade(
+    eng,
+    {
+      state: 'Maharashtra',
+      district: 'Pune',
+      taluka: 'Mawal Subdistrict',
+      village: '',
+      geocoded_locality: 'Lonavala'
+    },
+    { projectLocation: 'Lonavala' }
+  );
+  assert(maval.certainty === 'PROVISIONAL_CONFLICT', 'Maval pin conflict');
+  assert((maval.competing_authorities || []).length >= 2, 'Maval has ≥2 competing');
+
+  // Production-like: unset economics → maxLand UNKNOWN (no hardcoded rates)
+  const landUnknown = ddComputeMaxLandRate({
+    gross_area_sqft: 40000,
+    deduction_area_sqft: 0,
+    permissible_fsi: 0.6,
+    zone_code: 'R1',
+    targetMarginPct: null,
+    softCostPct: null,
+    realisableRatePerSqft: null,
+    constructionRate: null,
+    confidence: 50,
+    range_band_pct: 8
+  });
+  assert(landUnknown.unknown === true, 'unset econ → UNKNOWN');
+  assert(/economics config not set/i.test(landUnknown.message || ''), 'UNKNOWN message from config');
+
+  const exclusion = (maval.carve_outs_hit || []).some((c) => /HILL_STATION|EXCLUDED/i.test(c.rulebook_key || ''));
+  const rbKey = (maval.carve_outs_hit || []).map((c) => c.rulebook_key).filter(Boolean)[0] || '';
+  const facts = {
+    certainty: maval.certainty,
+    confidence: maval.confidence,
+    planning_authority: maval.planning_authority,
+    overlays: maval.overlays || [],
+    competing_authorities: maval.competing_authorities || [],
+    rulebook_key: rbKey,
+    rulebook_exclusion: exclusion,
+    zone_code: 'UNKNOWN',
+    max_land_rate: null,
+    max_land_rate_unknown: true,
+    max_land_rate_message: landUnknown.message,
+    ask_rate_per_sqft: null
+  };
+  const branched = ddRecommendWithBranches(facts, rulesPack, ddDefaultRulebookSeed());
+  assert(branched.worst_case === true, 'worst_case badge');
+  assert(Array.isArray(branched.branches) && branched.branches.length >= 2, 'both branches rendered');
+  const lonavala = branched.branches.find((b) => /Lonavala/i.test(b.authority || b.label || ''));
+  const pmrda = branched.branches.find((b) => /PMRDA/i.test(b.authority || b.label || ''));
+  assert(lonavala, 'Lonavala MC branch present');
+  assert(pmrda, 'PMRDA branch present');
+  assert(lonavala.outcomes.includes('REPRICED'), 'Lonavala → REPRICED');
+  assert(lonavala.outcomes.includes('DELAYED'), 'Lonavala → DELAYED');
+  assert(lonavala.amount_unavailable && /Repriced/i.test(lonavala.amount_unavailable.message || ''), 'Lonavala amount unavailable line');
+  assert(pmrda.outcomes.includes('OPEN') && pmrda.outcomes.length === 1, 'PMRDA → OPEN alone, got ' + pmrda.outcomes.join('+'));
+  assert(branched.outcomes.includes('REPRICED') && branched.outcomes.includes('DELAYED'), 'overall worst = REPRICED+DELAYED');
+  assert(/Confirming the authority moves this from REPRICED\+DELAYED to OPEN/i.test(branched.conflict_worth || ''), 'conflict worth line, got: ' + branched.conflict_worth);
+  console.log('OK Maval pin branch outcomes', {
+    lonavala: lonavala.outcomes.join('+'),
+    pmrda: pmrda.outcomes.join('+'),
+    worth: branched.conflict_worth
+  });
 }
 
 console.log('\n=== ALL GUARD / ALIAS / SEED FIXTURES PASSED ===');
