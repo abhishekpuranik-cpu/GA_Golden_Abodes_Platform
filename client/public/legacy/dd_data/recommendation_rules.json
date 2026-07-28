@@ -1,0 +1,165 @@
+{
+  "version": "1.0.0",
+  "generated_on": "2026-07-28",
+  "schema_note": "Recommendation rules for DD Engine Stage 7. Templates are string interpolation only — never model-generated. No template → no flag. DEAD list is closed; nothing outside it may produce DEAD. PROVISIONAL_CONFLICT is flag-only, never a verdict driver.",
+  "range_band_pct": 8,
+  "delay_weeks": {
+    "ESA_WESTERN_GHATS": { "low": 20, "high": 32 },
+    "ESA_WESTERN_GHATS_WEST": { "low": 20, "high": 32 },
+    "HILL_STATION": { "low": 8, "high": 16 },
+    "HILL_STATION_EXCLUDED": { "low": 8, "high": 16 },
+    "ECO_FRAGILE_DAHANU": { "low": 24, "high": 40 },
+    "CRZ": { "low": 12, "high": 24 },
+    "CRZ-I": { "low": 12, "high": 24 },
+    "CRZ-II": { "low": 12, "high": 24 },
+    "CRZ-III": { "low": 12, "high": 24 },
+    "MIDC": { "low": 6, "high": 12 },
+    "NAINA": { "low": 8, "high": 20 },
+    "CIDCO": { "low": 6, "high": 12 }
+  },
+  "dead_rules": [
+    {
+      "id": "dead_ndz_agri",
+      "outcome": "DEAD",
+      "min_confidence": 90,
+      "match": { "zone_codes": ["NDZ", "AGRICULTURE_NDZ", "NO_DEVELOPMENT"], "zone_labels": ["Agricultural No-Development Zone", "No Development Zone"] },
+      "require_no_conversion_route": true,
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Parcel is Agricultural No-Development Zone with no individual conversion route on file",
+      "why": "Usable development rights are legally barred under NDZ without a conversion path",
+      "cost": "Deal cannot proceed on zoning grounds until a confirmed conversion route exists at confidence ≥90"
+    },
+    {
+      "id": "dead_third_party_rera",
+      "outcome": "DEAD",
+      "min_confidence": 90,
+      "match": { "flags": ["THIRD_PARTY_RERA"] },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Third-party RERA registration exists on the same survey number",
+      "why": "Another promoter already holds statutory registration over this land",
+      "cost": "Title cannot be cleared for GA acquisition while that registration stands"
+    },
+    {
+      "id": "dead_live_litigation",
+      "outcome": "DEAD",
+      "min_confidence": 90,
+      "match": { "flags": ["LIVE_CIVIL_LITIGATION"] },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Live civil litigation on title",
+      "why": "Court proceedings put ownership and transfer at risk",
+      "cost": "Acquisition is blocked until the suit is disposed or settled with advocate confirmation"
+    },
+    {
+      "id": "dead_devasthan_inam",
+      "outcome": "DEAD",
+      "min_confidence": 90,
+      "match": { "tenure_classes": ["DEVASTHAN", "INAM", "WATAN"], "flags": ["TRANSFER_BARRED"] },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Devasthan / Inam / Watan tenure where transfer is legally barred",
+      "why": "Statutory bar prevents lawful conveyance to GA",
+      "cost": "Deal is dead on tenure unless a court/collector route is proven at confidence ≥90"
+    },
+    {
+      "id": "dead_acquisition_notification",
+      "outcome": "DEAD",
+      "min_confidence": 90,
+      "match": { "flags": ["ACQUISITION_NOTIFICATION"] },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Land under acquisition notification",
+      "why": "Government acquisition overrides private deal economics",
+      "cost": "Cannot acquire free title while notification remains in force"
+    },
+    {
+      "id": "dead_crz_i",
+      "outcome": "DEAD",
+      "min_confidence": 90,
+      "match": { "overlays": ["CRZ-I", "CRZ_I"], "flags": ["CRZ_I"] },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Parcel sits in CRZ-I",
+      "why": "CRZ-I prohibits the development GA screens for",
+      "cost": "No viable buildable envelope under coastal regulation"
+    }
+  ],
+  "repriced_rules": [
+    {
+      "id": "repriced_rulebook_exclusion",
+      "outcome": "REPRICED",
+      "match": { "rulebook_exclusion": true },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Rulebook exclusion or low usable FSI applies ({rulebook_key})",
+      "why": "Permissible buildable area is below the UDCPR baseline the ask implies",
+      "cost": "Negotiate to revised max land Rate per Sq. Ft. {max_land_rate_text} ({gap_text})"
+    },
+    {
+      "id": "repriced_reservation",
+      "outcome": "REPRICED",
+      "match": { "reservation": true },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Reservation or road widening reduces net developable area",
+      "why": "Gross area overstates what GA can build on",
+      "cost": "Justify land at {max_land_rate_text} against ask ({gap_text})"
+    },
+    {
+      "id": "repriced_class_ii",
+      "outcome": "REPRICED",
+      "match": { "tenure_classes": ["CLASS_II", "CLASS II"] },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Class II tenure needing conversion",
+      "why": "Conversion cost and delay change residual land value",
+      "cost": "Reprice using {max_land_rate_text} until conversion is confirmed"
+    }
+  ],
+  "delayed_rules": [
+    {
+      "id": "delayed_esa",
+      "outcome": "DELAYED",
+      "match": { "overlays": ["ESA_WESTERN_GHATS", "ESA_WESTERN_GHATS_WEST", "ECO_FRAGILE_DAHANU"] },
+      "delay_key_from_overlay": true,
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Eco-sensitive / hill / fragile overlay ({overlay})",
+      "why": "Additional clearances sit on the critical path",
+      "cost": "Add {delay_weeks_low}–{delay_weeks_high} weeks before a development start can be assumed"
+    },
+    {
+      "id": "delayed_hill",
+      "outcome": "DELAYED",
+      "match": { "rulebook_keys": ["HILL_STATION_EXCLUDED"], "overlays": ["HILL_STATION"] },
+      "delay_key": "HILL_STATION",
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Hill station / excluded municipal regime",
+      "why": "Separate bye-laws and clearances extend timeline",
+      "cost": "Add {delay_weeks_low}–{delay_weeks_high} weeks from config"
+    },
+    {
+      "id": "delayed_crz_ii_iii",
+      "outcome": "DELAYED",
+      "match": { "overlays": ["CRZ-II", "CRZ-III", "CRZ_II", "CRZ_III", "CRZ"] },
+      "delay_key": "CRZ",
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "CRZ-II or CRZ-III constraint",
+      "why": "Coastal clearance and FAR cuts delay and reshape the product",
+      "cost": "Add {delay_weeks_low}–{delay_weeks_high} weeks; reprice if FAR cut is confirmed"
+    },
+    {
+      "id": "delayed_authority_mismatch",
+      "outcome": "DELAYED",
+      "match": { "authorities": ["MIDC", "NAINA", "CIDCO", "MMRDA (BSNA)", "BSNA", "CIDCO (NAINA)"], "competing_has": ["MIDC", "NAINA", "CIDCO", "BSNA", "MMRDA"] },
+      "delay_key_from_authority": true,
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "Authority conflict involving MIDC / NAINA / CIDCO ({authorities_text})",
+      "why": "Wrong rulebook assumption invalidates FSI and timeline until architect confirms",
+      "cost": "Add {delay_weeks_low}–{delay_weeks_high} weeks pending authority confirmation"
+    }
+  ],
+  "flag_only_rules": [
+    {
+      "id": "flag_provisional_conflict",
+      "outcome": "FLAG",
+      "match": { "certainty": ["PROVISIONAL_CONFLICT"] },
+      "consequence_template": "{what} → {why} → {cost}",
+      "what": "PROVISIONAL_CONFLICT between competing authorities ({competing_text})",
+      "why": "Taluka default must not be asserted; architect register row required",
+      "cost": "Flag only — does not drive DEAD, REPRICED, or DELAYED on its own"
+    }
+  ]
+}
