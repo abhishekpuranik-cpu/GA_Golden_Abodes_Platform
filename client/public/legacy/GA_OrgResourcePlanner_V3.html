@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260728.8';
+var GA_V3_BUILD = '20260728.9';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1637,8 +1637,20 @@ function ddStartRunFromDdPage(projectId, pinRaw){
   var p = (PROJS || []).find(function(x){ return x.id === projectId; });
   if(!p) return;
   ensureProjectDdFields(p);
+  var btn = document.getElementById('dd-run-btn-'+projectId);
+  var statusEl = document.getElementById('dd-pin-coord-'+projectId);
+
+  function setBusy(msg){
+    if(btn){ btn.disabled = true; btn.textContent = msg || 'Working…'; }
+    if(statusEl && msg) statusEl.textContent = msg;
+  }
+  function clearPinFlag(){
+    var eng = ensureDdEngine();
+    if(eng.pin_flags && eng.pin_flags[projectId]) delete eng.pin_flags[projectId];
+  }
 
   function kick(lat, lng, sourceRaw){
+    clearPinFlag();
     ddEnqueueRun(projectId, lat, lng, { pinRaw: sourceRaw || raw, forceNew: true });
     try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
     ddKickQueue();
@@ -1647,28 +1659,33 @@ function ddStartRunFromDdPage(projectId, pinRaw){
 
   var parsed = parseGooglePin(raw);
   if(parsed.ok){
+    setBusy('Starting…');
     kick(parsed.lat, parsed.lng, raw);
     return;
   }
   if(parsed.needsResolve){
+    setBusy('Resolving Maps link…');
     fetch('/api/v3-dd/resolve-link', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url: raw })
-    }).then(function(r){ return r.json().catch(function(){ return {}; }); })
-      .then(function(j){
+    }).then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ return { httpOk: r.ok, status: r.status, j: j }; }); })
+      .then(function(pack){
+        var j = pack.j || {};
         if(j && j.ok && isFinite(j.lat) && isFinite(j.lng)){
+          if(statusEl) statusEl.textContent = j.lat.toFixed(5)+', '+j.lng.toFixed(5)+' (resolved)';
           kick(j.lat, j.lng, raw);
         } else {
-          ddMarkPinUnresolved(projectId, raw, (j && j.error) || 'PIN_UNRESOLVED');
+          var err = (j && j.error) || (pack.status === 401 ? 'Sign in required to resolve short links' : 'PIN_UNRESOLVED');
+          ddMarkPinUnresolved(projectId, raw, err);
           try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
           try { renderDueDiligence(); } catch(e){}
         }
       })
-      .catch(function(){
-        ddMarkPinUnresolved(projectId, raw, 'PIN_UNRESOLVED');
-        try { renderDueDiligence(); } catch(e){}
+      .catch(function(e){
+        ddMarkPinUnresolved(projectId, raw, (e && e.message) || 'PIN_UNRESOLVED');
+        try { renderDueDiligence(); } catch(e2){}
       });
     return;
   }
@@ -3231,7 +3248,8 @@ function ddRenderProjectEngineCard(p){
   var run = ddActiveRunForProject(pid);
   var pinOk = !!(parsed.ok || parsed.needsResolve);
   var pinDiffers = String(pinRaw || '').trim() !== String(p.googlePin || '').trim();
-  var coordTxt = parsed.ok ? (parsed.lat.toFixed(5)+', '+parsed.lng.toFixed(5)) : (parsed.needsResolve ? 'Short link — will resolve on Run' : (pinRaw.trim() ? 'Could not parse pin' : 'No pin'));
+  var coordTxt = parsed.ok ? (parsed.lat.toFixed(5)+', '+parsed.lng.toFixed(5)) : (parsed.needsResolve ? 'Short Maps link — click Run due diligence to resolve & start' : (pinRaw.trim() ? 'Could not parse pin' : 'No pin'));
+  var pinFlag = (ensureDdEngine().pin_flags || {})[pid];
   var html = '<div class="card" style="margin-bottom:14px;border-left:4px solid var(--blue)">'
     + '<div style="font-size:14px;font-weight:700;margin-bottom:4px">'+ddEsc(p.name)+'</div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">'+ddEsc(p.location||'')+(p.dd_status ? ' · '+ddEsc(p.dd_status) : '')+(p.decision ? ' · decision: '+ddEsc(p.decision) : '')+'</div>'
@@ -3241,6 +3259,12 @@ function ddRenderProjectEngineCard(p){
     + '<div style="font-size:11px;color:var(--muted);padding-bottom:8px" id="dd-pin-coord-'+pid+'">'+ddEsc(coordTxt)+'</div>'
     + '<button type="button" class="proj-plan-btn primary" id="dd-run-btn-'+pid+'" '+(pinOk?'':'disabled ')+'onclick="ddRunFromPage(\''+pid+'\')">'+(run?'Re-run':'Run due diligence')+'</button>'
     + '</div>';
+  if(pinFlag && pinFlag.code){
+    html += '<div style="font-size:12px;color:var(--red-b);background:var(--red-l);border:1px solid var(--red);border-radius:6px;padding:8px 10px;margin-bottom:8px">'
+      + '<b>Pin not resolved.</b> '+ddEsc(pinFlag.reason || pinFlag.code)
+      + '<div style="font-size:11px;margin-top:4px;font-weight:500">Tip: in Google Maps, long-press the pin → copy coordinates (e.g. <code>18.7482, 73.4021</code>) and paste those instead of a short share link.</div>'
+      + '</div>';
+  }
   if(pinDiffers && pinRaw.trim()){
     html += '<button type="button" style="font-size:10px;border:none;background:transparent;color:var(--muted);text-decoration:underline;cursor:pointer;padding:0;margin-bottom:8px" onclick="ddSavePinToProject(\''+pid+'\')">Save this pin to the project</button>';
   }
@@ -3415,9 +3439,72 @@ function ddRefreshPinBar(pid){
   var pinOk = !!(parsed.ok || parsed.needsResolve);
   if(coord){
     coord.textContent = parsed.ok ? (parsed.lat.toFixed(5)+', '+parsed.lng.toFixed(5))
-      : (parsed.needsResolve ? 'Short link — will resolve on Run' : (String(el.value||'').trim() ? 'Could not parse pin' : 'No pin'));
+      : (parsed.needsResolve ? 'Short Maps link — click Run due diligence to resolve & start' : (String(el.value||'').trim() ? 'Could not parse pin' : 'No pin'));
   }
   if(btn) btn.disabled = !pinOk;
+}
+
+/** Lightweight project create from DD page — evaluate a parcel without Projects tab. */
+function ddCreateEvalProjectAndRun(){
+  if(!ddFlag('deploy1_engine')) return;
+  var nameEl = document.getElementById('dd-new-name');
+  var locEl = document.getElementById('dd-new-loc');
+  var pinEl = document.getElementById('dd-new-pin');
+  var sqftEl = document.getElementById('dd-new-sqft');
+  var name = nameEl ? String(nameEl.value || '').trim() : '';
+  var loc = locEl ? String(locEl.value || '').trim() : '';
+  var pin = pinEl ? String(pinEl.value || '').trim() : '';
+  var sqf = sqftEl && sqftEl.value !== '' ? Number(sqftEl.value) : 0;
+  if(!name){ alert('Enter a parcel / project name.'); if(nameEl) nameEl.focus(); return; }
+  if(!pin){ alert('Paste a Google Maps pin or lat,lng.'); if(pinEl) pinEl.focus(); return; }
+  var parsed = parseGooglePin(pin);
+  if(!parsed.ok && !parsed.needsResolve){
+    alert(parsed.error || 'Could not read that pin. Paste a Maps link or coordinates like 18.7482, 73.4021');
+    return;
+  }
+  var newId = 'P' + String(Date.now()).slice(-6);
+  var p = {
+    id: newId,
+    name: name,
+    location: loc,
+    on: true,
+    status: 'Pipeline',
+    startDate: '',
+    endDate: '',
+    sqf: isFinite(sqf) && sqf > 0 ? sqf : 0,
+    unt: 0, slb: 0, rev: 0, bkn: 0, lds: 0, trx: 0, lab: 0, cmp: 0, mnt: 0,
+    googlePin: pin
+  };
+  PROJS.push(p);
+  ensureProjectDdFields(p);
+  p.dd_pin_raw = pin;
+  if(!ST.fin[newId]) ST.fin[newId] = {};
+  ST.fin[newId].googlePin = pin;
+  if(p.sqf > 0){
+    ST.fin[newId].fsiMode = 'simple';
+    ST.fin[newId].plotArea = p.sqf;
+  }
+  try { if(typeof touchProjectModified === 'function') touchProjectModified(p); } catch(e){}
+  try { if(typeof syncProjectToFin === 'function') syncProjectToFin(p); } catch(e){}
+  try { if(typeof initProjBtns === 'function') initProjBtns(); } catch(e){}
+  try { if(typeof writeGaRpProjects === 'function') writeGaRpProjects(); } catch(e){}
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); } catch(e){}
+  ddStartRunFromDdPage(newId, pin);
+}
+
+function ddRenderNewEvalProjectForm(){
+  return '<div style="margin-bottom:14px;padding:12px;border:1px dashed var(--border);border-radius:8px;background:var(--card)">'
+    + '<div style="font-size:13px;font-weight:700;margin-bottom:4px">Evaluate a new parcel</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">Creates a Pipeline project here and runs DD immediately. Prefer lat,lng if a short Maps link fails.</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;align-items:end">'
+    + '<div><div class="proj-form-lbl">Name</div><input id="dd-new-name" class="proj-form-inp" type="text" placeholder="e.g. Lonavala plot A"/></div>'
+    + '<div><div class="proj-form-lbl">Location / City</div><input id="dd-new-loc" class="proj-form-inp" type="text" placeholder="e.g. Lonavala, Maval"/></div>'
+    + '<div><div class="proj-form-lbl">Gross area (sq.ft, optional)</div><input id="dd-new-sqft" class="proj-form-inp" type="number" step="1" placeholder="e.g. 40000"/></div>'
+    + '<div style="grid-column:1/-1"><div class="proj-form-lbl">Google Maps pin</div><input id="dd-new-pin" class="proj-form-inp" type="text" placeholder="maps.app.goo.gl/… or 18.7482, 73.4021"/></div>'
+    + '</div>'
+    + '<button type="button" class="proj-plan-btn primary" style="margin-top:10px" onclick="ddCreateEvalProjectAndRun()">Create &amp; Run due diligence</button>'
+    + '</div>';
 }
 
 function ddRenderEngineStripOnDdPage(){
@@ -3428,12 +3515,13 @@ function ddRenderEngineStripOnDdPage(){
   var html = '<div style="margin:8px 0 16px">'
     + '<div style="font-size:16px;font-weight:700;margin-bottom:4px">Due Diligence Engine</div>'
     + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Run from this page only. Recommendation never auto-decides.</div>'
-    + ddRenderEconomicsSettings();
+    + ddRenderEconomicsSettings()
+    + ddRenderNewEvalProjectForm();
   (PROJS || []).forEach(function(p){
     html += ddRenderProjectEngineCard(p);
   });
   if(!(PROJS || []).length){
-    html += '<div style="font-size:12px;color:var(--muted)">No projects yet.</div>';
+    html += '<div style="font-size:12px;color:var(--muted)">No projects yet — use Evaluate a new parcel above.</div>';
   }
   html += '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted)">Authority admin</summary>'
     + '<div style="margin-top:8px">'+renderDdAuthorityAdmin()+'</div></details>';

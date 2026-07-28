@@ -2,7 +2,7 @@
  * Smoke tests for V3 DD resolve-link / geocode helpers (no network to Google required).
  */
 import assert from 'assert';
-import { extractCoordsFromText, isPrivateOrLocalIp } from '../server/lib/v3DdResolveLink.js';
+import { extractCoordsFromText, extractCoordsFromMapsHtml, isPrivateOrLocalIp } from '../server/lib/v3DdResolveLink.js';
 import { geocodeCacheKey, parseGoogleGeocodeResult, roundCoord5 } from '../server/lib/v3DdGeocode.js';
 
 assert.deepStrictEqual(extractCoordsFromText('18.7482, 73.4021'), { lat: 18.7482, lng: 73.4021 });
@@ -10,6 +10,10 @@ assert.ok(extractCoordsFromText('https://www.google.com/maps/@18.5204,73.8567,15
 assert.equal(extractCoordsFromText('https://www.google.com/maps/@18.5204,73.8567,15z').lat, 18.5204);
 assert.ok(extractCoordsFromText('https://maps.google.com/?q=18.5,73.8'));
 assert.ok(extractCoordsFromText(`18°44'53.5"N 73°24'07.6"E`));
+assert.deepStrictEqual(
+  extractCoordsFromMapsHtml('<html>…/@18.74820,73.40210,17z… and !3d18.1!4d73.2</html>'),
+  { lat: 18.7482, lng: 73.4021 }
+);
 
 assert.equal(isPrivateOrLocalIp('127.0.0.1'), true);
 assert.equal(isPrivateOrLocalIp('10.0.0.5'), true);

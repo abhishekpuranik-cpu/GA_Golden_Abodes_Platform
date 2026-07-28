@@ -242,12 +242,19 @@ v3DdRouter.post(
           error: resolved.error || 'Could not resolve link'
         });
       }
-      const coords = extractCoordsFromText(resolved.finalUrl);
+      const coords =
+        extractCoordsFromText(resolved.finalUrl) ||
+        (resolved.bodyCoords &&
+        Number.isFinite(resolved.bodyCoords.lat) &&
+        Number.isFinite(resolved.bodyCoords.lng)
+          ? resolved.bodyCoords
+          : null);
       if (!coords) {
         return res.json({
           ok: false,
           code: 'PIN_UNRESOLVED',
-          error: 'Resolved URL had no coordinates',
+          error:
+            'Resolved URL had no coordinates — open the link in Maps, tap the pin, copy lat,lng (e.g. 18.7482, 73.4021) and paste that instead',
           finalUrl: resolved.finalUrl
         });
       }

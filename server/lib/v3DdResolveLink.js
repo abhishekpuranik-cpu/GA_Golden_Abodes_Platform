@@ -17,8 +17,8 @@ const ALLOWED_HOSTS = new Set([
   'www.maps.google.com'
 ]);
 
-const MAX_HOPS = 3;
-const TIMEOUT_MS = 5000;
+const MAX_HOPS = 6;
+const TIMEOUT_MS = 8000;
 
 function hostAllowed(hostname) {
   const h = String(hostname || '')
@@ -114,8 +114,28 @@ function normalizeStartUrl(raw) {
 }
 
 /**
+ * Pull lat/lng from Maps HTML when the final URL has no @lat,lng
+ * (common for maps.app.goo.gl place shares).
+ */
+export function extractCoordsFromMapsHtml(html) {
+  const s = String(html || '');
+  if (!s) return null;
+  let m = s.match(/@(-?\d+\.\d+),\s*(-?\d+\.\d+)(?:,\d+\.?\d*[a-z])?/i);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = s.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = s.match(/\[null,null,(-?\d+\.\d+),(-?\d+\.\d+)\]/);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = s.match(/"latitude"\s*:\s*(-?\d+\.\d+)\s*,\s*"longitude"\s*:\s*(-?\d+\.\d+)/i);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  m = s.match(/center=(-?\d+\.\d+)%2C(-?\d+\.\d+)/i);
+  if (m) return { lat: parseFloat(m[1]), lng: parseFloat(m[2]) };
+  return extractCoordsFromText(s.slice(0, 200000));
+}
+
+/**
  * Follow redirects manually with SSRF checks.
- * @returns {{ ok: true, finalUrl: string } | { ok: false, code: 'PIN_UNRESOLVED', error: string }}
+ * @returns {{ ok: true, finalUrl: string, bodyCoords?: {lat,lng}|null } | { ok: false, code: 'PIN_UNRESOLVED', error: string }}
  */
 export async function resolveMapsShortLink(rawUrl) {
   try {
@@ -132,7 +152,8 @@ export async function resolveMapsShortLink(rawUrl) {
           redirect: 'manual',
           signal: controller.signal,
           headers: {
-            'User-Agent': 'GoldenAbodes-V3DD/1.0',
+            'User-Agent':
+              'Mozilla/5.0 (compatible; GoldenAbodes-V3DD/1.0; +https://ga-golden-abodes-platform.onrender.com)',
             Accept: 'text/html,application/xhtml+xml'
           }
         });
@@ -161,6 +182,11 @@ export async function resolveMapsShortLink(rawUrl) {
           return { ok: false, code: 'PIN_UNRESOLVED', error: 'Redirect protocol rejected' };
         }
         await assertPublicHostname(next.hostname);
+        // Prefer coords already present on the redirect Location
+        const hopCoords = extractCoordsFromText(next.toString());
+        if (hopCoords) {
+          return { ok: true, finalUrl: next.toString(), bodyCoords: hopCoords };
+        }
         current = next;
         if (hop === MAX_HOPS) {
           return { ok: false, code: 'PIN_UNRESOLVED', error: 'Too many redirects' };
@@ -168,8 +194,17 @@ export async function resolveMapsShortLink(rawUrl) {
         continue;
       }
 
-      // Landed
-      return { ok: true, finalUrl: current.toString() };
+      // Landed — URL may lack @lat,lng; scrape HTML body as fallback
+      let bodyCoords = extractCoordsFromText(current.toString());
+      if (!bodyCoords) {
+        try {
+          const text = await res.text();
+          bodyCoords = extractCoordsFromMapsHtml(text);
+        } catch {
+          bodyCoords = null;
+        }
+      }
+      return { ok: true, finalUrl: current.toString(), bodyCoords: bodyCoords || null };
     }
 
     return { ok: false, code: 'PIN_UNRESOLVED', error: 'Too many redirects' };
