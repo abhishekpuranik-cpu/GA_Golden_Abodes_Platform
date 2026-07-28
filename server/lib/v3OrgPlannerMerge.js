@@ -97,7 +97,12 @@ function mergeDdEngine(exEngine, inEngine) {
     legacy: {},
     pin_flags: {},
     authority_defaults_meta: {},
-    economics: { targetMarginPct: null, softCostPct: null }
+    economics: {
+      targetMarginPct: null,
+      softCostPct: null,
+      realisableRatePerSqft: null,
+      constructionRate: null
+    }
   };
   const ex = exEngine && typeof exEngine === 'object' ? exEngine : empty;
   const inn = inEngine && typeof inEngine === 'object' ? inEngine : empty;
@@ -127,7 +132,15 @@ function mergeDdEngine(exEngine, inEngine) {
       softCostPct:
         inn.economics && inn.economics.softCostPct != null
           ? inn.economics.softCostPct
-          : ex.economics?.softCostPct ?? null
+          : ex.economics?.softCostPct ?? null,
+      realisableRatePerSqft:
+        inn.economics && inn.economics.realisableRatePerSqft != null
+          ? inn.economics.realisableRatePerSqft
+          : ex.economics?.realisableRatePerSqft ?? null,
+      constructionRate:
+        inn.economics && inn.economics.constructionRate != null
+          ? inn.economics.constructionRate
+          : ex.economics?.constructionRate ?? null
     }
   };
 }

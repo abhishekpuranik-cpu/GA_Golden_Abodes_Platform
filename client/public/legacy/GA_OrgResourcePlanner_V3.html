@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260728.4';
+var GA_V3_BUILD = '20260728.5';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -1236,8 +1236,13 @@ function ddEngineDefaults(){
     legacy: {},
     pin_flags: {},
     authority_defaults_meta: {},
-    economics: { targetMarginPct: null, softCostPct: null }
+    economics: { targetMarginPct: null, softCostPct: null, realisableRatePerSqft: null, constructionRate: null },
+    recommendation_rules: null
   };
+}
+
+function ddEconomicsDefaults(){
+  return { targetMarginPct: null, softCostPct: null, realisableRatePerSqft: null, constructionRate: null };
 }
 
 function ensureDdEngine(){
@@ -1253,7 +1258,8 @@ function ensureDdEngine(){
   if(!e.authority_defaults_meta || typeof e.authority_defaults_meta !== 'object') e.authority_defaults_meta = {};
   if(!e.legacy || typeof e.legacy !== 'object') e.legacy = {};
   if(!e.pin_flags || typeof e.pin_flags !== 'object') e.pin_flags = {};
-  if(!e.economics || typeof e.economics !== 'object') e.economics = { targetMarginPct: null, softCostPct: null };
+  if(!e.economics || typeof e.economics !== 'object') e.economics = ddEconomicsDefaults();
+  else e.economics = Object.assign(ddEconomicsDefaults(), e.economics);
   if(e.schemaVersion == null) e.schemaVersion = 1;
   try { ddEnsureRulebookSeed(); } catch(_rb) {}
   return e;
@@ -1276,7 +1282,42 @@ function ensureProjectDdFields(p){
   if(p.dd_pin_raw === undefined) p.dd_pin_raw = p.googlePin != null ? String(p.googlePin) : '';
   if(p.dd_pin_lat === undefined) p.dd_pin_lat = null;
   if(p.dd_pin_lng === undefined) p.dd_pin_lng = null;
+  if(p.decided_by === undefined) p.decided_by = null;
+  if(p.decided_on === undefined) p.decided_on = null;
+  if(p.decision === undefined) p.decision = null;
+  if(p.reason_code === undefined) p.reason_code = null;
+  if(p.reason_note === undefined) p.reason_note = null;
   return p;
+}
+
+/** GA economics defaults with per-project ST.fin override. Never silently uses resRate. */
+function ddResolveEconomics(pid){
+  var eng = ensureDdEngine();
+  var ga = eng.economics || ddEconomicsDefaults();
+  var fin = (ST.fin && ST.fin[pid]) || {};
+  function numOrNull(v){
+    if(v == null || v === '') return null;
+    var n = Number(v);
+    return isFinite(n) ? n : null;
+  }
+  var realisable = numOrNull(fin.realisableRatePerSqft);
+  if(realisable == null) realisable = numOrNull(fin.ddRealisableRate);
+  if(realisable == null) realisable = numOrNull(ga.realisableRatePerSqft);
+  var constructionRate = numOrNull(fin.constructionRate);
+  if(constructionRate == null) constructionRate = numOrNull(ga.constructionRate);
+  var softCostPct = numOrNull(fin.softCostPct);
+  if(softCostPct == null) softCostPct = numOrNull(ga.softCostPct);
+  var targetMarginPct = numOrNull(fin.targetMarginPct);
+  if(targetMarginPct == null) targetMarginPct = numOrNull(ga.targetMarginPct);
+  var out = {
+    targetMarginPct: targetMarginPct,
+    softCostPct: softCostPct,
+    realisableRatePerSqft: realisable,
+    constructionRate: constructionRate
+  };
+  out.unset = ['targetMarginPct','softCostPct','realisableRatePerSqft','constructionRate'].filter(function(k){ return out[k] == null; });
+  out.unknown = out.unset.length > 0;
+  return out;
 }
 
 function ddCloneJson(v){
@@ -1497,8 +1538,9 @@ function ddActiveRunStatuses(){
 }
 
 /**
- * Idempotent enqueue keyed on (projectId, normalisedLat, normalisedLng).
- * Returns existing pending/running/awaiting_input run if present.
+ * Enqueue a DD run. With opts.forceNew (DD page Run/Re-run), always creates a new run
+ * and supersedes ALL prior non-superseded runs for that project (including same coords).
+ * Without forceNew, coord-based dedupe still applies for other callers.
  */
 function ddEnqueueRun(projectId, lat, lng, opts){
   opts = opts || {};
@@ -1506,28 +1548,30 @@ function ddEnqueueRun(projectId, lat, lng, opts){
   var nLat = ddRound5(lat), nLng = ddRound5(lng);
   if(nLat == null || nLng == null) return null;
   var active = ddActiveRunStatuses();
-  var existing = (eng.runs || []).find(function(r){
-    return r && r.project_id === projectId &&
-      ddCoordsEqual(r.pin_lat, r.pin_lng, nLat, nLng) &&
-      active[r.status];
-  });
-  if(existing){
-    var jobEx = (eng.jobs || []).find(function(j){
-      return j && j.run_id === existing.id && (j.status === 'pending' || j.status === 'running');
+  if(!opts.forceNew){
+    var existing = (eng.runs || []).find(function(r){
+      return r && r.project_id === projectId &&
+        ddCoordsEqual(r.pin_lat, r.pin_lng, nLat, nLng) &&
+        active[r.status] && !r.superseded_by;
     });
-    if(!jobEx){
-      eng.jobs.push({
-        id: ddNewId('ddj'),
-        run_id: existing.id,
-        project_id: projectId,
-        type: 'dd_pipeline',
-        status: 'pending',
-        attempts: 0,
-        next_at: new Date().toISOString(),
-        created_at: new Date().toISOString()
+    if(existing){
+      var jobEx = (eng.jobs || []).find(function(j){
+        return j && j.run_id === existing.id && (j.status === 'pending' || j.status === 'running');
       });
+      if(!jobEx){
+        eng.jobs.push({
+          id: ddNewId('ddj'),
+          run_id: existing.id,
+          project_id: projectId,
+          type: 'dd_pipeline',
+          status: 'pending',
+          attempts: 0,
+          next_at: new Date().toISOString(),
+          created_at: new Date().toISOString()
+        });
+      }
+      return { run: existing, deduped: true };
     }
-    return { run: existing, deduped: true };
   }
 
   var runId = ddNewId('ddr');
@@ -1540,6 +1584,7 @@ function ddEnqueueRun(projectId, lat, lng, opts){
     pin_lng: nLng,
     status: 'pending',
     verdict: null,
+    recommendation: null,
     confidence: null,
     tier: 0,
     rule_version: null,
@@ -1547,15 +1592,9 @@ function ddEnqueueRun(projectId, lat, lng, opts){
     superseded_by: null,
     pin_raw: opts.pinRaw || ''
   };
-  // Supersede prior complete/failed runs for same project (not delete)
   (eng.runs || []).forEach(function(r){
     if(r && r.project_id === projectId && !r.superseded_by && r.id !== runId){
-      if(r.status === 'complete' || r.status === 'failed' || r.status === 'awaiting_input' || r.status === 'running' || r.status === 'pending'){
-        // Only supersede if coords differ OR we're starting a fresh run for same coords already handled above
-        if(!ddCoordsEqual(r.pin_lat, r.pin_lng, nLat, nLng)){
-          r.superseded_by = runId;
-        }
-      }
+      r.superseded_by = runId;
     }
   });
   eng.runs.push(run);
@@ -1579,8 +1618,60 @@ function ddEnqueueRun(projectId, lat, lng, opts){
     p.dd_pin_lat = nLat;
     p.dd_pin_lng = nLng;
     p.dd_last_run_at = run.created_at;
+    p.dd_verdict = null;
+    p.decision = null;
+    p.decided_by = null;
+    p.decided_on = null;
+    p.reason_code = null;
+    p.reason_note = null;
   }
   return { run: run, deduped: false };
+}
+
+/** DD page Run / Re-run — always forceNew; no coord dedupe. */
+function ddStartRunFromDdPage(projectId, pinRaw){
+  if(!ddFlag('deploy1_engine')) return;
+  var raw = String(pinRaw != null ? pinRaw : '').trim();
+  var p = (PROJS || []).find(function(x){ return x.id === projectId; });
+  if(!p) return;
+  ensureProjectDdFields(p);
+
+  function kick(lat, lng, sourceRaw){
+    ddEnqueueRun(projectId, lat, lng, { pinRaw: sourceRaw || raw, forceNew: true });
+    try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+    ddKickQueue();
+    try { renderDueDiligence(); } catch(e){}
+  }
+
+  var parsed = parseGooglePin(raw);
+  if(parsed.ok){
+    kick(parsed.lat, parsed.lng, raw);
+    return;
+  }
+  if(parsed.needsResolve){
+    fetch('/api/v3-dd/resolve-link', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: raw })
+    }).then(function(r){ return r.json().catch(function(){ return {}; }); })
+      .then(function(j){
+        if(j && j.ok && isFinite(j.lat) && isFinite(j.lng)){
+          kick(j.lat, j.lng, raw);
+        } else {
+          ddMarkPinUnresolved(projectId, raw, (j && j.error) || 'PIN_UNRESOLVED');
+          try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+          try { renderDueDiligence(); } catch(e){}
+        }
+      })
+      .catch(function(){
+        ddMarkPinUnresolved(projectId, raw, 'PIN_UNRESOLVED');
+        try { renderDueDiligence(); } catch(e){}
+      });
+    return;
+  }
+  ddMarkPinUnresolved(projectId, raw, parsed.error || 'PIN_UNRESOLVED');
+  try { renderDueDiligence(); } catch(e){}
 }
 
 function ddMarkPinUnresolved(projectId, pinRaw, reason){
@@ -1633,10 +1724,9 @@ function ddProcessQueueTick(){
     run.stages = ddCreateStageShell(run.id);
     eng.stages = (eng.stages || []).concat(run.stages);
   }
-  // Advance automatic stages 1–3; leave analyst stages pending without blocking the job forever
   ddAdvanceAutoStages(run).then(function(){
     var pendingAuto = (run.stages || []).some(function(s){
-      return s && s.status === 'pending' && (s.stage_key === 'LOCATE' || s.stage_key === 'AUTHORITY' || s.stage_key === 'RULEBOOK');
+      return s && s.status === 'pending' && (s.stage_key === 'LOCATE' || s.stage_key === 'AUTHORITY' || s.stage_key === 'RULEBOOK' || s.stage_key === 'COMPUTE' || s.stage_key === 'RECOMMEND');
     });
     if(pendingAuto){
       job.status = 'pending';
@@ -1646,12 +1736,16 @@ function ddProcessQueueTick(){
       var p = (PROJS || []).find(function(x){ return x.id === run.project_id; });
       if(p){
         ensureProjectDdFields(p);
-        var blocked = (run.stages || []).some(function(s){ return s.blocking && s.status === 'awaiting_analyst'; });
-        p.dd_status = blocked ? 'awaiting_input' : 'running';
+        if(run.status === 'awaiting_input') p.dd_status = 'awaiting_input';
+        else {
+          var blocked = (run.stages || []).some(function(s){ return s.blocking && (s.status === 'awaiting_analyst' || s.status === 'pending'); });
+          p.dd_status = blocked ? 'awaiting_input' : (run.status === 'complete' ? 'complete' : 'running');
+        }
       }
     }
     try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
     ddKickQueue();
+    try { if(_curTab === 'dd') renderDueDiligence(); } catch(e){}
   }).catch(function(err){
     job.status = 'pending';
     job.error = String(err && err.message ? err.message : err);
@@ -1666,10 +1760,10 @@ function ddCreateStageShell(runId){
     { id: ddNewId('dds'), run_id: runId, stage_key: 'LOCATE', sequence: 1, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
     { id: ddNewId('dds'), run_id: runId, stage_key: 'AUTHORITY', sequence: 2, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
     { id: ddNewId('dds'), run_id: runId, stage_key: 'RULEBOOK', sequence: 3, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
-    { id: ddNewId('dds'), run_id: runId, stage_key: 'ZONE_READ', sequence: 4, status: 'pending', blocking: true, started_at: null, completed_at: null, assigned_to: null },
-    { id: ddNewId('dds'), run_id: runId, stage_key: 'RECORDS', sequence: 5, status: 'pending', blocking: true, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'ZONE_READ', sequence: 4, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'RECORDS', sequence: 5, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
     { id: ddNewId('dds'), run_id: runId, stage_key: 'COMPUTE', sequence: 6, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null },
-    { id: ddNewId('dds'), run_id: runId, stage_key: 'VERDICT', sequence: 7, status: 'pending', blocking: true, started_at: null, completed_at: null, assigned_to: null }
+    { id: ddNewId('dds'), run_id: runId, stage_key: 'RECOMMEND', sequence: 7, status: 'pending', blocking: false, started_at: null, completed_at: null, assigned_to: null }
   ];
 }
 
@@ -1679,7 +1773,6 @@ async function ddAdvanceAutoStages(run){
     var key = order[i];
     var stage = (run.stages || []).find(function(s){ return s.stage_key === key; });
     if(!stage || stage.status !== 'pending') continue;
-    // Prior auto stages must not be pending
     var blockedByPrior = order.slice(0, i).some(function(pk){
       var ps = (run.stages || []).find(function(s){ return s.stage_key === pk; });
       return ps && ps.status === 'pending';
@@ -1689,6 +1782,23 @@ async function ddAdvanceAutoStages(run){
     if(key === 'LOCATE') await ddStageLocate(run, stage);
     else if(key === 'AUTHORITY') await ddStageAuthority(run, stage);
     else if(key === 'RULEBOOK') await ddStageRulebook(run, stage);
+  }
+  // ZONE_READ: non-blocking optional — mark awaiting_analyst if still pending
+  var zoneStage = (run.stages || []).find(function(s){ return s.stage_key === 'ZONE_READ'; });
+  if(zoneStage && zoneStage.status === 'pending'){
+    zoneStage.status = 'awaiting_analyst';
+    if(!zoneStage.started_at) zoneStage.started_at = new Date().toISOString();
+  }
+  // Always run COMPUTE + RECOMMEND if pending (zone UNKNOWN is steady state)
+  var computeStage = (run.stages || []).find(function(s){ return s.stage_key === 'COMPUTE'; });
+  if(computeStage && computeStage.status === 'pending'){
+    computeStage.started_at = new Date().toISOString();
+    await ddStageCompute(run, computeStage);
+  }
+  var recStage = (run.stages || []).find(function(s){ return s.stage_key === 'RECOMMEND'; });
+  if(recStage && recStage.status === 'pending'){
+    recStage.started_at = new Date().toISOString();
+    await ddStageRecommend(run, recStage);
   }
 }
 
@@ -1951,13 +2061,16 @@ function ddResolveAuthorityCascade(loc, ctx){
     };
   }
 
-  // 2) taluka rule — carve-outs → PROVISIONAL_CONFLICT (do not assert taluka default)
+  // 2) taluka rule — wildcard "*" matches any taluka in district; carve-outs → PROVISIONAL_CONFLICT
   var talukaHit = (eng.authority_defaults || []).find(function(d){
-    return d && ddNormName(d.taluka) && ddNormName(d.taluka) === ddNormName(taluka) &&
-      (!d.state || !state || ddNormName(d.state) === ddNormName(state)) &&
-      (!d.district || !district || ddNormName(d.district) === ddNormName(district));
+    if(!d) return false;
+    if(d.state && state && ddNormName(d.state) !== ddNormName(state)) return false;
+    if(d.district && district && ddNormName(d.district) !== ddNormName(district)) return false;
+    var dt = ddNormName(d.taluka);
+    if(!dt || dt === '*' || dt === 'any') return !!ddNormName(district);
+    return dt === ddNormName(taluka) && !!ddNormName(taluka);
   });
-  if(talukaHit && ddNormName(taluka)){
+  if(talukaHit && (ddNormName(taluka) || !ddNormName(talukaHit.taluka) || ddNormName(talukaHit.taluka) === '*' || ddNormName(talukaHit.taluka) === 'any')){
     var carveHits = ddMatchCarveOut(talukaHit.carve_outs, haystack);
     if(carveHits.length){
       var competing = [];
@@ -2064,11 +2177,7 @@ function ddResolveRulebook(authorityName, overlays){
     return (list || []).some(function(x){ return ddNormName(x) === n; });
   }
 
-  // Overlay exclusions (e.g. ESA)
-  if(ovs.some(function(o){ return /ESA|ECO.?SENSITIVE|ECO.?FRAGILE/i.test(String(o)); })){
-    var esa = books.find(function(b){ return b.key === 'HILL_STATION_EXCLUDED'; });
-    if(esa) return { rulebook: esa, reason: 'overlay_exclusion', exclusion: true };
-  }
+  // ESA / eco-fragile overlays delay deals via recommend — they do NOT remap the rulebook.
 
   // Authority listed on a dedicated applies_to book that is an exclusion regime
   var dedicated = books.find(function(b){
@@ -2109,7 +2218,7 @@ async function ddStageLocate(run, stage){
     var j = await r.json().catch(function(){ return {}; });
     if(j && j.unavailable){
       ddAppendFact({ run_id: run.id, stage_key: 'LOCATE', field_key: 'geocode_status', value_text: 'Geocoding unavailable',
-        source_type: 'lookup_table', source_ref: 'GOOGLE_GEOCODING_API_KEY', confidence: 0, tier: 0 });
+        source_type: 'lookup_table', source_ref: 'geocoder', confidence: 0, tier: 0, notes: 'Server geocoder unavailable' });
       stage.status = 'unknown';
       stage.completed_at = new Date().toISOString();
       stage.notes = 'Geocoding unavailable';
@@ -2290,6 +2399,319 @@ async function ddStageRulebook(run, stage){
   });
   stage.status = 'auto_resolved';
   stage.completed_at = new Date().toISOString();
+}
+
+var _gaDdLogic = null;
+async function ddGetLogic(){
+  if(_gaDdLogic) return _gaDdLogic;
+  _gaDdLogic = await import('/legacy/dd_data/dd_engine_logic.mjs');
+  return _gaDdLogic;
+}
+
+async function ddLoadRecommendationRules(){
+  var eng = ensureDdEngine();
+  if(eng.recommendation_rules && eng.recommendation_rules.version) return eng.recommendation_rules;
+  var urls = ['/legacy/dd_data/recommendation_rules.json', 'dd_data/recommendation_rules.json'];
+  var pack = null, lastErr = null;
+  for(var i = 0; i < urls.length; i++){
+    try {
+      var r = await fetch(urls[i], { credentials: 'same-origin', cache: 'no-store' });
+      if(!r.ok){ lastErr = 'HTTP '+r.status; continue; }
+      pack = await r.json();
+      break;
+    } catch(e){ lastErr = e && e.message ? e.message : String(e); }
+  }
+  if(!pack){
+    console.warn('recommendation_rules load failed', lastErr);
+    eng.recommendation_rules = eng.recommendation_rules || { version: null, dead_rules: [], repriced_rules: [], delayed_rules: [], flag_only_rules: [] };
+    return eng.recommendation_rules;
+  }
+  eng.recommendation_rules = pack;
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  return pack;
+}
+
+function ddGrossAreaSqftFromProject(p){
+  if(!p) return null;
+  var area = Number(p.landArea);
+  var unit = String(p.landAreaUnit || '').toLowerCase();
+  if(!(area > 0)){
+    var fin = (ST.fin && ST.fin[p.id]) || {};
+    if(fin.plotArea > 0) return Number(fin.plotArea);
+    if(fin.plotSqmt > 0) return Number(fin.plotSqmt) * 10.764;
+    if(p.sqf > 0) return Number(p.sqf);
+    return null;
+  }
+  if(unit === 'sqmt' || unit === 'sq.mt' || unit === 'sqm') return area * 10.764;
+  if(unit === 'acre' || unit === 'acres') return area * 43560;
+  return area; // sqft default
+}
+
+function ddAskRatePerSqft(pid, grossSqft){
+  var fin = (ST.fin && ST.fin[pid]) || {};
+  if(fin.askRatePerSqft != null && isFinite(Number(fin.askRatePerSqft))) return Number(fin.askRatePerSqft);
+  if(fin.ddAskRate != null && isFinite(Number(fin.ddAskRate))) return Number(fin.ddAskRate);
+  var lv = Number(fin.landValue);
+  if(lv > 0 && grossSqft > 0) return lv / grossSqft;
+  return null;
+}
+
+async function ddStageCompute(run, stage){
+  var logic = await ddGetLogic();
+  var p = (PROJS || []).find(function(x){ return x.id === run.project_id; }) || {};
+  var eng = ensureDdEngine();
+  var econ = ddResolveEconomics(run.project_id);
+  var gross = ddGrossAreaSqftFromProject(p);
+  var zoneFact = ddLatestFact(run.id, 'zone_code');
+  var zoneCode = (zoneFact && zoneFact.value_text) || 'UNKNOWN';
+  var roadFact = ddLatestFact(run.id, 'road_width_m');
+  var roadWidth = roadFact && roadFact.value_number != null ? Number(roadFact.value_number) : null;
+  var resFact = ddLatestFact(run.id, 'reservation');
+  var deduction = 0;
+  if(resFact && resFact.value_json && resFact.value_json.deduction_sqft != null){
+    deduction = Number(resFact.value_json.deduction_sqft) || 0;
+  } else if(resFact && resFact.value_number != null){
+    deduction = Number(resFact.value_number) || 0;
+  }
+  var rbFact = ddLatestFact(run.id, 'rulebook_key');
+  var rbKey = rbFact && rbFact.value_text && rbFact.value_text !== 'UNKNOWN' && rbFact.value_text !== 'MISSING' && rbFact.value_text !== 'PROVISIONAL_CONFLICT'
+    ? rbFact.value_text : null;
+  var rulebook = rbKey ? (eng.rulebooks || []).find(function(b){ return b && b.key === rbKey; }) : null;
+  var permissible = null;
+  if(rulebook && logic.ddLookupPermissibleFsi){
+    permissible = logic.ddLookupPermissibleFsi(rulebook, zoneCode, roadWidth);
+  }
+  var confAuth = ddLatestFact(run.id, 'planning_authority');
+  var conf = confAuth && confAuth.confidence != null ? Number(confAuth.confidence) : (zoneFact && zoneFact.confidence != null ? Number(zoneFact.confidence) : 0);
+  var bandPct = (eng.recommendation_rules && eng.recommendation_rules.range_band_pct != null)
+    ? eng.recommendation_rules.range_band_pct : 8;
+  var computed = logic.ddComputeMaxLandRate({
+    gross_area_sqft: gross,
+    deduction_area_sqft: deduction,
+    permissible_fsi: permissible,
+    zone_code: zoneCode,
+    targetMarginPct: econ.targetMarginPct,
+    softCostPct: econ.softCostPct,
+    realisableRatePerSqft: econ.realisableRatePerSqft,
+    constructionRate: econ.constructionRate,
+    confidence: conf,
+    range_band_pct: bandPct
+  });
+  var net = computed.net_developable_area;
+  ddAppendFact({
+    run_id: run.id, stage_key: 'COMPUTE', field_key: 'net_developable_area',
+    value_number: net, unit: 'sqft', value_text: net != null ? String(Math.round(net)) : null,
+    source_type: 'computed', source_ref: 'ddComputeMaxLandRate', confidence: conf || 50, tier: 0,
+    notes: 'Rate per Sq. Ft. pipeline — net developable'
+  });
+  ddAppendFact({
+    run_id: run.id, stage_key: 'COMPUTE', field_key: 'permissible_fsi',
+    value_number: permissible, value_text: permissible != null ? String(permissible) : 'UNKNOWN',
+    source_type: 'rulebook', source_ref: rbKey || '', confidence: permissible != null ? 80 : 0, tier: 0
+  });
+  ddAppendFact({
+    run_id: run.id, stage_key: 'COMPUTE', field_key: 'buildable_area',
+    value_number: computed.buildable_area, unit: 'sqft',
+    value_text: computed.buildable_area != null ? String(Math.round(computed.buildable_area)) : null,
+    source_type: 'computed', source_ref: 'ddComputeMaxLandRate', confidence: conf || 50, tier: 0,
+    notes: 'Rate per Sq. Ft.'
+  });
+  var mlr = computed.maxLandRate;
+  ddAppendFact({
+    run_id: run.id, stage_key: 'COMPUTE', field_key: 'max_land_rate',
+    value_number: (mlr != null && typeof mlr !== 'object') ? mlr : null,
+    value_json: (mlr != null && typeof mlr === 'object') ? mlr : (computed.ok ? { scalar: mlr } : null),
+    value_text: computed.unknown ? (computed.message || 'UNKNOWN') : (typeof mlr === 'object' && mlr ? ('Rs '+Math.round(mlr.low)+'–'+Math.round(mlr.high)) : (mlr != null ? ('Rs '+Math.round(mlr)) : null)),
+    source_type: 'computed', source_ref: 'ddComputeMaxLandRate', confidence: conf || 50, tier: 0,
+    notes: 'Rate per Sq. Ft. — never ASP'
+  });
+  ddAppendFact({
+    run_id: run.id, stage_key: 'COMPUTE', field_key: 'economics_status',
+    value_text: econ.unknown ? 'UNKNOWN' : 'OK',
+    value_json: { unset_keys: econ.unset || [], message: computed.message || null },
+    source_type: 'computed', source_ref: 'ddResolveEconomics', confidence: econ.unknown ? 0 : 90, tier: 0
+  });
+  stage.status = computed.unknown ? 'unknown' : 'auto_resolved';
+  stage.completed_at = new Date().toISOString();
+  stage.notes = computed.message || 'Rate per Sq. Ft. computed';
+}
+
+async function ddStageRecommend(run, stage){
+  var logic = await ddGetLogic();
+  var rules = await ddLoadRecommendationRules();
+  var p = (PROJS || []).find(function(x){ return x.id === run.project_id; }) || {};
+  var auth = ddLatestFact(run.id, 'planning_authority');
+  var cert = ddLatestFact(run.id, 'authority_certainty');
+  var ov = ddLatestFact(run.id, 'overlays');
+  var rb = ddLatestFact(run.id, 'rulebook_key');
+  var zone = ddLatestFact(run.id, 'zone_code');
+  var zoneLabel = ddLatestFact(run.id, 'zone_label');
+  var tenure = ddLatestFact(run.id, 'tenure_class');
+  var res = ddLatestFact(run.id, 'reservation');
+  var mlr = ddLatestFact(run.id, 'max_land_rate');
+  var econSt = ddLatestFact(run.id, 'economics_status');
+  var flagFacts = (ensureDdEngine().facts || []).filter(function(f){
+    return f && f.run_id === run.id && (f.field_key === 'boundary_flag' || f.field_key === 'flag' || f.field_key === 'dead_flag');
+  });
+  var factFlags = flagFacts.map(function(f){ return f.value_text; }).filter(Boolean);
+  var maxLand = null;
+  var maxUnknown = !!(econSt && econSt.value_text === 'UNKNOWN') || !!(mlr && /unavailable|UNKNOWN/i.test(String(mlr.value_text || '')));
+  if(mlr){
+    if(mlr.value_json && mlr.value_json.low != null) maxLand = { low: mlr.value_json.low, high: mlr.value_json.high };
+    else if(mlr.value_json && mlr.value_json.scalar != null) maxLand = mlr.value_json.scalar;
+    else if(mlr.value_number != null) maxLand = mlr.value_number;
+  }
+  var gross = ddGrossAreaSqftFromProject(p);
+  var ask = ddAskRatePerSqft(run.project_id, gross);
+  var facts = {
+    certainty: (cert && cert.value_text) || 'UNKNOWN',
+    confidence: (auth && auth.confidence) || (zone && zone.confidence) || 0,
+    overlays: (ov && ov.value_json) || [],
+    competing_authorities: (auth && auth.value_json && auth.value_json.competing_authorities) || [],
+    planning_authority: (auth && auth.value_text) || '',
+    rulebook_key: (rb && rb.value_text) || '',
+    rulebook_exclusion: !!(rb && rb.value_json && rb.value_json.exclusion),
+    zone_code: (zone && zone.value_text) || 'UNKNOWN',
+    zone_label: (zoneLabel && zoneLabel.value_text) || (zone && zone.value_json && zone.value_json.label) || '',
+    zone_source: (zone && zone.source_type) || '',
+    tenure_class: (tenure && tenure.value_text) || '',
+    flags: factFlags,
+    reservation: !!(res && (res.value_text === 'Y' || res.value_text === 'yes' || (res.value_json && res.value_json.present))),
+    max_land_rate: maxLand,
+    max_land_rate_unknown: maxUnknown,
+    max_land_rate_message: (mlr && mlr.value_text) || (econSt && econSt.value_json && econSt.value_json.message) || '',
+    ask_rate_per_sqft: ask
+  };
+  var rec = logic.ddRecommend(facts, rules);
+  ddAppendFact({
+    run_id: run.id, stage_key: 'RECOMMEND', field_key: 'recommendation_outcomes',
+    value_text: (rec.outcomes || []).join('+'),
+    value_json: { outcomes: rec.outcomes, awaiting_human_decision: true },
+    source_type: 'computed', source_ref: 'ddRecommend', confidence: facts.confidence || 50, tier: 0
+  });
+  ddAppendFact({
+    run_id: run.id, stage_key: 'RECOMMEND', field_key: 'recommendation_flags',
+    value_json: rec.flags || [],
+    value_text: (rec.flags || []).length ? ((rec.flags || []).length + ' flags') : 'none',
+    source_type: 'computed', source_ref: 'ddRecommend', confidence: facts.confidence || 50, tier: 0
+  });
+  run.recommendation = {
+    outcomes: rec.outcomes || [],
+    flags: rec.flags || [],
+    plain_language: rec.plain_language || '',
+    awaiting_human_decision: true,
+    auto_decided: false,
+    band_pct: rec.band_pct,
+    at: new Date().toISOString()
+  };
+  run.verdict = (rec.outcomes || []).join('+');
+  run.confidence = facts.confidence || null;
+  run.tier = facts.confidence >= 90 ? 2 : (facts.confidence >= 70 ? 1 : 0);
+  run.status = 'awaiting_input';
+  stage.status = 'auto_resolved';
+  stage.completed_at = new Date().toISOString();
+  stage.notes = 'Awaiting human Proceed/Kill — never auto-decided';
+  ensureProjectDdFields(p);
+  p.dd_verdict = (rec.outcomes || []).join('+');
+  p.dd_confidence = run.confidence;
+  p.dd_tier = run.tier;
+  p.dd_status = 'awaiting_input';
+}
+
+/**
+ * Optional single-read zone capture — confidence 60 (analyst). Architect later → 95.
+ * Non-blocking; re-kicks COMPUTE+RECOMMEND with superseding facts.
+ */
+async function ddSaveZoneCapture(projectId, form){
+  form = form || {};
+  if(!ddFlag('deploy1_engine')) return;
+  var eng = ensureDdEngine();
+  var p = (PROJS || []).find(function(x){ return x.id === projectId; });
+  if(!p) return;
+  ensureProjectDdFields(p);
+  var run = p.dd_run_id ? (eng.runs || []).find(function(r){ return r && r.id === p.dd_run_id && !r.superseded_by; }) : null;
+  if(!run) return;
+  var zoneCode = String(form.zone_code || '').trim() || 'UNKNOWN';
+  var zoneLabel = String(form.zone_label || '').trim();
+  var road = form.road_width_m != null && form.road_width_m !== '' ? Number(form.road_width_m) : null;
+  var reservation = String(form.reservation || '').toUpperCase() === 'Y';
+  var conf = form.source_type === 'architect_opinion' ? 95 : 60;
+  var srcType = form.source_type || 'analyst_read';
+  var prevZone = ddLatestFact(run.id, 'zone_code');
+  ddAppendFact({
+    run_id: run.id, stage_key: 'ZONE_READ', field_key: 'zone_code',
+    value_text: zoneCode, value_json: { label: zoneLabel || zoneCode },
+    source_type: srcType, source_ref: form.source_ref || 'zone_capture', confidence: conf, tier: 0,
+    supersedes: prevZone ? prevZone.id : null
+  });
+  if(zoneLabel){
+    var prevLbl = ddLatestFact(run.id, 'zone_label');
+    ddAppendFact({
+      run_id: run.id, stage_key: 'ZONE_READ', field_key: 'zone_label',
+      value_text: zoneLabel, source_type: srcType, source_ref: 'zone_capture', confidence: conf, tier: 0,
+      supersedes: prevLbl ? prevLbl.id : null
+    });
+  }
+  if(road != null && isFinite(road)){
+    var prevRoad = ddLatestFact(run.id, 'road_width_m');
+    ddAppendFact({
+      run_id: run.id, stage_key: 'ZONE_READ', field_key: 'road_width_m',
+      value_number: road, unit: 'm', value_text: String(road),
+      source_type: srcType, source_ref: 'zone_capture', confidence: conf, tier: 0,
+      supersedes: prevRoad ? prevRoad.id : null
+    });
+  }
+  var prevRes = ddLatestFact(run.id, 'reservation');
+  ddAppendFact({
+    run_id: run.id, stage_key: 'ZONE_READ', field_key: 'reservation',
+    value_text: reservation ? 'Y' : 'N',
+    value_json: { present: reservation, deduction_sqft: form.deduction_sqft != null ? Number(form.deduction_sqft) : 0 },
+    value_number: form.deduction_sqft != null ? Number(form.deduction_sqft) : 0,
+    source_type: srcType, source_ref: 'zone_capture', confidence: conf, tier: 0,
+    supersedes: prevRes ? prevRes.id : null
+  });
+  if(form.fileBlob || form.file){
+    try {
+      var fd = new FormData();
+      fd.append('file', form.fileBlob || form.file, form.fileName || 'zone-screenshot.png');
+      fd.append('projectId', projectId);
+      fd.append('sourceType', 'zone_screenshot');
+      fd.append('stageKey', 'ZONE_READ');
+      fd.append('runId', run.id);
+      var up = await fetch('/api/v3-dd/files', { method: 'POST', body: fd, credentials: 'include' });
+      var uj = await up.json().catch(function(){ return {}; });
+      if(uj && uj.ok && uj.file && uj.file.id){
+        ddAppendFact({
+          run_id: run.id, stage_key: 'ZONE_READ', field_key: 'zone_screenshot',
+          value_text: uj.file.id, value_json: { file_id: uj.file.id },
+          source_type: srcType, source_ref: uj.file.id, confidence: conf, tier: 0
+        });
+      }
+    } catch(e){ console.warn('zone screenshot upload', e); }
+  }
+  var zoneStage = (run.stages || []).find(function(s){ return s.stage_key === 'ZONE_READ'; });
+  if(zoneStage){
+    zoneStage.status = 'captured';
+    zoneStage.completed_at = new Date().toISOString();
+    if(!zoneStage.started_at) zoneStage.started_at = zoneStage.completed_at;
+  }
+  var computeStage = (run.stages || []).find(function(s){ return s.stage_key === 'COMPUTE'; });
+  var recStage = (run.stages || []).find(function(s){ return s.stage_key === 'RECOMMEND'; });
+  if(computeStage){ computeStage.status = 'pending'; computeStage.completed_at = null; computeStage.started_at = null; }
+  if(recStage){ recStage.status = 'pending'; recStage.completed_at = null; recStage.started_at = null; }
+  run.status = 'running';
+  p.dd_status = 'running';
+  await ddAdvanceAutoStages(run);
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); } catch(e){}
+}
+
+function ddZoneSeedOptions(){
+  var seed = ['R1','R2','R3','R4','C1','C2','I1','I2','Amenity','Green / Open Space','NDZ','Agriculture','Agricultural No-Development Zone','Public / Semi-public','Transport','CRZ','other'];
+  try {
+    if(_gaDdLogic && Array.isArray(_gaDdLogic.DD_ZONE_SEED)) seed = _gaDdLogic.DD_ZONE_SEED;
+  } catch(e){}
+  return seed;
 }
 
 /**
@@ -2555,120 +2977,371 @@ function ddAdminReloadSeed(){
   });
 }
 
+function ddOutcomeBadgeHtml(outcome){
+  var o = String(outcome || '').toUpperCase();
+  var col = o === 'DEAD' ? 'var(--red-b)' : o === 'REPRICED' ? 'var(--orange-b)' : o === 'DELAYED' ? 'var(--gold-b)' : 'var(--green-b)';
+  var bg = o === 'DEAD' ? 'var(--red-l)' : o === 'REPRICED' ? 'var(--orange-l)' : o === 'DELAYED' ? 'var(--gold-l)' : 'var(--green-l)';
+  var bd = o === 'DEAD' ? 'var(--red)' : o === 'REPRICED' ? 'var(--orange)' : o === 'DELAYED' ? 'var(--gold)' : 'var(--green)';
+  return '<span style="font-size:10px;font-weight:800;letter-spacing:.04em;color:'+col+';background:'+bg+';border:1px solid '+bd+';border-radius:4px;padding:2px 7px;margin-right:4px">'+o+'</span>';
+}
+
+function ddFmtRateVal(v){
+  if(v == null) return '—';
+  if(typeof v === 'object' && v.low != null) return 'Rs '+Math.round(v.low)+'–'+Math.round(v.high);
+  if(isFinite(Number(v))) return 'Rs '+Math.round(Number(v));
+  return String(v);
+}
+
+function ddEsc(s){
+  return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function ddActiveRunForProject(pid){
+  var eng = ensureDdEngine();
+  var p = (PROJS || []).find(function(x){ return x.id === pid; });
+  if(p && p.dd_run_id){
+    var byId = (eng.runs || []).find(function(r){ return r && r.id === p.dd_run_id && !r.superseded_by; });
+    if(byId) return byId;
+  }
+  return (eng.runs || []).filter(function(r){ return r && r.project_id === pid && !r.superseded_by; }).sort(function(a,b){
+    return String(b.created_at||'').localeCompare(String(a.created_at||''));
+  })[0] || null;
+}
+
+function ddSaveEconomicsFromUi(){
+  var eng = ensureDdEngine();
+  function n(id){
+    var el = document.getElementById(id);
+    if(!el || el.value === '' || el.value == null) return null;
+    var v = Number(el.value);
+    return isFinite(v) ? v : null;
+  }
+  eng.economics = {
+    targetMarginPct: n('dd-econ-margin'),
+    softCostPct: n('dd-econ-soft'),
+    realisableRatePerSqft: n('dd-econ-realisable'),
+    constructionRate: n('dd-econ-construction')
+  };
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); } catch(e){}
+}
+
+function ddSavePinToProject(pid){
+  var el = document.getElementById('dd-pin-'+pid);
+  var p = (PROJS || []).find(function(x){ return x.id === pid; });
+  if(!p || !el) return;
+  p.googlePin = el.value || '';
+  if(!ST.fin[pid]) ST.fin[pid] = {};
+  ST.fin[pid].googlePin = p.googlePin;
+  ensureProjectDdFields(p);
+  p.dd_pin_raw = p.googlePin;
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); } catch(e){}
+}
+
+function ddRunFromPage(pid){
+  var el = document.getElementById('dd-pin-'+pid);
+  var raw = el ? el.value : '';
+  ddStartRunFromDdPage(pid, raw);
+}
+
+function ddSubmitZoneCapture(pid){
+  var zoneEl = document.getElementById('dd-zone-'+pid);
+  var roadEl = document.getElementById('dd-road-'+pid);
+  var resEl = document.getElementById('dd-res-'+pid);
+  var dedEl = document.getElementById('dd-ded-'+pid);
+  var fileEl = document.getElementById('dd-zone-file-'+pid);
+  var form = {
+    zone_code: zoneEl ? zoneEl.value : '',
+    zone_label: zoneEl && zoneEl.value === 'other' ? ((document.getElementById('dd-zone-other-'+pid)||{}).value || 'other') : (zoneEl ? zoneEl.value : ''),
+    road_width_m: roadEl ? roadEl.value : '',
+    reservation: resEl ? resEl.value : 'N',
+    deduction_sqft: dedEl ? dedEl.value : 0,
+    source_type: 'analyst_read'
+  };
+  if(fileEl && fileEl.files && fileEl.files[0]){
+    form.file = fileEl.files[0];
+    form.fileName = fileEl.files[0].name;
+  }
+  ddSaveZoneCapture(pid, form);
+}
+
+function ddDecideProceed(pid){
+  var p = (PROJS || []).find(function(x){ return x.id === pid; });
+  if(!p) return;
+  ensureProjectDdFields(p);
+  var run = ddActiveRunForProject(pid);
+  var rec = run && run.recommendation;
+  var outcomes = (rec && rec.outcomes) || (p.dd_verdict ? String(p.dd_verdict).split('+') : []);
+  var mlr = run ? ddLatestFact(run.id, 'max_land_rate') : null;
+  var rateTxt = mlr ? (mlr.value_text || ddFmtRateVal(mlr.value_json)) : '';
+  p.decision = 'proceed';
+  p.decided_by = localStorage.getItem('ga_user_name') || 'User';
+  p.decided_on = new Date().toISOString();
+  p.reason_code = null;
+  p.reason_note = outcomes.indexOf('REPRICED') >= 0 && rateTxt ? ('Negotiate at '+rateTxt) : null;
+  p.dd_status = 'complete';
+  if(run){ run.status = 'complete'; run.human_decision = 'proceed'; }
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); } catch(e){}
+}
+
+function ddDecideKill(pid){
+  var reasonEl = document.getElementById('dd-kill-reason-'+pid);
+  var noteEl = document.getElementById('dd-kill-note-'+pid);
+  var killBox = document.getElementById('dd-kill-form-'+pid);
+  if(killBox && killBox.style.display === 'none'){
+    killBox.style.display = 'block';
+    return;
+  }
+  var p = (PROJS || []).find(function(x){ return x.id === pid; });
+  if(!p) return;
+  ensureProjectDdFields(p);
+  var run = ddActiveRunForProject(pid);
+  p.decision = 'kill';
+  p.decided_by = localStorage.getItem('ga_user_name') || 'User';
+  p.decided_on = new Date().toISOString();
+  p.reason_code = reasonEl ? reasonEl.value : 'other';
+  p.reason_note = noteEl ? noteEl.value : '';
+  p.dd_status = 'complete';
+  if(p.status !== 'Non Adopted') p.status = 'Non Adopted';
+  if(run){ run.status = 'complete'; run.human_decision = 'kill'; }
+  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+  try { renderDueDiligence(); renderProjects(); } catch(e){}
+}
+
+function ddRenderEconomicsSettings(){
+  var eng = ensureDdEngine();
+  var e = eng.economics || ddEconomicsDefaults();
+  function val(v){ return v == null ? '' : v; }
+  return '<div class="card" style="margin-bottom:14px">'
+    + '<div class="card-title">DD economics defaults (GA)</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:8px">Decimals for margin/soft cost (e.g. 0.15 = 15%). Per-project fin overrides when set. Unset → Rate per Sq. Ft. UNKNOWN.</div>'
+    + '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px">'
+    + '<div><div class="proj-form-lbl">Target margin</div><input id="dd-econ-margin" class="proj-form-inp" type="number" step="0.01" value="'+val(e.targetMarginPct)+'" placeholder="0.15"/></div>'
+    + '<div><div class="proj-form-lbl">Soft cost</div><input id="dd-econ-soft" class="proj-form-inp" type="number" step="0.01" value="'+val(e.softCostPct)+'" placeholder="0.12"/></div>'
+    + '<div><div class="proj-form-lbl">Realisable Rate / Sq.Ft</div><input id="dd-econ-realisable" class="proj-form-inp" type="number" step="1" value="'+val(e.realisableRatePerSqft)+'" placeholder="e.g. 12000"/></div>'
+    + '<div><div class="proj-form-lbl">Construction rate</div><input id="dd-econ-construction" class="proj-form-inp" type="number" step="1" value="'+val(e.constructionRate)+'" placeholder="e.g. 3500"/></div>'
+    + '</div>'
+    + '<button type="button" class="proj-plan-btn primary" style="margin-top:10px" onclick="ddSaveEconomicsFromUi()">Save economics</button>'
+    + '</div>';
+}
+
+function ddRenderProjectEngineCard(p){
+  ensureProjectDdFields(p);
+  var pid = p.id;
+  var pinRaw = (document.getElementById('dd-pin-'+pid) && document.getElementById('dd-pin-'+pid).value) || p.dd_pin_raw || p.googlePin || '';
+  var parsed = parseGooglePin(pinRaw);
+  var run = ddActiveRunForProject(pid);
+  var pinOk = !!(parsed.ok || parsed.needsResolve);
+  var pinDiffers = String(pinRaw || '').trim() !== String(p.googlePin || '').trim();
+  var coordTxt = parsed.ok ? (parsed.lat.toFixed(5)+', '+parsed.lng.toFixed(5)) : (parsed.needsResolve ? 'Short link — will resolve on Run' : (pinRaw.trim() ? 'Could not parse pin' : 'No pin'));
+  var html = '<div class="card" style="margin-bottom:14px;border-left:4px solid var(--blue)">'
+    + '<div style="font-size:14px;font-weight:700;margin-bottom:4px">'+ddEsc(p.name)+'</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:10px">'+ddEsc(p.location||'')+(p.dd_status ? ' · '+ddEsc(p.dd_status) : '')+(p.decision ? ' · decision: '+ddEsc(p.decision) : '')+'</div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;margin-bottom:8px">'
+    + '<div style="flex:1;min-width:220px"><div class="proj-form-lbl">Google Maps Pin</div>'
+    + '<input id="dd-pin-'+pid+'" class="proj-form-inp" type="text" value="'+ddEsc(pinRaw)+'" placeholder="Paste Maps link or lat,lng" oninput="ddRefreshPinBar(\''+pid+'\')"/></div>'
+    + '<div style="font-size:11px;color:var(--muted);padding-bottom:8px" id="dd-pin-coord-'+pid+'">'+ddEsc(coordTxt)+'</div>'
+    + '<button type="button" class="proj-plan-btn primary" id="dd-run-btn-'+pid+'" '+(pinOk?'':'disabled ')+'onclick="ddRunFromPage(\''+pid+'\')">'+(run?'Re-run':'Run due diligence')+'</button>'
+    + '</div>';
+  if(pinDiffers && pinRaw.trim()){
+    html += '<button type="button" style="font-size:10px;border:none;background:transparent;color:var(--muted);text-decoration:underline;cursor:pointer;padding:0;margin-bottom:8px" onclick="ddSavePinToProject(\''+pid+'\')">Save this pin to the project</button>';
+  }
+  if(!run){
+    html += '<div style="font-size:11px;color:var(--muted)">No engine run yet — paste a pin and click Run due diligence.</div></div>';
+    return html;
+  }
+  var rec = run.recommendation || {};
+  var outcomes = rec.outcomes || (run.verdict ? String(run.verdict).split('+') : []) || [];
+  var auth = ddLatestFact(run.id, 'planning_authority');
+  var cert = ddLatestFact(run.id, 'authority_certainty');
+  var rb = ddLatestFact(run.id, 'rulebook_key');
+  var zone = ddLatestFact(run.id, 'zone_code');
+  var fsi = ddLatestFact(run.id, 'permissible_fsi');
+  var net = ddLatestFact(run.id, 'net_developable_area');
+  var build = ddLatestFact(run.id, 'buildable_area');
+  var mlr = ddLatestFact(run.id, 'max_land_rate');
+  var village = ddLatestFact(run.id, 'village');
+  var taluka = ddLatestFact(run.id, 'taluka');
+  var flagsFact = ddLatestFact(run.id, 'recommendation_flags');
+  var flags = (rec.flags && rec.flags.length) ? rec.flags : ((flagsFact && flagsFact.value_json) || []);
+  var certainty = (cert && cert.value_text) || '';
+  var stale = !!(auth && auth.value_json && auth.value_json.stale);
+  var gross = ddGrossAreaSqftFromProject(p);
+  var ask = ddAskRatePerSqft(pid, gross);
+  var gapTxt = '—';
+  if(ask != null && mlr && !/UNKNOWN|unavailable/i.test(String(mlr.value_text||''))){
+    var mid = mlr.value_json && mlr.value_json.low != null ? (mlr.value_json.low + mlr.value_json.high) / 2
+      : (mlr.value_json && mlr.value_json.scalar != null ? mlr.value_json.scalar : mlr.value_number);
+    if(mid != null && ask > 0){
+      var gap = ((ask - mid) / ask) * 100;
+      gapTxt = Math.abs(gap).toFixed(0)+'% '+(gap >= 0 ? 'above' : 'below')+' ask';
+    }
+  }
+  html += '<div style="margin:12px 0;padding:12px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">';
+  html += '<div style="margin-bottom:6px">'+(outcomes.length ? outcomes.map(ddOutcomeBadgeHtml).join('') : ddOutcomeBadgeHtml('OPEN'));
+  html += ' <span style="font-size:11px;color:var(--muted)">conf '+(run.confidence != null ? run.confidence : (p.dd_confidence != null ? p.dd_confidence : '—'))+' · tier '+(run.tier != null ? run.tier : (p.dd_tier||0))+'</span></div>';
+  html += '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">'
+    + ddEsc((village&&village.value_text)||'')+(taluka&&taluka.value_text ? ' · '+ddEsc(taluka.value_text) : '')+'</div>';
+  if(rec.plain_language){
+    html += '<div style="font-size:12px;line-height:1.55;margin-bottom:8px">'+ddEsc(rec.plain_language)+'</div>';
+  }
+  var changeBits = [];
+  if(certainty === 'PROVISIONAL' || certainty === 'PROVISIONAL_CONFLICT') changeBits.push('Architect confirm of planning authority');
+  if(!zone || zone.value_text === 'UNKNOWN' || !zone) changeBits.push('Zone capture from DP');
+  if(ddResolveEconomics(pid).unknown) changeBits.push('Economics defaults');
+  html += '<div style="font-size:11px;color:var(--muted);margin-bottom:10px"><b>What would change this:</b> '+(changeBits.length ? changeBits.join(' · ') : 'New evidence or re-run')+'</div>';
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;margin-bottom:10px">';
+  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">AUTHORITY</div><div style="font-size:12px;font-weight:700">'+ddEsc((auth&&auth.value_text)||'—')+ddAuthorityLabelHtml(certainty, stale)+'</div>'
+    +(auth&&auth.notes?'<div style="font-size:9px;color:var(--muted);margin-top:3px">'+ddEsc(auth.notes)+'</div>':'')+'</div>';
+  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">RULEBOOK</div><div style="font-size:12px;font-weight:700">'+ddEsc((rb&&rb.value_text)||'—')+(rb&&rb.value_json&&rb.value_json.exclusion?' <span style="color:var(--red-b)">EXCL</span>':'')+'</div></div>';
+  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">ZONE</div><div style="font-size:12px;font-weight:700">'+ddEsc((zone&&zone.value_text)||'UNKNOWN')+'</div></div>';
+  html += '<div style="padding:8px;background:var(--card);border-radius:6px;border:1px solid var(--border)"><div style="font-size:9px;color:var(--muted);font-weight:700">USABLE FSI</div><div style="font-size:12px;font-weight:700">'+ddEsc((fsi&&fsi.value_text)!=null?fsi.value_text:'—')+'</div></div>';
+  html += '</div>';
+  if(flags && flags.length){
+    html += '<div style="font-size:11px;margin-bottom:8px"><b>Flags</b>';
+    flags.forEach(function(f){
+      html += '<div style="padding:4px 0;border-bottom:1px solid var(--border)">'+ddOutcomeBadgeHtml(f.outcome||'FLAG')+' '+ddEsc(f.consequence||f.what||'')+'</div>';
+    });
+    html += '</div>';
+  }
+  html += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;font-size:11px;margin-bottom:10px">'
+    + '<div>Net developable<br/><b>'+(net&&net.value_number!=null?Math.round(net.value_number).toLocaleString('en-IN'):'—')+'</b> sq.ft</div>'
+    + '<div>Buildable<br/><b>'+(build&&build.value_number!=null?Math.round(build.value_number).toLocaleString('en-IN'):'—')+'</b> sq.ft</div>'
+    + '<div>Ask<br/><b>'+(ask!=null?('Rs '+Math.round(ask)):'—')+'</b></div>'
+    + '<div>GA justifiable<br/><b>'+ddEsc((mlr&&mlr.value_text)||'—')+'</b></div>'
+    + '<div>Gap<br/><b>'+ddEsc(gapTxt)+'</b></div>'
+    + '</div>';
+  // Stage tracker + zone form
+  html += '<div style="font-size:11px;font-weight:700;margin:10px 0 6px">Stages</div><div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px">';
+  (run.stages || []).forEach(function(s){
+    html += '<span style="font-size:9px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:var(--card)">'+ddEsc(s.stage_key)+' · '+ddEsc(s.status)+'</span>';
+  });
+  html += '</div>';
+  var lat = run.pin_lat, lng = run.pin_lng;
+  var zoneOpts = ddZoneSeedOptions().map(function(z){
+    var sel = zone && zone.value_text === z ? ' selected' : '';
+    return '<option value="'+ddEsc(z)+'"'+sel+'>'+ddEsc(z)+'</option>';
+  }).join('');
+  html += '<details open style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12px;font-weight:700">Zone capture (optional, non-blocking)</summary>'
+    + '<div style="margin-top:8px;display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    + '<div><div class="proj-form-lbl">Zone</div><select id="dd-zone-'+pid+'" class="proj-form-inp">'+zoneOpts+'</select></div>'
+    + '<div><div class="proj-form-lbl">Road width (m)</div><input id="dd-road-'+pid+'" class="proj-form-inp" type="number" step="0.1" placeholder="e.g. 12"/></div>'
+    + '<div><div class="proj-form-lbl">Reservation</div><select id="dd-res-'+pid+'" class="proj-form-inp"><option value="N">N</option><option value="Y">Y</option></select></div>'
+    + '<div><div class="proj-form-lbl">Screenshot</div><input id="dd-zone-file-'+pid+'" class="proj-form-inp" type="file" accept="image/*,.pdf"/></div>'
+    + '</div>'
+    + '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:10px;color:var(--muted)">Optional fields</summary>'
+    + '<div style="margin-top:6px"><div class="proj-form-lbl">Other zone label</div><input id="dd-zone-other-'+pid+'" class="proj-form-inp" placeholder="If zone = other"/>'
+    + '<div class="proj-form-lbl" style="margin-top:6px">Deduction sq.ft</div><input id="dd-ded-'+pid+'" class="proj-form-inp" type="number" step="1" placeholder="0"/></div></details>'
+    + '<div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">'
+    + '<a class="proj-plan-btn" style="text-decoration:none" href="https://www.google.com/maps/@'+lat+','+lng+',18z" target="_blank" rel="noopener">Open DP viewer</a>'
+    + '<button type="button" class="proj-plan-btn primary" onclick="ddSubmitZoneCapture(\''+pid+'\')">Save zone</button>'
+    + '</div></details>';
+  // Evidence
+  var facts = (ensureDdEngine().facts || []).filter(function(f){ return f && f.run_id === run.id; }).slice(-12).reverse();
+  html += '<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted)">Evidence ('+facts.length+')</summary><div style="max-height:160px;overflow:auto;font-size:10px;color:var(--muted);margin-top:6px">';
+  facts.forEach(function(f){
+    html += '<div style="padding:3px 0;border-bottom:1px solid var(--border)">'+ddEsc(f.stage_key)+' · '+ddEsc(f.field_key)+' · '+ddEsc(f.value_text||'')+' · conf '+(f.confidence!=null?f.confidence:'')+'</div>';
+  });
+  html += '</div></details>';
+  html += '<div style="font-size:11px;color:var(--muted);padding:8px;background:var(--slate-l);border-radius:6px;margin-bottom:10px">Commissions — stub (Deploy 2)</div>';
+  // Decision bar
+  if(!p.decision){
+    var proceedLabel = 'Proceed';
+    if(outcomes.indexOf('REPRICED') >= 0 && mlr && mlr.value_text){
+      proceedLabel = 'Proceed — Negotiate at '+mlr.value_text;
+    }
+    html += '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start">'
+      + '<button type="button" class="proj-plan-btn primary" onclick="ddDecideProceed(\''+pid+'\')">'+ddEsc(proceedLabel)+'</button>'
+      + '<button type="button" class="proj-plan-btn danger" onclick="ddDecideKill(\''+pid+'\')">Kill</button>'
+      + '</div>'
+      + '<div id="dd-kill-form-'+pid+'" style="display:none;margin-top:8px;padding:10px;border:1px solid var(--red);border-radius:8px;background:var(--red-l)">'
+      + '<div class="proj-form-lbl">Kill reason</div>'
+      + '<select id="dd-kill-reason-'+pid+'" class="proj-form-inp">'
+      + '<option value="priced_out">Priced out</option><option value="zoning">Zoning</option><option value="tenure">Tenure</option>'
+      + '<option value="litigation">Litigation</option><option value="seller_withdrew">Seller withdrew</option><option value="other">Other</option>'
+      + '</select>'
+      + '<div class="proj-form-lbl" style="margin-top:6px">Note</div>'
+      + '<input id="dd-kill-note-'+pid+'" class="proj-form-inp" placeholder="Optional note"/>'
+      + '<button type="button" class="proj-plan-btn danger" style="margin-top:8px" onclick="ddDecideKill(\''+pid+'\')">Confirm Kill</button>'
+      + '</div>';
+  } else {
+    html += '<div style="font-size:12px;font-weight:700">Decision: '+ddEsc(p.decision)+(p.reason_code?' · '+ddEsc(p.reason_code):'')+' <span style="font-weight:500;color:var(--muted)">by '+ddEsc(p.decided_by||'')+' on '+(p.decided_on?new Date(p.decided_on).toLocaleString('en-IN'):'')+'</span></div>';
+  }
+  html += ddQuietConfirmAuthorityHtml(pid);
+  html += '</div></div>';
+  return html;
+}
+
+function ddRefreshPinBar(pid){
+  var el = document.getElementById('dd-pin-'+pid);
+  var coord = document.getElementById('dd-pin-coord-'+pid);
+  var btn = document.getElementById('dd-run-btn-'+pid);
+  if(!el) return;
+  var parsed = parseGooglePin(el.value || '');
+  var pinOk = !!(parsed.ok || parsed.needsResolve);
+  if(coord){
+    coord.textContent = parsed.ok ? (parsed.lat.toFixed(5)+', '+parsed.lng.toFixed(5))
+      : (parsed.needsResolve ? 'Short link — will resolve on Run' : (String(el.value||'').trim() ? 'Could not parse pin' : 'No pin'));
+  }
+  if(btn) btn.disabled = !pinOk;
+}
+
 function ddRenderEngineStripOnDdPage(){
   if(!ddFlag('deploy1_engine')) return '';
-  var eng = ensureDdEngine();
-  var runs = (eng.runs || []).filter(function(r){ return r && !r.superseded_by; }).slice(-8).reverse();
-  var html = '<div style="margin:16px 0;padding-top:14px;border-top:2px solid var(--border)">'
-    + '<div style="font-size:12px;font-weight:700;margin-bottom:8px">DD Engine (Deploy 1)</div>';
-  if(!runs.length){
-    html += '<div style="font-size:11px;color:var(--muted)">No engine runs yet. Enable a pin on save to enqueue.</div>';
-  } else {
-    runs.forEach(function(run){
-      var p = (PROJS || []).find(function(x){ return x.id === run.project_id; }) || {};
-      var auth = ddLatestFact(run.id, 'planning_authority');
-      var cert = ddLatestFact(run.id, 'authority_certainty');
-      var rb = ddLatestFact(run.id, 'rulebook_key');
-      var certainty = (cert && cert.value_text) || '';
-      var stale = !!(auth && auth.value_json && auth.value_json.stale);
-      html += '<div class="card" style="margin-bottom:8px">'
-        + '<div style="font-size:12px;font-weight:700">'+(p.name||run.project_id)+'</div>'
-        + '<div style="font-size:10px;color:var(--muted)">Run '+run.id+' · '+run.status+' · pin '+run.pin_lat+', '+run.pin_lng+'</div>'
-        + '<div style="font-size:11px;margin-top:6px">Authority: <b>'+((auth&&auth.value_text)||'—')+'</b>'
-        + ddAuthorityLabelHtml(certainty, stale)
-        + (rb ? ' · Rulebook: <b>'+rb.value_text+'</b>' + (rb.value_json && rb.value_json.provisional ? ddAuthorityLabelHtml('PROVISIONAL', false) : '') + (rb.value_json && rb.value_json.exclusion ? ' <span style="color:var(--red-b);font-weight:700">EXCLUSION</span>' : '') : '')
-        + '</div>'
-        + ddQuietConfirmAuthorityHtml(run.project_id)
-        + '</div>';
-    });
+  try { ddLoadAuthorityDefaultsSeed(); } catch(e){}
+  try { ddLoadRecommendationRules(); } catch(e){}
+  try { ddGetLogic(); } catch(e){}
+  var html = '<div style="margin:8px 0 16px">'
+    + '<div style="font-size:16px;font-weight:700;margin-bottom:4px">Due Diligence Engine</div>'
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:12px">Run from this page only. Recommendation never auto-decides.</div>'
+    + ddRenderEconomicsSettings();
+  (PROJS || []).forEach(function(p){
+    html += ddRenderProjectEngineCard(p);
+  });
+  if(!(PROJS || []).length){
+    html += '<div style="font-size:12px;color:var(--muted)">No projects yet.</div>';
   }
   html += '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11px;font-weight:700;color:var(--muted)">Authority admin</summary>'
     + '<div style="margin-top:8px">'+renderDdAuthorityAdmin()+'</div></details>';
+  if(ddFlag('deploy2_deposit_flags')){
+    html += '<div style="margin-top:10px;font-size:11px;color:var(--muted);padding:8px;border:1px dashed var(--border);border-radius:6px">Deposit advisory — stub (Deploy 2)</div>';
+  }
   html += '</div>';
   return html;
 }
 
-/**
- * After project save: resolve pin if needed, enqueue DD if coords changed.
- * Never blocks the modal — fire-and-forget async.
- */
-function ddAfterProjectSave(projectId, pinRaw, prevLat, prevLng){
-  if(!ddFlag('deploy1_engine')) return;
-  var raw = String(pinRaw || '').trim();
-  if(!raw) return;
-
-  function finishWithCoords(lat, lng, sourceRaw){
-    var nLat = ddRound5(lat), nLng = ddRound5(lng);
-    var p = (PROJS || []).find(function(x){ return x.id === projectId; });
-    if(p){
-      ensureProjectDdFields(p);
-      p.dd_pin_raw = sourceRaw || raw;
-      p.dd_pin_lat = nLat;
-      p.dd_pin_lng = nLng;
-    }
-    if(ddCoordsEqual(prevLat, prevLng, nLat, nLng)){
-      // unchanged — no re-run
-      try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
-      return;
-    }
-    ddEnqueueRun(projectId, nLat, nLng, { pinRaw: sourceRaw || raw });
-    try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
-    ddKickQueue();
-  }
-
-  var parsed = parseGooglePin(raw);
-  if(parsed.ok){
-    finishWithCoords(parsed.lat, parsed.lng, raw);
-    return;
-  }
-  if(parsed.needsResolve){
-    fetch('/api/v3-dd/resolve-link', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: raw })
-    }).then(function(r){ return r.json().catch(function(){ return {}; }); })
-      .then(function(j){
-        if(j && j.ok && isFinite(j.lat) && isFinite(j.lng)){
-          finishWithCoords(j.lat, j.lng, raw);
-        } else {
-          ddMarkPinUnresolved(projectId, raw, (j && j.error) || 'PIN_UNRESOLVED');
-          try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
-        }
-      })
-      .catch(function(){
-        ddMarkPinUnresolved(projectId, raw, 'PIN_UNRESOLVED');
-        try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
-      });
-    return;
-  }
-  // Unparseable but non-empty — soft fail, do not block save
-  ddMarkPinUnresolved(projectId, raw, parsed.error || 'PIN_UNRESOLVED');
-  try { if(typeof gaAutoSave === 'function') gaAutoSave(); } catch(e){}
+function ddPipelineChipHtml(p){
+  if(!ddFlag('deploy1_pipeline_chip') || !p) return '';
+  ensureProjectDdFields(p);
+  if(!p.dd_verdict && !p.dd_status) return '';
+  if(p.dd_status === 'not_started') return '';
+  var outcomes = p.dd_verdict ? String(p.dd_verdict).split('+') : [p.dd_status];
+  var conf = p.dd_confidence != null ? (' · '+p.dd_confidence+'%') : '';
+  return '<span style="display:inline-flex;align-items:center;gap:3px;margin-left:6px;vertical-align:middle">'
+    + outcomes.slice(0,2).map(ddOutcomeBadgeHtml).join('')
+    + '<span style="font-size:9px;color:var(--muted)">'+ddEsc(conf)+'</span></span>';
 }
 
-function ddBindPinFieldValidation(){
-  if(!ddFlag('deploy1_engine')) return;
-  var inp = document.getElementById('pf_googlePin');
-  var hint = document.getElementById('pf_googlePin_hint');
-  var err = document.getElementById('pf_googlePin_err');
-  if(!inp) return;
-  function refresh(){
-    var v = inp.value || '';
-    var parsed = parseGooglePin(v);
-    if(err){
-      if(v.trim() && !parsed.ok && !parsed.needsResolve && !parsed.empty){
-        err.textContent = 'Could not read coordinates from this link';
-        err.style.display = 'block';
-      } else {
-        err.textContent = '';
-        err.style.display = 'none';
-      }
-    }
-  }
-  inp.addEventListener('input', refresh);
-  inp.addEventListener('change', refresh);
-  refresh();
+function ddModelStripHtml(pid){
+  if(!ddFlag('deploy1_model_strip')) return '';
+  var p = (PROJS || []).find(function(x){ return x.id === pid; });
+  if(!p) return '';
+  ensureProjectDdFields(p);
+  if(p.dd_status === 'not_started' && !p.dd_verdict) return '';
+  var run = ddActiveRunForProject(pid);
+  var outcomes = (run && run.recommendation && run.recommendation.outcomes) || (p.dd_verdict ? String(p.dd_verdict).split('+') : []);
+  var village = run ? ddLatestFact(run.id, 'village') : null;
+  var auth = run ? ddLatestFact(run.id, 'planning_authority') : null;
+  return '<div style="padding:8px 18px;background:var(--bg);border-bottom:1px solid var(--border);font-size:11px;display:flex;flex-wrap:wrap;gap:10px;align-items:center">'
+    + '<span style="font-weight:700;color:var(--muted)">DD</span>'
+    + (outcomes.length ? outcomes.map(ddOutcomeBadgeHtml).join('') : '<span style="color:var(--muted)">'+ddEsc(p.dd_status||'—')+'</span>')
+    + '<span style="color:var(--muted)">conf '+(p.dd_confidence!=null?p.dd_confidence:'—')+'</span>'
+    + (village&&village.value_text?'<span>'+ddEsc(village.value_text)+'</span>':'')
+    + (auth&&auth.value_text?'<span>'+ddEsc(auth.value_text)+'</span>':'')
+    + (p.decision?'<span style="font-weight:700">'+ddEsc(p.decision)+'</span>':'')
+    + '</div>';
 }
 
 // ── FSI mode: canonical values only (simple | pmrda | mumbai | goa | plotting). Trims; exact 'simple' wins before substring checks.
@@ -3525,12 +4198,7 @@ function renderProjFormFields(p,isNew){
   html+='<div class="jv-only-field"'+(jvShow?'':' style="display:none"')+'><div class="proj-form-lbl">Residential Ratio %</div><input class="proj-form-inp" type="number" min="0" max="100" step="0.1" id="pf_resDevPct" value="'+(v('resDevPct',fin.resDevPct)!==''?v('resDevPct',fin.resDevPct):'')+'" placeholder="e.g. 65 — links to Revenue §2"/></div>';
   html+='<div><div class="proj-form-lbl">Refundable Deposit'+crHint+'</div><input class="proj-form-inp" type="number" min="0" step="'+(gaV3CroreInputOn()?'0.01':'100000')+'" id="pf_refundableDeposit" value="'+refDep+'" placeholder="Not in project cost"/></div>';
   html+='<div><div class="proj-form-lbl">Non-Refundable Deposit'+crHint+'</div><input class="proj-form-inp" type="number" min="0" step="'+(gaV3CroreInputOn()?'0.01':'100000')+'" id="pf_nonRefundableDeposit" value="'+nonRefDep+'" placeholder="Added to project cost"/></div>';
-  html+='<div class="full"><div class="proj-form-lbl">Google Maps Pin</div><input class="proj-form-inp" type="text" id="pf_googlePin" value="'+escProjCell(v('googlePin',fin.googlePin))+'" placeholder="Paste Google Maps link or coordinates"/>'
-    +(typeof ddFlag==='function'&&ddFlag('deploy1_engine')
-      ? '<div id="pf_googlePin_hint" style="font-size:10px;color:var(--muted);margin-top:4px">Due diligence starts automatically in the background.</div>'
-        +'<div id="pf_googlePin_err" style="display:none;font-size:10px;color:var(--red-b);margin-top:3px"></div>'
-      : '')
-    +'</div>';
+  html+='<div class="full"><div class="proj-form-lbl">Google Maps Pin</div><input class="proj-form-inp" type="text" id="pf_googlePin" value="'+escProjCell(v('googlePin',fin.googlePin))+'" placeholder="Paste Google Maps link or coordinates"/></div>';
   html+='</div>';
   return html;
 }
@@ -3621,7 +4289,7 @@ function openProjectModal(mode) {
   var el = document.createElement('div');
   el.innerHTML = html;
   document.body.appendChild(el.firstChild);
-  setTimeout(function(){ var n=document.getElementById('pf_name');if(n)n.focus(); onProjTypeChange(); try{ ddBindPinFieldValidation(); }catch(e){} },60);
+  setTimeout(function(){ var n=document.getElementById('pf_name');if(n)n.focus(); onProjTypeChange(); },60);
 }
 function closeProjectModal(){
   var el=document.getElementById('proj-modal-overlay');
@@ -3631,7 +4299,7 @@ function saveProjectModal(){
   var mode=window._editMode||'new';
   var data=collectProjectFromForm();
   if(!data.name){alert('Project name is required.');return;}
-  var prevLat=null, prevLng=null, savedId=null;
+  var savedId=null;
   if(mode==='new'){
     var newId='P'+String(Date.now()).slice(-4);
     PROJS.push(Object.assign({id:newId,on:true,rev:0,sqf:0,unt:0,slb:0,bkn:0,lds:0,trx:0,lab:0,cmp:0,mnt:0,startDate:'',endDate:''},data));
@@ -3642,7 +4310,6 @@ function saveProjectModal(){
   } else {
     var px=PROJS.find(function(x){return x.id===mode;}); if(!px) return;
     ensureProjectDdFields(px);
-    prevLat=px.dd_pin_lat; prevLng=px.dd_pin_lng;
     Object.assign(px,data);
     touchProjectModified(px);
     syncProjectToFin(px);
@@ -3653,8 +4320,6 @@ function saveProjectModal(){
   try{ writeGaRpProjects(); }catch(e){}
   if(typeof gaAutoSave==='function') gaAutoSave();
   renderAll();
-  // DD enqueue is async / non-blocking — never wait on modal close
-  try { ddAfterProjectSave(savedId, data.googlePin, prevLat, prevLng); } catch(e) { console.warn('ddAfterProjectSave', e); }
 }
 
 function renderProjects(){
@@ -3687,7 +4352,7 @@ function renderProjects(){
     rows+=`
     <tr class="proj-row" style="--st:${stCol}">
       <td>
-        <div class="proj-plan-name">${escProjCell(p.name)}</div>
+        <div class="proj-plan-name">${escProjCell(p.name)}${typeof ddPipelineChipHtml==='function'?ddPipelineChipHtml(p):''}</div>
         <div class="proj-plan-loc">${escProjCell(p.location||'—')}</div>
       </td>
       <td><span class="proj-status-badge" style="background:${stBg};color:${stCol}">${escProjCell(p.status||'—')}</span></td>
@@ -3841,6 +4506,8 @@ function renderFinModel(pid){
         <button type="button" onclick="document.getElementById('v3-area-working-input').click()" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--teal);background:var(--teal-l);color:var(--teal-b)">📥 Import Area Working</button>
         ${/shine/i.test(String(p.name||''))?'<button type="button" onclick="applyShinePlazaAreaWorking()" style="padding:5px 12px;border-radius:7px;cursor:pointer;font-size:11px;font-weight:700;border:1.5px solid var(--gold);background:var(--gold-l);color:var(--gold-b)">Apply Shine Plaza sheet</button>':''}
     </div>
+
+    ${typeof ddModelStripHtml==='function'?ddModelStripHtml(pid):''}
 
     <div style="padding:18px">
 
@@ -5701,6 +6368,9 @@ function buildKeyBanner(){
 
 // ── renderDueDiligence ────────────────────────────────────────
 function renderDueDiligence(){
+  var engineOn = typeof ddFlag==='function' && ddFlag('deploy1_engine');
+  var retireOld = typeof ddFlag==='function' && ddFlag('deploy2_retire_old_dd');
+
   const projCards=PROJS.map(p=>{
     const d=ST.dd[p.id]||{}, sc=STAC[p.status], docs=d.pendingDocs||[], isRun=d.running;
     return `
@@ -5796,8 +6466,33 @@ function renderDueDiligence(){
     </div>`;
   }).join('');
 
-  document.getElementById('page-dd').innerHTML=`
-  <div style="margin-bottom:12px">${buildKeyBanner()}</div>
+  var legacyAnalyser = `
+  <div style="font-size:12px;font-weight:700;margin-bottom:8px">Projects</div>
+  ${projCards}
+  ${resultsHtml?`
+  <div style="font-size:12px;font-weight:700;margin:20px 0 8px;padding-top:16px;border-top:2px solid var(--border)">Analysis Results</div>
+  ${resultsHtml}`:''}`;
+
+  var pageHtml = '<div style="margin-bottom:12px">'+buildKeyBanner()+'</div>';
+  if(engineOn){
+    pageHtml += (typeof ddRenderEngineStripOnDdPage==='function'?ddRenderEngineStripOnDdPage():'');
+    pageHtml += '<div style="margin-top:20px;padding-top:16px;border-top:2px solid var(--border)">'
+      + '<div style="font-size:12px;font-weight:700;margin-bottom:8px">Legacy archive</div>'
+      + renderDdLegacyArchiveHtml()
+      + '</div>';
+    if(!retireOld){
+      pageHtml += '<details style="margin-top:20px"><summary style="cursor:pointer;font-size:12px;font-weight:700;color:var(--muted)">Document analyser (legacy)</summary>'
+        + '<div style="margin-top:12px">'
+        + '<div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">'
+        + '<div><div style="font-size:14px;font-weight:700">Document analyser</div>'
+        + '<div style="font-size:11px;color:var(--muted)">Upload 7/12 or Mojni → AI reads the document</div></div>'
+        + '<div style="background:#FDF8EC;border:1px solid #A07800;border-radius:8px;padding:7px 12px;font-size:11px;color:#6B5000;max-width:360px">'
+        + '<b>Screening tool only.</b> Engage a qualified advocate before any transaction.</div></div>'
+        + legacyAnalyser
+        + '</div></details>';
+    }
+  } else {
+    pageHtml += `
   <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:16px">
     <div>
       <div style="font-size:16px;font-weight:700">Due Diligence</div>
@@ -5807,16 +6502,13 @@ function renderDueDiligence(){
       <b>Screening tool only.</b> Engage a qualified advocate before any transaction.
     </div>
   </div>
-  <div style="font-size:12px;font-weight:700;margin-bottom:8px">Projects</div>
-  ${projCards}
-  ${resultsHtml?`
-  <div style="font-size:12px;font-weight:700;margin:20px 0 8px;padding-top:16px;border-top:2px solid var(--border)">Analysis Results</div>
-  ${resultsHtml}`:''}
+  ${legacyAnalyser}
   <div style="margin-top:28px;padding-top:16px;border-top:2px solid var(--border)">
     <div style="font-size:12px;font-weight:700;margin-bottom:8px">Legacy</div>
     ${renderDdLegacyArchiveHtml()}
-  </div>
-  ${typeof ddRenderEngineStripOnDdPage==='function'?ddRenderEngineStripOnDdPage():''}`;
+  </div>`;
+  }
+  document.getElementById('page-dd').innerHTML = pageHtml;
 }
 
 // Spin animation
@@ -6548,10 +7240,13 @@ function gaApply(data) {
       cur.legacy = Object.assign({}, cur.legacy || {}, incoming.legacy || {});
       cur.pin_flags = Object.assign({}, cur.pin_flags || {}, incoming.pin_flags || {});
       cur.economics = Object.assign(
-        { targetMarginPct: null, softCostPct: null },
+        ddEconomicsDefaults(),
         cur.economics || {},
         incoming.economics || {}
       );
+      if(incoming.recommendation_rules && typeof incoming.recommendation_rules === 'object'){
+        cur.recommendation_rules = incoming.recommendation_rules;
+      }
     } catch (e) { console.warn('ddEngine merge', e); }
   } else {
     ensureDdEngine();
