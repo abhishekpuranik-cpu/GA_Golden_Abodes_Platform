@@ -21,6 +21,7 @@ const emptyNewUser = () => ({
   email: '',
   name: '',
   phone: '',
+  emailNotificationsEnabled: false,
   password: '',
   roleIds: 'viewer',
   allowedProjects: [],
@@ -82,6 +83,7 @@ export default function AdminSecurityPage() {
       setUsers(
         (u.users || []).map((user) => ({
           ...user,
+          emailNotificationsEnabled: user.emailNotificationsEnabled === true,
           allowedProjects: Array.isArray(user.allowedProjects) ? user.allowedProjects : []
         }))
       );
@@ -106,6 +108,7 @@ export default function AdminSecurityPage() {
       email: newUser.email,
       name: newUser.name,
       phone: newUser.phone,
+      emailNotificationsEnabled: newUser.emailNotificationsEnabled === true,
       password: newUser.password,
       roleIds: splitCsv(newUser.roleIds),
       allowedProjects: newUser.allowedProjects || [],
@@ -120,6 +123,7 @@ export default function AdminSecurityPage() {
     await authApi.updateUser(u.id, {
       name: u.name,
       phone: u.phone,
+      emailNotificationsEnabled: u.emailNotificationsEnabled === true,
       status: u.status,
       roleIds: Array.isArray(u.roleIds) ? u.roleIds : splitCsv(u.roleIds),
       allowedApps: u.allowedApps || [],
@@ -278,6 +282,19 @@ export default function AdminSecurityPage() {
             onChange={(e) => setNewUser((x) => ({ ...x, password: e.target.value }))}
             className="admin-inp"
           />
+          <label className="admin-notify-toggle">
+            <input
+              type="checkbox"
+              checked={newUser.emailNotificationsEnabled === true}
+              onChange={(e) =>
+                setNewUser((x) => ({ ...x, emailNotificationsEnabled: e.target.checked }))
+              }
+            />
+            <span>
+              <strong>Email notifications</strong>
+              <small>Send PreConstruction update emails only when enabled</small>
+            </span>
+          </label>
           <input
             placeholder="Role IDs (csv)"
             value={newUser.roleIds}
@@ -329,6 +346,23 @@ export default function AdminSecurityPage() {
                 placeholder="WhatsApp phone"
                 className="admin-inp"
               />
+              <label className="admin-notify-toggle">
+                <input
+                  type="checkbox"
+                  checked={u.emailNotificationsEnabled === true}
+                  onChange={(e) =>
+                    setUsers((old) =>
+                      old.map((x, idx) =>
+                        idx === i ? { ...x, emailNotificationsEnabled: e.target.checked } : x
+                      )
+                    )
+                  }
+                />
+                <span>
+                  <strong>Email notifications</strong>
+                  <small>{u.emailNotificationsEnabled ? 'Enabled' : 'Disabled'}</small>
+                </span>
+              </label>
               <select
                 value={u.status || 'active'}
                 onChange={(e) => setUsers((old) => old.map((x, idx) => (idx === i ? { ...x, status: e.target.value } : x)))}

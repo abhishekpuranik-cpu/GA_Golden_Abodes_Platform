@@ -84,6 +84,31 @@ async function loadWorkspace(db) {
   };
 }
 
+function projectMatchesAllowed(project, allowedProjects) {
+  if (!Array.isArray(allowedProjects) || !allowedProjects.length) return true;
+  const id = String(project?.id || '').trim().toLowerCase();
+  const name = String(project?.name || '').trim().toLowerCase();
+  return allowedProjects.some((raw) => {
+    const key = String(raw || '').trim().toLowerCase();
+    if (!key) return false;
+    return key === id || key === name || name.includes(key) || key.includes(name);
+  });
+}
+
+async function requireDrawingProjectAccess(db, sess, projectId, res) {
+  const { projects } = await loadWorkspace(db);
+  const project = (projects || []).find((p) => String(p.id) === String(projectId));
+  if (!project) {
+    res.status(404).json({ error: 'Project not found' });
+    return null;
+  }
+  if (!projectMatchesAllowed(project, sess.user.allowedProjects)) {
+    res.status(403).json({ error: 'Project access denied' });
+    return null;
+  }
+  return project;
+}
+
 function collectProjectAssigneeNames(projects, projectId) {
   const names = new Set();
   const proj = (projects || []).find((p) => p.id === projectId);
@@ -252,6 +277,105 @@ preconstructionRouter.get(
   })
 );
 
+preconstructionRouter.get(
+  '/preconstruction/drawings',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const { projects } = await loadWorkspace(db);
+      const accessible = (projects || []).filter((p) =>
+        projectMatchesAllowed(p, sess.user.allowedProjects)
+      );
+      const accessibleIds = new Set(accessible.map((p) => String(p.id)));
+      const requestedProject = String(req.query?.projectId || '').trim();
+      if (requestedProject && !accessibleIds.has(requestedProject)) {
+        return res.status(403).json({ error: 'Project access denied' });
+      }
+      const query = {
+        scope: 'drawing',
+        archivedAt: { $exists: false },
+        projectId: requestedProject || { $in: [...accessibleIds] }
+      };
+      const rows = await db
+        .collection('precon_attachments')
+        .find(query, { projection: { gridId: 0 } })
+        .sort({ projectId: 1, phaseName: 1, building: 1, drawingType: 1, uploadedAt: -1 })
+        .toArray();
+      res.json({
+        ok: true,
+        drawings: rows.map((row) => ({
+          ...row,
+          id: String(row._id),
+          _id: undefined,
+          url: `/api/preconstruction/attachments/${encodeURIComponent(String(row._id))}`
+        }))
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.patch(
+  '/preconstruction/drawings/:id',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const existing = await getAttachmentMeta(db, req.params.id);
+      if (!existing || existing.scope !== 'drawing' || existing.archivedAt) {
+        return res.status(404).json({ error: 'Drawing not found' });
+      }
+      if (!(await requireDrawingProjectAccess(db, sess, existing.projectId, res))) return;
+      const patch = {};
+      ['phaseId', 'phaseName', 'building', 'drawingType', 'revision', 'status', 'description', 'label'].forEach(
+        (key) => {
+          if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
+            patch[key] = String(req.body[key] || '').trim().slice(0, key === 'description' ? 1000 : 200);
+          }
+        }
+      );
+      patch.updatedAt = new Date();
+      patch.updatedBy = sess.user.name || sess.user.email || 'User';
+      await db.collection('precon_attachments').updateOne(
+        { _id: String(req.params.id), scope: 'drawing' },
+        { $set: patch }
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.delete(
+  '/preconstruction/drawings/:id',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const existing = await getAttachmentMeta(db, req.params.id);
+      if (!existing || existing.scope !== 'drawing' || existing.archivedAt) {
+        return res.status(404).json({ error: 'Drawing not found' });
+      }
+      if (!(await requireDrawingProjectAccess(db, sess, existing.projectId, res))) return;
+      await db.collection('precon_attachments').updateOne(
+        { _id: String(req.params.id), scope: 'drawing' },
+        {
+          $set: {
+            archivedAt: new Date(),
+            archivedBy: sess.user.name || sess.user.email || 'User'
+          }
+        }
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
 preconstructionRouter.post(
   '/preconstruction/attachments',
   withDb(async (req, res, db) => {
@@ -274,6 +398,9 @@ preconstructionRouter.post(
         const projectId = String(req.body?.projectId || '').trim();
         const taskId = String(req.body?.taskId || '').trim();
         const scope = String(req.body?.scope || 'comment').trim() || 'comment';
+        if (scope === 'drawing' && !(await requireDrawingProjectAccess(db, sess, projectId, res))) {
+          return;
+        }
         const uploadedBy = sess.user.name || sess.user.email || 'User';
 
         const attachments = [];
@@ -288,7 +415,20 @@ preconstructionRouter.post(
             buffer: f.buffer,
             fileName: f.originalname || 'file',
             mimeType: f.mimetype || 'application/octet-stream',
-            meta: { projectId, taskId, scope, label, uploadedBy }
+            meta: {
+              projectId,
+              taskId,
+              scope,
+              label,
+              uploadedBy,
+              phaseId: String(req.body?.phaseId || '').trim(),
+              phaseName: String(req.body?.phaseName || '').trim(),
+              building: String(req.body?.building || '').trim(),
+              drawingType: String(req.body?.drawingType || '').trim(),
+              revision: String(req.body?.revision || '').trim(),
+              status: String(req.body?.status || '').trim(),
+              description: String(req.body?.description || '').trim()
+            }
           });
           attachments.push(row);
         }
@@ -398,6 +538,17 @@ preconstructionRouter.post(
           error: 'No email — pass { "email": "you@company.com" } or set your email in Admin Security'
         });
       }
+      const target =
+        override && override !== String(u?.email || '').trim().toLowerCase()
+          ? await db.collection('auth_users').findOne({ email: override })
+          : u;
+      if (!target || target.emailNotificationsEnabled !== true) {
+        return res.status(400).json({
+          ok: false,
+          error:
+            'Email notifications are disabled for this user. Enable the Email notifications checkbox in Admin Security, then retry.'
+        });
+      }
       const ctx = {
         kind: 'comment',
         projectName: 'Test project',
@@ -470,11 +621,22 @@ preconstructionRouter.post(
     try {
       const body = req.body || {};
       const recipients = await resolveNotifyRecipients(db, body);
-      const emails = recipients.map((r) => r.email).filter((e) => e.includes('@'));
       const authUsers = await db
         .collection('auth_users')
-        .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
+        .find(
+          { status: { $ne: 'disabled' } },
+          { projection: { email: 1, phone: 1, name: 1, emailNotificationsEnabled: 1 } }
+        )
         .toArray();
+      const emailOptIn = new Set(
+        authUsers
+          .filter((u) => u.emailNotificationsEnabled === true)
+          .map((u) => String(u.email || '').trim().toLowerCase())
+          .filter((email) => email.includes('@'))
+      );
+      const emails = recipients
+        .map((r) => String(r.email || '').trim().toLowerCase())
+        .filter((email) => emailOptIn.has(email));
       const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
       const phoneCount = resolvePhonesForRecipients(recipients, usersByEmail, authUsers).length;
       const jobId = createNotifyJobId();

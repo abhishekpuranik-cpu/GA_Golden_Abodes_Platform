@@ -263,6 +263,31 @@ img {
   width: 100px;
   opacity: 0.7;
 }
+.admin-notify-toggle {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  background: #020617;
+  color: #e2e8f0;
+  cursor: pointer;
+}
+.admin-notify-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #22c55e;
+}
+.admin-notify-toggle span {
+  display: grid;
+  gap: 2px;
+}
+.admin-notify-toggle small {
+  color: #94a3b8;
+  font-size: 11px;
+}
 .admin-lbl {
   display: block;
   font-size: 11px;

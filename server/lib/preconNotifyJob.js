@@ -122,14 +122,23 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
       labels.push(loaded.meta.label || loaded.meta.fileName);
 
+      // Prefer original filename so emailed files keep extensions (labels often strip them).
+      const originalName = String(loaded.meta.fileName || '').trim();
+      const displayLabel = String(loaded.meta.label || '').trim();
+      let filename = originalName || displayLabel || 'attachment';
+      if (displayLabel && originalName) {
+        const origExt = originalName.includes('.') ? originalName.slice(originalName.lastIndexOf('.')) : '';
+        if (origExt && !displayLabel.toLowerCase().endsWith(origExt.toLowerCase())) {
+          filename = `${displayLabel}${origExt}`;
+        } else {
+          filename = displayLabel;
+        }
+      }
+
       emailFiles.push({
-
-        filename: loaded.meta.label || loaded.meta.fileName,
-
+        filename,
         content: loaded.buffer,
-
         contentType: loaded.meta.mimeType
-
       });
 
     }
@@ -172,14 +181,23 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
 
     const authUsers = await db
       .collection('auth_users')
-      .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1 } })
+      .find({ status: { $ne: 'disabled' } }, { projection: { email: 1, phone: 1, name: 1, emailNotificationsEnabled: 1 } })
       .toArray();
 
     const usersByEmail = new Map(authUsers.map((u) => [String(u.email || '').toLowerCase(), u]));
     const enrichedRecipients = enrichRecipientsWithAuthPhones(recipients, authUsers);
     const toPhones = resolvePhonesForRecipients(enrichedRecipients, usersByEmail, authUsers);
 
-
+    // Re-check opt-in at delivery time so checkbox changes after queue are honored.
+    const emailOptIn = new Set(
+      authUsers
+        .filter((u) => u.emailNotificationsEnabled === true)
+        .map((u) => String(u.email || '').trim().toLowerCase())
+        .filter((email) => email.includes('@'))
+    );
+    const optedInEmails = (emails || [])
+      .map((e) => String(e || '').trim().toLowerCase())
+      .filter((email) => emailOptIn.has(email));
 
     await db.collection(JOBS).updateOne({ _id: jobId }, { $set: { status: 'running', startedAt: new Date() } });
 
@@ -195,9 +213,15 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
           });
 
     const [emailResult, waResult] = await Promise.all([
-      emails.length
-        ? sendPreconNotification({ to: emails, subject, text, html, attachments: emailFiles })
-        : Promise.resolve({ ok: false, error: 'No email recipients', sentTo: [] }),
+      optedInEmails.length
+        ? sendPreconNotification({ to: optedInEmails, subject, text, html, attachments: emailFiles })
+        : Promise.resolve({
+            ok: false,
+            error: emails?.length
+              ? 'No recipients with email notifications enabled'
+              : 'No email recipients',
+            sentTo: []
+          }),
       waPromise
     ]);
 
@@ -209,7 +233,8 @@ export async function deliverPreconNotification(db, { body, sess, recipients, em
     const result = {
       ...emailResult,
       recipients: enrichedRecipients,
-      recipientCount: emails.length,
+      recipientCount: optedInEmails.length,
+      emailOptInCount: optedInEmails.length,
       whatsapp: waResult,
       whatsappCount: waResult.sent?.length || 0,
       ok: anyOk

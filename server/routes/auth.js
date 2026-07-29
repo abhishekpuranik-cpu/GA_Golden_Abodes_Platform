@@ -121,6 +121,11 @@ async function ensureDefaults(db) {
     { roleIds: 'admin' },
     { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'hiring'] } } }
   );
+  // Opt-in email notifications — missing field means disabled.
+  await db.collection('auth_users').updateMany(
+    { emailNotificationsEnabled: { $exists: false } },
+    { $set: { emailNotificationsEnabled: false } }
+  );
 }
 
 export function userHasApp(user, appId) {
@@ -155,6 +160,7 @@ export async function resolveSession(db, req) {
       email: user.email,
       name: user.name || '',
       roleIds: uniq(user.roleIds || ['viewer']),
+      emailNotificationsEnabled: user.emailNotificationsEnabled === true,
       ...access
     }
   };
@@ -188,6 +194,7 @@ authRouter.post(
       email,
       name: name || 'Admin',
       status: 'active',
+      emailNotificationsEnabled: false,
       roleIds: ['admin'],
       permissions: [PERM_ADMIN],
       allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_security'],
@@ -320,7 +327,14 @@ authRouter.get(
       .find({}, { projection: { passwordHash: 0, passwordSalt: 0 } })
       .sort({ createdAt: -1 })
       .toArray();
-    res.json({ users: users.map((u) => ({ ...u, id: String(u._id), _id: undefined })) });
+    res.json({
+      users: users.map((u) => ({
+        ...u,
+        id: String(u._id),
+        _id: undefined,
+        emailNotificationsEnabled: u.emailNotificationsEnabled === true
+      }))
+    });
   })
 );
 
@@ -339,6 +353,7 @@ authRouter.post(
       email,
       name: String(req.body?.name || '').trim() || email,
       phone: String(req.body?.phone || '').trim(),
+      emailNotificationsEnabled: req.body?.emailNotificationsEnabled === true,
       status: String(req.body?.status || 'active'),
       roleIds: uniq(req.body?.roleIds || ['viewer']),
       permissions: uniq(req.body?.permissions || []),
@@ -393,6 +408,10 @@ authRouter.put(
       allowedTabs: uniq(req.body?.allowedTabs || []),
       updatedAt: new Date()
     };
+    // Preserve stored opt-in when older clients omit the property.
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, 'emailNotificationsEnabled')) {
+      patch.emailNotificationsEnabled = req.body.emailNotificationsEnabled === true;
+    }
     const password = String(req.body?.password || '');
     let passwordReset = false;
     if (password) {

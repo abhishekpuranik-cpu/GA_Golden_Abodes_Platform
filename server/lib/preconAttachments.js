@@ -107,6 +107,13 @@ export async function storePreconFile(db, file) {
     projectId: meta.projectId || '',
     taskId: meta.taskId || '',
     scope: meta.scope || 'comment',
+    phaseId: meta.phaseId || '',
+    phaseName: meta.phaseName || '',
+    building: meta.building || '',
+    drawingType: meta.drawingType || '',
+    revision: meta.revision || '',
+    status: meta.status || '',
+    description: meta.description || '',
     label: String(meta.label || fileName || 'Attachment').slice(0, 200),
     uploadedBy: meta.uploadedBy || '',
     uploadedAt: new Date()
@@ -120,6 +127,16 @@ export async function storePreconFile(db, file) {
     mimeType: doc.mimeType,
     size: doc.size,
     kind: doc.kind,
+    projectId: doc.projectId,
+    phaseId: doc.phaseId,
+    phaseName: doc.phaseName,
+    building: doc.building,
+    drawingType: doc.drawingType,
+    revision: doc.revision,
+    status: doc.status,
+    description: doc.description,
+    uploadedBy: doc.uploadedBy,
+    uploadedAt: doc.uploadedAt,
     url: `/api/preconstruction/attachments/${attId}`
   };
 }
