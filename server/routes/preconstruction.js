@@ -32,7 +32,7 @@ import {
   resolveAutoNotifyRecipients,
   uniqRecipients
 } from '../lib/preconNotify.js';
-import { parseAssignees } from '../lib/preconAdmin.js';
+import { nameMatches, parseAssignees } from '../lib/preconAdmin.js';
 import {
   normalizeWhatsAppFrom,
   normalizeWhatsAppPhone,
@@ -292,15 +292,18 @@ preconstructionRouter.get(
       if (requestedProject && !accessibleIds.has(requestedProject)) {
         return res.status(403).json({ error: 'Project access denied' });
       }
+      const archiveView = String(req.query?.view || '').toLowerCase() === 'archive';
       const query = {
         scope: 'drawing',
-        archivedAt: { $exists: false },
+        ...(archiveView
+          ? { $or: [{ archivedAt: { $exists: true } }, { supersededAt: { $exists: true } }] }
+          : { archivedAt: { $exists: false }, supersededAt: { $exists: false } }),
         projectId: requestedProject || { $in: [...accessibleIds] }
       };
       const rows = await db
         .collection('precon_attachments')
         .find(query, { projection: { gridId: 0 } })
-        .sort({ projectId: 1, phaseName: 1, building: 1, drawingType: 1, uploadedAt: -1 })
+        .sort({ projectId: 1, projectPhase: 1, building: 1, drawingType: 1, subDrawing: 1, version: -1 })
         .toArray();
       res.json({
         ok: true,
@@ -329,7 +332,7 @@ preconstructionRouter.patch(
       }
       if (!(await requireDrawingProjectAccess(db, sess, existing.projectId, res))) return;
       const patch = {};
-      ['phaseId', 'phaseName', 'building', 'drawingType', 'revision', 'status', 'description', 'label'].forEach(
+      ['projectPhase', 'building', 'drawingType', 'subDrawing', 'revision', 'status', 'description', 'label', 'reviewTaskId', 'reviewPhaseId'].forEach(
         (key) => {
           if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
             patch[key] = String(req.body[key] || '').trim().slice(0, key === 'description' ? 1000 : 200);
@@ -377,6 +380,101 @@ preconstructionRouter.delete(
 );
 
 preconstructionRouter.post(
+  '/preconstruction/drawings/:id/restore',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const existing = await getAttachmentMeta(db, req.params.id);
+      if (!existing || existing.scope !== 'drawing') {
+        return res.status(404).json({ error: 'Drawing not found' });
+      }
+      if (!(await requireDrawingProjectAccess(db, sess, existing.projectId, res))) return;
+      await db.collection('precon_attachments').updateOne(
+        { _id: String(req.params.id), scope: 'drawing' },
+        {
+          $unset: { archivedAt: '', archivedBy: '' },
+          $set: {
+            restoredAt: new Date(),
+            restoredBy: sess.user.name || sess.user.email || 'User'
+          }
+        }
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.post(
+  '/preconstruction/drawings/:id/decision',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const drawing = await getAttachmentMeta(db, req.params.id);
+      if (!drawing || drawing.scope !== 'drawing' || drawing.archivedAt) {
+        return res.status(404).json({ error: 'Drawing not found' });
+      }
+      if (!(await requireDrawingProjectAccess(db, sess, drawing.projectId, res))) return;
+      const { departments } = await loadWorkspace(db);
+      const designHead = String(
+        (departments || []).find((d) => d.id === 'dept_design')?.head || ''
+      ).trim();
+      const actorName = String(sess.user.name || '').trim();
+      const actorEmailName = String(sess.user.email || '').split('@')[0];
+      const isAdmin = (sess.user.permissions || []).includes(PERM_ADMIN);
+      if (
+        !isAdmin &&
+        (!designHead ||
+          (!nameMatches(actorName, designHead) && !nameMatches(actorEmailName, designHead)))
+      ) {
+        return res.status(403).json({
+          error: designHead
+            ? `Only the configured Design Department Head (${designHead}) can decide this drawing`
+            : 'Configure the Design Department Head before approving drawings'
+        });
+      }
+      const decision = String(req.body?.decision || '').trim().toLowerCase();
+      const statusByDecision = {
+        approve: 'Approved',
+        changes: 'Changes requested',
+        reject: 'Rejected'
+      };
+      const status = statusByDecision[decision];
+      if (!status) return res.status(400).json({ error: 'Invalid drawing decision' });
+      const note = String(req.body?.note || '').trim().slice(0, 2000);
+      if ((decision === 'changes' || decision === 'reject') && !note) {
+        return res.status(400).json({ error: 'Add review comments for changes or rejection' });
+      }
+      const decidedAt = new Date();
+      const actor = actorName || sess.user.email || 'Design Head';
+      await db.collection('precon_attachments').updateOne(
+        { _id: String(req.params.id), scope: 'drawing' },
+        {
+          $set: {
+            status,
+            approvalDecision: decision,
+            approvalNote: note,
+            approvalBy: actor,
+            approvalAt: decidedAt,
+            updatedAt: decidedAt,
+            updatedBy: actor
+          },
+          $push: {
+            approvalHistory: { decision, status, note, by: actor, at: decidedAt }
+          }
+        }
+      );
+      res.json({ ok: true, status, decision, note, by: actor, at: decidedAt });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.post(
   '/preconstruction/attachments',
   withDb(async (req, res, db) => {
     const sess = await requirePreconSession(db, req, res);
@@ -402,6 +500,31 @@ preconstructionRouter.post(
           return;
         }
         const uploadedBy = sess.user.name || sess.user.email || 'User';
+        let parentDrawing = null;
+        let drawingVersion = 1;
+        let seriesId = '';
+        const parentDrawingId = String(req.body?.parentDrawingId || '').trim();
+        if (scope === 'drawing' && parentDrawingId) {
+          if (files.length !== 1) {
+            return res.status(400).json({ error: 'Upload one file at a time when adding a new version' });
+          }
+          parentDrawing = await getAttachmentMeta(db, parentDrawingId);
+          if (
+            !parentDrawing ||
+            parentDrawing.scope !== 'drawing' ||
+            String(parentDrawing.projectId) !== projectId
+          ) {
+            return res.status(400).json({ error: 'Previous drawing version not found' });
+          }
+          seriesId = parentDrawing.seriesId || String(parentDrawing._id);
+          const latest = await db
+            .collection('precon_attachments')
+            .find({ scope: 'drawing', seriesId })
+            .sort({ version: -1 })
+            .limit(1)
+            .next();
+          drawingVersion = Math.max(1, Number(latest?.version || parentDrawing.version || 1)) + 1;
+        }
 
         const attachments = [];
         for (let i = 0; i < files.length; i++) {
@@ -421,16 +544,36 @@ preconstructionRouter.post(
               scope,
               label,
               uploadedBy,
-              phaseId: String(req.body?.phaseId || '').trim(),
-              phaseName: String(req.body?.phaseName || '').trim(),
-              building: String(req.body?.building || '').trim(),
-              drawingType: String(req.body?.drawingType || '').trim(),
+              projectPhase: String(req.body?.projectPhase || parentDrawing?.projectPhase || '').trim(),
+              building: String(req.body?.building || parentDrawing?.building || '').trim(),
+              drawingType: String(req.body?.drawingType || parentDrawing?.drawingType || '').trim(),
+              subDrawing: String(req.body?.subDrawing || parentDrawing?.subDrawing || '').trim(),
+              seriesId,
+              version: drawingVersion,
               revision: String(req.body?.revision || '').trim(),
-              status: String(req.body?.status || '').trim(),
+              status: scope === 'drawing' ? 'For review' : String(req.body?.status || '').trim(),
               description: String(req.body?.description || '').trim()
             }
           });
           attachments.push(row);
+        }
+        if (parentDrawing && attachments[0]) {
+          await db.collection('precon_attachments').updateMany(
+            {
+              scope: 'drawing',
+              seriesId,
+              _id: { $ne: String(attachments[0].id) },
+              archivedAt: { $exists: false }
+            },
+            {
+              $set: {
+                supersededAt: new Date(),
+                supersededBy: uploadedBy,
+                supersededByDrawingId: String(attachments[0].id),
+                status: 'Superseded'
+              }
+            }
+          );
         }
         res.json({ ok: true, attachments });
       } catch (e) {

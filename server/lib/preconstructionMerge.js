@@ -178,6 +178,7 @@ export function slimPreconstructionForBoot(data) {
           offsetFromKo: t.offsetFromKo,
           parentId: t.parentId,
           plannedEnd: t.plannedEnd,
+          drawingReview: t.drawingReview,
           comments: slimTaskComments(t.comments),
           attachments: Array.isArray(t.attachments) ? t.attachments.slice(0, 4) : undefined,
         })),
