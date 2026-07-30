@@ -1,0 +1,888 @@
+{
+  "version": 1,
+  "source": "GA Curated Drawing List 30.7.2026.xlsx",
+  "items": [
+    {
+      "id": "cat_9ca38209a095",
+      "stage": "01. Pre-Design & Site Due Diligence",
+      "stageOrder": 1,
+      "source": "Source Not Specified in Worksheet",
+      "sourceOrder": 1,
+      "drawingName": "Road Widening / Development Plan Line Drawing",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_01b1997f763e",
+      "stage": "01. Pre-Design & Site Due Diligence",
+      "stageOrder": 1,
+      "source": "Source Not Specified in Worksheet",
+      "sourceOrder": 1,
+      "drawingName": "Existing Site Survey Drawing",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_10bd2f80d1e1",
+      "stage": "01. Pre-Design & Site Due Diligence",
+      "stageOrder": 1,
+      "source": "Source Not Specified in Worksheet",
+      "sourceOrder": 1,
+      "drawingName": "Vastu Input Plan for the Overall Site",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_a522679d768b",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Concept Zoning Plan",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_43d9231c9793",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Concept Site Development Plan – Open Spaces and Amenity Areas",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_7336a3a921c4",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Preliminary Building Layout Plan",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_adc5fb5b2788",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Preliminary Typical Interior / Furniture Layout",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_664f155f4e9c",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Preliminary Site Services Layout as per Vastu Inputs",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_0b57e4636d15",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Preliminary Plumbing Duct Location and Sizing Plan",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_333217252d6f",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Preliminary Plumbing Pipe Routing Plan",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_bf5a8af67058",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Preliminary Underground Water Tank and Sewage Treatment Plant Location Plan",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_dce8ac62e69f",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Preliminary Wet Riser Location Plan",
+      "drawingOrder": 5
+    },
+    {
+      "id": "cat_21dd11bad09d",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Preliminary Pump Room Location Plan",
+      "drawingOrder": 6
+    },
+    {
+      "id": "cat_f2bd144b1c55",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Electrical Consultant",
+      "sourceOrder": 3,
+      "drawingName": "Preliminary Electrical Substation Location Plan",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_3a00d8b7ceb2",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Electrical Consultant",
+      "sourceOrder": 3,
+      "drawingName": "Preliminary Meter Room Location Plan",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_844eb8a0af56",
+      "stage": "02. Concept Design & Master Planning",
+      "stageOrder": 2,
+      "source": "Electrical Consultant",
+      "sourceOrder": 3,
+      "drawingName": "Preliminary Electrical Duct Location and Sizing Plan",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_5d8375de6408",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Door and Window Opening Details",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_f541fb9a22da",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Sales-Freeze Typical Interior / Furniture Layout",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_5aac92a920df",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Sales Parking Layout Plans",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_7092f0102c29",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Sales Master Site Layout Plan",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_e0e484a80435",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Typical Unit Plans – Odd and Even Floors",
+      "drawingOrder": 5
+    },
+    {
+      "id": "cat_d688f2db3b5d",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Typical Building Floor Plans – Odd and Even Floors",
+      "drawingOrder": 6
+    },
+    {
+      "id": "cat_0fb81cba9ca1",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Project Key Plan / Building Location Plan",
+      "drawingOrder": 7
+    },
+    {
+      "id": "cat_2f11f167477a",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Building Elevations and 3D Views",
+      "drawingOrder": 8
+    },
+    {
+      "id": "cat_74a6e7e6197f",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Preliminary Structural Column Location Plan",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_7a66daf56153",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "MEP Consultant",
+      "sourceOrder": 3,
+      "drawingName": "Air-Conditioner Indoor and Outdoor Unit Location Plan",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_f9b246421e52",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Landscape Consultant",
+      "sourceOrder": 4,
+      "drawingName": "Open Space and Landscape Layout",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_7cd51414737f",
+      "stage": "03. Sales Plan Finalisation / Design Freeze",
+      "stageOrder": 3,
+      "source": "Landscape Consultant",
+      "sourceOrder": 4,
+      "drawingName": "Parking Island Location Plan",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_6ade27df8bbe",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Block Excavation Plan with X-X and Y-Y Sections",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_a93010996f33",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Plot Boundary Plan",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_86273d94fd92",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Building Setting-Out and Centreline Plan",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_083a85e1c7db",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Ramp Gradient and Section Details",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_1e7f25f4e93e",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Architectural Lift Pit Details",
+      "drawingOrder": 5
+    },
+    {
+      "id": "cat_4320bf640f15",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Building Elevation Details",
+      "drawingOrder": 6
+    },
+    {
+      "id": "cat_1c584282305c",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Plinth and Finished Floor Level Plan",
+      "drawingOrder": 7
+    },
+    {
+      "id": "cat_de1ef6b154d5",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Mechanical Ventilation Provision Layout",
+      "drawingOrder": 8
+    },
+    {
+      "id": "cat_e10d742e96f0",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Final Site Development Layout",
+      "drawingOrder": 9
+    },
+    {
+      "id": "cat_b212e8e83941",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Staircase Details",
+      "drawingOrder": 10
+    },
+    {
+      "id": "cat_b32c5a51b383",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Site Contour Plan with Building Layout and Finalised Plinth Levels",
+      "drawingOrder": 11
+    },
+    {
+      "id": "cat_4f98d4ceabff",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Parking Floor Plan with Meter Room, Letterbox Area and Entrance Lobby",
+      "drawingOrder": 12
+    },
+    {
+      "id": "cat_7227043f4a85",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Floor-wise Architectural Working Plans – First Floor to Terrace",
+      "drawingOrder": 13
+    },
+    {
+      "id": "cat_5ee1b1da123b",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Building Sections and Elevations",
+      "drawingOrder": 14
+    },
+    {
+      "id": "cat_4ac0f4f404d3",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Typical Toilet Architectural Details",
+      "drawingOrder": 15
+    },
+    {
+      "id": "cat_376ed515ec62",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Overhead Water Tank Architectural Details",
+      "drawingOrder": 16
+    },
+    {
+      "id": "cat_45c6e4738142",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Clubhouse and Swimming Pool Architectural Details",
+      "drawingOrder": 17
+    },
+    {
+      "id": "cat_977476dec3c8",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Entrance Lobby Details – Flooring and Lift Walls",
+      "drawingOrder": 18
+    },
+    {
+      "id": "cat_a9926d0cf47a",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "Architect",
+      "sourceOrder": 1,
+      "drawingName": "Compound Wall and Entrance Gate Architectural Details",
+      "drawingOrder": 19
+    },
+    {
+      "id": "cat_230748de3587",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Column Footing Details",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_bfa321b93e59",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Structural Lift Pit Details",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_afcedf8a43b7",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Retaining Wall Details and Sections",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_69e186c57f71",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Structural Ramp Details and Sections",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_ac6321f7c17d",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Typical Slab Reinforcement Details",
+      "drawingOrder": 5
+    },
+    {
+      "id": "cat_42accc64d8ca",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Underground Water Tank Structural Details",
+      "drawingOrder": 6
+    },
+    {
+      "id": "cat_ba8dcf070641",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Shore Pile Details",
+      "drawingOrder": 7
+    },
+    {
+      "id": "cat_51f580f401f8",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Post-Tensioned Slab Details",
+      "drawingOrder": 8
+    },
+    {
+      "id": "cat_cb31e614deca",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Raft Foundation Details",
+      "drawingOrder": 9
+    },
+    {
+      "id": "cat_334a9f7bf65c",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "Water Tank and Lift Machine Room Structural Details",
+      "drawingOrder": 10
+    },
+    {
+      "id": "cat_468ac5f185b3",
+      "stage": "04. Architectural GFC / Execution",
+      "stageOrder": 4,
+      "source": "R.C.C. Consultant",
+      "sourceOrder": 2,
+      "drawingName": "R.C.C. Details for Compound Wall and Entrance Gate",
+      "drawingOrder": 11
+    },
+    {
+      "id": "cat_bde22efbc5ea",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Below-Plinth Services Layout",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_d4d09a6b3d13",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Typical Toilet and Kitchen Plumbing Layouts with Toilet Elevations",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_1dc11f768fd3",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Terrace Rainwater Down-Take Pipe Layout",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_31a247f42921",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Underground and Overhead Water Tank Plumbing Details",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_e3ad68664392",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "External Fire Line, Water Supply Line and Typical Double-Line Layout",
+      "drawingOrder": 5
+    },
+    {
+      "id": "cat_4e1871bfd21b",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Internal Plumbing Layouts – Toilets, Kitchens, Dry Yards and Terraces",
+      "drawingOrder": 6
+    },
+    {
+      "id": "cat_67d047472599",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Stormwater Drainage Layout",
+      "drawingOrder": 7
+    },
+    {
+      "id": "cat_945cf9a56cd6",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Sewerage / Drainage Layout",
+      "drawingOrder": 8
+    },
+    {
+      "id": "cat_bc1fd0eaba3b",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Firefighting Services Layout",
+      "drawingOrder": 9
+    },
+    {
+      "id": "cat_ba474f652f20",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Solar Water Heating System Location and Down-Take Layout",
+      "drawingOrder": 10
+    },
+    {
+      "id": "cat_ac2defdc2867",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Irrigation Services Layout – If Applicable",
+      "drawingOrder": 11
+    },
+    {
+      "id": "cat_ae70735fcb79",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Sewage Treatment Plant System Layout",
+      "drawingOrder": 12
+    },
+    {
+      "id": "cat_03806ac6723a",
+      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stageOrder": 5,
+      "source": "Plumbing Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Treated Water Distribution Layout",
+      "drawingOrder": 13
+    },
+    {
+      "id": "cat_6c9b8911ae38",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Building, Lift, Meter Panel and Substation Earthing Layout",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_4007acb93cf2",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "External Power, Telephone and Broadband Cable Routing Layout",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_309df14357f0",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Basement Firefighting Services Layout",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_2d9a5e3cf6d7",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Residential Building Power Backup Distribution Layout",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_9c2cc4b5a1f4",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Telephone and ID / OD Provision Layout",
+      "drawingOrder": 5
+    },
+    {
+      "id": "cat_af18d38d900c",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Inverter Location and Capacity Plan",
+      "drawingOrder": 6
+    },
+    {
+      "id": "cat_84bb26ae0e7a",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Typical Flat and Parking Electrical Layouts",
+      "drawingOrder": 7
+    },
+    {
+      "id": "cat_eaa83e13171b",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Terrace Lighting Layout",
+      "drawingOrder": 8
+    },
+    {
+      "id": "cat_d97d2706dc1f",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Meter Room Details",
+      "drawingOrder": 9
+    },
+    {
+      "id": "cat_316c88571958",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Electrical Services Master Layout",
+      "drawingOrder": 10
+    },
+    {
+      "id": "cat_9f770b0b7fcf",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Substation Layout with Room Sizes",
+      "drawingOrder": 11
+    },
+    {
+      "id": "cat_ddaa99ed2c5b",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Clubhouse and Pump Room Electrical Layout",
+      "drawingOrder": 12
+    },
+    {
+      "id": "cat_bb44e3f76961",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Street Lighting Layout",
+      "drawingOrder": 13
+    },
+    {
+      "id": "cat_19fbbc7b6ef3",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Mini-Pillar Locations and Garden Electrical Layout",
+      "drawingOrder": 14
+    },
+    {
+      "id": "cat_18e97d3633e5",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Swimming Pool Lighting Layout",
+      "drawingOrder": 15
+    },
+    {
+      "id": "cat_019da1e181e0",
+      "stage": "07. Electrical & ELV GFC / Execution",
+      "stageOrder": 6,
+      "source": "Electrical Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Lightning Protection / Lightning Arrestor Layout",
+      "drawingOrder": 16
+    },
+    {
+      "id": "cat_6e1b10b5c2f6",
+      "stage": "08. Landscape GFC / Execution",
+      "stageOrder": 7,
+      "source": "Landscape Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Open Space Setting-Out and Ground Level Plan",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_b1eb8a29970a",
+      "stage": "08. Landscape GFC / Execution",
+      "stageOrder": 7,
+      "source": "Landscape Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Landscape Area Elevations and Sections",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_580d41ed3f5b",
+      "stage": "08. Landscape GFC / Execution",
+      "stageOrder": 7,
+      "source": "Landscape Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Landscape Irrigation Layout",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_70155334cff3",
+      "stage": "08. Landscape GFC / Execution",
+      "stageOrder": 7,
+      "source": "Landscape Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Swimming Pool Services Layout",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_f1a6a9cdacd3",
+      "stage": "09. Façade Design & Shop Drawings",
+      "stageOrder": 8,
+      "source": "Façade Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Preliminary Façade Design based on Architectural Drawings",
+      "drawingOrder": 1
+    },
+    {
+      "id": "cat_4213bafb9412",
+      "stage": "09. Façade Design & Shop Drawings",
+      "stageOrder": 8,
+      "source": "Façade Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Glazing Division and Façade Member Details",
+      "drawingOrder": 2
+    },
+    {
+      "id": "cat_3692a4c36f69",
+      "stage": "09. Façade Design & Shop Drawings",
+      "stageOrder": 8,
+      "source": "Façade Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Façade Smoke Seal Details",
+      "drawingOrder": 3
+    },
+    {
+      "id": "cat_ab57e5afbac2",
+      "stage": "09. Façade Design & Shop Drawings",
+      "stageOrder": 8,
+      "source": "Façade Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Façade Bracket and Connection Details",
+      "drawingOrder": 4
+    },
+    {
+      "id": "cat_5f229b9da68d",
+      "stage": "09. Façade Design & Shop Drawings",
+      "stageOrder": 8,
+      "source": "Façade Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Architectural Fin and Façade Feature Fixing Details",
+      "drawingOrder": 5
+    },
+    {
+      "id": "cat_b7b8b26e2961",
+      "stage": "09. Façade Design & Shop Drawings",
+      "stageOrder": 8,
+      "source": "Façade Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Façade Cleaning System Layout and Details",
+      "drawingOrder": 6
+    },
+    {
+      "id": "cat_723a75e366b2",
+      "stage": "09. Façade Design & Shop Drawings",
+      "stageOrder": 8,
+      "source": "Façade Consultant",
+      "sourceOrder": 1,
+      "drawingName": "Signage Mounting Location and Fixing Details",
+      "drawingOrder": 7
+    }
+  ]
+}

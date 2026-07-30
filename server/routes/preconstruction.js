@@ -43,6 +43,15 @@ import {
   whatsappNotifyEnabled
 } from '../lib/preconWhatsApp.js';
 import { runPreconAnalyticsAsk } from '../lib/preconAnalyticsAsk.js';
+import { devBypassSession, isDevAuthBypass } from '../lib/devAuthBypass.js';
+import {
+  addDrawingCatalogItem,
+  deleteDrawingCatalogItem,
+  listDrawingCatalog,
+  listDrawingPlan,
+  saveDrawingPlan,
+  updateDrawingCatalogItem
+} from '../lib/preconDrawingCatalog.js';
 
 export const preconstructionRouter = Router();
 const APP_ID = 'preconstruction';
@@ -60,6 +69,7 @@ const upload = multer({
 });
 
 async function requirePreconSession(db, req, res) {
+  if (isDevAuthBypass()) return devBypassSession();
   const sess = await resolveSession(db, req);
   if (!sess) {
     res.status(401).json({ error: 'Unauthorized' });
@@ -107,6 +117,19 @@ async function requireDrawingProjectAccess(db, sess, projectId, res) {
     return null;
   }
   return project;
+}
+
+async function canManageDrawingCatalog(db, user) {
+  if ((user?.permissions || []).includes(PERM_ADMIN) || (user?.roleIds || []).includes('admin')) {
+    return true;
+  }
+  const { departments } = await loadWorkspace(db);
+  const designHead = String((departments || []).find((d) => d.id === 'dept_design')?.head || '').trim();
+  if (!designHead) return false;
+  return (
+    nameMatches(user?.name, designHead) ||
+    nameMatches(String(user?.email || '').split('@')[0], designHead)
+  );
 }
 
 function collectProjectAssigneeNames(projects, projectId) {
@@ -278,6 +301,125 @@ preconstructionRouter.get(
 );
 
 preconstructionRouter.get(
+  '/preconstruction/drawing-catalog',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const items = await listDrawingCatalog(db);
+      res.json({
+        ok: true,
+        canManage: await canManageDrawingCatalog(db, sess.user),
+        items: items.map((row) => ({ ...row, id: String(row._id), _id: undefined }))
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.post(
+  '/preconstruction/drawing-catalog',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    if (!(await canManageDrawingCatalog(db, sess.user))) {
+      return res.status(403).json({ error: 'Design Head or Security Admin access required' });
+    }
+    try {
+      const row = await addDrawingCatalogItem(
+        db,
+        req.body || {},
+        sess.user.name || sess.user.email || 'User'
+      );
+      res.status(201).json({ ok: true, item: { ...row, id: String(row._id), _id: undefined } });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.patch(
+  '/preconstruction/drawing-catalog/:id',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    if (!(await canManageDrawingCatalog(db, sess.user))) {
+      return res.status(403).json({ error: 'Design Head or Security Admin access required' });
+    }
+    try {
+      const row = await updateDrawingCatalogItem(
+        db,
+        req.params.id,
+        req.body || {},
+        sess.user.name || sess.user.email || 'User'
+      );
+      res.json({ ok: true, item: { ...row, id: String(row._id), _id: undefined } });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.delete(
+  '/preconstruction/drawing-catalog/:id',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    if (!(await canManageDrawingCatalog(db, sess.user))) {
+      return res.status(403).json({ error: 'Design Head or Security Admin access required' });
+    }
+    try {
+      await deleteDrawingCatalogItem(
+        db,
+        req.params.id,
+        sess.user.name || sess.user.email || 'User'
+      );
+      res.json({ ok: true });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.get(
+  '/preconstruction/drawing-plan',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    const projectId = String(req.query?.projectId || '').trim();
+    if (!(await requireDrawingProjectAccess(db, sess, projectId, res))) return;
+    try {
+      const rows = await listDrawingPlan(db, projectId);
+      res.json({ ok: true, plans: rows.map((row) => ({ ...row, id: String(row._id), _id: undefined })) });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.put(
+  '/preconstruction/drawing-plan/:catalogItemId',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    const projectId = String(req.body?.projectId || '').trim();
+    if (!(await requireDrawingProjectAccess(db, sess, projectId, res))) return;
+    try {
+      const plan = await saveDrawingPlan(
+        db,
+        req.params.catalogItemId,
+        req.body || {},
+        sess.user.name || sess.user.email || 'User'
+      );
+      res.json({ ok: true, plan });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.get(
   '/preconstruction/drawings',
   withDb(async (req, res, db) => {
     const sess = await requirePreconSession(db, req, res);
@@ -303,7 +445,7 @@ preconstructionRouter.get(
       const rows = await db
         .collection('precon_attachments')
         .find(query, { projection: { gridId: 0 } })
-        .sort({ projectId: 1, projectPhase: 1, building: 1, drawingType: 1, subDrawing: 1, version: -1 })
+        .sort({ projectId: 1, stage: 1, source: 1, drawingName: 1, scopeType: 1, version: -1 })
         .toArray();
       res.json({
         ok: true,
@@ -332,7 +474,7 @@ preconstructionRouter.patch(
       }
       if (!(await requireDrawingProjectAccess(db, sess, existing.projectId, res))) return;
       const patch = {};
-      ['projectPhase', 'building', 'drawingType', 'subDrawing', 'revision', 'status', 'description', 'label', 'reviewTaskId', 'reviewPhaseId'].forEach(
+      ['projectPhase', 'building', 'commonAmenity', 'scopeType', 'scopeKey', 'scopeLabel', 'catalogItemId', 'stage', 'source', 'drawingName', 'plannedStart', 'plannedEnd', 'drawingType', 'subDrawing', 'revision', 'status', 'description', 'label', 'reviewTaskId', 'reviewPhaseId'].forEach(
         (key) => {
           if (Object.prototype.hasOwnProperty.call(req.body || {}, key)) {
             patch[key] = String(req.body[key] || '').trim().slice(0, key === 'description' ? 1000 : 200);
@@ -546,6 +688,16 @@ preconstructionRouter.post(
               uploadedBy,
               projectPhase: String(req.body?.projectPhase || parentDrawing?.projectPhase || '').trim(),
               building: String(req.body?.building || parentDrawing?.building || '').trim(),
+              commonAmenity: String(req.body?.commonAmenity || parentDrawing?.commonAmenity || '').trim(),
+              scopeType: String(req.body?.scopeType || parentDrawing?.scopeType || 'project').trim(),
+              scopeKey: String(req.body?.scopeKey || parentDrawing?.scopeKey || 'project').trim(),
+              scopeLabel: String(req.body?.scopeLabel || parentDrawing?.scopeLabel || '').trim(),
+              catalogItemId: String(req.body?.catalogItemId || parentDrawing?.catalogItemId || '').trim(),
+              stage: String(req.body?.stage || parentDrawing?.stage || '').trim(),
+              source: String(req.body?.source || parentDrawing?.source || '').trim(),
+              drawingName: String(req.body?.drawingName || parentDrawing?.drawingName || '').trim(),
+              plannedStart: String(req.body?.plannedStart || parentDrawing?.plannedStart || '').trim(),
+              plannedEnd: String(req.body?.plannedEnd || parentDrawing?.plannedEnd || '').trim(),
               drawingType: String(req.body?.drawingType || parentDrawing?.drawingType || '').trim(),
               subDrawing: String(req.body?.subDrawing || parentDrawing?.subDrawing || '').trim(),
               seriesId,
