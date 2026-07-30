@@ -175,6 +175,108 @@ function scopeMatches(row, scope) {
   if (scope.building && row.building && slug(row.building) !== slug(scope.building)) return false;
   return true;
 }
+
+function scopeMatchesUnit(unit, scope) {
+  if (scope.project && slug(unit.project) !== slug(scope.project)) return false;
+  if (scope.phase && unit.phase && slug(unit.phase) !== slug(scope.phase)) return false;
+  if (scope.building) {
+    const b = unit.building || unit.tower;
+    if (b && slug(b) !== slug(scope.building)) return false;
+  }
+  return true;
+}
+
+/** Active units in import scope that did not appear in the latest CRM file. */
+export function findMissingFromCrmDump(scope, matchedUnitIds, existingUnits = []) {
+  const matched = new Set([...matchedUnitIds].map(String));
+  return existingUnits
+    .filter((u) => {
+      if (matched.has(String(u._id))) return false;
+      if (u.overallStatus === 'cancelled') return false;
+      if (!scopeMatchesUnit(u, scope)) return false;
+      return true;
+    })
+    .map((u) => ({
+      unitId: String(u._id),
+      project: u.project,
+      phase: u.phase,
+      building: u.building || u.tower,
+      unitNumber: u.unitNumber,
+      customerName: u.customerId?.name || u.customerName,
+      currentStep: u.currentStepNumber,
+      overallStatus: u.overallStatus,
+      bookingDate: u.bookingDate,
+      crmExecutive: u.crmExecutive,
+    }));
+}
+
+export async function applyCrmReconciliations(reconciliations = [], { batchId, actor = 'crm_upload' } = {}) {
+  const report = { cancelled: 0, reassigned: 0, pending: 0, errors: [] };
+  for (const item of reconciliations) {
+    const unitId = item?.unitId;
+    const action = String(item?.action || '').trim();
+    if (!unitId || !action) continue;
+    try {
+      const unit = await Unit.findById(unitId).populate('customerId');
+      if (!unit) {
+        report.errors.push({ unitId, error: 'Unit not found' });
+        continue;
+      }
+      if (action === 'cancel') {
+        unit.overallStatus = 'cancelled';
+        unit.crmAbsentNote = item.note || `Marked cancelled — absent from CRM dump ${batchId || ''}`.trim();
+        unit.crmAbsentBatchId = batchId || unit.crmAbsentBatchId;
+        await unit.save();
+        report.cancelled += 1;
+        continue;
+      }
+      if (action === 'pending') {
+        unit.overallStatus = 'pending_verification';
+        unit.crmAbsentBatchId = batchId || unit.crmAbsentBatchId;
+        unit.crmAbsentNote = item.note || `Pending verification — absent from CRM dump ${batchId || ''}`.trim();
+        await unit.save();
+        report.pending += 1;
+        continue;
+      }
+      if (action === 'reassign') {
+        const newUnitNumber = normalizeUnitNumber(unit.project, String(item.newUnitNumber || '').trim(), unit.building || unit.tower);
+        if (!newUnitNumber) {
+          report.errors.push({ unitId, error: 'New unit number is required' });
+          continue;
+        }
+        const conflict = await Unit.findOne({
+          _id: { $ne: unit._id },
+          project: unit.project,
+          unitNumber: newUnitNumber,
+          overallStatus: { $ne: 'cancelled' },
+        }).lean();
+        if (conflict) {
+          report.errors.push({ unitId, error: `Unit ${newUnitNumber} already exists in ${unit.project}` });
+          continue;
+        }
+        unit.unitNumber = newUnitNumber;
+        unit.crmUnitKey = buildCrmUnitKey({
+          project: unit.project,
+          phase: unit.phase,
+          building: unit.building || unit.tower,
+          unitNumber: newUnitNumber,
+        });
+        unit.v1UnitKey = normUnitKey(newUnitNumber);
+        unit.overallStatus = 'active';
+        unit.crmAbsentBatchId = undefined;
+        unit.crmAbsentNote = item.note || `Reassigned from import reconciliation by ${actor}`;
+        unit.lastImportBatchId = batchId || unit.lastImportBatchId;
+        await unit.save();
+        report.reassigned += 1;
+        continue;
+      }
+      report.errors.push({ unitId, error: `Unknown action "${action}"` });
+    } catch (e) {
+      report.errors.push({ unitId, error: e.message });
+    }
+  }
+  return report;
+}
 function validateRow(row, catalog, scope) {
   if (!row.project) return 'Project is required';
   if (!row.unitNumber) return 'Unit Number is required';
@@ -224,7 +326,11 @@ function buildExistingUnitPatch(existing, row, batchId) {
     patch.cxExecutive = row.crmExecutive;
     patch.backendExecutive = row.crmExecutive;
   }
-  if (row.overallStatus) patch.overallStatus = row.overallStatus;
+  if (row.overallStatus && row.overallStatus !== existing.overallStatus) {
+    if (!(row.overallStatus === 'active' && existing.overallStatus === 'cancelled')) {
+      patch.overallStatus = row.overallStatus;
+    }
+  }
   return patch;
 }
 
@@ -425,7 +531,7 @@ async function loadImportCaches(scope) {
     if (!stepsByUnit.has(k)) stepsByUnit.set(k, []);
     stepsByUnit.get(k).push(s);
   }
-  return { lookup, demandByKey, stepsByUnit };
+  return { lookup, demandByKey, stepsByUnit, existingUnits };
 }
 
 function masterChanges(existing, row, customer) {
@@ -492,7 +598,7 @@ async function logImportBatch(db, batch) {
   );
 }
 
-async function processCollectionReportImport(db, rawRows, scope, { dryRun = true, importedBy = 'crm_upload' } = {}) {
+async function processCollectionReportImport(db, rawRows, scope, { dryRun = true, importedBy = 'crm_upload', reconciliations = [] } = {}) {
   const catalog = await loadInventoryCatalog(db);
   const batchId = `CRM_${Date.now()}`;
   const report = {
@@ -508,8 +614,10 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
       demandsCreated: 0,
       demandsUpdated: 0,
       pipelineAdvanced: 0,
+      missingFromDump: 0,
     },
     rows: [],
+    missingFromDump: [],
   };
 
   const blocks = iterCollectionBlocks(rawRows);
@@ -543,6 +651,7 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
   }
 
   const caches = await loadImportCaches(scope);
+  const matchedUnitIds = new Set();
 
   for (const { row, milestones, startAtStep, stepDueDates } of normalized) {
     try {
@@ -617,6 +726,8 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
         continue;
       }
 
+      matchedUnitIds.add(String(existing._id));
+
       const customer = existing.customerId;
       const changes = masterChanges(existing, row, customer);
       const needsUpdate = changes.length > 0 || demandCount > 0;
@@ -671,24 +782,34 @@ async function processCollectionReportImport(db, rawRows, scope, { dryRun = true
     }
   }
 
-  if (!dryRun && (report.summary.create > 0 || report.summary.update > 0)) {
-    await enrichCatalogFromRows(db, normalized.map((n) => n.row));
-    await logImportBatch(db, {
-      batchId,
-      at: new Date(),
-      importedBy,
-      scope,
-      format: 'collection_report',
-      summary: report.summary,
-    });
+  report.missingFromDump = findMissingFromCrmDump(scope, matchedUnitIds, caches.existingUnits);
+  report.summary.missingFromDump = report.missingFromDump.length;
+
+  if (!dryRun) {
+    if (reconciliations.length) {
+      report.reconciliation = await applyCrmReconciliations(reconciliations, { batchId, actor: importedBy });
+    }
+    if (report.summary.create > 0 || report.summary.update > 0 || reconciliations.length) {
+      await enrichCatalogFromRows(db, normalized.map((n) => n.row));
+      await logImportBatch(db, {
+        batchId,
+        at: new Date(),
+        importedBy,
+        scope,
+        format: 'collection_report',
+        summary: report.summary,
+        missingFromDump: report.missingFromDump.length,
+        reconciliation: report.reconciliation,
+      });
+    }
   }
 
   return report;
 }
 
-export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true, importedBy = 'crm_upload' } = {}) {
+export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true, importedBy = 'crm_upload', reconciliations = [] } = {}) {
   if (isCollectionReport(rawRows)) {
-    return processCollectionReportImport(db, rawRows, scope, { dryRun, importedBy });
+    return processCollectionReportImport(db, rawRows, scope, { dryRun, importedBy, reconciliations });
   }
 
   const catalog = await loadInventoryCatalog(db);
@@ -697,8 +818,9 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
     ok: true,
     dryRun,
     batchId,
-    summary: { create: 0, update: 0, unchanged: 0, errors: 0, skipped: 0 },
+    summary: { create: 0, update: 0, unchanged: 0, errors: 0, skipped: 0, missingFromDump: 0 },
     rows: [],
+    missingFromDump: [],
   };
 
   const normalized = [];
@@ -719,6 +841,7 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
   }
 
   const caches = await loadImportCaches(scope);
+  const matchedUnitIds = new Set();
 
   for (const row of normalized) {
     try {
@@ -778,6 +901,8 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
         continue;
       }
 
+      matchedUnitIds.add(String(existing._id));
+
       const customer = existing.customerId;
       const changes = masterChanges(existing, row, customer);
       if (!changes.length) {
@@ -823,15 +948,25 @@ export async function processCrmImport(db, rawRows, scope = {}, { dryRun = true,
     }
   }
 
-  if (!dryRun && (report.summary.create > 0 || report.summary.update > 0)) {
-    await enrichCatalogFromRows(db, normalized);
-    await logImportBatch(db, {
-      batchId,
-      at: new Date(),
-      importedBy,
-      scope,
-      summary: report.summary,
-    });
+  report.missingFromDump = findMissingFromCrmDump(scope, matchedUnitIds, caches.existingUnits);
+  report.summary.missingFromDump = report.missingFromDump.length;
+
+  if (!dryRun) {
+    if (reconciliations.length) {
+      report.reconciliation = await applyCrmReconciliations(reconciliations, { batchId, actor: importedBy });
+    }
+    if (report.summary.create > 0 || report.summary.update > 0 || reconciliations.length) {
+      await enrichCatalogFromRows(db, normalized);
+      await logImportBatch(db, {
+        batchId,
+        at: new Date(),
+        importedBy,
+        scope,
+        summary: report.summary,
+        missingFromDump: report.missingFromDump.length,
+        reconciliation: report.reconciliation,
+      });
+    }
   }
 
   return report;

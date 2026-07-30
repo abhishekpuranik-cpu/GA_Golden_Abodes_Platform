@@ -13,7 +13,7 @@ const UnitSchema = new mongoose.Schema({
   gstApplicable: Boolean, gstAmount: Number,
   paymentPlan: { type: String, enum: ['CLP','Flexi','Down Payment'] },
   currentStepNumber: { type: Number, default: 1 },
-  overallStatus: { type: String, enum: ['active','possession_given','cancelled','on_hold'], default: 'active' },
+  overallStatus: { type: String, enum: ['active','possession_given','cancelled','on_hold','pending_verification'], default: 'active' },
   agreementDate: Date, registrationDate: Date, possessionDate: Date,
   crmExecutive: String,
   cxExecutive: String,
@@ -23,6 +23,9 @@ const UnitSchema = new mongoose.Schema({
   v1UnitKey: String,
   firstImportedAt: Date,
   lastImportBatchId: String,
+  /** Set when unit was absent from a CRM dump and marked for verification. */
+  crmAbsentBatchId: String,
+  crmAbsentNote: String,
   /** Full CLP schedule for this unit only — overrides project Milestones tab CLP. */
   clpScheduleOverride: {
     rows: [{

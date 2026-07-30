@@ -23,8 +23,7 @@ import {
   uploadUnitClpOverride,
 } from '../../lib/postsales/unitClpOverride.js';
 import { parseClpScheduleWorkbook } from '../../lib/postsales/projectClpSchedule.js';
-import { actorLabel } from '../../lib/postsales/activity.js';
-import { cacheKeyFromQuery, readHttpCache, writeHttpCache } from '../../lib/postsales/httpCache.js';
+import { invalidateHttpCache } from '../../lib/postsales/httpCache.js';
 
 const router = Router();
 const PURGE_CONFIRM = 'DELETE_ALL_UNITS';
@@ -78,10 +77,18 @@ router.post('/crm-upload', upload.single('file'), async (req, res) => {
     };
     const dryRun = String(req.query.dryRun ?? 'true').toLowerCase() !== 'false';
     const importedBy = req.authUser?.name || req.authUser?.email || 'crm_upload';
+    let reconciliations = [];
+    if (req.body?.reconciliations) {
+      try {
+        reconciliations = JSON.parse(req.body.reconciliations);
+      } catch {
+        reconciliations = [];
+      }
+    }
 
-    console.log(`[CRM upload] dryRun=${dryRun} scope=${JSON.stringify(scope)} rows=${rows.length}`);
+    console.log(`[CRM upload] dryRun=${dryRun} scope=${JSON.stringify(scope)} rows=${rows.length} reconcile=${reconciliations.length}`);
     const started = Date.now();
-    const report = await processCrmImport(db, rows, scope, { dryRun, importedBy });
+    const report = await processCrmImport(db, rows, scope, { dryRun, importedBy, reconciliations });
     console.log(`[CRM upload] done in ${Date.now() - started}ms`, report.summary);
     res.json(report);
   } catch (err) {

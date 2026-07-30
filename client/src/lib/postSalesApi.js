@@ -40,9 +40,12 @@ export const postSalesApi = {
   bootstrap: (body = {}) => apiFetch(`${BASE}/bootstrap`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   getSyncPreferences: () => apiFetch(`${BASE}/bootstrap/sync-preferences`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   purgeAllUnits: () => apiFetch(`${BASE}/units/purge-all`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: 'DELETE_ALL_UNITS' }) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
-  uploadCrmUnits: async (file, { project, phase, building, dryRun = true } = {}) => {
+  uploadCrmUnits: async (file, { project, phase, building, dryRun = true, reconciliations = [] } = {}) => {
     const fd = new FormData();
     fd.append('file', file);
+    if (reconciliations?.length) {
+      fd.append('reconciliations', JSON.stringify(reconciliations));
+    }
     const q = new URLSearchParams();
     if (project) q.set('project', project);
     if (phase) q.set('phase', phase);

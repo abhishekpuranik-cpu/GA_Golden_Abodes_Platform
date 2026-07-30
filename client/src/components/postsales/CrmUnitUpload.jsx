@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { postSalesApi } from '../../lib/postSalesApi.js';
+import CrmMissingUnitsModal from './CrmMissingUnitsModal.jsx';
 
 const ACTION_BADGE = {
   create: 'green',
@@ -14,12 +15,12 @@ export default function CrmUnitUpload({ scope, onComplete }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
   const [open, setOpen] = useState(false);
+  const [applyMsg, setApplyMsg] = useState(null);
+  const [showMissing, setShowMissing] = useState(false);
 
   const scopeLabel = [scope.project, scope.phase, scope.building].filter(Boolean).join(' · ') || 'All projects';
 
-  const [applyMsg, setApplyMsg] = useState(null);
-
-  const runUpload = async (dryRun) => {
+  const runUpload = async (dryRun, reconciliations = []) => {
     const file = fileRef.current?.files?.[0];
     if (!file) {
       setError('Choose an Excel or CSV file first.');
@@ -29,13 +30,14 @@ export default function CrmUnitUpload({ scope, onComplete }) {
     setError(null);
     if (!dryRun) setApplyMsg('Applying import — this may take up to a minute for large files…');
     try {
-      const result = await postSalesApi.uploadCrmUnits(file, { ...scope, dryRun });
+      const result = await postSalesApi.uploadCrmUnits(file, { ...scope, dryRun, reconciliations });
       if (dryRun) {
         setPreview(result);
         setApplyMsg(null);
       } else {
         setPreview(null);
         setApplyMsg(null);
+        setShowMissing(false);
         if (fileRef.current) fileRef.current.value = '';
         onComplete?.(result);
       }
@@ -45,6 +47,16 @@ export default function CrmUnitUpload({ scope, onComplete }) {
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleApplyClick = () => {
+    const missing = preview?.missingFromDump || [];
+    if (missing.length) {
+      setShowMissing(true);
+      return;
+    }
+    if (!window.confirm(`Apply import?\n\nNew: ${preview?.summary?.create ?? 0}\nUpdates: ${preview?.summary?.update ?? 0}\nUnchanged: ${preview?.summary?.unchanged ?? 0}`)) return;
+    runUpload(false);
   };
 
   const downloadTemplate = () => {
@@ -79,11 +91,8 @@ export default function CrmUnitUpload({ scope, onComplete }) {
             <button
               type="button"
               className="ps-btn ps-btn-primary"
-              disabled={busy || !(preview?.summary?.create || preview?.summary?.update)}
-              onClick={() => {
-                if (!window.confirm(`Apply import?\n\nNew: ${preview?.summary?.create ?? 0}\nUpdates: ${preview?.summary?.update ?? 0}\nUnchanged: ${preview?.summary?.unchanged ?? 0}`)) return;
-                runUpload(false);
-              }}
+              disabled={busy || !(preview?.summary?.create || preview?.summary?.update || preview?.missingFromDump?.length)}
+              onClick={handleApplyClick}
             >
               {busy && applyMsg ? 'Applying…' : 'Apply import'}
             </button>
@@ -99,13 +108,23 @@ export default function CrmUnitUpload({ scope, onComplete }) {
                 <span><strong>{preview.summary.update}</strong> update</span>
                 <span><strong>{preview.summary.unchanged}</strong> unchanged</span>
                 <span><strong>{preview.summary.errors}</strong> errors</span>
+                {(preview.summary.missingFromDump > 0 || preview.missingFromDump?.length > 0) && (
+                  <span style={{ color: 'var(--ps-warning-text, #92400e)' }}>
+                    <strong>{preview.summary.missingFromDump ?? preview.missingFromDump.length}</strong> missing from dump
+                  </span>
+                )}
                 {(preview.summary.demandsCreated > 0 || preview.summary.demandsUpdated > 0) && (
                   <span><strong>{preview.summary.demandsCreated || 0}</strong> demands (new)</span>
                 )}
-                {preview.summary.pipelineAdvanced > 0 && (
-                  <span><strong>{preview.summary.pipelineAdvanced}</strong> pipeline advances</span>
-                )}
               </div>
+
+              {preview.missingFromDump?.length > 0 && (
+                <div className="ps-card" style={{ background: 'var(--ps-warning-bg, #fffbeb)', marginBottom: 12, fontSize: '0.85rem' }}>
+                  <strong>{preview.missingFromDump.length} unit(s) in Post Sales but not in this CRM file.</strong>
+                  {' '}When you apply, you will be asked to mark each as cancelled, reassign unit number, or keep pending for verification.
+                </div>
+              )}
+
               <div style={{ overflow: 'auto', maxHeight: 320, border: '1px solid var(--ps-border)', borderRadius: 8 }}>
                 <table className="ps-table">
                   <thead>
@@ -135,7 +154,7 @@ export default function CrmUnitUpload({ scope, onComplete }) {
                           {r.action === 'create' && `Pipeline at step ${r.pipelineStep || 1}${r.demands ? ` · ${r.demands} CLP demands with due dates` : ''}`}
                           {r.action === 'update' && r.demands ? `${r.demands} demand rows synced` : null}
                           {r.preservedPipeline && 'Pipeline, comments & attachments preserved'}
-                          {r.action === 'unchanged' && 'No changes'}
+                          {r.action === 'unchanged' && 'No changes — all work preserved'}
                         </td>
                       </tr>
                     ))}
@@ -148,6 +167,15 @@ export default function CrmUnitUpload({ scope, onComplete }) {
             </div>
           )}
         </>
+      )}
+
+      {showMissing && preview?.missingFromDump?.length > 0 && (
+        <CrmMissingUnitsModal
+          units={preview.missingFromDump}
+          busy={busy}
+          onCancel={() => setShowMissing(false)}
+          onConfirm={(reconciliations) => runUpload(false, reconciliations)}
+        />
       )}
     </div>
   );
