@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260730.2';
+var GA_V3_BUILD = '20260730.3';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -3832,16 +3832,18 @@ function ddModelStripHtml(pid){
     + '</div>';
 }
 
-// ── FSI mode: canonical values only (simple | pmrda | mumbai | goa | plotting). Trims; exact 'simple' wins before substring checks.
+// ── FSI mode: canonical values only (simple | holistic | pmrda | mumbai | goa | plotting).
 function normalizeFsiMode(saved){
   var s=String(saved==null?'':saved).trim().toLowerCase();
   if(!s) return 'simple';
   if(s==='simple') return 'simple';
+  if(s==='holistic'||s==='iod'||s==='area statement') return 'holistic';
   if(s==='plotting'||s==='plot') return 'plotting';
   if(s==='pmrda'||s==='pune') return 'pmrda';
   if(s==='mumbai') return 'mumbai';
   if(s==='goa') return 'goa';
   if(s.indexOf('plotting')>=0) return 'plotting';
+  if(s.indexOf('holistic')>=0||s.indexOf('iod')>=0) return 'holistic';
   if(s.indexOf('mumbai')>=0) return 'mumbai';
   if(s.indexOf('goa')>=0) return 'goa';
   if(s.indexOf('pmrda')>=0||s.indexOf('pune')>=0) return 'pmrda';
@@ -4099,6 +4101,145 @@ function finAreaFromSqft(sqft,uSqmt){
   var v=Math.max(0,Number(sqft)||0);
   return uSqmt?Math.round(v/10.764):Math.round(v);
 }
+
+// ── Holistic IOD area statement ───────────────────────────────
+// New mode state is isolated under fin.holisticInputs / fin.holisticOverrides.
+// Existing projects and calculation modes are therefore untouched until a user
+// explicitly selects Holistic and edits a field.
+function holisticOwn(obj,key){ return !!obj&&Object.prototype.hasOwnProperty.call(obj,key); }
+function holisticNum(v,d){
+  if(v===undefined||v===null||v==='') return d===undefined?0:d;
+  var n=Number(v); return isFinite(n)?n:(d===undefined?0:d);
+}
+function holisticCalc(f){
+  f=f||{};
+  var input=f.holisticInputs||{}, overrides=f.holisticOverrides||{};
+  var uSqmt=finUsesSqmt(f);
+  var projectPlot=uSqmt?holisticNum(f.plotSqmt,0):holisticNum(f.plotArea,0);
+  function i(key,def){ return holisticOwn(input,key)?holisticNum(input[key],def):holisticNum(def,0); }
+  function o(key,auto){
+    return holisticOwn(overrides,key)?Math.max(0,holisticNum(overrides[key],auto)):Math.max(0,holisticNum(auto,0));
+  }
+  function minPositive(a,b){
+    a=Math.max(0,a); b=Math.max(0,b);
+    if(a>0&&b>0) return Math.min(a,b);
+    return a||b||0;
+  }
+
+  var v={};
+  v.ownershipArea=i('ownershipArea',projectPlot);
+  v.demarcationArea=i('demarcationArea',projectPlot);
+  v.plotConsidered=o('plotConsidered',minPositive(v.ownershipArea,v.demarcationArea));
+
+  v.road60Area=i('road60Area',0);
+  v.road24Area=i('road24Area',0);
+  v.otherRoadArea=i('otherRoadArea',0);
+  v.totalDeductions=o('totalDeductions',v.road60Area+v.road24Area+v.otherRoadArea);
+  v.balancePlot=o('balancePlot',Math.max(0,v.plotConsidered-v.totalDeductions));
+
+  v.amenityPct=i('amenityPct',5);
+  v.amenityRequired=o('amenityRequired',v.balancePlot*v.amenityPct/100);
+  v.amenityAdjustment=i('amenityAdjustment',0);
+  v.amenityBalance=o('amenityBalance',Math.max(0,v.amenityRequired-v.amenityAdjustment));
+  v.netPlot=o('netPlot',Math.max(0,v.balancePlot-v.amenityBalance));
+
+  v.recreationPct=i('recreationPct',10);
+  v.recreationRequired=o('recreationRequired',v.balancePlot*v.recreationPct/100);
+  v.recreationProposed=o('recreationProposed',v.recreationRequired);
+  v.internalRoadArea=i('internalRoadArea',0);
+  v.plotableArea=o('plotableArea',Math.max(0,v.netPlot-v.recreationProposed-v.internalRoadArea));
+
+  v.basicFsiFactor=i('basicFsiFactor',1.10);
+  v.basicFsiArea=o('basicFsiArea',v.netPlot*v.basicFsiFactor);
+
+  v.premiumFsiPct=i('premiumFsiPct',50);
+  v.premiumFsiMax=o('premiumFsiMax',v.plotConsidered*v.premiumFsiPct/100);
+  v.premiumFsiProposed=o('premiumFsiProposed',v.premiumFsiMax);
+
+  v.inSituDpMultiplier=i('inSituDpMultiplier',2);
+  v.inSituMaxFactor=i('inSituMaxFactor',1.4);
+  v.inSituMax=o('inSituMax',v.plotConsidered*v.inSituMaxFactor);
+  v.inSituDpRoad=o('inSituDpRoad',(v.road60Area+v.road24Area+v.otherRoadArea)*v.inSituDpMultiplier);
+  v.inSituAmenityMultiplier=i('inSituAmenityMultiplier',1);
+  v.inSituAmenity=o('inSituAmenity',(v.amenityAdjustment+v.amenityBalance)*v.inSituAmenityMultiplier);
+  v.regularTdr=i('regularTdr',0);
+  v.slumTdr=i('slumTdr',0);
+  v.tdrOutside=o('tdrOutside',v.regularTdr+v.slumTdr);
+  v.inSituTdrTotal=o('inSituTdrTotal',v.inSituDpRoad+v.inSituAmenity+v.tdrOutside);
+
+  v.commercialAdditionalFactor=i('commercialAdditionalFactor',1.380489);
+  v.commercialAdditionalFsi=o('commercialAdditionalFsi',v.netPlot*v.commercialAdditionalFactor);
+
+  v.chapter710Fsi=i('chapter710Fsi',0);
+  v.greenBuildingPct=i('greenBuildingPct',5);
+  v.greenBuildingFsi=o('greenBuildingFsi',v.basicFsiArea*v.greenBuildingPct/100);
+  v.chapter713Fsi=i('chapter713Fsi',0);
+  v.chapterProposed=o('chapterProposed',v.chapter710Fsi+v.greenBuildingFsi+v.chapter713Fsi);
+
+  v.totalFsiEntitlement=o(
+    'totalFsiEntitlement',
+    v.basicFsiArea+v.premiumFsiMax+v.inSituTdrTotal+v.commercialAdditionalFsi+v.chapterProposed
+  );
+  v.retainedOldRuleArea=i('retainedOldRuleArea',0);
+  v.ancillaryBalanceEntitlement=o('ancillaryBalanceEntitlement',Math.max(0,v.totalFsiEntitlement-v.retainedOldRuleArea));
+
+  v.residentialBuaBase=i('residentialBuaBase',0);
+  v.commercialBuaBase=i('commercialBuaBase',Math.max(0,v.ancillaryBalanceEntitlement-v.residentialBuaBase));
+  v.ancillaryResPct=i('ancillaryResPct',60);
+  v.ancillaryResidential=o('ancillaryResidential',v.residentialBuaBase*v.ancillaryResPct/100);
+  v.ancillaryCommPct=i('ancillaryCommPct',80);
+  v.ancillaryCommercial=o('ancillaryCommercial',v.commercialBuaBase*v.ancillaryCommPct/100);
+  v.totalEntitlementWithAncillary=o(
+    'totalEntitlementWithAncillary',
+    v.ancillaryBalanceEntitlement+v.ancillaryResidential+v.ancillaryCommercial
+  );
+  v.maxUtilisation=o('maxUtilisation',v.totalEntitlementWithAncillary);
+  v.permissibleRoadWidthArea=i('permissibleRoadWidthArea',0);
+  v.regulationMultiplier=i('regulationMultiplier',1.6);
+  v.regulationMultiplierArea=o('regulationMultiplierArea',v.permissibleRoadWidthArea*v.regulationMultiplier);
+
+  v.existingBua=i('existingBua',0);
+  v.commercialProposedBua=o(
+    'commercialProposedBua',
+    v.commercialBuaBase+v.ancillaryCommercial
+  );
+  v.residentialProposedBua=o(
+    'residentialProposedBua',
+    v.residentialBuaBase+v.ancillaryResidential
+  );
+  v.totalProposedBua=o('totalProposedBua',v.commercialProposedBua+v.residentialProposedBua);
+  v.fsiConsumed=o('fsiConsumed',v.maxUtilisation>0?v.totalProposedBua/v.maxUtilisation:0);
+
+  v.inclusiveHousingPct=i('inclusiveHousingPct',20);
+  v.inclusiveHousingBase=i('inclusiveHousingBase',0);
+  v.inclusiveHousingRequired=o('inclusiveHousingRequired',v.inclusiveHousingBase*v.inclusiveHousingPct/100);
+  v.inclusiveHousingProposed=i('inclusiveHousingProposed',0);
+
+  return {values:v,input:input,overrides:overrides,uSqmt:uSqmt,unit:uSqmt?'sq.mt':'sq.ft'};
+}
+function setHolisticField(pid,key,val,isComputed){
+  if(!ST.fin[pid]) ST.fin[pid]={};
+  var bucket=isComputed?'holisticOverrides':'holisticInputs';
+  if(!ST.fin[pid][bucket]||typeof ST.fin[pid][bucket]!=='object') ST.fin[pid][bucket]={};
+  if(val===''||val===null||val===undefined){
+    delete ST.fin[pid][bucket][key];
+  }else{
+    var n=Number(val);
+    if(isFinite(n)) ST.fin[pid][bucket][key]=Math.max(0,n);
+  }
+  renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
+}
+function resetHolisticField(pid,key){
+  if(ST.fin[pid]&&ST.fin[pid].holisticOverrides) delete ST.fin[pid].holisticOverrides[key];
+  renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
+}
+function toggleHolisticLine(pid,key){
+  var ck='holistic-'+pid+'-'+key;
+  _collapsed[ck]=!_collapsed[ck];
+  renderFinModelInPlace(pid);
+}
 function finPerAreaMetric(amount,totSalSqft,uSqmt){
   var sal=Math.max(0,Number(totSalSqft)||0);
   if(!sal) return null;
@@ -4160,6 +4301,24 @@ function applyFinInputUnitSwitch(pid,newUnit){
   ['investorSaleAreaSqft','investorSaleCommAreaSqft'].forEach(function(k){
     if(finNum(fin[k],0)>0) fin[k]=convAreaVal(fin[k]);
   });
+  var holisticInputAreaKeys=[
+    'ownershipArea','demarcationArea','road60Area','road24Area','otherRoadArea',
+    'amenityAdjustment','internalRoadArea','regularTdr','slumTdr','commercialBuaBase',
+    'chapter710Fsi','chapter713Fsi','residentialBuaBase','retainedOldRuleArea',
+    'permissibleRoadWidthArea','existingBua','inclusiveHousingBase','inclusiveHousingProposed'
+  ];
+  if(fin.holisticInputs&&typeof fin.holisticInputs==='object'){
+    holisticInputAreaKeys.forEach(function(k){
+      if(finNum(fin.holisticInputs[k],0)>0) fin.holisticInputs[k]=convAreaVal(fin.holisticInputs[k]);
+    });
+  }
+  if(fin.holisticOverrides&&typeof fin.holisticOverrides==='object'){
+    Object.keys(fin.holisticOverrides).forEach(function(k){
+      if(k!=='fsiConsumed'&&finNum(fin.holisticOverrides[k],0)>0){
+        fin.holisticOverrides[k]=convAreaVal(fin.holisticOverrides[k]);
+      }
+    });
+  }
   (fin.dmConsultants||[]).forEach(function(c){
     if(finNum(c.rate,0)>0) c.rate=convRateVal(c.rate);
   });
@@ -4471,6 +4630,129 @@ function renderFinModelInPlace(pid){
   if(el) el.innerHTML = renderFinModel(pid);
 }
 
+function renderHolisticMode(pid,f){
+  var H=holisticCalc(f), v=H.values, unit=H.unit;
+  function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+  function assumption(key,label,suffix,step){
+    var raw=holisticOwn(H.input,key)?H.input[key]:'';
+    var fallback=v[key];
+    return '<label style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)">'
+      +'<span style="font-size:8px;font-weight:800;color:#B45309;border:1px solid #D97706;border-radius:999px;padding:1px 4px">EDITABLE</span> '
+      +esc(label)+' <input type="number" min="0" step="'+(step||0.01)+'" value="'+esc(raw===''?fallback:raw)+'" '
+      +'style="width:78px;padding:3px 5px;border:1px solid #D97706;border-radius:5px;background:#FFFBEB;text-align:right;font-size:10px" '
+      +'onchange="setHolisticField(\''+pid+'\',\''+key+'\',this.value,false)"/> '+esc(suffix||'')+'</label>';
+  }
+  function valueCell(row){
+    var isAuto=row.kind!=='input', isOver=isAuto&&holisticOwn(H.overrides,row.key);
+    var val=v[row.key];
+    var badge=isAuto?(isOver?'OVERRIDE':'AUTO'):'EDITABLE';
+    var col=isAuto?(isOver?'#6D28D9':'#1558A0'):'#B45309';
+    var bg=isAuto?(isOver?'#F5F3FF':'#F0F6FF'):'#FFFBEB';
+    var handler="setHolisticField('"+pid+"','"+row.key+"',this.value,"+(isAuto?'true':'false')+")";
+    return '<div style="display:flex;justify-content:flex-end;align-items:center;gap:5px;flex-wrap:wrap">'
+      +'<span style="font-size:8px;font-weight:800;letter-spacing:.06em;color:'+col+';border:1px solid '+col+';border-radius:999px;padding:1px 5px">'+badge+'</span>'
+      +'<input type="number" min="0" step="'+(row.step||0.01)+'" value="'+esc(Number(val||0).toFixed(row.decimals===undefined?2:row.decimals))+'" '
+      +'style="width:118px;padding:5px 7px;border:1.5px solid '+col+';border-radius:6px;background:'+bg+';text-align:right;font-size:11px;font-weight:700" onchange="'+handler+'"/>'
+      +(isOver?'<button type="button" title="Return to automatic calculation" onclick="resetHolisticField(\''+pid+'\',\''+row.key+'\')" style="padding:3px 6px;border:1px solid #6D28D9;border-radius:5px;background:#fff;color:#6D28D9;font-size:9px;font-weight:700;cursor:pointer">↺ AUTO</button>':'')
+      +'</div>';
+  }
+  function renderRow(row,depth){
+    var hasKids=Array.isArray(row.children)&&row.children.length;
+    var ck='holistic-'+pid+'-'+row.key, collapsed=!!_collapsed[ck];
+    var strong=hasKids||depth===0;
+    var html='<tr style="background:'+(depth===0?'#F8FAFC':(depth===1?'#fff':'#FCFCFD'))+'">'
+      +'<td style="width:48px;padding:6px 7px;color:var(--muted);vertical-align:top">'+esc(row.no||'')+'</td>'
+      +'<td style="padding:6px 8px;vertical-align:top">'
+      +'<div style="display:flex;align-items:flex-start;gap:6px;padding-left:'+(depth*14)+'px">'
+      +(hasKids?'<button type="button" onclick="toggleHolisticLine(\''+pid+'\',\''+row.key+'\')" style="width:20px;height:20px;border:1px solid #94A3B8;border-radius:4px;background:#fff;color:#334155;cursor:pointer;line-height:16px">'+(collapsed?'▶':'▼')+'</button>':'<span style="width:20px"></span>')
+      +'<div><div style="font-size:11px;'+(strong?'font-weight:750;':'')+'">'+esc(row.label)+'</div>'
+      +(row.formula?'<div style="font-size:9px;color:var(--muted);margin-top:2px">'+esc(row.formula)+'</div>':'')
+      +(row.assumptions&&row.assumptions.length?'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:5px">'+row.assumptions.map(function(a){return assumption(a[0],a[1],a[2],a[3]);}).join('')+'</div>':'')
+      +'</div></div></td>'
+      +'<td style="padding:5px 8px;vertical-align:top">'+valueCell(row)+'</td>'
+      +'<td style="width:68px;text-align:center;padding:6px 5px;color:var(--muted);font-size:10px;vertical-align:top">'+esc(row.unit||unit)+'</td></tr>';
+    if(hasKids&&!collapsed) row.children.forEach(function(child){html+=renderRow(child,depth+1);});
+    return html;
+  }
+
+  var rows=[
+    {no:'1',key:'plotConsidered',label:'Area of Plot (minimum area of A, B and C to be considered)',kind:'auto',formula:'Minimum positive area from ownership and demarcation records',children:[
+      {no:'1a',key:'ownershipArea',label:'As per ownership document / 7/12 / CTS extract',kind:'input'},
+      {no:'1b',key:'demarcationArea',label:'As per demarcation',kind:'input'},
+      {no:'1c',key:'plotConsidered',label:'Minimum area to be considered',kind:'auto',formula:'MIN(1a, 1b)'}
+    ]},
+    {no:'2',key:'totalDeductions',label:'Deductions',kind:'auto',formula:'2a + 2b + 2c',children:[
+      {no:'2a',key:'road60Area',label:'Area under 60.00 m S.H.-115',kind:'input'},
+      {no:'2b',key:'road24Area',label:'Area under 24.00 m wide road',kind:'input'},
+      {no:'2c',key:'otherRoadArea',label:'Area under ring road / other reservation',kind:'input'}
+    ]},
+    {no:'3',key:'balancePlot',label:'Balance area of plot',kind:'auto',formula:'1 − 2'},
+    {no:'4',key:'amenityBalance',label:'Amenity space',kind:'auto',formula:'Required less adjustment',children:[
+      {no:'4a',key:'amenityRequired',label:'Required amenity space',kind:'auto',formula:'Sr. No. 3 × amenity %',assumptions:[['amenityPct','Amenity','%',0.1]]},
+      {no:'4b',key:'amenityAdjustment',label:'Adjustment of 2(b), if any',kind:'input'},
+      {no:'4c',key:'amenityBalance',label:'Balance proposed',kind:'auto',formula:'MAX(0, 4a − 4b)'}
+    ]},
+    {no:'5',key:'netPlot',label:'Net plot area',kind:'auto',formula:'3 − 4c'},
+    {no:'6',key:'recreationProposed',label:'Recreational open space',kind:'auto',children:[
+      {no:'6a',key:'recreationRequired',label:'Required recreational open space',kind:'auto',formula:'Sr. No. 3 × ROS %',assumptions:[['recreationPct','ROS','%',0.1]]},
+      {no:'6b',key:'recreationProposed',label:'Recreational open space proposed',kind:'auto',formula:'Defaults to required area; editable override'}
+    ]},
+    {no:'7',key:'internalRoadArea',label:'Internal road area',kind:'input'},
+    {no:'8',key:'plotableArea',label:'Plotable area, if applicable',kind:'auto',formula:'Net plot − proposed ROS − internal roads'},
+    {no:'9',key:'basicFsiArea',label:'Built-up area with reference to basic FSI as per front road width',kind:'auto',formula:'Sr. No. 5 × basic FSI',assumptions:[['basicFsiFactor','Basic FSI','ratio',0.01]]},
+    {no:'10',key:'premiumFsiProposed',label:'Addition of FSI on payment of premium',kind:'auto',children:[
+      {no:'10a',key:'premiumFsiMax',label:'Maximum permissible premium FSI based on road width',kind:'auto',formula:'Sr. No. 1 × premium FSI %',assumptions:[['premiumFsiPct','Premium','%',0.1]]},
+      {no:'10b',key:'premiumFsiProposed',label:'Proposed FSI on payment of premium',kind:'auto',formula:'Defaults to maximum permissible; editable override'}
+    ]},
+    {no:'11',key:'inSituTdrTotal',label:'In-situ FSI / TDR loading',kind:'auto',formula:'Reference maximum: Sr. No. 1 × factor; proposed total from 11a + 11b + 11c',assumptions:[['inSituMaxFactor','Maximum loading','×',0.01]],children:[
+      {no:'11a',key:'inSituDpRoad',label:'In-situ area against D.P. / statutory road, if any',kind:'auto',formula:'Road deductions × multiplier',assumptions:[['inSituDpMultiplier','Road multiplier','×',0.01]]},
+      {no:'11b',key:'inSituAmenity',label:'In-situ area against amenity space, if handed over',kind:'auto',formula:'(4b + 4c) × applicable multiplier',assumptions:[['inSituAmenityMultiplier','Amenity multiplier','×',0.01]]},
+      {no:'11c',key:'tdrOutside',label:'TDR area to be purchased from outside',kind:'auto',formula:'Regular TDR + Slum TDR; editable override',children:[
+        {no:'',key:'regularTdr',label:'Regular TDR (70%)',kind:'input'},
+        {no:'',key:'slumTdr',label:'Slum TDR (30%)',kind:'input'}
+      ]},
+      {no:'11d',key:'inSituTdrTotal',label:'Total in-situ / TDR loading proposed',kind:'auto',formula:'11a + 11b + 11c'}
+    ]},
+    {no:'11A',key:'commercialAdditionalFsi',label:'Additional FSI for Commercial Building (CBD)',kind:'auto',formula:'Net plot × CBD factor',assumptions:[['commercialAdditionalFactor','CBD factor','ratio',0.000001]]},
+    {no:'12',key:'chapterProposed',label:'Other additional FSI under UDCPR 2020',kind:'auto',formula:'12a + 12b + 12c',children:[
+      {no:'12a',key:'chapter710Fsi',label:'Additional FSI area under Chapter No. 7.10 (UDCPR 2020)',kind:'input'},
+      {no:'12b',key:'greenBuildingFsi',label:'Additional FSI — Green Building Gold rating',kind:'auto',formula:'Basic FSI area × rating %',assumptions:[['greenBuildingPct','Gold rating','%',0.1]]},
+      {no:'12c',key:'chapter713Fsi',label:'Additional FSI area under Chapter No. 7.13 (UDCPR 2020)',kind:'input'}
+    ]},
+    {no:'13',key:'totalFsiEntitlement',label:'Total entitlement of FSI in the proposal',kind:'auto',formula:'9 + 10(a) + 11(d) + 11A + 12, wherever applicable',children:[
+      {no:'13a',key:'totalFsiEntitlement',label:'Total entitlement',kind:'auto',formula:'Basic FSI + premium + in-situ/TDR + CBD + other additional FSI'},
+      {no:'13a1',key:'retainedOldRuleArea',label:'Deduction — built-up / FSI utilised area to be retained as per old DC rule',kind:'input'},
+      {no:'13a2',key:'ancillaryBalanceEntitlement',label:'Balance entitlement for ancillary area',kind:'auto',formula:'13a − 13a1'}
+    ]},
+    {no:'14',key:'totalEntitlementWithAncillary',label:'Ancillary area FSI with payment of charges',kind:'auto',formula:'13a2 + 14a + 14b',children:[
+      {no:'14a',key:'ancillaryResidential',label:'Ancillary area with payment of charges for Residential',kind:'auto',formula:'Residential BUA base × ancillary %',assumptions:[['residentialBuaBase','Residential BUA base',unit,1],['ancillaryResPct','Residential ancillary','%',0.1]]},
+      {no:'14b',key:'ancillaryCommercial',label:'Ancillary area with payment of charges for Commercial',kind:'auto',formula:'Commercial BUA base × ancillary %',assumptions:[['commercialBuaBase','Commercial BUA base',unit,1],['ancillaryCommPct','Commercial ancillary','%',0.1]]},
+      {no:'14c',key:'totalEntitlementWithAncillary',label:'Total entitlement',kind:'auto',formula:'13a2 + 14a + 14b'},
+      {no:'14d',key:'maxUtilisation',label:'Maximum utilisation limit / building potential',kind:'auto',formula:'Defaults to total entitlement; editable override'},
+      {no:'14e',key:'permissibleRoadWidthArea',label:'Permissible Sr. No. 12 + 13c or permissible as per road width',kind:'input'},
+      {no:'14f',key:'regulationMultiplierArea',label:'Permissible as per Regulation 6.1 / 6.2 / 6.3 / 6.4',kind:'auto',formula:'14e × regulation multiplier',assumptions:[['regulationMultiplier','Regulation multiplier','×',0.01]]}
+    ]},
+    {no:'15',key:'totalProposedBua',label:'Total built-up area in proposal (excluding separately exempted area)',kind:'auto',formula:'15b + 15c',children:[
+      {no:'15a',key:'existingBua',label:'Existing built-up area as per old rule',kind:'input'},
+      {no:'15b',key:'commercialProposedBua',label:'Proposed built-up area — Commercial (as per P-line)',kind:'auto',formula:'Commercial BUA base + commercial ancillary; editable override'},
+      {no:'15c',key:'residentialProposedBua',label:'Proposed built-up area — Residential (as per P-line)',kind:'auto',formula:'Residential BUA base + residential ancillary; editable override'},
+      {no:'15d',key:'totalProposedBua',label:'Total proposed built-up area',kind:'auto',formula:'15b + 15c'}
+    ]},
+    {no:'16',key:'fsiConsumed',label:'FSI consumed',kind:'auto',unit:'ratio',step:0.001,decimals:3,formula:'15d ÷ maximum utilisation limit (should not exceed Sr. No. 14d)'},
+    {no:'17',key:'inclusiveHousingRequired',label:'Area for inclusive housing, if applicable',kind:'auto',children:[
+      {no:'17a',key:'inclusiveHousingRequired',label:'Required inclusive housing',kind:'auto',formula:'Applicable inclusive-housing base × requirement %',assumptions:[['inclusiveHousingBase','Applicable base',unit,1],['inclusiveHousingPct','Requirement','%',0.1]]},
+      {no:'17b',key:'inclusiveHousingProposed',label:'Inclusive housing area proposed',kind:'input'}
+    ]}
+  ];
+  return '<div style="border:1px solid #94A3B8;border-radius:10px;overflow:hidden;margin-bottom:10px">'
+    +'<div style="padding:10px 12px;background:linear-gradient(90deg,#0F4C5C,#155E75);color:#fff">'
+    +'<div style="font-size:12px;font-weight:800">HOLISTIC — Statutory Area Statement</div>'
+    +'<div style="font-size:10px;opacity:.88;margin-top:3px">IOD-style calculation graph · all areas in '+unit+' · blue fields calculate automatically · amber fields are direct inputs · editing an AUTO field creates a project-specific override</div></div>'
+    +'<div style="overflow-x:auto"><table class="fin-table" style="min-width:760px"><thead><tr style="background:#E2E8F0"><th>#</th><th>Line item / calculation</th><th style="text-align:right">Editable value</th><th>Unit</th></tr></thead><tbody>'
+    +rows.map(function(r){return renderRow(r,0);}).join('')
+    +'</tbody></table></div></div>';
+}
+
 // ── finCalc: compute all financial outputs ─────────────────────
 function finCalc(pid){
   const f = gf(pid);
@@ -4479,7 +4761,19 @@ function finCalc(pid){
   let cSal=0, rSal=0, cRERA=0, rRERA=0, totRERA=0, fsiArea=0;
   const _pmrdaVars = {}; // PMRDA intermediate values for display
   const _nz=function(v,d){return v!==undefined&&v!==null?v:d;};
-  if(mode === 'pmrda'){
+  if(mode === 'holistic'){
+    // ── Holistic statutory IOD area statement ──
+    // The final permissible / proposed BUA feeds the common revenue model.
+    // Every calculated IOD line may be overridden without changing another mode.
+    const H=holisticCalc(f);
+    fsiArea=finAreaInputToSqft(H.values.totalProposedBua,H.uSqmt);
+    totRERA=fsiArea*finNum(f.reraPct,80)/100;
+    cRERA=totRERA*finNum(f.commPct,5)/100;
+    rRERA=totRERA-cRERA;
+    cSal=cRERA*finNum(f.commSalFactor,150)/100;
+    rSal=rRERA*finNum(f.resSalFactor,140)/100;
+    Object.assign(_pmrdaVars,{holistic:H,holisticFinalBua:fsiArea});
+  } else if(mode === 'pmrda'){
     // ── PMRDA FSI calculation — matches Excel Working tab rows 10-36 ──
     const uSqmt = (f.inputUnit||'sqft')==='sqmt';
     const totalPlot      = uSqmt ? (f.plotSqmt||0)*10.764 : (f.plotArea||0);
@@ -5192,6 +5486,7 @@ function renderFinModel(pid){
         <span style="font-size:11px;font-weight:700;color:var(--blue-b)">Calculation Mode:</span>
         <select onchange="ufin('${pid}','fsiMode',this.value)" style="padding:5px 10px;border-radius:6px;font-size:12px;font-weight:700;border:1.5px solid var(--blue);background:var(--card)">
           <option value="simple" ${f.fsiMode==='simple'?'selected':''}>Simple (sq.ft FSI)</option>
+          <option value="holistic" ${f.fsiMode==='holistic'?'selected':''}>Holistic (IOD Area Statement)</option>
           <option value="pmrda"  ${f.fsiMode==='pmrda'?'selected':''}>PMRDA (Pune Metro)</option>
           <option value="mumbai" ${f.fsiMode==='mumbai'?'selected':''}>Mumbai DCPR 2034</option>
           <option value="goa"    ${f.fsiMode==='goa'?'selected':''}>Goa TCP / FAR</option>
@@ -5216,7 +5511,7 @@ function renderFinModel(pid){
         <span style="font-size:10px;color:var(--muted)">0 = auto from plot size</span>
       </div>`:''}
     </div>
-    ${f.fsiMode==='pmrda'?`
+    ${f.fsiMode==='holistic'?renderHolisticMode(pid,f):f.fsiMode==='pmrda'?`
     <!-- ─── PMRDA FSI CALCULATION TABLE (matches Working sheet rows 10-36) ─── -->
     <div style="background:#E6F7F7;border-radius:8px;padding:8px 12px;margin-bottom:10px;border-left:3px solid var(--teal)">
       <span style="font-size:11px;font-weight:700;color:var(--teal-b)">PMRDA Mode</span>
