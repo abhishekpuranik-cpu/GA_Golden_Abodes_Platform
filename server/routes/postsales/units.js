@@ -23,7 +23,8 @@ import {
   uploadUnitClpOverride,
 } from '../../lib/postsales/unitClpOverride.js';
 import { parseClpScheduleWorkbook } from '../../lib/postsales/projectClpSchedule.js';
-import { invalidateHttpCache } from '../../lib/postsales/httpCache.js';
+import { actorLabel } from '../../lib/postsales/activity.js';
+import { cacheKeyFromQuery, invalidateHttpCache, readHttpCache, writeHttpCache } from '../../lib/postsales/httpCache.js';
 
 const router = Router();
 const PURGE_CONFIRM = 'DELETE_ALL_UNITS';
@@ -90,6 +91,11 @@ router.post('/crm-upload', upload.single('file'), async (req, res) => {
     const started = Date.now();
     const report = await processCrmImport(db, rows, scope, { dryRun, importedBy, reconciliations });
     console.log(`[CRM upload] done in ${Date.now() - started}ms`, report.summary);
+    if (!dryRun) {
+      invalidateHttpCache('units:');
+      invalidateHttpCache('dashboard:');
+      invalidateHttpCache('demands:');
+    }
     res.json(report);
   } catch (err) {
     res.status(400).json({ error: err.message });
