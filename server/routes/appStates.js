@@ -359,10 +359,19 @@ appStatesRouter.get(
     if (!appId) return;
     try {
       const limit = Math.max(1, Math.min(50, Number(req.query.limit) || 20));
+      const projection = {
+        appId: 1,
+        sourceVersion: 1,
+        createdAt: 1,
+        createdBy: 1,
+        label: 1,
+        note: 1
+      };
+      if (appId === V1_CASHFLOW_APP_ID) projection.data = 1;
       const rows = await db
         .collection('app_state_snapshots')
         .find({ appId })
-        .project({ appId: 1, sourceVersion: 1, createdAt: 1, createdBy: 1, label: 1, note: 1, data: appId === V1_CASHFLOW_APP_ID ? 1 : 0 })
+        .project(projection)
         .sort({ createdAt: -1 })
         .limit(limit)
         .toArray();

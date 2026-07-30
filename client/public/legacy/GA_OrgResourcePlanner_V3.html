@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260728.10';
+var GA_V3_BUILD = '20260730.1';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -4212,6 +4212,64 @@ function setMilestone(pid, idx, key, val){
   if(key==='amount'||key==='include'||key==='date') syncInvestorSaleFromMilestones(pid);
   renderFinModelInPlace(pid);
 }
+var _milestoneDrag = null;
+function milestoneDragStart(ev,pid,idx){
+  _milestoneDrag={pid:String(pid),idx:Number(idx)};
+  try{
+    ev.dataTransfer.effectAllowed='move';
+    ev.dataTransfer.setData('text/plain',String(idx));
+  }catch(e){}
+  var row=ev.currentTarget&&ev.currentTarget.closest?ev.currentTarget.closest('tr'):null;
+  if(row) row.style.opacity='.45';
+}
+function milestoneDragOver(ev){
+  if(!_milestoneDrag) return;
+  ev.preventDefault();
+  try{ ev.dataTransfer.dropEffect='move'; }catch(e){}
+  var row=ev.currentTarget;
+  if(!row) return;
+  var rect=row.getBoundingClientRect();
+  var after=ev.clientY>rect.top+rect.height/2;
+  row.dataset.dropAfter=after?'1':'0';
+  row.style.boxShadow=after?'inset 0 -3px 0 #0B7070':'inset 0 3px 0 #0B7070';
+}
+function milestoneDragLeave(ev){
+  var row=ev.currentTarget;
+  if(row) row.style.boxShadow='';
+}
+function milestoneDrop(ev,pid,targetIdx){
+  ev.preventDefault();
+  var drag=_milestoneDrag;
+  var row=ev.currentTarget;
+  var after=!!(row&&row.dataset.dropAfter==='1');
+  if(row){ row.style.boxShadow=''; delete row.dataset.dropAfter; }
+  _milestoneDrag=null;
+  if(!drag||String(drag.pid)!==String(pid)) return;
+  var list=getFundMilestones(pid);
+  var from=Number(drag.idx), target=Number(targetIdx);
+  if(!Number.isInteger(from)||!Number.isInteger(target)||from<0||target<0||from>=list.length||target>=list.length) return;
+  if(from===target) return;
+  var moved=list.splice(from,1)[0];
+  var insertAt=target-(from<target?1:0)+(after?1:0);
+  insertAt=Math.max(0,Math.min(list.length,insertAt));
+  list.splice(insertAt,0,moved);
+  syncInvestmentFromMilestones(pid);
+  syncInvestorSaleFromMilestones(pid);
+  renderFinModelInPlace(pid);
+  if(typeof gaAutoSave==='function'&&!GA_IS_DRAFT_MODE) gaAutoSave();
+}
+function milestoneDragEnd(ev){
+  _milestoneDrag=null;
+  var row=ev.currentTarget&&ev.currentTarget.closest?ev.currentTarget.closest('tr'):null;
+  if(row){
+    var use=row.querySelector('input[type="checkbox"]');
+    row.style.opacity=use&&!use.checked?'.5':'';
+  }
+  document.querySelectorAll('tr[data-milestone-row]').forEach(function(el){
+    el.style.boxShadow='';
+    delete el.dataset.dropAfter;
+  });
+}
 function toggleInvOutflow(pid){
   _collapsed['invOut-'+pid]=!_collapsed['invOut-'+pid];
   renderFinModelInPlace(pid);
@@ -4901,20 +4959,79 @@ function openModelDraftTab(pid){
   u.searchParams.set('draftPid', pid);
   window.open(u.toString(), '_blank');
 }
-function saveDraftModelNow(pid){
+function draftWorkspaceData(){
+  var keys=['ga_planner_state_v1','ga_rp_projects','ga_v3_cf_sync','ga_v3_money_crores','ga_v3_last_manual_save','ga_cloud_url','ga_user_name'];
+  var out={};
+  keys.forEach(function(k){
+    try{
+      var v=localStorage.getItem(k);
+      if(v!==null) out[k]=v;
+    }catch(e){}
+  });
+  return out;
+}
+async function saveDraftModelNow(pid){
+  localStorage.setItem(GA_LS_KEY, JSON.stringify(gaSerialise()));
+  writeGaRpProjects();
+  pushV3CashflowHints();
+  localStorage.setItem('ga_v3_last_manual_save', JSON.stringify({pid:pid, ts:Date.now()}));
+  var localData=draftWorkspaceData();
+  async function loadCurrent(){
+    var r=await fetch('/api/apps/v3_org_planner/state',{credentials:'include',cache:'no-store'});
+    if(r.status===404) return {data:{},version:0};
+    var body=await r.json().catch(function(){return {};});
+    if(!r.ok) throw new Error(body.error||('Could not load current workspace (HTTP '+r.status+')'));
+    return {data:body.data||{},version:Number(body.version)||0};
+  }
+  async function put(current){
+    var payload={
+      data:Object.assign({},current.data||{},localData),
+      expectedVersion:current.version,
+      updatedBy:localStorage.getItem('ga_user_name')||'User'
+    };
+    var r=await fetch('/api/apps/v3_org_planner/state',{
+      method:'PUT',
+      credentials:'include',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    var body=await r.json().catch(function(){return {};});
+    if(!r.ok){
+      var err=new Error(body.error||('Save failed (HTTP '+r.status+')'));
+      err.status=r.status;
+      throw err;
+    }
+    return body;
+  }
+  var current=await loadCurrent();
   try{
-    localStorage.setItem(GA_LS_KEY, JSON.stringify(gaSerialise()));
-    writeGaRpProjects();
-    pushV3CashflowHints();
-    localStorage.setItem('ga_v3_last_manual_save', JSON.stringify({pid:pid, ts:Date.now()}));
-    alert('Saved to database. You can refresh the main tab to see latest values.');
+    return await put(current);
   }catch(e){
-    alert('Save failed: '+e.message);
+    if(e.status!==409) throw e;
+    return put(await loadCurrent());
   }
 }
-function saveDraftAndClose(pid){
-  saveDraftModelNow(pid);
-  try{ window.close(); }catch(e){}
+async function saveDraftAndClose(pid){
+  var btn=document.getElementById('ga-draft-save-btn');
+  if(btn){ btn.disabled=true; btn.textContent='Saving…'; }
+  try{
+    await saveDraftModelNow(pid);
+    try{
+      if(window.opener&&!window.opener.closed){
+        window.opener.postMessage({type:'ga-v3-draft-saved',pid:pid},window.location.origin);
+      }
+    }catch(e){}
+    try{ window.close(); }catch(e){}
+    window.setTimeout(function(){
+      if(!window.closed){
+        alert('Saved to database. You can now close this tab.');
+        if(btn){ btn.disabled=false; btn.textContent='💾 Save & Close'; }
+      }
+    },250);
+  }catch(e){
+    alert('Save failed. This tab will remain open so your changes are not lost.\n\n'+(e&&e.message?e.message:e));
+    if(btn){ btn.disabled=false; btn.textContent='💾 Save & Close'; }
+  }
 }
 
 // Render the full financial model panel for a project
@@ -4987,7 +5104,7 @@ function renderFinModel(pid){
         </label>
       </div>
       ${GA_IS_DRAFT_MODE && GA_DRAFT_PID===pid
-        ? '<button class="btn" style="font-size:11px;border-color:#0B7070;color:#0B7070" onclick="saveDraftAndClose(\''+pid+'\')">💾 Save & Close</button>'
+        ? '<button id="ga-draft-save-btn" class="btn" style="font-size:11px;border-color:#0B7070;color:#0B7070" onclick="saveDraftAndClose(\''+pid+'\')">💾 Save & Close</button>'
         : ''}
       <button class="btn btn-ghost" style="font-size:11px" onclick="${GA_IS_DRAFT_MODE && GA_DRAFT_PID===pid ? 'window.close()' : 'expandedFinId=null;renderProjects()'}">✕ Close model</button>
         <button onclick="printFinModel('${pid}')" style="padding:5px 14px;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700;border:1.5px solid #542B8A;background:#F2ECF9;color:#341860;margin-right:4px">🖨 Print</button>
@@ -5736,14 +5853,20 @@ function renderFinModel(pid){
     <div style="overflow-x:auto;margin-bottom:12px">
       <table style="min-width:580px">
         <thead><tr style="background:var(--teal-l)">
-          <th style="width:30px">#</th>
+          <th style="width:34px" title="Drag to reorder">↕</th>
+          <th style="width:42px">Use</th>
           <th style="min-width:120px">Date</th>
           <th style="min-width:260px">Milestone / Particular</th>
           <th style="text-align:right;min-width:180px">${gaV3CroreInputOn()?'Amount (₹ Cr)':'Amount (₹)'}</th>
           <th style="width:40px"></th>
         </tr></thead>
         <tbody>
-          ${milestones.map((m,i)=>`<tr style="${m.include!==false?'':'opacity:0.5;'} ${i%2===0?'':'background:var(--bg)'}">
+          ${milestones.map((m,i)=>`<tr data-milestone-row="${i}" ondragover="milestoneDragOver(event)" ondragleave="milestoneDragLeave(event)" ondrop="milestoneDrop(event,'${pid}',${i})" style="${m.include!==false?'':'opacity:0.5;'} ${i%2===0?'':'background:var(--bg)'} transition:box-shadow .12s ease">
+            <td style="padding:5px 6px;text-align:center">
+              <span draggable="true" ondragstart="milestoneDragStart(event,'${pid}',${i})" ondragend="milestoneDragEnd(event)"
+                title="Drag milestone to reorder"
+                style="display:inline-flex;align-items:center;justify-content:center;width:24px;height:26px;border:1px solid var(--border);border-radius:6px;background:var(--card);color:var(--teal-b);cursor:grab;font-size:15px;font-weight:800;letter-spacing:-2px;user-select:none">⋮⋮</span>
+            </td>
             <td style="padding:5px 8px;text-align:center"><input type="checkbox" ${m.include!==false?'checked':''} style="width:16px;height:16px;cursor:pointer;accent-color:var(--teal)" onchange="setMilestone('${pid}',${i},'include',this.checked)"/></td>
             <td style="padding:4px 8px">
               <input type="date" value="${m.date||''}"
@@ -5769,22 +5892,22 @@ function renderFinModel(pid){
         </tbody>
         <tfoot>
           <tr style="background:var(--bg)">
-            <td colspan="3" style="font-weight:700;padding:6px 8px;font-size:12px">Subtotal — ☑ included (SPV / partner capital)</td>
+            <td colspan="4" style="font-weight:700;padding:6px 8px;font-size:12px">Subtotal — ☑ included (SPV / partner capital)</td>
             <td style="text-align:right;font-weight:700;padding:6px 8px">${fmtC(msCheckedTot)}</td>
             <td></td>
           </tr>
           <tr style="background:var(--bg)">
-            <td colspan="3" style="font-weight:700;padding:6px 8px;font-size:12px;color:var(--muted)">Subtotal — ☐ excluded (pre-launch / inventory funding gap)</td>
+            <td colspan="4" style="font-weight:700;padding:6px 8px;font-size:12px;color:var(--muted)">Subtotal — ☐ excluded (pre-launch / inventory funding gap)</td>
             <td style="text-align:right;font-weight:700;padding:6px 8px;color:var(--muted)">${fmtC(msUncheckedTot)}</td>
             <td></td>
           </tr>
           <tr style="background:var(--teal-l)">
-            <td colspan="3" style="font-weight:700;padding:8px;font-size:13px">Total Fund Requirement (all lines)</td>
+            <td colspan="4" style="font-weight:700;padding:8px;font-size:13px">Total Fund Requirement (all lines)</td>
             <td style="text-align:right;font-weight:700;font-size:15px;color:#064646;padding:8px">${fmtC(msTot)}</td>
             <td></td>
           </tr>
           <tr>
-            <td colspan="5" style="padding:8px">
+            <td colspan="6" style="padding:8px">
               <button onclick="addMilestone('${pid}')"
                 style="padding:6px 16px;border:1.5px solid var(--teal);background:var(--teal-l);color:#064646;border-radius:7px;cursor:pointer;font-size:12px;font-weight:700">
                 + Add milestone
@@ -7796,6 +7919,26 @@ try {
   window.addEventListener('pagehide', function(){ try{ if(!GA_IS_DRAFT_MODE) gaAutoSave(); }catch(e){} });
   document.addEventListener('visibilitychange', function(){
     if(document.visibilityState==='hidden' && !GA_IS_DRAFT_MODE) try{ gaAutoSave(); }catch(e){}
+  });
+  var _externalDraftRefreshTimer=null;
+  function refreshFromExternalDraft(){
+    if(GA_IS_DRAFT_MODE) return;
+    clearTimeout(_externalDraftRefreshTimer);
+    _externalDraftRefreshTimer=setTimeout(function(){
+      try{
+        var raw=localStorage.getItem(GA_LS_KEY);
+        if(!raw) return;
+        gaApply(JSON.parse(raw));
+        renderAll();
+        showCloudStatus('External model saved · workspace refreshed');
+      }catch(e){ console.warn('external draft refresh',e); }
+    },80);
+  }
+  window.addEventListener('storage',function(e){
+    if(e.key===GA_LS_KEY&&e.newValue) refreshFromExternalDraft();
+  });
+  window.addEventListener('message',function(e){
+    if(e.origin===window.location.origin&&e.data&&e.data.type==='ga-v3-draft-saved') refreshFromExternalDraft();
   });
 } catch(e) {}
 /** Relay base for cloud — must match page origin on LAN (e.g. http://192.168.x.x:8765). Proxy tries ports 8765–8775; use the port shown in the PowerShell window. */
