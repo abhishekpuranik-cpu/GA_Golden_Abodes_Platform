@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260730.3';
+var GA_V3_BUILD = '20260730.4';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -8229,6 +8229,11 @@ function gaAutoSave() {
   // Also push projects to Resource Planner on every save
   try { writeGaRpProjects(); } catch(e) {}
   pushV3CashflowHints();
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'ga-planner-local-saved', key: GA_LS_KEY, ts: Date.now() }, window.location.origin);
+    }
+  } catch (e) {}
 }
 function gaLoadLocal() {
   try {

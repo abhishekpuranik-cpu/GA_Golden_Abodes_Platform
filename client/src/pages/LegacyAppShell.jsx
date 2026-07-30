@@ -1,5 +1,5 @@
-import { useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePlannerIframeSync } from '../hooks/usePlannerIframeSync.js';
 import { injectLegacyMobileCss } from '../lib/injectLegacyMobileCss.js';
 import { VaultAskAi } from '../components/ask/VaultAskAi.jsx';
@@ -17,8 +17,14 @@ export default function LegacyAppShell({
   htmlCacheVersion,
   /** Off by default for V3 — periodic save was overwriting Mongo with stale 2-project tabs; server merge fixes that, but disabling avoids noise. */
   defaultAutoSave = true,
+  /** PreConstruction-style leave guard (Save / Don't Save / Cancel). Default on. */
+  leaveGuard = true,
 }) {
+  const navigate = useNavigate();
   const iframeRef = useRef(null);
+  const [unsavedPrompt, setUnsavedPrompt] = useState(/** @type {{ action: () => void } | null} */ (null));
+  const [unsavedBusy, setUnsavedBusy] = useState(false);
+  const [leaveHint, setLeaveHint] = useState('');
   const {
     status,
     mongoAt,
@@ -27,6 +33,7 @@ export default function LegacyAppShell({
     pushToCloud,
     restoreFromCloud,
     hasRemoteUpdate,
+    hasUnsaved,
     version,
     snapshots,
     restoreSnapshotById,
@@ -51,8 +58,77 @@ export default function LegacyAppShell({
 
   const buildContext = useCallback(() => buildPlannerAskContext(appId, title), [appId, title]);
 
+  const runGuardedNav = useCallback(
+    (action) => {
+      if (typeof action !== 'function') return;
+      if (!leaveGuard || !hasUnsaved) {
+        action();
+        return;
+      }
+      setLeaveHint('');
+      setUnsavedPrompt({ action });
+    },
+    [hasUnsaved, leaveGuard]
+  );
+
+  const closeUnsavedPrompt = useCallback(() => {
+    if (unsavedBusy) return;
+    setUnsavedPrompt(null);
+  }, [unsavedBusy]);
+
+  const confirmUnsavedSave = useCallback(async () => {
+    if (!unsavedPrompt?.action) return;
+    setUnsavedBusy(true);
+    setLeaveHint('');
+    try {
+      const ok = await pushToCloud();
+      if (!ok) {
+        setLeaveHint("Could not save — stay on this page or choose Don't Save");
+        return;
+      }
+      const next = unsavedPrompt.action;
+      setUnsavedPrompt(null);
+      next();
+    } finally {
+      setUnsavedBusy(false);
+    }
+  }, [pushToCloud, unsavedPrompt]);
+
+  const confirmUnsavedDiscard = useCallback(async () => {
+    if (!unsavedPrompt?.action) return;
+    setUnsavedBusy(true);
+    try {
+      const ok = await restoreFromCloud();
+      if (!ok) {
+        // Still allow leave — local dirty may be intentional discard when cloud is empty.
+        console.warn('[Vault] Discard restore did not complete cleanly');
+      }
+      const next = unsavedPrompt.action;
+      setUnsavedPrompt(null);
+      next();
+    } finally {
+      setUnsavedBusy(false);
+    }
+  }, [restoreFromCloud, unsavedPrompt]);
+
+  useEffect(() => {
+    if (!leaveGuard || !hasUnsaved) return undefined;
+    const onBeforeUnload = (e) => {
+      e.preventDefault();
+      e.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, [hasUnsaved, leaveGuard]);
+
   return (
-    <PlatformShell title={title} breadcrumb={`Vault / ${title}`} showTopbar>
+    <PlatformShell
+      title={title}
+      breadcrumb={`Vault / ${title}`}
+      showTopbar
+      onLeaveAttempt={leaveGuard ? runGuardedNav : undefined}
+    >
       <div className="app-shell-full" style={{ background: 'var(--ga-canvas)', minHeight: 'calc(100dvh - 64px)' }}>
         <div
           className="planner-toolbar"
@@ -68,12 +144,40 @@ export default function LegacyAppShell({
             boxShadow: '0 1px 0 rgba(33, 38, 49, 0.04)',
           }}
         >
-          <Link to="/" style={{ color: 'var(--ga-navy)', textDecoration: 'none', fontSize: 13, fontWeight: 600 }}>
+          <button
+            type="button"
+            onClick={() => runGuardedNav(() => navigate('/'))}
+            style={{
+              color: 'var(--ga-navy)',
+              background: 'none',
+              border: 'none',
+              padding: 0,
+              cursor: 'pointer',
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+          >
             ← Vault
-          </Link>
+          </button>
           <span style={{ color: 'var(--ga-body)' }}>|</span>
           <span style={{ fontWeight: 800, color: 'var(--ga-navy)' }}>{title}</span>
           <span style={{ color: 'var(--ga-body)', fontSize: 12 }}>v{version || 0}</span>
+          {leaveGuard && hasUnsaved ? (
+            <span
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: '#9a3412',
+                background: 'rgba(240,89,44,0.12)',
+                border: '1px solid rgba(240,89,44,0.35)',
+                borderRadius: 999,
+                padding: '2px 8px',
+              }}
+              title="Local edits not yet saved to cloud"
+            >
+              Unsaved
+            </span>
+          ) : null}
           <span style={{ flex: 1 }} />
           {hasRemoteUpdate ? (
             <button
@@ -143,6 +247,68 @@ export default function LegacyAppShell({
         </div>
         <VaultAskAi appId={appId} appLabel={title} buildContext={buildContext} />
       </div>
+
+      {unsavedPrompt ? (
+        <div
+          className="unsaved-mb"
+          role="presentation"
+          onClick={closeUnsavedPrompt}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(15, 23, 42, 0.45)',
+            zIndex: 650,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 16,
+          }}
+        >
+          <div
+            className="unsaved-mbox"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="unsaved-title"
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              width: 420,
+              maxWidth: '100%',
+              background: 'var(--ga-paper, #fff)',
+              borderRadius: 10,
+              border: '1px solid var(--ga-line, #e2e8f0)',
+              boxShadow: '0 18px 48px rgba(15, 23, 42, 0.22)',
+              zIndex: 700,
+              padding: '18px 18px 14px',
+            }}
+          >
+            <h3 id="unsaved-title" style={{ margin: '0 0 10px', fontSize: 16, color: 'var(--ga-navy, #0f172a)' }}>
+              Unsaved changes
+            </h3>
+            <p style={{ margin: '0 0 16px', fontSize: 13, color: '#55504A', lineHeight: 1.55 }}>
+              You have unsaved changes. Save them before leaving this page?
+            </p>
+            {leaveHint ? (
+              <p style={{ margin: '-8px 0 14px', fontSize: 12, color: '#b91c1c', lineHeight: 1.4 }}>{leaveHint}</p>
+            ) : null}
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" disabled={unsavedBusy} onClick={closeUnsavedPrompt} style={btnGhost}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={unsavedBusy}
+                onClick={() => void confirmUnsavedDiscard()}
+                style={{ ...btnGhost, color: '#9a3412', borderColor: '#fdba74' }}
+              >
+                Don&apos;t Save
+              </button>
+              <button type="button" disabled={unsavedBusy} onClick={() => void confirmUnsavedSave()} style={btnPrimary}>
+                {unsavedBusy ? 'Working…' : 'Save'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </PlatformShell>
   );
 }

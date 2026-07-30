@@ -205,8 +205,40 @@ export function usePlannerIframeSync({
   const [version, setVersion] = useState(0);
   const [hasRemoteUpdate, setHasRemoteUpdate] = useState(false);
   const [snapshots, setSnapshots] = useState([]);
+  /** Local workspace edits not yet confirmed in a successful cloud push / restore. */
+  const [hasUnsaved, setHasUnsaved] = useState(false);
   const saving = useRef(false);
   const autoHydrateBusy = useRef(false);
+  /** Blob.ts baseline after last clean cloud sync; null until first read. */
+  const lastCleanLocalTsRef = useRef(/** @type {number | null} */ (null));
+
+  const markCleanFromWin = useCallback(
+    (win) => {
+      if (!workspaceBlobKey) {
+        lastCleanLocalTsRef.current = 0;
+        setHasUnsaved(false);
+        return;
+      }
+      lastCleanLocalTsRef.current = readLocalWorkspaceTs(win, workspaceBlobKey);
+      setHasUnsaved(false);
+    },
+    [workspaceBlobKey]
+  );
+
+  const refreshDirtyFromWin = useCallback(
+    (win) => {
+      if (!win || !workspaceBlobKey) return;
+      const ts = readLocalWorkspaceTs(win, workspaceBlobKey);
+      if (lastCleanLocalTsRef.current == null) {
+        if (ts > 0) lastCleanLocalTsRef.current = ts;
+        setHasUnsaved(false);
+        return;
+      }
+      const dirty = ts > 0 && ts > Number(lastCleanLocalTsRef.current || 0);
+      setHasUnsaved((prev) => (prev === dirty ? prev : dirty));
+    },
+    [workspaceBlobKey]
+  );
   const userName = useMemo(() => {
     try {
       return window.localStorage.getItem('ga_user_name') || 'User';
@@ -228,9 +260,9 @@ export function usePlannerIframeSync({
     const win = iframeRef.current?.contentWindow;
     if (!win) {
       setStatus({ level: 'info', text: 'Frame not ready' });
-      return;
+      return false;
     }
-    if (saving.current) return;
+    if (saving.current) return false;
     saving.current = true;
     try {
       flushLegacyIframeSave(win);
@@ -242,7 +274,7 @@ export function usePlannerIframeSync({
             level: 'err',
             text: `Save blocked: ${workspaceBlobKey} is missing or empty (the iframe had not finished saving its full state). Wait until the planner finishes loading, touch any field or scenario, then Save again.`
           });
-          return;
+          return false;
         }
       }
       const write = async (expectedVersion) =>
@@ -261,23 +293,26 @@ export function usePlannerIframeSync({
       setVersion(body.version || 0);
       writeVaultSyncMarker(appId, body.version, body.updatedAt);
       setHasRemoteUpdate(false);
+      markCleanFromWin(win);
       void refreshSnapshots();
       setStatus({ level: 'ok', text: `Saved ${Object.keys(data).length} keys to ${appId}` });
+      return true;
     } catch (e) {
       if (e?.status === 409) {
         setHasRemoteUpdate(true);
       }
       setStatus({ level: 'err', text: e?.message || String(e) });
+      return false;
     } finally {
       saving.current = false;
     }
-  }, [appId, iframeRef, keysList, refreshSnapshots, userName, version, workspaceBlobKey]);
+  }, [appId, iframeRef, keysList, markCleanFromWin, refreshSnapshots, userName, version, workspaceBlobKey]);
 
   const restoreFromCloud = useCallback(async () => {
     const win = iframeRef.current?.contentWindow;
     if (!win) {
       setStatus({ level: 'info', text: 'Frame not ready' });
-      return;
+      return false;
     }
     try {
       const body = await appStateApi.getState(appId);
@@ -287,7 +322,7 @@ export function usePlannerIframeSync({
       const n = Object.keys(workspace || {}).length;
       if (!n) {
         setStatus({ level: 'info', text: 'No data in MongoDB yet' });
-        return;
+        return false;
       }
       writeKeysToWindow(win, workspace);
       if (workspaceBlobKey && !isValidWorkspaceBlob(win.localStorage.getItem(workspaceBlobKey))) {
@@ -295,20 +330,23 @@ export function usePlannerIframeSync({
           level: 'err',
           text: `Cloud data has no usable ${workspaceBlobKey} (last upload may have been incomplete). Ask whoever saved last to open V3, confirm all projects show, then click Save to cloud again.`
         });
-        return;
+        return false;
       }
       setMongoAt(updatedAt || null);
       setVersion(remoteVersion || 0);
       writeVaultSyncMarker(appId, remoteVersion, updatedAt);
       setHasRemoteUpdate(false);
+      markCleanFromWin(win);
       void refreshSnapshots();
       const appliedInPlace = applyWorkspaceToLoadedIframe(win, workspaceBlobKey);
       setStatus({ level: 'ok', text: appliedInPlace ? `Restored ${n} keys` : `Restored ${n} keys — reloading…` });
       if (!appliedInPlace) win.location.reload();
+      return true;
     } catch (e) {
       setStatus({ level: 'err', text: e?.message || String(e) });
+      return false;
     }
-  }, [appId, iframeRef, refreshSnapshots, workspaceBlobKey]);
+  }, [appId, iframeRef, markCleanFromWin, refreshSnapshots, workspaceBlobKey]);
 
   const restoreSnapshotById = useCallback(
     async (snapshotId) => {
@@ -451,6 +489,7 @@ export function usePlannerIframeSync({
         setMongoAt(updatedAt || null);
         setVersion(remoteVersion || 0);
         setHasRemoteUpdate(false);
+        markCleanFromWin(win);
         const appliedInPlace = applyWorkspaceToLoadedIframe(win, workspaceBlobKey);
         setStatus({
           level: 'ok',
@@ -472,12 +511,15 @@ export function usePlannerIframeSync({
 
     const onLoad = () => {
       void tryAutoHydrate();
+      // Existing local blob: treat current ts as clean until the next edit.
+      queueMicrotask(() => refreshDirtyFromWin(iframeRef.current?.contentWindow));
     };
     iframe.addEventListener('load', onLoad);
     try {
       if (iframe.contentDocument?.readyState === 'complete') {
         queueMicrotask(() => {
           void tryAutoHydrate();
+          refreshDirtyFromWin(iframeRef.current?.contentWindow);
         });
       }
     } catch {
@@ -489,7 +531,23 @@ export function usePlannerIframeSync({
       iframe.removeEventListener('load', onLoad);
       window.clearTimeout(retryT);
     };
-  }, [appId, iframeRef, keysList, workspaceBlobKey]);
+  }, [appId, iframeRef, keysList, markCleanFromWin, refreshDirtyFromWin, workspaceBlobKey]);
+
+  /** Poll local workspace blob + listen for iframe autosave messages. */
+  useEffect(() => {
+    const tick = () => refreshDirtyFromWin(iframeRef.current?.contentWindow);
+    const id = window.setInterval(tick, 900);
+    const onMsg = (e) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === 'ga-planner-local-saved') tick();
+    };
+    window.addEventListener('message', onMsg);
+    tick();
+    return () => {
+      window.clearInterval(id);
+      window.removeEventListener('message', onMsg);
+    };
+  }, [iframeRef, refreshDirtyFromWin]);
 
   return {
     status,
@@ -499,6 +557,7 @@ export function usePlannerIframeSync({
     pushToCloud,
     restoreFromCloud,
     hasRemoteUpdate,
+    hasUnsaved,
     version,
     snapshots,
     restoreSnapshotById

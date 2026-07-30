@@ -1108,6 +1108,11 @@ function setSS(msg,col){
 }
 function saveState(){
   try{localStorage.setItem('ga_rp_state_v1',JSON.stringify({v:3,ts:Date.now(),ex:ST.ex,ap:ST.ap,capOv:ST.capOv,rel:ST.rel,col:ST.col,alloc:ST.alloc,kpiAct:ST.kpiAct,kpiNames:ST.kpiNames,kpiSlots:ST.kpiSlots,kpiDefs:ST.kpiDefs,bandAssign:ST.bandAssign||{},hrEvents:ST.hrEvents||[],hirePipeline:ST.hirePipeline||[],scen:scen,hcRules:HC_RULES,custom:CUSTOM,cond:COND,projFlags:PROJ_FLAGS}));}catch(e){}
+  try{
+    if(window.parent&&window.parent!==window){
+      window.parent.postMessage({type:'ga-planner-local-saved',key:'ga_rp_state_v1',ts:Date.now()},window.location.origin);
+    }
+  }catch(e){}
 }
 function loadState(){
   try{

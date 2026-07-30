@@ -15,8 +15,9 @@ function initials(user) {
 /**
  * Shared top chrome for in-platform React modules.
  * Does not replace module-internal navigation.
+ * @param {{ onLeaveAttempt?: (proceed: () => void) => void }} props
  */
-export function PlatformShell({ title, breadcrumb, children, showTopbar = true }) {
+export function PlatformShell({ title, breadcrumb, children, showTopbar = true, onLeaveAttempt }) {
   const location = useLocation();
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
@@ -54,11 +55,25 @@ export function PlatformShell({ title, breadcrumb, children, showTopbar = true }
 
   const accessible = modules.filter((m) => !m.locked && !m.external);
 
+  const leaveOrGo = (proceed) => {
+    if (typeof onLeaveAttempt === 'function') onLeaveAttempt(proceed);
+    else proceed();
+  };
+
   return (
     <div className="ga-shell">
       {showTopbar ? (
         <header className="ga-topbar">
-          <Link to="/" className="ga-topbar-logo" title="App Vault">
+          <Link
+            to="/"
+            className="ga-topbar-logo"
+            title="App Vault"
+            onClick={(e) => {
+              if (!onLeaveAttempt) return;
+              e.preventDefault();
+              leaveOrGo(() => navigate('/'));
+            }}
+          >
             <span className="ga-topbar-mark">G</span>
             <span>GA</span>
           </Link>
@@ -68,7 +83,8 @@ export function PlatformShell({ title, breadcrumb, children, showTopbar = true }
             value={accessible.find((m) => location.pathname.startsWith(m.path))?.path || ''}
             onChange={(e) => {
               const v = e.target.value;
-              if (v) navigate(v);
+              if (!v) return;
+              leaveOrGo(() => navigate(v));
             }}
           >
             <option value="" disabled>
@@ -92,14 +108,24 @@ export function PlatformShell({ title, breadcrumb, children, showTopbar = true }
           {menuOpen ? (
             <div className="ga-user-menu">
               <div style={{ padding: '8px 12px', fontSize: 12, color: 'var(--ga-body)' }}>{user?.email || 'Signed in'}</div>
-              <Link to="/" onClick={() => setMenuOpen(false)}>
+              <Link
+                to="/"
+                onClick={(e) => {
+                  setMenuOpen(false);
+                  if (!onLeaveAttempt) return;
+                  e.preventDefault();
+                  leaveOrGo(() => navigate('/'));
+                }}
+              >
                 App Vault
               </Link>
               <button
                 type="button"
-                onClick={async () => {
-                  await authApi.logout();
-                  window.location.href = '/access';
+                onClick={() => {
+                  leaveOrGo(async () => {
+                    await authApi.logout();
+                    window.location.href = '/access';
+                  });
                 }}
               >
                 Sign out
