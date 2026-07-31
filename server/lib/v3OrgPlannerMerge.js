@@ -9,6 +9,16 @@
 
 export const V3_ORG_PLANNER_APP_ID = 'v3_org_planner';
 
+/** Only V3-owned browser keys belong inside ga_planner_state_v1.workspace. */
+const V3_WORKSPACE_ALLOW = new Set([
+  'ga_rp_projects',
+  'ga_v3_cf_sync',
+  'ga_v3_money_crores',
+  'ga_v3_last_manual_save',
+  'ga_cloud_url',
+  'ga_user_name'
+]);
+
 function tryParseJson(s) {
   if (s == null) return null;
   if (typeof s === 'object' && !Array.isArray(s)) return s;
@@ -18,6 +28,27 @@ function tryParseJson(s) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Historical bug: gaCaptureWorkspace dumped every ga_* localStorage key (PreCon, Cashflow, …)
+ * into the planner blob (~2MB). Strip that so External saves and GETs stay under proxy limits.
+ */
+export function slimV3PlannerWorkspace(workspace) {
+  if (!workspace || typeof workspace !== 'object' || Array.isArray(workspace)) return {};
+  const out = {};
+  for (const key of V3_WORKSPACE_ALLOW) {
+    if (Object.prototype.hasOwnProperty.call(workspace, key) && workspace[key] != null) {
+      out[key] = workspace[key];
+    }
+  }
+  return out;
+}
+
+function slimPlannerStateObject(state) {
+  if (!state || typeof state !== 'object') return state;
+  if (!Object.prototype.hasOwnProperty.call(state, 'workspace')) return state;
+  return { ...state, workspace: slimV3PlannerWorkspace(state.workspace) };
 }
 
 function getProjsFromRp(str) {
@@ -177,7 +208,7 @@ function buildMergedState(existingData, incomingData) {
   };
   baseState.ts = Date.now();
 
-  return baseState;
+  return slimPlannerStateObject(baseState);
 }
 
 /**
@@ -191,6 +222,60 @@ export function mergeV3OrgPlannerForPut(existingData, incomingData) {
   const out = { ...incomingData };
   out.ga_planner_state_v1 = JSON.stringify(baseState);
   out.ga_rp_projects = JSON.stringify(baseState.projs.map((p) => Object.assign({}, p)));
+  return out;
+}
+
+/**
+ * Merge one External-tab project without sending the complete planner workspace
+ * through the browser. This keeps unrelated projects and DD history untouched.
+ */
+export function mergeV3OrgPlannerProjectForPut(existingData, projectId, patch) {
+  const pid = String(projectId || '').trim();
+  if (!pid) throw new Error('projectId is required');
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error('project patch must be an object');
+  }
+
+  const existingState = tryParseJson(existingData?.ga_planner_state_v1);
+  // Shallow copy only — avoid deep-cloning huge DD engine / history trees on every External save.
+  const state =
+    existingState && typeof existingState === 'object'
+      ? { ...existingState }
+      : { v: 2, ts: Date.now(), projs: [] };
+  const existingRp = getProjsFromRp(existingData?.ga_rp_projects);
+  const currentProjs = mergeProjectLists(
+    Array.isArray(state.projs) ? state.projs : [],
+    existingRp
+  );
+
+  if (patch.project && typeof patch.project === 'object') {
+    state.projs = mergeProjectLists(currentProjs, [{ ...patch.project, id: pid }]);
+  } else {
+    state.projs = currentProjs;
+  }
+
+  const projectMaps = ['fin', 'dd', 'vaultMeta', 'FUND', 'INVESTORS', 'DM'];
+  for (const key of projectMaps) {
+    if (!Object.prototype.hasOwnProperty.call(patch, key)) continue;
+    const prev = state[key] && typeof state[key] === 'object' && !Array.isArray(state[key]) ? state[key] : {};
+    state[key] = { ...prev, [pid]: patch[key] };
+  }
+
+  state.ts = Date.now();
+  if (typeof patch.savedBy === 'string' && patch.savedBy.trim()) {
+    state.savedBy = patch.savedBy.trim();
+  }
+
+  const slimState = slimPlannerStateObject(state);
+  const out = { ...(existingData || {}) };
+  out.ga_planner_state_v1 = JSON.stringify(slimState);
+  out.ga_rp_projects = JSON.stringify(slimState.projs.map((p) => ({ ...p })));
+  if (patch.lastManualSave != null) {
+    out.ga_v3_last_manual_save =
+      typeof patch.lastManualSave === 'string'
+        ? patch.lastManualSave
+        : JSON.stringify(patch.lastManualSave);
+  }
   return out;
 }
 
@@ -209,15 +294,21 @@ export function repairV3OrgPlannerForRead(data) {
   const rp = getProjsFromRp(data.ga_rp_projects);
   const projs = Array.isArray(st?.projs) ? st.projs : [];
   const mergedProjs = mergeProjectLists(projs, rp);
+  const slimmed = slimPlannerStateObject(st && typeof st === 'object' ? st : { v: 2, ts: Date.now() });
+  const workspaceWasBloated =
+    st?.workspace &&
+    typeof st.workspace === 'object' &&
+    Object.keys(st.workspace).some((k) => !V3_WORKSPACE_ALLOW.has(k));
 
   if (
     mergedProjs.length === projs.length &&
-    projectIdsSig(mergedProjs) === projectIdsSig(projs)
+    projectIdsSig(mergedProjs) === projectIdsSig(projs) &&
+    !workspaceWasBloated
   ) {
     return data;
   }
 
-  const nextState = st && typeof st === 'object' ? JSON.parse(JSON.stringify(st)) : { v: 2, ts: Date.now() };
+  const nextState = slimmed && typeof slimmed === 'object' ? { ...slimmed } : { v: 2, ts: Date.now() };
   nextState.projs = mergedProjs;
   nextState.ts = Date.now();
 

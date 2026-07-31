@@ -11,6 +11,7 @@ import {
 } from '../lib/v1CashflowMongoPack.js';
 import {
   mergeV3OrgPlannerForPut,
+  mergeV3OrgPlannerProjectForPut,
   repairV3OrgPlannerForRead,
   V3_ORG_PLANNER_APP_ID
 } from '../lib/v3OrgPlannerMerge.js';
@@ -282,6 +283,78 @@ appStatesRouter.put(
       res.json({ ok: true, appId, version: nextVersion, updatedAt: now });
     } catch (e) {
       if (e instanceof SyntaxError) return res.status(400).json({ error: 'Invalid JSON in body.data string' });
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+/**
+ * External Project Acquisition tabs save only their active project.
+ * Avoids the old GET-full-workspace + PUT-full-workspace round trip, which can
+ * exceed proxy response limits as DD history grows and surface as HTTP 502.
+ */
+appStatesRouter.put(
+  '/apps/v3_org_planner/projects/:projectId/state',
+  withDb(async (req, res, db) => {
+    try {
+      const projectId = String(req.params.projectId || '').trim();
+      if (!projectId || projectId.length > 160) {
+        return res.status(400).json({ error: 'Invalid projectId' });
+      }
+      const patch = req.body?.projectPatch;
+      if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+        return res.status(400).json({ error: 'projectPatch must be an object' });
+      }
+
+      const states = db.collection('app_states');
+      const existing = await states.findOne({ _id: V3_ORG_PLANNER_APP_ID });
+      if (!existing?.data) {
+        return res.status(404).json({ error: 'Project Acquisition workspace has not been saved yet' });
+      }
+
+      const now = new Date();
+      const nextVersion = (existing.version || 0) + 1;
+      const toSave = mergeV3OrgPlannerProjectForPut(existing.data, projectId, patch);
+      const updatedBy =
+        typeof req.body?.updatedBy === 'string' && req.body.updatedBy.trim()
+          ? req.body.updatedBy.trim()
+          : 'system';
+
+      const filter =
+        existing.version == null
+          ? { _id: V3_ORG_PLANNER_APP_ID }
+          : { _id: V3_ORG_PLANNER_APP_ID, version: existing.version };
+      const upd = await states.updateOne(filter, {
+        $set: {
+          appId: V3_ORG_PLANNER_APP_ID,
+          data: toSave,
+          version: nextVersion,
+          updatedAt: now,
+          updatedBy
+        }
+      });
+      if (!upd.matchedCount) {
+        const latest = await states.findOne(
+          { _id: V3_ORG_PLANNER_APP_ID },
+          { projection: { version: 1, updatedAt: 1, updatedBy: 1 } }
+        );
+        return res.status(409).json({
+          error: 'Version conflict',
+          appId: V3_ORG_PLANNER_APP_ID,
+          currentVersion: latest?.version || 0,
+          updatedAt: latest?.updatedAt || null,
+          updatedBy: latest?.updatedBy || null
+        });
+      }
+
+      res.json({
+        ok: true,
+        appId: V3_ORG_PLANNER_APP_ID,
+        projectId,
+        version: nextVersion,
+        updatedAt: now
+      });
+    } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });
     }
   })

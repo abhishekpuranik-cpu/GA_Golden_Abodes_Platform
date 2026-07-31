@@ -220,7 +220,7 @@ window.pdfjsWorkerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/
   });
 })();
 // ── Globals ───────────────────────────────────────────────────
-var GA_V3_BUILD = '20260730.4';
+var GA_V3_BUILD = '20260730.5';
 if(!window.CUSTOM_ROLES) window.CUSTOM_ROLES=[];
 var CUSTOM_ROLES = window.CUSTOM_ROLES;
 
@@ -5287,41 +5287,46 @@ function openModelDraftTab(pid){
   u.searchParams.set('draftPid', pid);
   window.open(u.toString(), '_blank');
 }
-function draftWorkspaceData(){
-  var keys=['ga_planner_state_v1','ga_rp_projects','ga_v3_cf_sync','ga_v3_money_crores','ga_v3_last_manual_save','ga_cloud_url','ga_user_name'];
-  var out={};
-  keys.forEach(function(k){
-    try{
-      var v=localStorage.getItem(k);
-      if(v!==null) out[k]=v;
-    }catch(e){}
-  });
-  return out;
+function draftProjectPatch(pid){
+  var project=PROJS.find(function(p){return p&&p.id===pid;});
+  if(!project) throw new Error('Project not found in this tab');
+  var patch={
+    project:Object.assign({},project),
+    fin:(ST.fin&&ST.fin[pid])||{},
+    FUND:(FUND_MILESTONES&&FUND_MILESTONES[pid])||[],
+    INVESTORS:(INVESTORS&&INVESTORS[pid])||[],
+    savedBy:localStorage.getItem('ga_user_name')||'User',
+    lastManualSave:{pid:pid,ts:Date.now()}
+  };
+  if(ST.dd&&Object.prototype.hasOwnProperty.call(ST.dd,pid)) patch.dd=ST.dd[pid];
+  if(ST.vault&&Object.prototype.hasOwnProperty.call(ST.vault,pid)){
+    patch.vaultMeta=(ST.vault[pid]||[]).map(function(d){
+      var row=Object.assign({},d);
+      delete row.dataUrl;
+      return row;
+    });
+  }
+  if(DM&&Object.prototype.hasOwnProperty.call(DM,pid)) patch.DM=DM[pid];
+  return patch;
 }
 async function saveDraftModelNow(pid){
   localStorage.setItem(GA_LS_KEY, JSON.stringify(gaSerialise()));
   writeGaRpProjects();
   pushV3CashflowHints();
-  localStorage.setItem('ga_v3_last_manual_save', JSON.stringify({pid:pid, ts:Date.now()}));
-  var localData=draftWorkspaceData();
-  async function loadCurrent(){
-    var r=await fetch('/api/apps/v3_org_planner/state',{credentials:'include',cache:'no-store'});
-    if(r.status===404) return {data:{},version:0};
-    var body=await r.json().catch(function(){return {};});
-    if(!r.ok) throw new Error(body.error||('Could not load current workspace (HTTP '+r.status+')'));
-    return {data:body.data||{},version:Number(body.version)||0};
-  }
-  async function put(current){
-    var payload={
-      data:Object.assign({},current.data||{},localData),
-      expectedVersion:current.version,
-      updatedBy:localStorage.getItem('ga_user_name')||'User'
-    };
-    var r=await fetch('/api/apps/v3_org_planner/state',{
+  var manualSave={pid:pid,ts:Date.now()};
+  localStorage.setItem('ga_v3_last_manual_save',JSON.stringify(manualSave));
+  var patch=draftProjectPatch(pid);
+  patch.lastManualSave=manualSave;
+  async function putOnce(){
+    var r=await fetch('/api/apps/v3_org_planner/projects/'+encodeURIComponent(pid)+'/state',{
       method:'PUT',
       credentials:'include',
+      cache:'no-store',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify(payload)
+      body:JSON.stringify({
+        projectPatch:patch,
+        updatedBy:localStorage.getItem('ga_user_name')||'User'
+      })
     });
     var body=await r.json().catch(function(){return {};});
     if(!r.ok){
@@ -5331,12 +5336,11 @@ async function saveDraftModelNow(pid){
     }
     return body;
   }
-  var current=await loadCurrent();
   try{
-    return await put(current);
+    return await putOnce();
   }catch(e){
     if(e.status!==409) throw e;
-    return put(await loadCurrent());
+    return putOnce();
   }
 }
 async function saveDraftAndClose(pid){
@@ -8075,14 +8079,20 @@ const GA_CONF_KEY = 'ga_cloud_url';
 const GA_WORKSPACE_PREFIX = 'ga_';
 
 function gaCaptureWorkspace() {
+  var allow = {
+    ga_rp_projects:1,
+    ga_v3_cf_sync:1,
+    ga_v3_money_crores:1,
+    ga_v3_last_manual_save:1,
+    ga_cloud_url:1,
+    ga_user_name:1
+  };
   var out = {};
   try {
-    for (var i = 0; i < localStorage.length; i++) {
-      var k = localStorage.key(i);
-      if (!k || k === GA_LS_KEY) continue;
-      if (k.indexOf(GA_WORKSPACE_PREFIX) !== 0) continue;
-      out[k] = localStorage.getItem(k);
-    }
+    Object.keys(allow).forEach(function(k){
+      var v = localStorage.getItem(k);
+      if (v !== null) out[k] = v;
+    });
   } catch (e) {}
   return out;
 }
