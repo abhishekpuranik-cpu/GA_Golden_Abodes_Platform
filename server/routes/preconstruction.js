@@ -44,6 +44,7 @@ import {
   whatsappNotifyEnabled
 } from '../lib/preconWhatsApp.js';
 import { runPreconAnalyticsAsk } from '../lib/preconAnalyticsAsk.js';
+import { runPreconGrammarCheck } from '../lib/preconGrammar.js';
 import { devBypassSession, isDevAuthBypass } from '../lib/devAuthBypass.js';
 import {
   addDrawingCatalogItem,
@@ -1170,6 +1171,32 @@ preconstructionRouter.post(
     } catch (e) {
       console.error('[precon-analytics]', e?.message || e);
       res.status(502).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+/** Gmail-style grammar / spelling suggestions for comment compose. */
+preconstructionRouter.post(
+  '/preconstruction/grammar-check',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const text = String(req.body?.text ?? '');
+      if (!text.trim()) return res.json({ ok: true, corrections: [], correctedText: '', unchanged: true });
+      if (text.length > 8000) return res.status(400).json({ error: 'text too long (max 8000 characters)' });
+      const field = String(req.body?.field || 'comment');
+      const context =
+        req.body?.context && typeof req.body.context === 'object' && !Array.isArray(req.body.context)
+          ? req.body.context
+          : {};
+      const result = await runPreconGrammarCheck({ text, field, context });
+      res.json(result);
+    } catch (e) {
+      console.error('[precon-grammar]', e?.message || e);
+      res.status(e?.status && e.status >= 400 && e.status < 600 ? e.status : 502).json({
+        error: e?.message || String(e),
+      });
     }
   })
 );
