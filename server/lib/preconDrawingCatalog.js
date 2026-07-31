@@ -7,9 +7,29 @@ export const DRAWING_CATALOG_COLLECTION = 'precon_drawing_catalog';
 export const DRAWING_PLAN_COLLECTION = 'precon_drawing_plan';
 
 const META_ID = '__catalog_meta__';
+let drawingCatalogIndexesPromise = null;
 
 function cleanText(value, max = 300) {
   return String(value || '').trim().slice(0, max);
+}
+
+export function ensureDrawingCatalogIndexes(db) {
+  if (!drawingCatalogIndexesPromise) {
+    drawingCatalogIndexesPromise = Promise.all([
+      db.collection(DRAWING_CATALOG_COLLECTION).createIndex(
+        { deletedAt: 1, stageOrder: 1, sourceOrder: 1, drawingOrder: 1 },
+        { name: 'catalog_tree_order' }
+      ),
+      db.collection(DRAWING_PLAN_COLLECTION).createIndex(
+        { projectId: 1, catalogItemId: 1 },
+        { name: 'drawing_plan_project' }
+      )
+    ]).catch((error) => {
+      drawingCatalogIndexesPromise = null;
+      throw error;
+    });
+  }
+  return drawingCatalogIndexesPromise;
 }
 
 export async function ensureDrawingCatalog(db) {

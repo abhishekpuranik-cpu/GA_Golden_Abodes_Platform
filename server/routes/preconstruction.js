@@ -10,6 +10,7 @@ import {
 import { resolveSession, userHasApp } from './auth.js';
 import {
   MAX_UPLOAD_BYTES,
+  ensurePreconAttachmentIndexes,
   readAttachmentBuffer,
   getAttachmentMeta,
   openAttachmentStream,
@@ -47,6 +48,7 @@ import { devBypassSession, isDevAuthBypass } from '../lib/devAuthBypass.js';
 import {
   addDrawingCatalogItem,
   deleteDrawingCatalogItem,
+  ensureDrawingCatalogIndexes,
   listDrawingCatalog,
   listDrawingPlan,
   saveDrawingPlan,
@@ -94,6 +96,25 @@ async function loadWorkspace(db) {
   };
 }
 
+/** Drawing routes only need project identity + department heads, not the multi-MB task tree. */
+async function loadDrawingAccessWorkspace(db) {
+  const projection = {
+    'data.projects.id': 1,
+    'data.projects.name': 1,
+    'data.departments.id': 1,
+    'data.departments.name': 1,
+    'data.departments.head': 1
+  };
+  const states = db.collection('app_states');
+  const doc =
+    (await states.findOne({ _id: 'preconstruction_catalog' }, { projection })) ||
+    (await states.findOne({ _id: APP_ID }, { projection }));
+  return {
+    projects: Array.isArray(doc?.data?.projects) ? doc.data.projects : [],
+    departments: Array.isArray(doc?.data?.departments) ? doc.data.departments : []
+  };
+}
+
 function projectMatchesAllowed(project, allowedProjects) {
   if (!Array.isArray(allowedProjects) || !allowedProjects.length) return true;
   const id = String(project?.id || '').trim().toLowerCase();
@@ -105,8 +126,31 @@ function projectMatchesAllowed(project, allowedProjects) {
   });
 }
 
+function parseByteRange(raw, size) {
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(String(raw || '').trim());
+  if (!match || !Number.isFinite(size) || size <= 0) return null;
+  let start;
+  let end;
+  if (!match[1] && match[2]) {
+    const suffix = Math.max(1, Number(match[2]) || 0);
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(match[1]);
+    end = match[2] ? Number(match[2]) : size - 1;
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || start >= size || end < start) {
+    return null;
+  }
+  return { start, end: Math.min(end, size - 1) };
+}
+
+function safeDownloadName(value) {
+  return String(value || 'file').replace(/[\r\n"]/g, '_').slice(0, 240);
+}
+
 async function requireDrawingProjectAccess(db, sess, projectId, res) {
-  const { projects } = await loadWorkspace(db);
+  const { projects } = await loadDrawingAccessWorkspace(db);
   const project = (projects || []).find((p) => String(p.id) === String(projectId));
   if (!project) {
     res.status(404).json({ error: 'Project not found' });
@@ -123,7 +167,7 @@ async function canManageDrawingCatalog(db, user) {
   if ((user?.permissions || []).includes(PERM_ADMIN) || (user?.roleIds || []).includes('admin')) {
     return true;
   }
-  const { departments } = await loadWorkspace(db);
+  const { departments } = await loadDrawingAccessWorkspace(db);
   const designHead = String((departments || []).find((d) => d.id === 'dept_design')?.head || '').trim();
   if (!designHead) return false;
   return (
@@ -301,6 +345,71 @@ preconstructionRouter.get(
 );
 
 preconstructionRouter.get(
+  '/preconstruction/drawing-vault',
+  withDb(async (req, res, db) => {
+    const startedAt = Date.now();
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const { projects } = await loadDrawingAccessWorkspace(db);
+      const accessible = projects.filter((p) =>
+        projectMatchesAllowed(p, sess.user.allowedProjects)
+      );
+      const accessibleIds = new Set(accessible.map((p) => String(p.id)));
+      const projectId = String(req.query?.projectId || '').trim();
+      if (projectId && !accessibleIds.has(projectId)) {
+        return res.status(403).json({ error: 'Project access denied' });
+      }
+      const archiveView = String(req.query?.view || '').toLowerCase() === 'archive';
+      const drawingQuery = {
+        scope: 'drawing',
+        ...(archiveView
+          ? { $or: [{ archivedAt: { $exists: true } }, { supersededAt: { $exists: true } }] }
+          : { archivedAt: { $exists: false }, supersededAt: { $exists: false } }),
+        projectId: projectId || { $in: [...accessibleIds] }
+      };
+
+      await Promise.all([
+        ensurePreconAttachmentIndexes(db),
+        ensureDrawingCatalogIndexes(db)
+      ]);
+      const [items, rows, plans, canManage] = await Promise.all([
+        listDrawingCatalog(db),
+        db
+          .collection('precon_attachments')
+          .find(drawingQuery, {
+            projection: {
+              gridId: 0,
+              approvalHistory: 0
+            }
+          })
+          .sort({ projectId: 1, stage: 1, source: 1, drawingName: 1, scopeType: 1, version: -1 })
+          .toArray(),
+        projectId ? listDrawingPlan(db, projectId) : Promise.resolve([]),
+        canManageDrawingCatalog(db, sess.user)
+      ]);
+
+      res.setHeader('Cache-Control', 'private, max-age=15, stale-while-revalidate=45');
+      res.setHeader('Server-Timing', `drawing-vault;dur=${Date.now() - startedAt}`);
+      res.json({
+        ok: true,
+        canManage,
+        items: items.map((row) => ({ ...row, id: String(row._id), _id: undefined })),
+        drawings: rows.map((row) => ({
+          ...row,
+          id: String(row._id),
+          _id: undefined,
+          url: `/api/preconstruction/attachments/${encodeURIComponent(String(row._id))}`
+        })),
+        plans: plans.map((row) => ({ ...row, id: String(row._id), _id: undefined }))
+      });
+    } catch (e) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.get(
   '/preconstruction/drawing-catalog',
   withDb(async (req, res, db) => {
     const sess = await requirePreconSession(db, req, res);
@@ -425,7 +534,7 @@ preconstructionRouter.get(
     const sess = await requirePreconSession(db, req, res);
     if (!sess) return;
     try {
-      const { projects } = await loadWorkspace(db);
+      const { projects } = await loadDrawingAccessWorkspace(db);
       const accessible = (projects || []).filter((p) =>
         projectMatchesAllowed(p, sess.user.allowedProjects)
       );
@@ -560,7 +669,7 @@ preconstructionRouter.post(
         return res.status(404).json({ error: 'Drawing not found' });
       }
       if (!(await requireDrawingProjectAccess(db, sess, drawing.projectId, res))) return;
-      const { departments } = await loadWorkspace(db);
+      const { departments } = await loadDrawingAccessWorkspace(db);
       const designHead = String(
         (departments || []).find((d) => d.id === 'dept_design')?.head || ''
       ).trim();
@@ -668,15 +777,14 @@ preconstructionRouter.post(
           drawingVersion = Math.max(1, Number(latest?.version || parentDrawing.version || 1)) + 1;
         }
 
-        const attachments = [];
-        for (let i = 0; i < files.length; i++) {
-          const f = files[i];
+        // Files are already fully received by multer; persist independent files concurrently.
+        const attachments = await Promise.all(files.map(async (f, i) => {
           const label =
             String(labels[i] || '').trim() ||
             String(req.body?.label || '').trim() ||
             f.originalname ||
             'Attachment';
-          const row = await storePreconFile(db, {
+          return storePreconFile(db, {
             buffer: f.buffer,
             fileName: f.originalname || 'file',
             mimeType: f.mimetype || 'application/octet-stream',
@@ -707,8 +815,7 @@ preconstructionRouter.post(
               description: String(req.body?.description || '').trim()
             }
           });
-          attachments.push(row);
-        }
+        }));
         if (parentDrawing && attachments[0]) {
           await db.collection('precon_attachments').updateMany(
             {
@@ -761,16 +868,54 @@ preconstructionRouter.get(
     const sess = await requirePreconSession(db, req, res);
     if (!sess) return;
     try {
-      const opened = await openAttachmentStream(db, req.params.id);
+      const meta = await getAttachmentMeta(db, req.params.id);
+      if (!meta?.gridId) return res.status(404).json({ error: 'Attachment not found' });
+      if (meta.projectId && !(await requireDrawingProjectAccess(db, sess, meta.projectId, res))) return;
+
+      const size = Math.max(0, Number(meta.size) || 0);
+      const etag = `"${String(meta.gridId)}-${size}"`;
+      if (req.headers['if-none-match'] === etag) {
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'private, max-age=3600, immutable');
+        return res.status(304).end();
+      }
+      const range = req.headers.range ? parseByteRange(req.headers.range, size) : null;
+      if (req.headers.range && !range) {
+        res.setHeader('Content-Range', `bytes */${size}`);
+        return res.status(416).end();
+      }
+      const opened = await openAttachmentStream(
+        db,
+        req.params.id,
+        range ? { start: range.start, end: range.end + 1 } : {},
+        meta
+      );
       if (!opened) return res.status(404).json({ error: 'Attachment not found' });
       const fileName = opened.meta.fileName || 'file';
       const isCad =
         opened.meta.kind === 'drawing' || /\.(dwg|dxf|dwf)$/i.test(fileName);
       res.setHeader('Content-Type', opened.meta.mimeType || 'application/octet-stream');
+      res.setHeader('Accept-Ranges', 'bytes');
+      res.setHeader('Cache-Control', 'private, max-age=3600, immutable');
+      res.setHeader('ETag', etag);
+      if (opened.meta.uploadedAt) {
+        res.setHeader('Last-Modified', new Date(opened.meta.uploadedAt).toUTCString());
+      }
+      if (range) {
+        res.status(206);
+        res.setHeader('Content-Range', `bytes ${range.start}-${range.end}/${size}`);
+        res.setHeader('Content-Length', String(range.end - range.start + 1));
+      } else if (size) {
+        res.setHeader('Content-Length', String(size));
+      }
       res.setHeader(
         'Content-Disposition',
-        `${isCad ? 'attachment' : 'inline'}; filename="${encodeURIComponent(fileName)}"`
+        `${isCad ? 'attachment' : 'inline'}; filename="${safeDownloadName(fileName)}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
       );
+      if (req.method === 'HEAD') {
+        opened.stream.destroy();
+        return res.end();
+      }
       opened.stream.pipe(res);
     } catch (e) {
       res.status(500).json({ error: e?.message || String(e) });

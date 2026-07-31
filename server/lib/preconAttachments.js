@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { GridFSBucket, ObjectId } from 'mongodb';
 
 export const PRECON_FILES_BUCKET = 'precon_files';
+const PRECON_GRIDFS_CHUNK_BYTES = 1024 * 1024;
 export const MAX_UPLOAD_BYTES = Math.min(
   50,
   Math.max(5, Number(process.env.PRECON_MAX_UPLOAD_MB || 25))
@@ -66,6 +67,29 @@ function gfsBucket(db) {
   return new GridFSBucket(db, { bucketName: PRECON_FILES_BUCKET });
 }
 
+let attachmentIndexesPromise = null;
+
+export function ensurePreconAttachmentIndexes(db) {
+  if (!attachmentIndexesPromise) {
+    const col = db.collection('precon_attachments');
+    attachmentIndexesPromise = Promise.all([
+      col.createIndex(
+        { scope: 1, projectId: 1, archivedAt: 1, supersededAt: 1 },
+        { name: 'drawing_project_active' }
+      ),
+      col.createIndex(
+        { scope: 1, seriesId: 1, version: -1 },
+        { name: 'drawing_series_version' }
+      ),
+      col.createIndex({ gridId: 1 }, { name: 'grid_file_lookup' })
+    ]).catch((error) => {
+      attachmentIndexesPromise = null;
+      throw error;
+    });
+  }
+  return attachmentIndexesPromise;
+}
+
 /**
  * @param {import('mongodb').Db} db
  * @param {{ buffer: Buffer, fileName: string, mimeType: string, meta?: object }} file
@@ -90,6 +114,8 @@ export async function storePreconFile(db, file) {
   await new Promise((resolve, reject) => {
     const stream = bucket.openUploadStreamWithId(gridId, fileName, {
       contentType,
+      // Larger chunks cut Mongo round-trips substantially for multi-MB PDF/CAD drawings.
+      chunkSizeBytes: PRECON_GRIDFS_CHUNK_BYTES,
       metadata: { ...meta, attId }
     });
     stream.on('error', reject);
@@ -173,12 +199,12 @@ export async function getAttachmentMeta(db, attId) {
   return db.collection('precon_attachments').findOne({ _id: String(attId) });
 }
 
-export async function openAttachmentStream(db, attId) {
-  const meta = await getAttachmentMeta(db, attId);
+export async function openAttachmentStream(db, attId, options = {}, knownMeta = null) {
+  const meta = knownMeta || await getAttachmentMeta(db, attId);
   if (!meta?.gridId) return null;
   const bucket = gfsBucket(db);
   try {
-    const stream = bucket.openDownloadStream(new ObjectId(meta.gridId));
+    const stream = bucket.openDownloadStream(new ObjectId(meta.gridId), options);
     return { meta, stream };
   } catch {
     return null;
