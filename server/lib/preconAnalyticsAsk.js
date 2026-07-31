@@ -1,6 +1,6 @@
 import { ANTHROPIC_API_KEY } from './config.js';
 
-const MODEL = process.env.PRECON_ANALYTICS_MODEL || 'claude-sonnet-4-20250514';
+const MODEL = process.env.PRECON_ANALYTICS_MODEL || 'claude-sonnet-4-6';
 const MAX_CONTEXT_CHARS = 90_000;
 
 function trimContext(context) {

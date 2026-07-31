@@ -1,7 +1,7 @@
 import { ANTHROPIC_API_KEY } from './config.js';
 import { answerAskDomain } from './askAi/router.js';
 
-const MODEL = process.env.VAULT_ANALYTICS_MODEL || process.env.PRECON_ANALYTICS_MODEL || 'claude-sonnet-4-20250514';
+const MODEL = process.env.VAULT_ANALYTICS_MODEL || process.env.PRECON_ANALYTICS_MODEL || 'claude-sonnet-4-6';
 const MAX_CONTEXT_CHARS = 100_000;
 
 const APP_LABELS = {
