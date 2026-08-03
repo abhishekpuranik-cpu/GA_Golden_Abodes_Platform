@@ -15,12 +15,13 @@ const LocationSchema = new mongoose.Schema({
   ...auditUserFields()
 }, { timestamps: true });
 
+// MongoDB partial indexes disallow $ne/$not — equality only (isDeleted defaults to false).
 LocationSchema.index(
   { entityTag: 1, name: 1 },
   {
     unique: true,
     collation: { locale: 'en', strength: 2 },
-    partialFilterExpression: { isDeleted: { $ne: true } }
+    partialFilterExpression: { isDeleted: false }
   }
 );
 

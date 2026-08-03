@@ -188,8 +188,13 @@ async function boot() {
   if (process.env.NODE_ENV !== 'production') await seedPostSalesIfEmpty();
   await seedHiringIfEmpty();
   await ensureHiringIndexes();
-  await seedAdminServicesIfNeeded();
-  await ensureAdminServicesIndexes();
+  try {
+    await seedAdminServicesIfNeeded();
+    await ensureAdminServicesIndexes();
+  } catch (err) {
+    console.error('[admin-services] boot seed/indexes failed:', err?.message || err);
+    throw err;
+  }
 
   const server = app.listen(PORT, () => {
     console.log(`GA Golden Abodes Platform v${VERSION} — http://127.0.0.1:${PORT}`);

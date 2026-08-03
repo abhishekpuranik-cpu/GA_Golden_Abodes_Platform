@@ -32,9 +32,10 @@ const ClaimSchema = new mongoose.Schema({
   ...auditUserFields()
 }, { timestamps: true });
 
+// MongoDB partial indexes disallow $ne/$not — equality only (isDeleted defaults to false).
 ClaimSchema.index(
   { employeeId: 1, claimPeriod: 1 },
-  { unique: true, partialFilterExpression: { isDeleted: { $ne: true } } }
+  { unique: true, partialFilterExpression: { isDeleted: false } }
 );
 
 ClaimSchema.pre('save', function preSave(next) {
