@@ -37,8 +37,8 @@ export const VAULT_MODULE_CATALOG = [
   },
   {
     id: APP_IDS.ADMIN_SERVICES,
-    title: 'Admin Services · M9',
-    purpose: 'Travel & fuel claims, fleet, assets and office ops.',
+    title: 'Travel Expenses · M9',
+    purpose: 'Travel & fuel claims with verified distances and approvals.',
     path: '/app/admin-services',
     icon: '🧳',
     glyph: 'AS',

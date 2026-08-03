@@ -89,12 +89,12 @@ export default function AdminServicesLayout() {
   );
 
   return (
-    <PlatformShell title="Admin Services" breadcrumb="Vault / Admin Services">
+    <PlatformShell title="Travel Expenses" breadcrumb="Vault / Travel Expenses">
       <div className="as-app">
         <header className="as-topbar">
           <div className="as-topbar-brand">
-            <h1>Admin Services</h1>
-            <div className="as-topbar-sub">{meta?.user?.email || '…'} · Travel &amp; Fuel</div>
+            <h1>Travel Expenses</h1>
+            <div className="as-topbar-sub">{meta?.user?.email || '…'} · M9</div>
           </div>
           <div className="as-topbar-actions">
             <label className="as-entity-chip">
