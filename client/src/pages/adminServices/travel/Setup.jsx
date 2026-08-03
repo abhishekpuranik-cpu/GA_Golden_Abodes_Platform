@@ -117,7 +117,7 @@ export default function Setup() {
             <div className="as-field">
               <label>Vehicle</label>
               <select value={rateForm.vehicleType} onChange={(e) => setRateForm({ ...rateForm, vehicleType: e.target.value })}>
-                {VEHICLE_TYPES.map((v) => <option key={v} value={v}>{v}</option>)}
+                {VEHICLE_TYPES.map((v) => <option key={v.id || v} value={v.id || v}>{v.label || v}</option>)}
               </select>
             </div>
             <div className="as-field">

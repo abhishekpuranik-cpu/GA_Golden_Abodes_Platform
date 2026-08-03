@@ -11,30 +11,46 @@ export function userPermissions(user) {
   return new Set((user?.permissions || []).map(String));
 }
 
+/** Abhishek (admin / manage_security) and HR (hiring_manager) — full travel ops. */
+export function isTravelOpsStaff(user) {
+  if (!user) return false;
+  if (userHasPermission(user, 'manage_security')) return true;
+  const roles = new Set((user.roleIds || []).map(String));
+  if (roles.has('admin') || roles.has('hiring_manager')) return true;
+  const set = userPermissions(user);
+  return [
+    PERMS.TRAVEL_VERIFY,
+    PERMS.TRAVEL_APPROVE,
+    PERMS.TRAVEL_ADMIN,
+    PERMS.TRAVEL_SETTLE
+  ].some((p) => set.has(p));
+}
+
 export function hasPerm(user, perm) {
   if (!user) return false;
   if (userHasPermission(user, 'manage_security')) return true;
   const roles = new Set((user.roleIds || []).map(String));
   if (roles.has('admin')) return true;
+  // HR gets full Travel capability set without listing every string in Admin Security
+  if (roles.has('hiring_manager') && String(perm || '').startsWith('ADMIN_SERVICES.TRAVEL.')) {
+    return true;
+  }
   return userPermissions(user).has(perm);
 }
 
 export function hasAnyTravelPerm(user) {
   if (!user) return false;
-  if (userHasPermission(user, 'manage_security')) return true;
-  const roles = new Set((user.roleIds || []).map(String));
-  if (roles.has('admin')) return true;
+  if (isTravelOpsStaff(user)) return true;
   const set = userPermissions(user);
   return TRAVEL_ANY.some((p) => set.has(p));
 }
 
-/** VIEW is implied by any travel action permission. */
 export function canViewTravel(user) {
   return hasAnyTravelPerm(user) || hasPerm(user, PERMS.TRAVEL_VIEW);
 }
 
 export function canClaim(user) {
-  return hasPerm(user, PERMS.TRAVEL_CLAIM);
+  return hasPerm(user, PERMS.TRAVEL_CLAIM) || isTravelOpsStaff(user);
 }
 
 export function canVerify(user) {
@@ -68,9 +84,9 @@ export function tabPermissionForKey(key) {
   return `ADMIN_SERVICES.${k}.VIEW`;
 }
 
-/** User can open a tab if they have the tab's VIEW permission or any TRAVEL_* for travel. */
 export function canOpenTab(user, tab) {
   if (!user || !tab) return false;
+  if (isTravelOpsStaff(user) && tab.key === 'travel') return true;
   if (userHasPermission(user, 'manage_security')) return true;
   const roles = new Set((user.roleIds || []).map(String));
   if (roles.has('admin')) return true;

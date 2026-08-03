@@ -1,6 +1,5 @@
-import { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { Link, NavLink, Outlet, useNavigate, useParams } from 'react-router-dom';
-import { authApi } from '../../lib/api.js';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { Link, Outlet, useNavigate } from 'react-router-dom';
 import { adminServicesApi } from '../../lib/adminServicesApi.js';
 import { PlatformShell } from '../../components/PlatformShell.jsx';
 import '../../admin-services.css';
@@ -11,108 +10,119 @@ export function useAdminServices() {
 }
 
 export default function AdminServicesLayout() {
-  const [user, setUser] = useState(null);
   const [tabs, setTabs] = useState([]);
   const [counts, setCounts] = useState({});
   const [meta, setMeta] = useState(null);
+  const [locations, setLocations] = useState(null);
+  const [ready, setReady] = useState(false);
   const [entityTag, setEntityTag] = useState(() => {
     try { return localStorage.getItem('as_entityTag') || 'PAD'; } catch { return 'PAD'; }
   });
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  const params = useParams();
 
   useEffect(() => {
-    authApi.session().then((s) => setUser(s?.user || null)).catch(() => setUser(null));
-    Promise.all([
-      adminServicesApi.tabs(),
-      adminServicesApi.tabCounts(),
-      adminServicesApi.meta()
-    ])
-      .then(([t, c, m]) => {
-        setTabs(t.tabs || []);
-        setCounts(c.counts || {});
-        setMeta(m);
-        if (m?.entityTags?.length && !m.entityTags.includes(entityTag)) {
-          setEntityTag(m.entityTags[0]);
+    let alive = true;
+    const t0 = performance.now();
+    adminServicesApi.bootstrap({ entityTag, locations: '1' })
+      .then((d) => {
+        if (!alive) return;
+        setTabs(d.tabs || []);
+        setCounts(d.counts || {});
+        setMeta(d.meta || null);
+        setLocations(d.locations || []);
+        setReady(true);
+        if (d.meta?.entityTags?.length && !d.meta.entityTags.includes(entityTag)) {
+          setEntityTag(d.meta.entityTags[0]);
+        }
+        if (import.meta.env.DEV) {
+          console.debug(`[admin-services] bootstrap ${Math.round(performance.now() - t0)}ms`);
         }
       })
-      .catch((e) => setError(e.message));
+      .catch((e) => {
+        if (alive) {
+          setError(e.message || 'Failed to load');
+          setReady(true);
+        }
+      });
+    return () => { alive = false; };
   }, []);
 
+  // Entity change — refresh slim locations only (skip first paint; bootstrap already loaded)
+  const firstEntityPaint = useRef(true);
   useEffect(() => {
+    if (!ready) return undefined;
+    if (firstEntityPaint.current) {
+      firstEntityPaint.current = false;
+      try { localStorage.setItem('as_entityTag', entityTag); } catch { /* ignore */ }
+      return undefined;
+    }
+    let alive = true;
+    adminServicesApi.listLocations({ entityTag, limit: 200 })
+      .then((d) => { if (alive) setLocations(d.locations || []); })
+      .catch(() => { if (alive) setLocations([]); });
     try { localStorage.setItem('as_entityTag', entityTag); } catch { /* ignore */ }
-  }, [entityTag]);
+    return () => { alive = false; };
+  }, [entityTag, ready]);
+
+  useEffect(() => {
+    if (!ready || !tabs.length) return;
+    const path = window.location.pathname.replace(/\/$/, '');
+    if (path === '/app/admin-services') {
+      navigate('/app/admin-services/travel/log', { replace: true });
+    }
+  }, [ready, tabs, navigate]);
 
   const ctx = useMemo(
-    () => ({ user, tabs, counts, meta, entityTag, setEntityTag, permissions: meta?.permissions || {} }),
-    [user, tabs, counts, meta, entityTag]
+    () => ({
+      user: meta?.user || null,
+      tabs,
+      counts,
+      meta,
+      entityTag,
+      setEntityTag,
+      permissions: meta?.permissions || {},
+      locations: locations || [],
+      locationsReady: locations != null
+    }),
+    [tabs, counts, meta, entityTag, locations]
   );
-
-  // Deep-link default: if at /app/admin-services exactly, go to travel if available
-  useEffect(() => {
-    if (!tabs.length) return;
-    if (!params['*'] && window.location.pathname.replace(/\/$/, '') === '/app/admin-services') {
-      const travel = tabs.find((t) => t.key === 'travel');
-      if (travel) navigate('/app/admin-services/travel/log', { replace: true });
-    }
-  }, [tabs, navigate, params]);
 
   return (
     <PlatformShell title="Admin Services" breadcrumb="Vault / Admin Services">
       <div className="as-app">
         <header className="as-topbar">
-          <div>
+          <div className="as-topbar-brand">
             <h1>Admin Services</h1>
-            <div className="as-topbar-sub">{user?.email || '—'} · M9</div>
+            <div className="as-topbar-sub">{meta?.user?.email || '…'} · Travel &amp; Fuel</div>
           </div>
-          <nav className="as-nav" aria-label="Admin Services tabs">
-            {tabs.map((t) => (
-              <NavLink
-                key={t.key}
-                to={`/app/admin-services${t.route}`}
-                className={({ isActive }) => (isActive ? 'active' : '')}
-              >
-                {t.displayName}
-                {counts[t.key] ? <span className="as-badge">{counts[t.key]}</span> : null}
-              </NavLink>
-            ))}
-          </nav>
-          <Link to="/" className="as-vault-link">← Vault</Link>
-        </header>
-        <main className="as-body">
-          {error && <p className="as-error">{error}</p>}
-          <div className="as-shell-bar">
-            <label>
+          <div className="as-topbar-actions">
+            <label className="as-entity-chip">
               Entity
-              <select value={entityTag} onChange={(e) => setEntityTag(e.target.value)}>
+              <select value={entityTag} onChange={(e) => setEntityTag(e.target.value)} aria-label="Entity">
                 {(meta?.entityTags || ['PAD']).map((e) => (
                   <option key={e} value={e}>{e}</option>
                 ))}
               </select>
             </label>
+            <Link to="/" className="as-vault-link">← Vault</Link>
           </div>
-          <AsCtx.Provider value={ctx}>
-            <Outlet />
-          </AsCtx.Provider>
+        </header>
+        <main className="as-body">
+          {error && <p className="as-error">{error}</p>}
+          {!ready ? (
+            <div className="as-card" aria-busy="true">
+              <div className="as-skeleton" style={{ width: '40%' }} />
+              <div className="as-skeleton" style={{ width: '80%' }} />
+              <div className="as-skeleton" style={{ width: '65%' }} />
+            </div>
+          ) : (
+            <AsCtx.Provider value={ctx}>
+              <Outlet />
+            </AsCtx.Provider>
+          )}
         </main>
       </div>
     </PlatformShell>
   );
-}
-
-export function ReservedTab({ name }) {
-  return (
-    <div className="as-card">
-      <h2>{name}</h2>
-      <p className="as-muted">Reserved for a future release. Registry entry only — no models or routes yet.</p>
-    </div>
-  );
-}
-
-export function RequireTravelPerm({ need, children }) {
-  const { permissions } = useAdminServices() || { permissions: {} };
-  const ok = Array.isArray(need) ? need.some((n) => permissions[n]) : permissions[need];
-  if (!ok) return <Navigate to="/app/admin-services/travel/log" replace />;
-  return children;
 }

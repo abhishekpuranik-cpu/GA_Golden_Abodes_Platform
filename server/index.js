@@ -20,6 +20,7 @@ import { dmGovernanceRouter } from './routes/dmGovernance.js';
 import postSalesRouter from './routes/postsales/index.js';
 import hiringRouter from './routes/hiring/index.js';
 import adminServicesRouter from './routes/adminServices/index.js';
+import { vaultAttentionRouter } from './routes/vaultAttention.js';
 import { v3DdRouter } from './routes/v3Dd.js';
 import { startSlaMonitor } from './jobs/slaMonitor.js';
 import { startHiringMetaviewRetry } from './jobs/hiringMetaviewRetry.js';
@@ -153,6 +154,7 @@ app.use('/api/dm-governance', dmGovernanceRouter);
 app.use('/api/postsales', postSalesRouter);
 app.use('/api/hiring', hiringRouter);
 app.use('/api/admin-services', adminServicesRouter);
+app.use('/api/vault', vaultAttentionRouter);
 app.use('/api/auth', authRouter);
 
 const clientDist = path.join(rootDir, 'client', 'dist');

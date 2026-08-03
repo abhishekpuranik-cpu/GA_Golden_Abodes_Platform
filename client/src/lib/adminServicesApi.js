@@ -21,6 +21,7 @@ function q(params = {}) {
 }
 
 export const adminServicesApi = {
+  bootstrap: (params) => asJson(`/api/admin-services/bootstrap${q(params)}`),
   tabs: () => asJson('/api/admin-services/tabs'),
   tabCounts: () => asJson('/api/admin-services/tabs/counts'),
   meta: () => asJson('/api/admin-services/meta'),

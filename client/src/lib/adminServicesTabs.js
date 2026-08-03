@@ -1,14 +1,23 @@
 export const TRAVEL_SCREENS = [
-  { id: 'log', path: 'log', label: 'Log a trip', perms: ['claim'] },
-  { id: 'claims', path: 'claims', label: 'My claims', perms: ['claim'] },
-  { id: 'verify', path: 'verify', label: 'Verification queue', perms: ['verify'] },
-  { id: 'approvals', path: 'approvals', label: 'Approvals', perms: ['approve'] },
-  { id: 'locations', path: 'locations', label: 'Locations & distances', perms: ['admin', 'approve'] },
-  { id: 'setup', path: 'setup', label: 'Setup', perms: ['admin'] }
+  { id: 'log', path: 'log', label: 'Log a trip', claimantOk: true },
+  { id: 'claims', path: 'claims', label: 'My claims', claimantOk: true },
+  { id: 'verify', path: 'verify', label: 'Verification', staffOnly: true },
+  { id: 'approvals', path: 'approvals', label: 'Approvals', staffOnly: true },
+  { id: 'locations', path: 'locations', label: 'Locations', staffOnly: true },
+  { id: 'setup', path: 'setup', label: 'Setup', staffOnly: true }
 ];
 
+/**
+ * Claimants: Log + My claims only.
+ * Staff (admin / HR / elevated travel perms): all screens.
+ */
 export function visibleTravelScreens(permissions = {}) {
-  return TRAVEL_SCREENS.filter((s) => s.perms.some((p) => permissions[p]));
+  const staff = !!permissions.staff;
+  return TRAVEL_SCREENS.filter((s) => {
+    if (s.staffOnly) return staff;
+    if (s.claimantOk) return !!permissions.claim || staff;
+    return false;
+  });
 }
 
 export function formatPaise(paise) {
@@ -20,7 +29,6 @@ export function formatKm(metres) {
   return `${((Number(metres) || 0) / 1000).toFixed(2)} km`;
 }
 
-/** Parse Google Maps URL or "lat,lng" paste. */
 export function parseLatLng(input) {
   const s = String(input || '').trim();
   const at = s.match(/@(-?\d+\.?\d*),\s*(-?\d+\.?\d*)/);
@@ -30,11 +38,24 @@ export function parseLatLng(input) {
   return null;
 }
 
-export const VEHICLE_TYPES = ['TWO_WHEELER', 'CAR_PETROL', 'CAR_DIESEL', 'CAR_CNG'];
-export const PURPOSES = [
-  'SITE_VISIT', 'AUTHORITY_LIAISON', 'BANK_LENDER',
-  'CONSULTANT', 'CLIENT', 'VENDOR_MATERIAL', 'LEGAL', 'OTHER'
+export const VEHICLE_TYPES = [
+  { id: 'TWO_WHEELER', label: 'Two-wheeler' },
+  { id: 'CAR_PETROL', label: 'Car · Petrol' },
+  { id: 'CAR_DIESEL', label: 'Car · Diesel' },
+  { id: 'CAR_CNG', label: 'Car · CNG' }
 ];
+
+export const PURPOSES = [
+  { id: 'SITE_VISIT', label: 'Site visit' },
+  { id: 'AUTHORITY_LIAISON', label: 'Authority liaison' },
+  { id: 'BANK_LENDER', label: 'Bank / lender' },
+  { id: 'CONSULTANT', label: 'Consultant' },
+  { id: 'CLIENT', label: 'Client' },
+  { id: 'VENDOR_MATERIAL', label: 'Vendor / material' },
+  { id: 'LEGAL', label: 'Legal' },
+  { id: 'OTHER', label: 'Other' }
+];
+
 export const LOCATION_CATEGORIES = [
   'OFFICE', 'PROJECT_SITE', 'AUTHORITY', 'BANK_LENDER',
   'CONSULTANT', 'VENDOR', 'EMPLOYEE_HOME', 'OTHER'

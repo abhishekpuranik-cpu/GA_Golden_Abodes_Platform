@@ -84,6 +84,9 @@ function resolveApiRule(pathname) {
   if (pathname === '/api/admin-services' || pathname.startsWith('/api/admin-services/')) {
     return { appId: 'admin_services' };
   }
+  if (pathname === '/api/vault' || pathname.startsWith('/api/vault/')) {
+    return { authOnly: true };
+  }
   if (pathname === '/api/v3-dd' || pathname.startsWith('/api/v3-dd/')) {
     return { appId: 'v3_project_acquisition' };
   }

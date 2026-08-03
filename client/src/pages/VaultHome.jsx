@@ -17,6 +17,7 @@ import {
   loadDeskIds,
   saveDeskIds,
 } from '../lib/vaultModules.js';
+import { VaultAttentionInbox } from '../components/VaultAttentionInbox.jsx';
 import '../theme/ga-vault.css';
 import '../theme/ga-shell.css';
 
@@ -552,6 +553,8 @@ export default function VaultHome() {
           <span>Search modules &amp; records.</span>
           <kbd>⌘K</kbd>
         </button>
+
+        <VaultAttentionInbox enabled={!!auth.authenticated} />
 
         <button
           type="button"
