@@ -19,12 +19,14 @@ import { authRouter } from './routes/auth.js';
 import { dmGovernanceRouter } from './routes/dmGovernance.js';
 import postSalesRouter from './routes/postsales/index.js';
 import hiringRouter from './routes/hiring/index.js';
+import adminServicesRouter from './routes/adminServices/index.js';
 import { v3DdRouter } from './routes/v3Dd.js';
 import { startSlaMonitor } from './jobs/slaMonitor.js';
 import { startHiringMetaviewRetry } from './jobs/hiringMetaviewRetry.js';
 import { seedPostSalesIfEmpty } from './lib/postsales/seedIfEmpty.js';
 import { seedHiringIfEmpty } from './lib/hiring/seedIfEmpty.js';
 import { ensureHiringIndexes } from './lib/hiring/ensureIndexes.js';
+import { seedAdminServicesIfNeeded, ensureAdminServicesIndexes } from './lib/adminServices/migrate.js';
 import { isDevAuthBypass } from './lib/devAuthBypass.js';
 import { maybePurgePostSalesOnStart } from './lib/postsales/purgeUnitData.js';
 import { createRbacMiddleware } from './lib/rbac.js';
@@ -150,6 +152,7 @@ app.use('/api', v3DdRouter);
 app.use('/api/dm-governance', dmGovernanceRouter);
 app.use('/api/postsales', postSalesRouter);
 app.use('/api/hiring', hiringRouter);
+app.use('/api/admin-services', adminServicesRouter);
 app.use('/api/auth', authRouter);
 
 const clientDist = path.join(rootDir, 'client', 'dist');
@@ -185,6 +188,8 @@ async function boot() {
   if (process.env.NODE_ENV !== 'production') await seedPostSalesIfEmpty();
   await seedHiringIfEmpty();
   await ensureHiringIndexes();
+  await seedAdminServicesIfNeeded();
+  await ensureAdminServicesIndexes();
 
   const server = app.listen(PORT, () => {
     console.log(`GA Golden Abodes Platform v${VERSION} — http://127.0.0.1:${PORT}`);

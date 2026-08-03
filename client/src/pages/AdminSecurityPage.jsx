@@ -6,7 +6,7 @@ import { BandwidthReport } from '../components/BandwidthReport.jsx';
 import { PlatformShell } from '../components/PlatformShell.jsx';
 import { PageHeader } from '../components/ga-kit/PageHeader.jsx';
 
-const ALL_APPS = ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_security'];
+const ALL_APPS = ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_services', 'admin_security'];
 
 const ALL_DM_TABS = 'dm_dashboard, dm_spvs, dm_projects, dm_billing, dm_invoices, dm_compliance, dm_reports, dm_scenarios, dm_executive, dm_alerts, dm_consolidated, dm_settings';
 

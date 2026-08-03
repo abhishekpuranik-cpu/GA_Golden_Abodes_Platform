@@ -36,6 +36,18 @@ export const VAULT_MODULE_CATALOG = [
     status: 'BETA',
   },
   {
+    id: APP_IDS.ADMIN_SERVICES,
+    title: 'Admin Services · M9',
+    purpose: 'Travel & fuel claims, fleet, assets and office ops.',
+    path: '/app/admin-services',
+    icon: '🧳',
+    glyph: 'AS',
+    group: 'platform',
+    desk: true,
+    featured: true,
+    status: 'BETA',
+  },
+  {
     id: APP_IDS.DM_SPV_GOVERNANCE,
     title: 'Board Room',
     purpose: 'DM fees, SPV equity and partner ledgers.',

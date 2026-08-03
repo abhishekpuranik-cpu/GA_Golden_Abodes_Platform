@@ -100,7 +100,7 @@ async function ensureDefaults(db) {
   // Keep existing deployments in sync when new vault apps ship.
   await roles.updateMany(
     { _id: { $in: ['admin', 'viewer'] } },
-    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'hiring'] } } }
+    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'hiring', 'admin_services'] } } }
   );
   await roles.updateOne(
     { _id: 'hiring_manager' },
@@ -119,7 +119,7 @@ async function ensureDefaults(db) {
   );
   await db.collection('auth_users').updateMany(
     { roleIds: 'admin' },
-    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'hiring'] } } }
+    { $addToSet: { allowedApps: { $each: ['dm_spv_governance', 'hiring', 'admin_services'] } } }
   );
   // Opt-in email notifications — missing field means disabled.
   await db.collection('auth_users').updateMany(
@@ -197,7 +197,7 @@ authRouter.post(
       emailNotificationsEnabled: false,
       roleIds: ['admin'],
       permissions: [PERM_ADMIN],
-      allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_security'],
+      allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_services', 'admin_security'],
       allowedProjects: [],
       allowedTabs: [],
       passwordSalt: salt,
@@ -213,7 +213,7 @@ authRouter.post(
           name: 'Admin',
           description: 'Full access',
           permissions: [PERM_ADMIN],
-          allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_security'],
+          allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'finance_kpi_admin', 'dm_spv_governance', 'post_sales', 'hiring', 'admin_services', 'admin_security'],
           allowedProjects: [],
           allowedTabs: []
         }

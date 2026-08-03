@@ -19,6 +19,7 @@ const ALL_VAULT_APPS = [
   'dm_spv_governance',
   'post_sales',
   'hiring',
+  'admin_services',
   'admin_security'
 ];
 
@@ -37,7 +38,15 @@ export function devBypassUser() {
     allowedApps: ALL_VAULT_APPS,
     allowedProjects: [],
     allowedTabs: [],
-    permissions: ['manage_security']
+    permissions: [
+      'manage_security',
+      'ADMIN_SERVICES.TRAVEL.VIEW',
+      'ADMIN_SERVICES.TRAVEL.CLAIM',
+      'ADMIN_SERVICES.TRAVEL.VERIFY',
+      'ADMIN_SERVICES.TRAVEL.APPROVE',
+      'ADMIN_SERVICES.TRAVEL.ADMIN',
+      'ADMIN_SERVICES.TRAVEL.SETTLE'
+    ]
   };
 }
 

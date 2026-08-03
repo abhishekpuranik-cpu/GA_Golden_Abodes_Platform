@@ -5,7 +5,8 @@ export const APP_IDS = {
   PRECONSTRUCTION: 'preconstruction',
   DM_SPV_GOVERNANCE: 'dm_spv_governance',
   POST_SALES: 'post_sales',
-  HIRING: 'hiring'
+  HIRING: 'hiring',
+  ADMIN_SERVICES: 'admin_services'
 };
 
 export const APP_LOCAL_STORAGE_KEYS = {

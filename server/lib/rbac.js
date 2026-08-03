@@ -25,6 +25,7 @@ const ROUTE_APP_RULES = [
   { prefix: '/app/dm-governance', appId: 'dm_spv_governance' },
   { prefix: '/app/post-sales', appId: 'post_sales' },
   { prefix: '/app/hiring', appId: 'hiring' },
+  { prefix: '/app/admin-services', appId: 'admin_services' },
   { prefix: '/preconstruction', appId: 'preconstruction' },
   { prefix: '/legacy/GA_Cashflow_V1.html', appId: 'v1_cashflow' },
   { prefix: '/legacy/GA_ResourcePlanner_V2.html', appId: 'v2_resource_planner' },
@@ -79,6 +80,9 @@ function resolveApiRule(pathname) {
   }
   if (pathname === '/api/hiring' || pathname.startsWith('/api/hiring/')) {
     return { appId: 'hiring' };
+  }
+  if (pathname === '/api/admin-services' || pathname.startsWith('/api/admin-services/')) {
+    return { appId: 'admin_services' };
   }
   if (pathname === '/api/v3-dd' || pathname.startsWith('/api/v3-dd/')) {
     return { appId: 'v3_project_acquisition' };

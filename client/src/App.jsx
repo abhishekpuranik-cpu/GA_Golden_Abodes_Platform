@@ -51,6 +51,15 @@ const HrDashboardLayout = lazy(() => import('./pages/hiring/HiringDashboardLayou
 const HrKpisTab = lazy(() => import('./pages/hiring/HiringKpisTab.jsx'));
 const HrRequirementsTab = lazy(() => import('./pages/hiring/HiringRequirementsTab.jsx'));
 const HrActivityLogTab = lazy(() => import('./pages/hiring/HiringActivityLogTab.jsx'));
+const AdminServicesLayout = lazy(() => import('./pages/adminServices/AdminServicesLayout.jsx'));
+const AsTravelLayout = lazy(() => import('./pages/adminServices/TravelLayout.jsx'));
+const AsLogTrip = lazy(() => import('./pages/adminServices/travel/LogTrip.jsx'));
+const AsMyClaims = lazy(() => import('./pages/adminServices/travel/MyClaims.jsx'));
+const AsVerification = lazy(() => import('./pages/adminServices/travel/VerificationQueue.jsx'));
+const AsApprovals = lazy(() => import('./pages/adminServices/travel/ApprovalsPage.jsx'));
+const AsLocations = lazy(() => import('./pages/adminServices/travel/LocationsDistances.jsx'));
+const AsSetup = lazy(() => import('./pages/adminServices/travel/Setup.jsx'));
+const AsReserved = lazy(() => import('./pages/adminServices/ReservedTabPage.jsx'));
 
 function Fall() {
   return (
@@ -205,6 +214,31 @@ export default function App() {
           </Route>
         </Route>
         <Route path="/hiring/*" element={<HiringRedirect />} />
+        <Route
+          path="/app/admin-services"
+          element={
+            <RequireAuth appId={APP_IDS.ADMIN_SERVICES}>
+              <AdminServicesLayout />
+            </RequireAuth>
+          }
+        >
+          <Route index element={<Navigate to="travel/log" replace />} />
+          <Route path="travel" element={<AsTravelLayout />}>
+            <Route index element={<Navigate to="log" replace />} />
+            <Route path="log" element={<AsLogTrip />} />
+            <Route path="claims" element={<AsMyClaims />} />
+            <Route path="verify" element={<AsVerification />} />
+            <Route path="approvals" element={<AsApprovals />} />
+            <Route path="locations" element={<AsLocations />} />
+            <Route path="setup" element={<AsSetup />} />
+          </Route>
+          <Route path="fleet" element={<AsReserved />} />
+          <Route path="assets" element={<AsReserved />} />
+          <Route path="facilities" element={<AsReserved />} />
+          <Route path="vendors" element={<AsReserved />} />
+          <Route path="utilities" element={<AsReserved />} />
+          <Route path="compliance" element={<AsReserved />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

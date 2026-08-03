@@ -240,6 +240,7 @@ export default function VaultHome() {
     () => ({
       [APP_IDS.POST_SALES]: '/app/post-sales',
       [APP_IDS.HIRING]: '/app/hiring',
+      [APP_IDS.ADMIN_SERVICES]: '/app/admin-services',
       [APP_IDS.DM_SPV_GOVERNANCE]: '/app/dm-governance',
       v3_project_acquisition: v3Url,
       v2_resource_planner: v2Url,
