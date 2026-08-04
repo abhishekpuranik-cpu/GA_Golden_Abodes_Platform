@@ -22,6 +22,7 @@ import {
   saveUnitClpOverride,
   uploadUnitClpOverride,
 } from '../../lib/postsales/unitClpOverride.js';
+import { setUnitMilestoneAchieved } from '../../lib/postsales/unitMilestoneDates.js';
 import { parseClpScheduleWorkbook } from '../../lib/postsales/projectClpSchedule.js';
 import { actorLabel } from '../../lib/postsales/activity.js';
 import { cacheKeyFromQuery, invalidateHttpCache, readHttpCache, writeHttpCache } from '../../lib/postsales/httpCache.js';
@@ -225,6 +226,21 @@ router.post('/:id/clp-override/upload', clpUpload.single('file'), async (req, re
     const by = actorLabel(req, req.body);
     const rawRows = parseClpScheduleWorkbook(req.file.buffer);
     res.json(await uploadUnitClpOverride(req.params.id, rawRows, by));
+  } catch (err) {
+    const status = /not found/i.test(err.message) ? 404 : 400;
+    res.status(status).json({ error: err.message });
+  }
+});
+
+router.put('/:id/milestone-achieved', async (req, res) => {
+  try {
+    const { milestoneName, achievedDate } = req.body || {};
+    if (!milestoneName) return res.status(400).json({ error: 'milestoneName required' });
+    const by = actorLabel(req, req.body);
+    const result = await setUnitMilestoneAchieved(req.params.id, milestoneName, achievedDate, { by });
+    invalidateHttpCache('demands:');
+    invalidateHttpCache('reports:');
+    res.json(result);
   } catch (err) {
     const status = /not found/i.test(err.message) ? 404 : 400;
     res.status(status).json({ error: err.message });

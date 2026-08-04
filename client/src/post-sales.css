@@ -627,6 +627,18 @@
 }
 .ps-reports-advanced { margin-top: 12px; border: 1px dashed var(--ps-border); border-radius: 8px; padding: 8px 12px; }
 .ps-reports-advanced summary { cursor: pointer; font-size: 0.78rem; font-weight: 600; color: var(--ps-text-muted); }
+.ps-clp-phase {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  font-size: 0.65rem; font-weight: 700; text-transform: uppercase; vertical-align: middle;
+}
+.ps-clp-phase-building { background: #dbeafe; color: #1e40af; }
+.ps-clp-phase-unit { background: #fef3c7; color: #92400e; }
+.ps-clp-schedule-unit-row { background: #fffbeb; }
+.ps-unit-ms-tracker {
+  margin-bottom: 16px; padding: 12px; border: 1px solid var(--ps-border); border-radius: 8px; background: #fff;
+}
+.ps-unit-ms-tracker-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; margin-bottom: 8px; }
+.ps-unit-ms-table { font-size: 0.82rem; }
 .ps-reports-advanced[open] summary { margin-bottom: 10px; }
 .ps-reports-inst-row {
   display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; margin-bottom: 6px;

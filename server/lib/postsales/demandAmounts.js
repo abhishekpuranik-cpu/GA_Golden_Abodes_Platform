@@ -1,5 +1,11 @@
 /** Cumulative due / received / pending — agreement vs GST (CRM collection report aligned). */
 
+import {
+  isBuildingWideClpMilestone,
+  isUnitSpecificClpMilestone,
+  resolveMilestoneAchievedDate,
+} from './clpCollectionPhase.js';
+
 function num(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : 0;
@@ -36,12 +42,24 @@ export function findGstDemand(milestones = []) {
   return milestones.find(isGstDemand) || null;
 }
 
-export function milestoneDueAsOfToday(d, asOf = new Date()) {
+export function milestoneDueAsOfToday(d, asOf = new Date(), ctx = null) {
   const today = startOfDay(asOf);
+  const name = d?.milestoneNameRaw || d?.milestoneName || '';
+
+  if (ctx && isUnitSpecificClpMilestone(name)) {
+    const achieved = resolveMilestoneAchievedDate(d, ctx);
+    if (!achieved) return false;
+    return startOfDay(achieved).getTime() <= today.getTime();
+  }
+
   const raw = d?.targetDate || d?.dueDate;
   if (!raw) {
-    const name = slug(d?.milestoneNameRaw || d?.milestoneName);
-    if (/token|booking/.test(name)) return true;
+    const slugName = slug(name);
+    if (/token|booking/.test(slugName)) return true;
+    if (ctx && isBuildingWideClpMilestone(name)) {
+      const achieved = resolveMilestoneAchievedDate(d, ctx);
+      if (achieved) return startOfDay(achieved).getTime() <= today.getTime();
+    }
     return false;
   }
   const dt = startOfDay(new Date(raw));
@@ -135,14 +153,14 @@ export function computeCrmReportTotals(milestones = []) {
   };
 }
 
-export function computeUnitCumulative(milestones = [], asOf = new Date()) {
+export function computeUnitCumulative(milestones = [], asOf = new Date(), ctx = null) {
   const gstRow = findGstDemand(milestones);
   const clpRows = milestones.filter((d) => !isPostStageDemand(d));
 
   let agreementDue = 0;
   let agreementReceived = 0;
   for (const d of clpRows) {
-    if (!milestoneDueAsOfToday(d, asOf)) continue;
+    if (!milestoneDueAsOfToday(d, asOf, ctx)) continue;
     agreementDue += agreementDueOnRow(d);
     agreementReceived += num(d?.receivedAmount ?? d?.paidAmount);
   }

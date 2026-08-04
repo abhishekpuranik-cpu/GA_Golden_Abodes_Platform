@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
 import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 import { postSalesApi } from '../../lib/postSalesApi.js';
+import { isUnitSpecificClpMilestone } from '../../lib/postsales/clpCollectionPhase.js';
 
 function toInputDate(d) {
   if (!d) return '';
@@ -185,8 +186,8 @@ export default function Milestones() {
         <div>
           <h2 style={{ marginTop: 0 }}>CLP Milestone Schedule</h2>
           <p className="ps-reports-sub">
-            Enter <strong>Achieved Date</strong>, then <strong>Save &amp; sync</strong> — only changed dates are pushed to units in{' '}
-            <Link to="/app/post-sales/reports">Reports</Link>. Use phase/building filters to sync a subset faster.
+            <strong>Building milestones</strong> (slabs → top floor): set Achieved Date here — applies to all units.
+            <strong> Unit milestones</strong> (internal wall onward): set per unit on Unit pipeline → Step 12.
           </p>
         </div>
         <div className="ps-reports-excel-actions">
@@ -250,9 +251,14 @@ export default function Milestones() {
                 </tr>
               </thead>
               <tbody>
-                {rows.map((row, idx) => (
-                  <tr key={row._id || idx}>
-                    <td><input value={row.milestone} onChange={(e) => updateRow(idx, 'milestone', e.target.value)} placeholder="e.g. Slab 5" /></td>
+                {rows.map((row, idx) => {
+                  const unitSpecific = isUnitSpecificClpMilestone(row.milestone);
+                  return (
+                  <tr key={row._id || idx} className={unitSpecific ? 'ps-clp-schedule-unit-row' : ''}>
+                    <td>
+                      <input value={row.milestone} onChange={(e) => updateRow(idx, 'milestone', e.target.value)} placeholder="e.g. Slab 5" />
+                      {unitSpecific && <span className="ps-clp-phase ps-clp-phase-unit">Per unit</span>}
+                    </td>
                     <td><input type="number" className="ps-num" value={row.percentDue} onChange={(e) => updateRow(idx, 'percentDue', e.target.value)} /></td>
                     <td>
                       <select value={row.constructionLinked ? 'Y' : 'N'} onChange={(e) => updateRow(idx, 'constructionLinked', e.target.value === 'Y')}>
@@ -266,12 +272,14 @@ export default function Milestones() {
                         type="date"
                         value={row.achievedDate}
                         onChange={(e) => updateRow(idx, 'achievedDate', e.target.value)}
-                        title="Save & sync pushes only changed achieved dates to Reports and Step 12"
+                        disabled={unitSpecific}
+                        title={unitSpecific ? 'Set on Unit pipeline → Step 12 (per unit)' : 'Save & sync pushes to all units in scope'}
                       />
                     </td>
                     <td><button type="button" className="ps-btn ps-reports-mini-btn" onClick={() => removeRow(idx)}>✕</button></td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
             <button type="button" className="ps-btn" style={{ marginTop: 10 }} onClick={addRow}>+ Add milestone</button>

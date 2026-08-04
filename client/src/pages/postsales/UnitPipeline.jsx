@@ -18,6 +18,7 @@ import { getStepTaskKind, defaultAssigneeForKind, TASK_KINDS } from '../../data/
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import ClpLetterQueue from '../../components/postsales/ClpLetterQueue.jsx';
 import UnitClpOverrideModal from '../../components/postsales/UnitClpOverrideModal.jsx';
+import UnitMilestoneTracker from '../../components/postsales/UnitMilestoneTracker.jsx';
 import ActivityLogPanel from '../../components/postsales/ActivityLogPanel.jsx';
 
 function documentOpenUrl(doc) {
@@ -595,6 +596,12 @@ export default function UnitPipeline() {
               <div>
 
                 {selected === 12 && (
+                  <>
+                  <UnitMilestoneTracker
+                    unitId={id}
+                    unitNumber={unit?.unitNumber}
+                    onUpdated={() => { setClpReloadToken((t) => t + 1); }}
+                  />
                   <ClpLetterQueue
                     unitId={id}
                     bookingDate={unit?.bookingDate}
@@ -605,6 +612,7 @@ export default function UnitPipeline() {
                     documents={documents}
                     uploadDocument={uploadDocument}
                   />
+                  </>
                 )}
 
                 {selected !== 12 && stepDef?.fundingTypeSplit && (

@@ -102,6 +102,11 @@ export const postSalesApi = {
     return r.data;
   },
   clearUnitClpOverride: (unitId) => apiFetch(`${BASE}/units/${unitId}/clp-override`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  setUnitMilestoneAchieved: (unitId, milestoneName, achievedDate) => apiFetch(`${BASE}/units/${unitId}/milestone-achieved`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ milestoneName, achievedDate }),
+  }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   deleteUnit: (id, password) => apiFetch(`${BASE}/units/${id}/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) }).then((r) => { if (!r.ok) throw new Error(r.data?.error || 'Delete failed'); return r.data; }),
 
   createCustomer: (body) => apiFetch(`${BASE}/customers`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),

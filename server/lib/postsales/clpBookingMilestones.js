@@ -1,4 +1,5 @@
 /** First N project schedule rows use unit booking date when no project achieved date is set. */
+import { isUnitSpecificClpMilestone } from './clpCollectionPhase.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
 import { milestoneKey } from './milestoneKey.js';
 
@@ -41,10 +42,12 @@ export function resolveAchievedDateForUnitRow(row, unit, sortedRows) {
   }
 
   const achieved = parseAchievedDate(row?.achievedDate);
-  if (achieved) return achieved;
+  if (achieved && !isUnitSpecificClpMilestone(label)) return achieved;
 
   const target = parseAchievedDate(row?.targetDate);
   if (target && unit?.clpScheduleOverride?.rows?.length) return target;
+
+  if (isUnitSpecificClpMilestone(label)) return null;
 
   if (unit?.bookingDate && isBookingAnchoredRow(row, sortedRows)) {
     return parseAchievedDate(unit.bookingDate);

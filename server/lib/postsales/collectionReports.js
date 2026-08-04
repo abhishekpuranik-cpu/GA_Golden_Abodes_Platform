@@ -10,6 +10,7 @@ import {
 import { sortDemandsByClpChronology } from './clpMilestoneOrder.js';
 import { formatMilestoneLabel } from './milestoneLabels.js';
 import { achievedDateForMilestone } from './clpScheduleSync.js';
+import { buildUnitCollectionContext, isUnitSpecificClpMilestone, resolveScheduleDateForUnit } from './clpCollectionPhase.js';
 
 function num(v) {
   const n = Number(v);
@@ -123,8 +124,7 @@ function defaultMilestonesFromSchedule(scheduleRows = [], unit = {}, demands = [
     .map((row) => {
       const name = formatMilestoneLabel(row.milestone);
       const demand = demandBySlug.get(slug(name)) || demandBySlug.get(slug(row.milestone));
-      const scheduleDate = achievedDateForMilestone(scheduleAchievedMap, name)
-        || (row.achievedDate ? new Date(row.achievedDate) : null);
+      const scheduleDate = resolveScheduleDateForUnit(unit, scheduleAchievedMap, name, row.achievedDate);
       const clpDue = demand
         ? (isGstDemand(demand) ? readGstDue(demand) : agreementDueOnRow(demand))
         : Math.max(0, (unit.totalCost || 0) * ((row.percentDue || 0) / 100));
@@ -132,7 +132,8 @@ function defaultMilestonesFromSchedule(scheduleRows = [], unit = {}, demands = [
         ? (isGstDemand(demand) ? readGstReceived(demand) : num(demand.paidAmount))
         : 0;
       const clpPending = Math.max(0, clpDue - clpReceived);
-      const defaultDate = scheduleDate || demand?.targetDate || demand?.dueDate;
+      const defaultDate = scheduleDate
+        || (isUnitSpecificClpMilestone(name) ? null : (demand?.targetDate || demand?.dueDate));
       const installments = clpPending > 0 && defaultDate
         ? applyScheduleToInstallments(
           [{ amount: clpPending, expectedDate: defaultDate, includesTax: false, taxAmount: 0, riskCategory: 'clear', receivedAmount: clpReceived, status: 'planned' }],
@@ -157,13 +158,13 @@ function defaultMilestonesFromSchedule(scheduleRows = [], unit = {}, demands = [
 function buildRegisterMilestones(demands, scheduleRows, unit, scheduleAchievedMap) {
   if (scheduleRows?.length) {
     const fromSchedule = defaultMilestonesFromSchedule(scheduleRows, unit, demands, scheduleAchievedMap);
-    const gst = defaultMilestonesFromDemands(demands, scheduleAchievedMap).filter((m) => m.isGst);
+    const gst = defaultMilestonesFromDemands(demands, scheduleAchievedMap, unit).filter((m) => m.isGst);
     return [...fromSchedule, ...gst];
   }
-  return defaultMilestonesFromDemands(demands, scheduleAchievedMap);
+  return defaultMilestonesFromDemands(demands, scheduleAchievedMap, unit);
 }
 
-function defaultMilestonesFromDemands(demands = [], scheduleAchievedMap = null) {
+function defaultMilestonesFromDemands(demands = [], scheduleAchievedMap = null, unit = {}) {
   const sorted = sortDemandsByClpChronology(demands);
   return sorted
     .filter((d) => !isPostStageDemand(d) || isGstDemand(d))
@@ -172,8 +173,10 @@ function defaultMilestonesFromDemands(demands = [], scheduleAchievedMap = null) 
       const clpDue = isGstDemand(d) ? readGstDue(d) : agreementDueOnRow(d);
       const clpReceived = isGstDemand(d) ? readGstReceived(d) : num(d.paidAmount);
       const clpPending = Math.max(0, clpDue - clpReceived);
-      const scheduleDate = achievedDateForMilestone(scheduleAchievedMap, name);
-      const defaultDate = scheduleDate || d.targetDate || d.dueDate;
+      const scheduleDate = isUnitSpecificClpMilestone(name)
+        ? resolveScheduleDateForUnit(unit, scheduleAchievedMap, name)
+        : achievedDateForMilestone(scheduleAchievedMap, name);
+      const defaultDate = scheduleDate || (isUnitSpecificClpMilestone(name) ? null : (d.targetDate || d.dueDate));
       const installments = clpPending > 0 && defaultDate
         ? applyScheduleToInstallments(
           [{ amount: clpPending, expectedDate: defaultDate, includesTax: isGstDemand(d), taxAmount: isGstDemand(d) ? clpPending : 0, riskCategory: 'clear', receivedAmount: 0, status: 'planned' }],
@@ -254,7 +257,8 @@ function mergeForecastWithDemands(stored, demands, scheduleAchievedMap = null, s
 }
 
 export function buildCollectionRegisterRow(unit, customer, demands, forecast, asOf = new Date(), scheduleAchievedMap = null, scheduleRows = null) {
-  const totals = computeUnitCumulative(demands, asOf);
+  const collectionCtx = buildUnitCollectionContext(unit, scheduleAchievedMap);
+  const totals = computeUnitCumulative(demands, asOf, collectionCtx);
   const milestones = mergeForecastWithDemands(forecast, demands, scheduleAchievedMap, scheduleRows, unit);
 
   const gstDue = Number.isFinite(Number(forecast?.gstDueOverride))
@@ -289,7 +293,7 @@ export function buildCollectionRegisterRow(unit, customer, demands, forecast, as
     .sort((a, b) => b - a);
 
   const clpPending = demands
-    .filter((d) => !isPostStageDemand(d) && milestoneDueAsOfToday(d, asOf))
+    .filter((d) => !isPostStageDemand(d) && milestoneDueAsOfToday(d, asOf, collectionCtx))
     .reduce((s, d) => s + Math.max(0, agreementDueOnRow(d) - num(d.paidAmount)), 0);
 
   return {

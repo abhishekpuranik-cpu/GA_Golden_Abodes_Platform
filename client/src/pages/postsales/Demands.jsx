@@ -14,6 +14,7 @@ import {
   sumCumulativeSummary,
   sumCrmReportSummary,
 } from '../../lib/postsales/demandAmounts.js';
+import { collectionPhaseLabel } from '../../lib/postsales/clpCollectionPhase.js';
 
 function fmt(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -69,7 +70,7 @@ export default function Demands() {
   const fileRef = useRef(null);
 
   const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
-  const { demands, summary, loading, error, updateDemand, refresh } = useDemands(query);
+  const { demands, summary, unitCollectionContext, loading, error, updateDemand, refresh } = useDemands(query);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -124,7 +125,8 @@ export default function Demands() {
     }
     for (const g of map.values()) {
       g.milestones = sortDemandsByClpChronology(g.milestones);
-      Object.assign(g, computeUnitCumulative(g.milestones, AS_OF_TODAY));
+      const collectionCtx = unitCollectionContext[g.unitId] || unitCollectionContext[String(g.unitId)] || null;
+      Object.assign(g, computeUnitCumulative(g.milestones, AS_OF_TODAY, collectionCtx));
       const crm = computeCrmReportTotals(g.milestones);
       g.crmAgreementDue = crm.agreementDue;
       g.crmAgreementReceived = crm.agreementReceived;
@@ -146,7 +148,7 @@ export default function Demands() {
       );
     }
     return groups.sort((a, b) => b.agreementPending + b.gstPending - (a.agreementPending + a.gstPending) || a.project.localeCompare(b.project));
-  }, [scopedDemands, statusFilter]);
+  }, [scopedDemands, statusFilter, unitCollectionContext]);
 
   const pageTotals = useMemo(() => sumCrmReportSummary(unitGroups), [unitGroups]);
   const dueAsOfToday = useMemo(() => sumCumulativeSummary(unitGroups), [unitGroups]);
@@ -235,8 +237,8 @@ export default function Demands() {
         <div>
           <h2 style={{ margin: 0 }}>Demands &amp; collections</h2>
           <p className="ps-demands-sub">
-            <strong>Due as of today</strong> — agreement due only for CLP stages (or instalments) whose target date is on or before today; token/booking counts when no date is set. GST from the CRM GST column.
-            <strong> CRM schedule total</strong> (all Amount Due columns) shown for reconciliation.
+            <strong>Due as of today</strong> — building milestones (slabs → top floor) use the project schedule; from internal wall onward each unit is due only when that unit completes the stage (set on Unit pipeline).
+            <strong> CRM schedule total</strong> shown for reconciliation.
           </p>
         </div>
         <div className="ps-demands-actions">
@@ -404,11 +406,16 @@ export default function Demands() {
                             </thead>
                             <tbody>
                               {g.milestones.filter((d) => !isGstDemand(d)).map((d) => {
-                                const a = milestoneRowDisplay(d, AS_OF_TODAY);
-                                const future = !a.agreementDue && !a.gstDue && (d.targetDate || d.dueDate);
+                                const collectionCtx = unitCollectionContext[g.unitId] || unitCollectionContext[String(g.unitId)] || null;
+                                const a = milestoneRowDisplay(d, AS_OF_TODAY, collectionCtx);
+                                const phase = collectionPhaseLabel(d.milestoneNameRaw || d.milestoneName);
+                                const future = !a.agreementDue && !a.gstDue && phase === 'unit';
                                 return (
                                   <tr key={d._id} className={future ? 'ps-clp-future-row' : ''}>
-                                    <td className="ps-clp-ms-name">{milestoneLabel(d)}</td>
+                                    <td className="ps-clp-ms-name">
+                                      {milestoneLabel(d)}
+                                      <span className={`ps-clp-phase ps-clp-phase-${phase}`}>{phase === 'unit' ? 'Unit' : 'Bldg'}</span>
+                                    </td>
                                     <td className="ps-num">{d.clpPercent || '—'}</td>
                                     <td>
                                       <input

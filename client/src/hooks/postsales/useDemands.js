@@ -5,6 +5,7 @@ import { cacheKey, cachedFetch, getCached } from '../../lib/postsales/postSalesC
 export function useDemands(params = {}) {
   const [demands, setDemands] = useState([]);
   const [summary, setSummary] = useState({});
+  const [unitCollectionContext, setUnitCollectionContext] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const paramKey = JSON.stringify(params);
@@ -16,6 +17,7 @@ export function useDemands(params = {}) {
       if (cached) {
         setDemands(cached.demands || []);
         setSummary(cached.summary || {});
+        setUnitCollectionContext(cached.unitCollectionContext || {});
         setLoading(false);
       } else {
         setLoading(true);
@@ -25,6 +27,7 @@ export function useDemands(params = {}) {
       const data = await cachedFetch(key, () => postSalesApi.listDemands(params), 90 * 1000);
       setDemands(data.demands || []);
       setSummary(data.summary || {});
+      setUnitCollectionContext(data.unitCollectionContext || {});
       setError(null);
     } catch (e) {
       setError(e.message);
@@ -45,5 +48,5 @@ export function useDemands(params = {}) {
     return d;
   };
 
-  return { demands, summary, loading, error, refresh, updateDemand };
+  return { demands, summary, unitCollectionContext, loading, error, refresh, updateDemand };
 }

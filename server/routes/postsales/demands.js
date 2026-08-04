@@ -9,6 +9,9 @@ import ClpLetterTask from '../../models/postsales/ClpLetterTask.js';
 import { milestoneKey } from '../../lib/postsales/milestoneKey.js';
 import { isGstDemand, readGstDue, readGstReceived } from '../../lib/postsales/demandAmounts.js';
 import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
+import ProjectClpSchedule from '../../models/postsales/ProjectClpSchedule.js';
+import { buildAchievedDateMap } from '../../lib/postsales/clpScheduleSync.js';
+import { buildUnitCollectionContext } from '../../lib/postsales/clpCollectionPhase.js';
 import { sortDemandsByClpChronology } from '../../lib/postsales/clpMilestoneOrder.js';
 import { exportCollectionsForCashflow, syncDemandsFromV1 } from '../../lib/postsales/demandsV1Sync.js';
 import { syncSoldUnitsFromCashflowV1 } from '../../lib/postsales/cashflowV1Sync.js';
@@ -171,10 +174,24 @@ router.get('/', async (req, res) => {
     const units = unitIds.length
       ? await Unit.find({ _id: { $in: unitIds } })
         .populate('customerId', 'name')
-        .select('unitNumber project phase building tower customerId')
+        .select('unitNumber project phase building tower customerId clpMilestoneDates')
         .lean()
       : [];
     const unitMap = Object.fromEntries(units.map((u) => [String(u._id), u]));
+
+    const projects = [...new Set(units.map((u) => u.project).filter(Boolean))];
+    const schedules = projects.length
+      ? await ProjectClpSchedule.find({ project: { $in: projects } }).lean()
+      : [];
+    const projectAchievedByProject = Object.fromEntries(
+      schedules.map((s) => [s.project, buildAchievedDateMap(s.rows || [])]),
+    );
+    const unitCollectionContext = Object.fromEntries(
+      units.map((u) => [
+        String(u._id),
+        buildUnitCollectionContext(u, projectAchievedByProject[u.project]),
+      ]),
+    );
     const demandIds = demands.map((d) => d._id);
     const clpTasks = demandIds.length
       ? await ClpLetterTask.find({ demandId: { $in: demandIds } })
@@ -190,6 +207,7 @@ router.get('/', async (req, res) => {
 
     const payload = {
       demands: enriched,
+      unitCollectionContext,
       summary: {
         totalDemanded: totalDue,
         totalDue,
