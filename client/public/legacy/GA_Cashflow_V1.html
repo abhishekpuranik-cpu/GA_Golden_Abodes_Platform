@@ -268,7 +268,9 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 74;
+var CF_VERSION = 75;
+var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
+var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
@@ -292,9 +294,14 @@ function extractTallyVoucherType(noteOrType){
   var m=/^\[([^\]]+)\]/.exec(s);
   return m?String(m[1]||'').trim():'';
 }
+function isCodingUnmappedCat(cat1){
+  var c=String(cat1||'').trim();
+  return !c || c==='Unmapped' || c==='Unmapped Outflow' || c==='Unmapped Inflow';
+}
 function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
   cl=cl||{};
-  var cat1=String(cl.cat1||'').trim()||'Construction';
+  var codingUnmapped=!!cl.codingUnmapped || isCodingUnmappedCat(cl.cat1);
+  var cat1=String(cl.cat1||'').trim()||(codingUnmapped?'Unmapped':'Construction');
   var mapSrc=String(cl.tallyMapSrc||'');
   var isInflow=isCashflowInflowCat(cat1);
   if(cl.flow==='in' && !isInflow) isInflow=true;
@@ -302,7 +309,8 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
   var vt=String(voucherType||'').trim();
   if(/^payment\b/i.test(vt)){
     isInflow=false;
-    if(isCashflowInflowCat(cat1)){
+    // Never invent a master L1 for unmapped lines — keep Unmapped and highlight for audit.
+    if(!codingUnmapped && isCashflowInflowCat(cat1)){
       if(/unsecured loan/i.test(cat1)) cat1='Principal Repaid';
       else if(/investor funding|equity infusion/i.test(cat1)) cat1='Principal Repaid';
       else if(/customer collection|customer ul|sales revenue/i.test(cat1)) cat1='Construction';
@@ -312,7 +320,7 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
     }
   }else if(/^receipt\b/i.test(vt)){
     isInflow=true;
-    if(!isCashflowInflowCat(cat1)){
+    if(!codingUnmapped && !isCashflowInflowCat(cat1)){
       var blob=String(cl.gaL1||'')+' '+String(cl.gaL2||'')+' '+String(cl.gaL3Name||'')+' '+cat1+' '+String(partyHint||cl.party||'');
       if(/-ul\b|customer ul/i.test(blob)) cat1='Customer UL';
       else if(/customer|collection|sales|booking|milestone/i.test(blob)) cat1='Customer Collections';
@@ -322,11 +330,17 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
     }
   }
   if(cat1==='Other Inflow') cat1='Other Income';
+  if(codingUnmapped){
+    cat1='Unmapped';
+    if(!cl.gaL1) cl.gaL1='Unmapped';
+  }
   return {
     cat1:cat1,
     isInflow:isInflow,
     tallyMapSrc:mapSrc,
     codingAuthority:'cashflow',
+    codingUnmapped:codingUnmapped,
+    suggestedCat1:cl.suggestedCat1||'',
     gaL1:cl.gaL1||'',
     gaL2:cl.gaL2||'',
     gaL3:cl.gaL3||'',
@@ -604,13 +618,22 @@ function availableBuildingPrefixes(){
 function inferAcctPrefixFromBuildingName(buildingName){
   var n=String(buildingName||'').trim();
   if(!n||n==='Unassigned') return '';
+  if(/common\s*amenit/i.test(n)) return 'CM';
   var m=n.match(/\b(?:tower|wing|block|building)\s*([A-Z])\b/i)||n.match(/^([A-Z])$/i)||n.match(/\b([A-Z])\s*$/);
   if(m&&m[1]) return String(m[1]).toUpperCase();
   return '';
 }
+function isCommonAmenitiesProject(p){
+  if(!p) return false;
+  if(p._commonAmenities) return true;
+  var h=getProjectHierarchy(p.id);
+  var blob=String(h.building||'')+' '+String(p.building||'')+' '+String(p.name||'');
+  return /common\s*amenit/i.test(blob);
+}
 function assignBuildingPrefix(buildingName){
   var b=String(buildingName||'').trim();
   if(!b||b==='Unassigned') return 'A';
+  if(/common\s*amenit/i.test(b)) return 'CM';
   var map=loadBuildingPrefixMap();
   if(map[b]) return String(map[b]).toUpperCase();
   var inferred=inferAcctPrefixFromBuildingName(b);
@@ -631,6 +654,7 @@ function assignBuildingPrefix(buildingName){
 function getAcctPrefixForPid(pid){
   var p=(PROJS||[]).find(function(x){ return x&&x.id===pid; })||null;
   var cfg=pid?getCF(pid):{};
+  if(isCommonAmenitiesProject(p)||(cfg&&cfg.tallyCommonCostOwner)) return 'CM';
   if(cfg&&cfg.acctPrefix) return String(cfg.acctPrefix).trim().toUpperCase();
   if(p&&p.acctPrefix) return String(p.acctPrefix).trim().toUpperCase();
   var h=getProjectHierarchy(pid);
@@ -638,16 +662,21 @@ function getAcctPrefixForPid(pid){
 }
 function inferAcctScopeFromText(fullText, costCentre){
   var cc=String(costCentre||'').trim();
-  if(/^CM\s+CF\b/i.test(cc)) return 'common';
-  if(/^[A-Z]\s+CF\b/i.test(cc)) return 'building';
+  if(/^CM[\s\-]*CF\b/i.test(cc)||/^Common\s+(Aminit|Amenit)/i.test(cc)) return 'common';
+  if(/^[A-Z][\s\-]+CF\b/i.test(cc)||/^Building\s+[A-Z][\s\-]*CF\b/i.test(cc)) return 'building';
   var t=(String(fullText||'')+' '+cc).toUpperCase();
-  if(/\bCM\b|COMMON COST|SHOW FLAT|SALES OFFICE|SITE OFFICE|MARKETING COST/.test(t)) return 'common';
+  if(/\bCM\b|COMMON COST|COMMON AMENIT|COMMON AMINIT|SHOW FLAT|SALES OFFICE|SITE OFFICE|MARKETING COST/.test(t)) return 'common';
   return 'building';
 }
-/** Building chart letter from Tally cost centre e.g. "D CF C7-4 Electrical Labour" → D */
+/** Building chart letter from Tally cost centre — accepts A CF / A-CF / Building A CF / … A CF … */
 function parseBuildingPrefixFromTallyCostCentre(costCentre){
   var cc=String(costCentre||'').trim();
-  var m=cc.match(/^([A-Z])\s+CF\b/i);
+  if(!cc) return '';
+  if(/^CM[\s\-]*CF\b/i.test(cc)||/^Common\s+(Aminit|Amenit)/i.test(cc)) return '';
+  var m=cc.match(/^([A-Z])[\s\-]+CF\b/i)
+    ||cc.match(/^Building\s+([A-Z])[\s\-]*CF\b/i)
+    ||cc.match(/\b(?:Building|Tower|Wing|Block)\s+([A-Z])(?:\s|$|[\-])/i)
+    ||cc.match(/\b([A-Z])[\s\-]+CF\b/i);
   return m?String(m[1]).toUpperCase():'';
 }
 function normHierarchyRouteValue(v){
@@ -658,7 +687,8 @@ function sameHierarchyRouteValue(a,b){
 }
 function isTallyCommonCostCentre(costCentre, fullText){
   var cc=String(costCentre||'').trim();
-  if(/^CM\s+CF\b/i.test(cc)) return true;
+  if(/^CM[\s\-]*CF\b/i.test(cc)) return true;
+  if(/common\s*(amenit|aminit|cost|area|facility)/i.test(cc)) return true;
   return inferAcctScopeFromText(String(fullText||'')+' '+cc,cc)==='common';
 }
 /** Projects in the selected building's group + phase. Unmapped hierarchy stays on the selected project. */
@@ -675,14 +705,101 @@ function tallyPhaseProjects(sourcePid){
 function isConfiguredTallyCommonOwner(p){
   if(!p||!p.id) return false;
   var cfg=getCF(p.id)||{};
-  return p.tallyCommonCostOwner===true||cfg.tallyCommonCostOwner===true;
+  return p.tallyCommonCostOwner===true||cfg.tallyCommonCostOwner===true||isCommonAmenitiesProject(p);
 }
-/** Deterministic phase owner for storage; rollups display these lines as a phase-level sibling, not a building. */
+/**
+ * Ensure each phase has a real Buildings-row "Common Amenities" cost centre.
+ * Created once per Project Group + Phase; all CM/common Tally lines allocate here.
+ */
+function ensureCommonAmenitiesProject(sourcePid){
+  var sh=getProjectHierarchy(sourcePid);
+  var phaseProjects=tallyPhaseProjects(sourcePid);
+  var existing=(phaseProjects||[]).find(function(p){
+    return isCommonAmenitiesProject(p)
+      || /common\s*amenit/i.test(String((getProjectHierarchy(p.id)||{}).building||'')+' '+String(p.building||'')+' '+String(p.name||''));
+  });
+  if(existing){
+    existing.building=COMMON_AMENITIES_BUILDING_NAME;
+    existing.tallyCommonCostOwner=true;
+    existing.acctPrefix='CM';
+    existing._commonAmenities=true;
+    var cfgE=getCF(existing.id);
+    cfgE.building=COMMON_AMENITIES_BUILDING_NAME;
+    cfgE.tallyCommonCostOwner=true;
+    cfgE.acctPrefix='CM';
+    cfgE.projectGroup=cfgE.projectGroup||sh.projectGroup;
+    cfgE.phase=cfgE.phase||sh.phase;
+    return existing;
+  }
+  var src=(PROJS||[]).find(function(p){return p&&String(p.id)===String(sourcePid);})||null;
+  var slug=String(sh.projectGroup||'PG').replace(/[^\w]+/g,'_').slice(0,24)+'_'+String(sh.phase||'PH').replace(/[^\w]+/g,'_').slice(0,24);
+  var id='CM_'+slug;
+  var found=(PROJS||[]).find(function(p){return p&&p.id===id;});
+  if(found){
+    found.building=COMMON_AMENITIES_BUILDING_NAME;
+    found.tallyCommonCostOwner=true;
+    found.acctPrefix='CM';
+    found._commonAmenities=true;
+    var cfgF=getCF(found.id);
+    cfgF.building=COMMON_AMENITIES_BUILDING_NAME;
+    cfgF.tallyCommonCostOwner=true;
+    cfgF.acctPrefix='CM';
+    return found;
+  }
+  var neo={
+    id:id,
+    name:COMMON_AMENITIES_BUILDING_NAME+(sh.phase&&sh.phase!=='Unassigned'?(' — '+sh.phase):''),
+    projectGroup:sh.projectGroup||(src&&src.projectGroup)||'',
+    phase:sh.phase||(src&&src.phase)||'',
+    building:COMMON_AMENITIES_BUILDING_NAME,
+    acctPrefix:'CM',
+    tallyCommonCostOwner:true,
+    status:(src&&src.status)||'Active',
+    on:true,
+    _manual:true,
+    _commonAmenities:true
+  };
+  PROJS.push(neo);
+  var cfg=getCF(id);
+  cfg.projName=neo.name;
+  cfg.projectGroup=neo.projectGroup;
+  cfg.phase=neo.phase;
+  cfg.building=COMMON_AMENITIES_BUILDING_NAME;
+  cfg.acctPrefix='CM';
+  cfg.tallyCommonCostOwner=true;
+  return neo;
+}
+/** Match free-text building / tower name in cost centre or party to a phase project. */
+function matchPhaseProjectByBuildingName(phaseProjects, text){
+  var blob=String(text||'').toLowerCase().replace(/\s+/g,' ');
+  if(!blob) return null;
+  var best=null, bestScore=0;
+  (phaseProjects||[]).forEach(function(p){
+    if(isCommonAmenitiesProject(p)) return;
+    var h=getProjectHierarchy(p.id);
+    var names=[h.building, p.building, p.name].filter(Boolean);
+    names.forEach(function(n){
+      var nn=String(n).trim().toLowerCase().replace(/\s+/g,' ');
+      if(nn.length<1||nn==='unassigned'||/common\s*amenit/.test(nn)) return;
+      if(blob.indexOf(nn)>=0 && nn.length>bestScore){ best=p; bestScore=nn.length; }
+      var letter=inferAcctPrefixFromBuildingName(n);
+      if(letter && letter!=='CM'){
+        var re=new RegExp('\\b(?:building|tower|wing|block)\\s*'+letter+'\\b','i');
+        if(re.test(blob) && 4>bestScore){ best=p; bestScore=4; }
+        if(new RegExp('^'+letter+'[\\s\\-]+cf\\b','i').test(blob) && 5>bestScore){ best=p; bestScore=5; }
+      }
+    });
+  });
+  return best;
+}
+/** Deterministic phase owner for Common Amenities cost centre. */
 function tallyCommonOwnerProject(sourcePid, phaseProjects){
+  ensureCommonAmenitiesProject(sourcePid);
   var list=(phaseProjects||tallyPhaseProjects(sourcePid)).slice();
   if(!list.length) return (PROJS||[]).find(function(p){return p&&String(p.id)===String(sourcePid);})||null;
   list.sort(function(a,b){return String(a.id||'').localeCompare(String(b.id||''));});
-  return list.find(isConfiguredTallyCommonOwner)
+  return list.find(function(p){ return isCommonAmenitiesProject(p); })
+    ||list.find(isConfiguredTallyCommonOwner)
     ||list.find(function(p){
       var h=getProjectHierarchy(p.id);
       return /common|amenit|club|shared|phase\s*cost/i.test(String(h.building||'')+' '+String(p.name||''));
@@ -692,16 +809,19 @@ function tallyCommonOwnerProject(sourcePid, phaseProjects){
 /**
  * Route one parsed Tally line from any selected building:
  *   A-Z CF → matching chart-prefix building in the same group + phase
- *   CM CF / common → configured phase Common Amenities owner
- * Unknown prefixes remain on the selected project and are reported as unmapped.
+ *   CM CF / common → Common Amenities building (cost centre) in the phase
+ * Unknown prefixes try building-name match, else stay on selected project as unmapped.
  */
 function resolveTallyActualRoute(row, sourcePid, autoAllocate){
+  ensureCommonAmenitiesProject(sourcePid);
   var source=(PROJS||[]).find(function(p){return p&&String(p.id)===String(sourcePid);})||null;
   var sh=getProjectHierarchy(sourcePid);
   var phaseProjects=tallyPhaseProjects(sourcePid);
   var cc=String((row&&row.costCentre)||'').trim();
-  var prefix=parseBuildingPrefixFromTallyCostCentre(cc);
-  var isCommon=isTallyCommonCostCentre(cc,String((row&&row.party)||'')+' '+String((row&&row.note)||''));
+  var party=String((row&&row.party)||'');
+  var note=String((row&&row.note)||'');
+  var prefix=parseBuildingPrefixFromTallyCostCentre(cc)||inferPrefixFromTallyPartyName(party);
+  var isCommon=isTallyCommonCostCentre(cc,party+' '+note);
   var dest=source;
   var kind='selected_project';
   var matched=true;
@@ -709,12 +829,21 @@ function resolveTallyActualRoute(row, sourcePid, autoAllocate){
     dest=tallyCommonOwnerProject(sourcePid,phaseProjects)||source;
     kind='phase_common';
   }else if(autoAllocate!==false && prefix){
-    var matches=phaseProjects.filter(function(p){return getAcctPrefixForPid(p.id)===prefix;});
+    var matches=phaseProjects.filter(function(p){
+      if(isCommonAmenitiesProject(p)) return false;
+      return getAcctPrefixForPid(p.id)===prefix;
+    });
     matches.sort(function(a,b){return String(a.id||'').localeCompare(String(b.id||''));});
     if(matches.length){dest=matches[0];kind='building';}
-    else{kind='unmapped_prefix';matched=false;}
+    else{
+      var byName=matchPhaseProjectByBuildingName(phaseProjects, cc+' '+party+' '+note+' Building '+prefix);
+      if(byName){ dest=byName; kind='building'; matched=true; }
+      else{ kind='unmapped_prefix'; matched=false; }
+    }
   }else if(autoAllocate!==false){
-    kind='unmapped_cost_centre';matched=false;
+    var byName2=matchPhaseProjectByBuildingName(phaseProjects, cc+' '+party+' '+note);
+    if(byName2){ dest=byName2; kind='building'; }
+    else{ kind='unmapped_cost_centre'; matched=false; }
   }
   if(!dest) dest=source;
   var dh=getProjectHierarchy(dest&&dest.id?dest.id:sourcePid);
@@ -726,7 +855,7 @@ function resolveTallyActualRoute(row, sourcePid, autoAllocate){
     prefix:prefix||(isCommon?'CM':''),
     projectGroup:sh.projectGroup||dh.projectGroup||'Unassigned',
     phase:sh.phase||dh.phase||'Unassigned',
-    building:kind==='phase_common'?'Common Amenities':(dh.building||'Unassigned')
+    building:kind==='phase_common'?COMMON_AMENITIES_BUILDING_NAME:(dh.building||'Unassigned')
   };
 }
 function normTallyCostCentreLabel(s){
@@ -1936,32 +2065,44 @@ function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildi
       masterKey:g.masterKey||'',
       gaScope:g.scope||scope,
       plL1:String(g.plL1Label||g.l1Name||''),
+      codingUnmapped:false
     };
   }
+  // Keyword / heuristic may SUGGEST a bucket but must NOT invent an L1 — highlight as Unmapped for audit.
   var kw=guessTallyCategoryKey(fullText);
   if(!kw) kw=guessTallyCategoryKey(String(party||''));
-  if(kw){
-    if(kw==='Payables'){
-      var pg=lookupCommonMasterByKeywords(text+' '+String(party||''));
-      if(pg) return {
-        cat1:'Payables',
-        gaL1:pg.cfL1Label||'Common · Payables',
-        gaL2:(pg.l2Name||'')+' ('+(pg.l2||'')+')',
-        gaL3:pg.shortCode||'',
-        gaL3Name:pg.l3Name||'',
-        flow:pg.flow,
-        tallyMapSrc:'keyword-v3',
-        masterKey:pg.masterKey||'',
-        gaScope:'common',
-        plL1:pg.plL1Label||'',
-      };
-    }
-    return {cat1:kw,gaL1:legacyCashflowCat1ToDisplayGaL1(kw),gaL2:'',gaL3:'',gaL3Name:'',tallyMapSrc:'keyword'};
+  if(kw==='Payables'){
+    var pg=lookupCommonMasterByKeywords(text+' '+String(party||''));
+    if(pg) return {
+      cat1:'Payables',
+      gaL1:pg.cfL1Label||'Common · Payables',
+      gaL2:(pg.l2Name||'')+' ('+(pg.l2||'')+')',
+      gaL3:pg.shortCode||'',
+      gaL3Name:pg.l3Name||'',
+      flow:pg.flow,
+      tallyMapSrc:'keyword-v3',
+      masterKey:pg.masterKey||'',
+      gaScope:'common',
+      plL1:pg.plL1Label||'',
+      codingUnmapped:false
+    };
   }
-  if(/customer|collection|booking|milestone|possession|receipt|sale|unit|flat|parking|amenity|demand|installment|allotment/i.test(text)){
-    return {cat1:'Other Income',gaL1:'',gaL2:'',gaL3:'',gaL3Name:'(heuristic inflow)',tallyMapSrc:'heuristic-in'};
+  var suggested=kw||'';
+  if(!suggested && /customer|collection|booking|milestone|possession|receipt|sale|unit|flat|parking|amenity|demand|installment|allotment/i.test(text)){
+    suggested='Other Income';
   }
-  return {cat1:'Construction',gaL1:legacyCashflowCat1ToDisplayGaL1('Construction'),gaL2:'',gaL3:'',gaL3Name:'(unmapped — reclassify if needed)',tallyMapSrc:'unmapped-out'};
+  return {
+    cat1:'Unmapped',
+    gaL1:'Unmapped',
+    gaL2:'',
+    gaL3:'',
+    gaL3Name:suggested?('(no master match — suggested: '+suggested+')'):'(no master L1 match — reclassify)',
+    tallyMapSrc:suggested?'unmapped-suggested':'unmapped',
+    codingUnmapped:true,
+    suggestedCat1:suggested,
+    gaScope:scope,
+    plL1:'Unmapped'
+  };
 }
 function legacyCat1ToExpenseScheduleKey(leg){
   var m={'Land':'landSchedule','NOC':'nocSchedule','Consultant':'consultantSchedule','Regulatory & Consulting':'regulatoryConsultingSchedule','Construction':'constructionSchedule','Marketing':'marketingSchedule'};
@@ -2296,7 +2437,10 @@ function isTallyCashFlowStatementRollupName(name){
   return false;
 }
 function inferPrefixFromTallyPartyName(party){
-  var m=String(party||'').match(/^Building\s+([A-Z])\b/i);
+  var s=String(party||'').trim();
+  var m=s.match(/^Building\s+([A-Z])\b/i)
+    ||s.match(/\b(?:Tower|Wing|Block)\s+([A-Z])\b/i)
+    ||s.match(/^([A-Z])[\s\-]+CF\b/i);
   if(m&&m[1]) return String(m[1]).toUpperCase();
   return '';
 }
@@ -2459,6 +2603,8 @@ function ledgerLineToActual(row, route){
     voucherType:vt||'',
     gaL1:sot.gaL1,gaL2:sot.gaL2,gaL3:sot.gaL3,gaL3Name:sot.gaL3Name,tallyMapSrc:sot.tallyMapSrc,
     masterKey:sot.masterKey||'',gaScope:sot.gaScope||'building',plL1:sot.plL1||'',
+    codingUnmapped:!!sot.codingUnmapped,
+    suggestedCat1:sot.suggestedCat1||'',
     tallyRouteKind:route.kind||'selected_project',
     tallyRouteSourcePid:route.sourcePid||_curPid||'',
     tallyRoutePid:route.pid||_curPid||'',
@@ -2471,6 +2617,73 @@ function ledgerLineToActual(row, route){
     _cfCodingVer:CF_VERSION
   };
 }
+function getTallyPullFingerprintStore(){
+  try{ return JSON.parse(localStorage.getItem(TALLY_PULL_FINGERPRINT_KEY)||'{}'); }catch(e){ return {}; }
+}
+function saveTallyPullFingerprintStore(store){
+  try{ localStorage.setItem(TALLY_PULL_FINGERPRINT_KEY, JSON.stringify(store||{})); }catch(e){}
+}
+function tallyPhaseFingerprintKey(sourcePid){
+  var sh=getProjectHierarchy(sourcePid);
+  return String(sh.projectGroup||'')+'|'+String(sh.phase||'');
+}
+/** Compare this pull to the previous upload fingerprint; persist current keys for next audit. */
+function compareAndStoreTallyPullFingerprint(eligible, sourcePid){
+  var store=getTallyPullFingerprintStore();
+  var key=tallyPhaseFingerprintKey(sourcePid);
+  var prev=store[key]||{keys:[],rowsByKey:{},at:0};
+  var prevKeys={};
+  (prev.keys||[]).forEach(function(k){ prevKeys[k]=1; });
+  var newKeys={}, newRowsByKey={};
+  (eligible||[]).forEach(function(x){
+    var tk=x.row&&x.row.tallyKey;
+    if(!tk) return;
+    newKeys[tk]=1;
+    newRowsByKey[tk]=x.row;
+  });
+  var missed=[], newlyAppeared=[];
+  Object.keys(prevKeys).forEach(function(k){
+    if(!newKeys[k]) missed.push(prev.rowsByKey[k]||{tallyKey:k});
+  });
+  Object.keys(newKeys).forEach(function(k){
+    if(!prevKeys[k]) newlyAppeared.push(newRowsByKey[k]);
+  });
+  var keys=Object.keys(newKeys);
+  var compact={};
+  keys.slice(0,8000).forEach(function(k){
+    var r=newRowsByKey[k]||{};
+    compact[k]={
+      date:r.date||'', party:r.party||'', rawAmount:r.rawAmount||0,
+      costCentre:r.costCentre||'', note:String(r.note||'').slice(0,160),
+      voucherType:r.voucherType||'', tallyKey:k
+    };
+  });
+  store[key]={keys:keys,rowsByKey:compact,at:Date.now()};
+  saveTallyPullFingerprintStore(store);
+  window.__gaLastTallyMissedAudit={
+    missed:missed, newlyAppeared:newlyAppeared, phaseKey:key,
+    prevAt:prev.at||0, currentAt:Date.now(), hadPrior:!!(prev.keys&&prev.keys.length)
+  };
+  return window.__gaLastTallyMissedAudit;
+}
+function downloadTallyMissedEntriesXlsx(){
+  var audit=window.__gaLastTallyMissedAudit;
+  if(!audit){ alert('Pull from Tally first — then download missed entries vs the previous upload.'); return; }
+  if(!audit.hadPrior){ alert('No previous upload fingerprint yet. After the next pull, missed entries vs this one can be exported.'); return; }
+  var missed=audit.missed||[], neu=audit.newlyAppeared||[];
+  if(!missed.length && !neu.length){ alert('No differences vs the previous upload.'); return; }
+  if(!window.XLSX){ alert('Spreadsheet library not loaded.'); return; }
+  var aoa=[['Status','Date','Party','Amount','Cost Centre','Note','Voucher Type','Tally Key']];
+  missed.forEach(function(r){
+    aoa.push(['MISSING vs previous upload', r.date||'', r.party||'', r.rawAmount||'', r.costCentre||'', r.note||'', r.voucherType||'', r.tallyKey||'']);
+  });
+  neu.forEach(function(r){
+    aoa.push(['NEW since previous upload', r.date||'', r.party||'', r.rawAmount||'', r.costCentre||'', r.note||'', r.voucherType||'', r.tallyKey||'']);
+  });
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), 'Missed vs prior');
+  XLSX.writeFile(wb, 'GA_Tally_Missed_Entries_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
 function mergeTallyLinesIntoActuals(rows, opts){
   opts=opts||{};
   var onlyPR=opts.onlyPaymentReceipt!==false;
@@ -2478,6 +2691,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
     var filt=filterTallyRowsPaymentReceiptOnly(rows);
     rows=filt.rows;
   }
+  ensureCommonAmenitiesProject(_curPid);
   var ccSub=(opts.costCentreSubstr||'').trim().toLowerCase();
   var eligible=[], skipped=0;
   (rows||[]).forEach(function(row){
@@ -2488,6 +2702,8 @@ function mergeTallyLinesIntoActuals(rows, opts){
     }
     eligible.push({row:row,route:resolveTallyActualRoute(row,_curPid,opts.autoAllocate!==false)});
   });
+
+  var audit=compareAndStoreTallyPullFingerprint(eligible, _curPid);
 
   var phaseProjects=opts.autoAllocate!==false?tallyPhaseProjects(_curPid):[];
   var scopePids=phaseProjects.map(function(p){return String(p.id);});
@@ -2508,7 +2724,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
   scopePids.forEach(function(pid){
     (getCF(pid).actuals||[]).forEach(function(a){if(a&&a.tallyKey) existing[a.tallyKey]=1;});
   });
-  var added=0, routedBuildings=0, routedCommon=0, unmapped=0, perProject={};
+  var added=0, routedBuildings=0, routedCommon=0, unmapped=0, codingUnmapped=0, perProject={};
   var touched={};
   eligible.forEach(function(x){
     var route=x.route;
@@ -2523,6 +2739,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
     if(route.kind==='building') routedBuildings++;
     else if(route.kind==='phase_common') routedCommon++;
     else if(route.matched===false) unmapped++;
+    if(act.codingUnmapped) codingUnmapped++;
     added++;
   });
   touched[String(_curPid)]=1;
@@ -2539,6 +2756,10 @@ function mergeTallyLinesIntoActuals(rows, opts){
   return {
     added:added,skipped:skipped,replaced:replaced,
     routedBuildings:routedBuildings,routedCommon:routedCommon,unmapped:unmapped,
+    codingUnmapped:codingUnmapped,
+    missedVsPrior:(audit&&audit.missed)?audit.missed.length:0,
+    newVsPrior:(audit&&audit.newlyAppeared)?audit.newlyAppeared.length:0,
+    hadPriorPull:!!(audit&&audit.hadPrior),
     perProject:perProject
   };
 }
@@ -2588,8 +2809,9 @@ function showTallySyncModal(){
     +'<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">'
     +'<button type="button" class="btn btn-outline" data-action="tally-dl-raw-xml" style="font-size:10px">Download last raw XML</button>'
     +'<button type="button" class="btn btn-outline" data-action="tally-dl-parsed-tsv" style="font-size:10px">Download last parsed TSV</button>'
+    +'<button type="button" class="btn btn-outline" data-action="tally-dl-missed-xlsx" style="font-size:10px;border-color:var(--gold);color:var(--gold)">Download missed entries (Excel)</button>'
     +'</div>'
-    +'<p style="font-size:9px;color:var(--muted);margin-top:6px">Dumps use the response from your most recent successful pull (this browser session).</p>'
+    +'<p style="font-size:9px;color:var(--muted);margin-top:6px">Missed-entry Excel compares this pull to the previous upload fingerprint for the same Project Group + Phase (for audit).</p>'
     +'<p style="font-size:10px;color:var(--muted);margin-top:14px;line-height:1.4"><strong>Capital Structure:</strong> equity / loans / investor lines are not auto-created from Tally. Inflow categories appear in <strong>actuals</strong> — reconcile, then edit capital rows manually if needed.</p>'
     +'</div></div>');
 }
@@ -2717,8 +2939,10 @@ function runTallyPullVouchers(){
     if(!s.replaceTally) metaHint+=' · Tip: tick Replace to clear old Journal/Contra imports';
     if(s.autoAllocate!==false){
       metaHint+=' · Auto-routed: '+res.routedBuildings+' building, '+res.routedCommon+' common';
-      if(res.unmapped) metaHint+=' · ⚠ '+res.unmapped+' unmapped (kept on selected project)';
+      if(res.unmapped) metaHint+=' · ⚠ '+res.unmapped+' unmapped cost centre (kept on selected project)';
     }
+    if(res.codingUnmapped) metaHint+=' · ⚠ '+res.codingUnmapped+' line(s) with no master L1 (highlighted Unmapped)';
+    if(res.hadPriorPull) metaHint+=' · vs prior upload: '+res.missedVsPrior+' missing, '+res.newVsPrior+' new (Excel available)';
     if(res.replaced) metaHint+=' · replaced '+res.replaced+' prior Tally line(s)';
     el.textContent='✓ Added '+res.added+' Payment/Receipt line(s). Skipped '+res.skipped+'.'+metaHint;
     closeModal();
@@ -7652,28 +7876,38 @@ function renderTransLog(cfg){
     h+='<button type="button" class="btn btn-outline" data-action="tally-dl-raw-xml" style="font-size:9px;padding:4px 8px">Tally raw XML</button>';
     h+='<button type="button" class="btn btn-outline" data-action="tally-dl-parsed-tsv" style="font-size:9px;padding:4px 8px">Tally parsed TSV</button>';
   }
+  if(window.__gaLastTallyMissedAudit&&window.__gaLastTallyMissedAudit.hadPrior){
+    h+='<button type="button" class="btn btn-outline" data-action="tally-dl-missed-xlsx" style="font-size:9px;padding:4px 8px;border-color:var(--gold);color:var(--gold)">Missed entries Excel</button>';
+  }
   h+='<button class="btn btn-green" data-action="add-trans" style="font-size:10px;padding:5px 10px">+ Add</button>';
   h+='</div></div>';
   if(!acts.length){
     h+='<div style="text-align:center;color:var(--muted);padding:16px;font-size:11px">No transactions yet. Add manually or import from Tally (CSV or XML).</div>';
   } else {
+    var unmappedN=acts.filter(function(a){ return a&&(a.codingUnmapped||isCodingUnmappedCat(a.cat1)||String(a.gaL1||'')==='Unmapped'); }).length;
+    if(unmappedN) h+='<div style="font-size:10px;background:var(--gold-l);color:var(--gold);border:1px solid #e8d48a;border-radius:8px;padding:8px 10px;margin-bottom:8px"><strong>'+unmappedN+' unmapped</strong> line(s) — no V3 master L1 match. Rows highlighted amber; app does not invent categories.</div>';
     h+='<div class="sales-grid-wrap"><table id="sales-grid-table" style="width:100%;border-collapse:collapse;font-size:10px">';
     h+='<thead><tr style="background:var(--blue-l)"><th style="padding:5px 8px;text-align:left">Date</th>';
     h+='<th style="text-align:left">Party</th><th style="text-align:left">Category</th><th style="text-align:left;max-width:180px">GA L1 / L2 / L3</th>';
-    h+='<th style="text-align:left">Cost Centre</th><th style="text-align:right">Amount</th><th></th></tr></thead><tbody>';
+    h+='<th style="text-align:left">Cost Centre</th><th style="text-align:left">Building</th><th style="text-align:right">Amount</th><th></th></tr></thead><tbody>';
     acts.forEach(function(a,i){
       var pos=a.amount>=0;
+      var unmapped=!!(a.codingUnmapped||isCodingUnmappedCat(a.cat1)||String(a.gaL1||'')==='Unmapped');
+      var routeMiss=a.tallyRouteKind==='unmapped_prefix'||a.tallyRouteKind==='unmapped_cost_centre';
       var gaH=(a.gaL1?('<div style="font-size:9px">'+escHtml(a.gaL1)+'</div>'):'')
         +(a.gaL2?('<div style="font-size:8px;color:var(--slate)">'+escHtml(a.gaL2)+'</div>'):'')
         +((a.gaL3||a.gaL3Name)?('<div style="font-size:8px;color:var(--muted)">'+(a.gaL3?escHtml(a.gaL3)+' ':'')+escHtml(a.gaL3Name||'')+'</div>'):'');
+      if(a.suggestedCat1&&unmapped) gaH+='<div style="font-size:8px;color:var(--gold)">hint: '+escHtml(a.suggestedCat1)+'</div>';
       if(!gaH) gaH='<span style="font-size:8px;color:var(--muted)">—</span>';
-      h+='<tr style="border-bottom:1px solid var(--border)">';
+      var rowBg=unmapped?'background:#FDF8EC':(routeMiss?'background:#FEF0E5':'');
+      h+='<tr style="border-bottom:1px solid var(--border);'+rowBg+'">';
       h+='<td style="padding:4px 8px">'+a.date+'</td>';
       h+='<td style="padding:4px 8px">'+a.party+'<br/><span style="font-size:9px;color:var(--muted)">'+a.note+'</span></td>';
-      h+='<td style="padding:4px 8px"><span style="background:'+(pos?'var(--green-l)':'var(--red-l)')+';color:'+(pos?'var(--green-b)':'var(--red-b)')+';padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700">'+a.cat1+'</span>'
+      h+='<td style="padding:4px 8px"><span style="background:'+(unmapped?'var(--gold-l)':(pos?'var(--green-l)':'var(--red-l)'))+';color:'+(unmapped?'var(--gold)':(pos?'var(--green-b)':'var(--red-b)'))+';padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700">'+(unmapped?'⚠ Unmapped':a.cat1)+'</span>'
         +((a.tallyMapSrc&&a.source==='tally')?('<div style="font-size:7px;margin-top:2px;color:var(--muted)">'+escHtml(a.tallyMapSrc)+'</div>'):'')+'</td>';
       h+='<td style="padding:4px 6px;vertical-align:top">'+gaH+'</td>';
       h+='<td style="padding:4px 8px;color:var(--muted)">'+(a.costCentre||'—')+'</td>';
+      h+='<td style="padding:4px 8px;font-size:9px">'+(a.tallyRouteBuilding||'—')+(a.tallyRoutePrefix?(' <span style="color:var(--muted)">('+escHtml(a.tallyRoutePrefix)+')</span>'):'')+'</td>';
       h+='<td style="text-align:right;font-weight:700;color:'+(pos?'var(--green-b)':'var(--red-b)')+';padding:4px 8px">'+formatRupeesDisplay(a.amount)+'</td>';
       h+='<td style="padding:4px"><button data-action="del-trans" data-idx="'+i+'" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px">×</button></td>';
       h+='</tr>';
@@ -10757,27 +10991,29 @@ function showAddProjModal(){
     +'</div></div></div>');
 }
 function showHierarchyModal(){
-  var prefixes=availableBuildingPrefixes();
+  if(_curPid) ensureCommonAmenitiesProject(_curPid);
+  var prefixes=availableBuildingPrefixes().concat(['CM']);
   var rows=(PROJS||[]).map(function(p,i){
     var pref=p.acctPrefix||getAcctPrefixForPid(p.id);
     var hh=getProjectHierarchy(p.id);
     var ownerName='common-owner-'+String(hh.projectGroup+'-'+hh.phase).replace(/[^a-z0-9_-]+/gi,'_');
     var commonOwner=isConfiguredTallyCommonOwner(p);
+    var isCA=isCommonAmenitiesProject(p);
     var opts=prefixes.map(function(pr){
       return '<option value="'+escAttr(pr)+'"'+(pr===pref?' selected':'')+'>'+escHtml(pr)+'</option>';
     }).join('');
-    return '<tr style="border-bottom:1px solid var(--border)">'
-      +'<td style="padding:6px 8px;font-size:10px">'+escHtml(p.name||p.id||('Project '+(i+1)))+'</td>'
+    return '<tr style="border-bottom:1px solid var(--border)'+(isCA?';background:var(--teal-l)':'')+'">'
+      +'<td style="padding:6px 8px;font-size:10px">'+escHtml(p.name||p.id||('Project '+(i+1)))+(isCA?' <span style="font-size:8px;color:var(--teal);font-weight:700">COMMON</span>':'')+'</td>'
       +'<td style="padding:4px 6px"><input type="text" class="cap-inp" data-hk="projectGroup" data-idx="'+i+'" value="'+escAttr(p.projectGroup||inferProjectGroupFromProject(p)||'')+'" placeholder="Project group"/></td>'
       +'<td style="padding:4px 6px"><input type="text" class="cap-inp" data-hk="phase" data-idx="'+i+'" value="'+escAttr(p.phase||inferPhaseFromProject(p)||'')+'" placeholder="Phase"/></td>'
       +'<td style="padding:4px 6px"><input type="text" class="cap-inp" data-hk="building" data-idx="'+i+'" value="'+escAttr(p.building||inferBuildingFromProject(p)||'')+'" placeholder="Building name"/></td>'
       +'<td style="padding:4px 6px"><select class="cap-inp" data-hk="acctPrefix" data-idx="'+i+'" title="V3 chart prefix for this building">'+opts+'</select></td>'
-      +'<td style="padding:4px 6px;text-align:center"><input type="radio" name="'+escAttr(ownerName)+'" data-hk="tallyCommonCostOwner" data-idx="'+i+'" '+(commonOwner?'checked':'')+' title="Store CM/common Tally lines here; rollup still shows them at phase level"/></td>'
+      +'<td style="padding:4px 6px;text-align:center"><input type="radio" name="'+escAttr(ownerName)+'" data-hk="tallyCommonCostOwner" data-idx="'+i+'" '+(commonOwner?'checked':'')+' title="CM/common Tally lines allocate to Common Amenities"/></td>'
       +'</tr>';
   }).join('');
   openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:960px;max-width:96vw">'
     +'<h3>Project Hierarchy Mapping</h3>'
-    +'<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Roll-up: <strong>Project Group</strong> → <strong>Phase</strong> → <strong>Building</strong>. A–Z cost centres auto-route to the matching chart prefix. Select one <strong>Common owner</strong> per phase for CM/common storage; reports show it as a phase-level sibling so it is not charged to that building.</div>'
+    +'<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Roll-up: <strong>Project Group</strong> → <strong>Phase</strong> → <strong>Building</strong>. Chart prefixes A–Z route building cost centres. A <strong>Common Amenities</strong> building is auto-created per phase — all CM/common costs allocate there.</div>'
     +'<div style="overflow:auto;border:1px solid var(--border);border-radius:8px;max-height:62vh"><table style="width:100%;border-collapse:collapse;font-size:10px;min-width:860px">'
     +'<thead><tr style="background:var(--blue-l)"><th style="padding:6px 8px;text-align:left">Project</th><th style="padding:6px 8px;text-align:left">Project Group</th><th style="padding:6px 8px;text-align:left">Phase</th><th style="padding:6px 8px;text-align:left">Building</th><th style="padding:6px 8px;text-align:left">Chart prefix</th><th style="padding:6px 8px;text-align:center">Common owner</th></tr></thead>'
     +'<tbody>'+(rows||'<tr><td colspan="6" style="padding:16px;text-align:center;color:var(--muted)">No projects available.</td></tr>')+'</tbody></table></div>'
@@ -10820,6 +11056,17 @@ function saveHierarchyFromModal(){
     }
   });
   saveBuildingPrefixMap(map);
+  if(_curPid) ensureCommonAmenitiesProject(_curPid);
+  // Ensure every distinct phase has a Common Amenities building
+  var seenPhases={};
+  (PROJS||[]).forEach(function(p){
+    if(!p||!p.id) return;
+    var h=getProjectHierarchy(p.id);
+    var k=String(h.projectGroup)+'|'+String(h.phase);
+    if(seenPhases[k]) return;
+    seenPhases[k]=1;
+    ensureCommonAmenitiesProject(p.id);
+  });
   saveAll();
   buildPhaseSelect();
   buildBuildingSelect();
@@ -12412,6 +12659,7 @@ document.addEventListener('click',function(e){
   if(a==='tally-pull-vouchers')    { runTallyPullVouchers(); return; }
   if(a==='tally-dl-raw-xml')       { downloadGaTallyRawXml(); return; }
   if(a==='tally-dl-parsed-tsv')     { downloadGaTallyParsedTsv(); return; }
+  if(a==='tally-dl-missed-xlsx')    { downloadTallyMissedEntriesXlsx(); return; }
   if(a==='dl-capital-template')    { dlCapitalTemplate(); return; }
   if(a==='ul-capital-template')    { document.getElementById('cap-template-input').click(); return; }
   if(a==='dl-expense-template')    { dlExpenseTemplate(); return; }
