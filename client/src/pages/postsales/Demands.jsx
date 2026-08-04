@@ -8,9 +8,11 @@ import { formatMilestoneLabel } from '../../lib/postsales/milestoneLabels.js';
 import { sortDemandsByClpChronology, toIsoDateInput } from '../../lib/postsales/clpMilestoneOrder.js';
 import {
   computeUnitCumulative,
+  computeCrmReportTotals,
   isGstDemand,
   milestoneRowDisplay,
   sumCumulativeSummary,
+  sumCrmReportSummary,
 } from '../../lib/postsales/demandAmounts.js';
 
 function fmt(n) {
@@ -123,6 +125,19 @@ export default function Demands() {
     for (const g of map.values()) {
       g.milestones = sortDemandsByClpChronology(g.milestones);
       Object.assign(g, computeUnitCumulative(g.milestones, AS_OF_TODAY));
+      const crm = computeCrmReportTotals(g.milestones);
+      g.crmAgreementDue = crm.agreementDue;
+      g.crmAgreementReceived = crm.agreementReceived;
+      g.crmAgreementPending = crm.agreementPending;
+      g.crmGstDue = crm.gstDue;
+      g.crmGstReceived = crm.gstReceived;
+      g.crmGstPending = crm.gstPending;
+      g.crmPostStageDue = crm.postStageDue;
+      g.crmPostStageReceived = crm.postStageReceived;
+      g.crmPostStagePending = crm.postStagePending;
+      g.crmTotalDue = crm.totalDue;
+      g.crmTotalReceived = crm.totalReceived;
+      g.crmTotalPending = crm.totalPending;
     }
     let groups = [...map.values()];
     if (statusFilter) {
@@ -133,7 +148,8 @@ export default function Demands() {
     return groups.sort((a, b) => b.agreementPending + b.gstPending - (a.agreementPending + a.gstPending) || a.project.localeCompare(b.project));
   }, [scopedDemands, statusFilter]);
 
-  const pageTotals = useMemo(() => sumCumulativeSummary(unitGroups), [unitGroups]);
+  const pageTotals = useMemo(() => sumCrmReportSummary(unitGroups), [unitGroups]);
+  const dueAsOfToday = useMemo(() => sumCumulativeSummary(unitGroups), [unitGroups]);
 
   const counts = useMemo(() => ({
     all: demands.length,
@@ -207,9 +223,10 @@ export default function Demands() {
     }
   };
 
-  const totalDue = pageTotals.agreementDue + pageTotals.gstDue;
-  const totalReceived = pageTotals.agreementReceived + pageTotals.gstReceived;
-  const totalPending = pageTotals.agreementPending + pageTotals.gstPending;
+  const totalDue = pageTotals.totalDue;
+  const totalReceived = pageTotals.totalReceived;
+  const totalPending = pageTotals.totalPending;
+  const dueTodayTotal = dueAsOfToday.agreementDue + dueAsOfToday.gstDue;
   const collectPct = fmtPct(totalDue, totalReceived);
 
   return (
@@ -218,7 +235,8 @@ export default function Demands() {
         <div>
           <h2 style={{ margin: 0 }}>Demands &amp; collections</h2>
           <p className="ps-demands-sub">
-            Cumulative <strong>as of today</strong> — agreement due/received only for CLP stages (or instalments) with target date on or before today. GST due/received from the CRM GST column.
+            <strong>Total due</strong> matches the CRM collection report — sum of all Amount Due columns (CLP + GST + stamp duty / interest / maintenance).
+            Agreement columns below are <strong>due as of today</strong> (CLP stages with target date on or before today).
           </p>
         </div>
         <div className="ps-demands-actions">
@@ -272,6 +290,9 @@ export default function Demands() {
         <div className="ps-kpi">
           <div className="ps-kpi-label">Total due</div>
           <div className="ps-kpi-value">{fmt(totalDue)}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)' }}>
+            CRM report · {fmt(dueTodayTotal)} due as of today
+          </div>
         </div>
         <div className="ps-kpi" style={{ borderColor: '#a7f3d0', background: 'var(--ps-success-bg)' }}>
           <div className="ps-kpi-label">Received</div>

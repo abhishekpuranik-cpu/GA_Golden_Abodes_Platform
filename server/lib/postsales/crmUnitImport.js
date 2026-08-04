@@ -358,19 +358,24 @@ async function upsertUnitDemands(unit, milestones, demandByKey, { source = 'uplo
 
     if (existing?._id && APP_LOCKED_DEMAND_SOURCES.has(existing.source)) {
       const paymentStatus = paymentStatusFromAmounts(agreementDue || existing.totalAmount, m.receivedAmount);
-      const pendingAmount = m.pendingAmount ?? Math.max(0, (existing.totalAmount || agreementDue) - num(m.receivedAmount));
-      const paidSame = num(existing.paidAmount) === num(m.receivedAmount);
-      const pendingSame = num(existing.pendingAmount) === num(pendingAmount);
-      const statusSame = existing.paymentStatus === paymentStatus;
-      if (paidSame && pendingSame && statusSame) continue;
+      const pendingAmount = m.pendingAmount ?? Math.max(0, (agreementDue || existing.totalAmount) - num(m.receivedAmount));
+      const amountPatch = isGst
+        ? { demandAmount: 0, gstAmount: agreementDue, totalAmount: agreementDue }
+        : {
+          demandAmount: agreementDue,
+          gstAmount: hasGstRow ? 0 : Math.round(agreementDue * 0.05),
+          totalAmount: agreementDue,
+        };
       ops.push({
         updateOne: {
           filter: { _id: existing._id },
           update: {
             $set: {
+              ...amountPatch,
               paidAmount: num(m.receivedAmount),
               pendingAmount,
               paymentStatus,
+              ...(crmTarget ? { targetDate: crmTarget, dueDate: crmTarget } : {}),
               ...(m.receivedAmount > 0 && !existing.paidDate ? { paidDate: new Date() } : {}),
             },
           },

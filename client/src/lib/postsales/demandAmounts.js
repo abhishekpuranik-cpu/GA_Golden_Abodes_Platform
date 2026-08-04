@@ -112,6 +112,68 @@ export function milestoneRowAmounts(d, asOf = new Date()) {
   };
 }
 
+function rowCrmPending(d, due, received) {
+  if (d?.pendingAmount != null && Number.isFinite(Number(d.pendingAmount))) {
+    return Math.max(0, num(d.pendingAmount));
+  }
+  return Math.max(0, due - received);
+}
+
+/** Full CRM collection-report totals — all milestone Amount Due columns (no date filter). */
+export function computeCrmReportTotals(milestones = []) {
+  const gstRow = findGstDemand(milestones);
+
+  let agreementDue = 0;
+  let agreementReceived = 0;
+  let agreementPending = 0;
+  let gstDue = 0;
+  let gstReceived = 0;
+  let gstPending = 0;
+  let postStageDue = 0;
+  let postStageReceived = 0;
+  let postStagePending = 0;
+
+  for (const d of milestones) {
+    if (isGstDemand(d)) continue;
+
+    const due = agreementDueOnRow(d);
+    const received = num(d?.receivedAmount ?? d?.paidAmount);
+    const pending = rowCrmPending(d, due, received);
+
+    if (isPostStageDemand(d)) {
+      postStageDue += due;
+      postStageReceived += received;
+      postStagePending += pending;
+      continue;
+    }
+
+    agreementDue += due;
+    agreementReceived += received;
+    agreementPending += pending;
+  }
+
+  if (gstRow) {
+    gstDue = readGstDue(gstRow);
+    gstReceived = readGstReceived(gstRow);
+    gstPending = rowCrmPending(gstRow, gstDue, gstReceived);
+  }
+
+  return {
+    agreementDue,
+    agreementReceived,
+    agreementPending,
+    gstDue,
+    gstReceived,
+    gstPending,
+    postStageDue,
+    postStageReceived,
+    postStagePending,
+    totalDue: agreementDue + gstDue + postStageDue,
+    totalReceived: agreementReceived + gstReceived + postStageReceived,
+    totalPending: agreementPending + gstPending + postStagePending,
+  };
+}
+
 /** Unit totals: agreement side filtered by CLP/instalment due date ≤ today; GST from CRM GST row. */
 export function computeUnitCumulative(milestones = [], asOf = new Date()) {
   const gstRow = findGstDemand(milestones);
@@ -164,5 +226,38 @@ export function sumCumulativeSummary(unitGroups) {
       gstPending: acc.gstPending + g.gstPending,
     }),
     { agreementDue: 0, agreementReceived: 0, agreementPending: 0, gstDue: 0, gstReceived: 0, gstPending: 0 },
+  );
+}
+
+export function sumCrmReportSummary(unitGroups) {
+  return unitGroups.reduce(
+    (acc, g) => ({
+      agreementDue: acc.agreementDue + (g.crmAgreementDue ?? 0),
+      agreementReceived: acc.agreementReceived + (g.crmAgreementReceived ?? 0),
+      agreementPending: acc.agreementPending + (g.crmAgreementPending ?? 0),
+      gstDue: acc.gstDue + (g.crmGstDue ?? 0),
+      gstReceived: acc.gstReceived + (g.crmGstReceived ?? 0),
+      gstPending: acc.gstPending + (g.crmGstPending ?? 0),
+      postStageDue: acc.postStageDue + (g.crmPostStageDue ?? 0),
+      postStageReceived: acc.postStageReceived + (g.crmPostStageReceived ?? 0),
+      postStagePending: acc.postStagePending + (g.crmPostStagePending ?? 0),
+      totalDue: acc.totalDue + (g.crmTotalDue ?? 0),
+      totalReceived: acc.totalReceived + (g.crmTotalReceived ?? 0),
+      totalPending: acc.totalPending + (g.crmTotalPending ?? 0),
+    }),
+    {
+      agreementDue: 0,
+      agreementReceived: 0,
+      agreementPending: 0,
+      gstDue: 0,
+      gstReceived: 0,
+      gstPending: 0,
+      postStageDue: 0,
+      postStageReceived: 0,
+      postStagePending: 0,
+      totalDue: 0,
+      totalReceived: 0,
+      totalPending: 0,
+    },
   );
 }
