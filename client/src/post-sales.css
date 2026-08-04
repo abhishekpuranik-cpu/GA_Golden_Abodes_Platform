@@ -609,6 +609,25 @@
 }
 .ps-reports-ms-block { border-top: 1px solid #eef2f7; padding-top: 10px; margin-top: 8px; }
 .ps-reports-ms-title { font-size: 0.8rem; font-weight: 700; margin-bottom: 6px; color: var(--ps-accent); }
+.ps-reports-forecast-simple .ps-reports-forecast-lead {
+  margin: 0 0 10px; font-size: 0.82rem; color: var(--ps-text-muted); line-height: 1.45;
+}
+.ps-reports-snapshot { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.ps-chip-link { text-decoration: none; color: var(--ps-accent); border-color: #bfdbfe; background: #eff6ff; }
+.ps-reports-forecast-table-wrap { margin-top: 8px; overflow: auto; }
+.ps-reports-forecast-table { font-size: 0.8rem; min-width: 640px; }
+.ps-reports-forecast-table th { font-size: 0.72rem; white-space: nowrap; }
+.ps-reports-forecast-input {
+  width: 100%; min-width: 96px; max-width: 140px; padding: 4px 6px;
+  border: 1px solid var(--ps-border); border-radius: 5px; font-size: 0.76rem;
+}
+.ps-reports-empty-forecast {
+  padding: 14px; border-radius: 8px; background: #f0fdf4; border: 1px solid #bbf7d0;
+  font-size: 0.85rem; color: #166534; margin: 8px 0;
+}
+.ps-reports-advanced { margin-top: 12px; border: 1px dashed var(--ps-border); border-radius: 8px; padding: 8px 12px; }
+.ps-reports-advanced summary { cursor: pointer; font-size: 0.78rem; font-weight: 600; color: var(--ps-text-muted); }
+.ps-reports-advanced[open] summary { margin-bottom: 10px; }
 .ps-reports-inst-row {
   display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; margin-bottom: 6px;
   min-height: 32px; max-height: 32px; overflow: hidden;

@@ -185,7 +185,7 @@ export default function Reports() {
     const result = await saveForecast(unitId, body);
     setEditing(null);
     await refreshDisb();
-    setToast('Forecast saved — disbursement view updated.');
+    setToast('Follow-up saved — disbursement view updated.');
     setTimeout(() => setToast(''), 4000);
     return result;
   };
@@ -229,9 +229,8 @@ export default function Reports() {
         <div>
           <h2 style={{ margin: 0 }}>Reports</h2>
           <p className="ps-reports-sub">
-            Collection register with milestone payment forecasts · expected dates linked to{' '}
-            <Link to="/app/post-sales/milestones">Milestones → Achieved Date</Link>
-            {' '}· rolls up to weekly disbursement view (Clear / Risky / Delayed).
+            Collection register — amounts from CRM/Demands; click a row to set <strong>expected payment dates</strong> and CX follow-up.
+            Rolls up to the disbursement forecast (Clear / Risky / Delayed).
             {asOf ? ` · As of ${asOf}` : ''}
           </p>
         </div>
@@ -324,7 +323,7 @@ export default function Reports() {
                     <tr
                       className={`ps-reports-unit-row ${isEdit ? 'ps-reports-unit-row-editing' : ''}`}
                       onClick={() => toggleEdit(row.unitId)}
-                      title="Click row to open / close forecast editor"
+                      title="Click to open follow-up panel (expected dates & remarks)"
                     >
                       <td><strong>{row.unitNumber}</strong>{isEdit && <span className="ps-reports-edit-hint"> editing</span>}</td>
                       <td>
@@ -348,7 +347,7 @@ export default function Reports() {
                         {row.nextExpectedDate ? (
                           <span>{fmt(row.nextExpectedAmount)} · {fmtDate(row.nextExpectedDate)}</span>
                         ) : (
-                          <span className="ps-reports-muted">Set forecast</span>
+                          <span className="ps-reports-muted">Set expected date</span>
                         )}
                         {instCount > 0 && <span className="ps-reports-inst-count">{instCount} inst.</span>}
                       </td>
