@@ -223,11 +223,11 @@ export default function Demands() {
     }
   };
 
-  const totalDue = pageTotals.totalDue;
-  const totalReceived = pageTotals.totalReceived;
-  const totalPending = pageTotals.totalPending;
-  const dueTodayTotal = dueAsOfToday.agreementDue + dueAsOfToday.gstDue;
-  const collectPct = fmtPct(totalDue, totalReceived);
+  const dueTodayDue = dueAsOfToday.agreementDue + dueAsOfToday.gstDue;
+  const dueTodayReceived = dueAsOfToday.agreementReceived + dueAsOfToday.gstReceived;
+  const dueTodayPending = dueAsOfToday.agreementPending + dueAsOfToday.gstPending;
+  const crmScheduleTotal = pageTotals.totalDue;
+  const collectPct = fmtPct(dueTodayDue, dueTodayReceived);
 
   return (
     <div className="ps-demands-page">
@@ -235,8 +235,8 @@ export default function Demands() {
         <div>
           <h2 style={{ margin: 0 }}>Demands &amp; collections</h2>
           <p className="ps-demands-sub">
-            <strong>Total due</strong> matches the CRM collection report — sum of all Amount Due columns (CLP + GST + stamp duty / interest / maintenance).
-            Agreement columns below are <strong>due as of today</strong> (CLP stages with target date on or before today).
+            <strong>Due as of today</strong> — agreement due only for CLP stages (or instalments) whose target date is on or before today; token/booking counts when no date is set. GST from the CRM GST column.
+            <strong> CRM schedule total</strong> (all Amount Due columns) shown for reconciliation.
           </p>
         </div>
         <div className="ps-demands-actions">
@@ -288,23 +288,23 @@ export default function Demands() {
           <div style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)' }}>{unitGroups.length} units in view</div>
         </div>
         <div className="ps-kpi">
-          <div className="ps-kpi-label">Total due</div>
-          <div className="ps-kpi-value">{fmt(totalDue)}</div>
+          <div className="ps-kpi-label">Due as of today</div>
+          <div className="ps-kpi-value">{fmt(dueTodayDue)}</div>
           <div style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)' }}>
-            CRM report · {fmt(dueTodayTotal)} due as of today
+            CLP met · CRM schedule {fmt(crmScheduleTotal)}
           </div>
         </div>
         <div className="ps-kpi" style={{ borderColor: '#a7f3d0', background: 'var(--ps-success-bg)' }}>
-          <div className="ps-kpi-label">Received</div>
-          <div className="ps-kpi-value" style={{ color: 'var(--ps-success)' }}>{fmt(totalReceived)}</div>
+          <div className="ps-kpi-label">Received <span className="ps-th-note">today</span></div>
+          <div className="ps-kpi-value" style={{ color: 'var(--ps-success)' }}>{fmt(dueTodayReceived)}</div>
           <div className="ps-progress" style={{ marginTop: 8 }}>
             <div className="ps-progress-fill" style={{ width: `${collectPct}%` }} />
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)' }}>{collectPct}% collected</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--ps-text-muted)' }}>{collectPct}% of due-as-today collected</div>
         </div>
-        <div className={`ps-kpi ${totalPending > 0 ? 'danger' : ''}`}>
-          <div className="ps-kpi-label">Pending</div>
-          <div className="ps-kpi-value">{fmt(totalPending)}</div>
+        <div className={`ps-kpi ${dueTodayPending > 0 ? 'danger' : ''}`}>
+          <div className="ps-kpi-label">Pending <span className="ps-th-note">today</span></div>
+          <div className="ps-kpi-value">{fmt(dueTodayPending)}</div>
         </div>
       </div>
 
