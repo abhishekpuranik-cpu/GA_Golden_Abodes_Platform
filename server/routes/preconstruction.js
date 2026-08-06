@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import multer from 'multer';
+import os from 'os';
 import { withDb } from '../lib/mongo.js';
 import {
   mergePreconstructionState,
@@ -10,11 +11,14 @@ import {
 import { resolveSession, userHasApp } from './auth.js';
 import {
   MAX_UPLOAD_BYTES,
+  PRECON_UPLOAD_CONCURRENCY,
   ensurePreconAttachmentIndexes,
   readAttachmentBuffer,
   getAttachmentMeta,
   openAttachmentStream,
-  storePreconFile
+  storePreconFile,
+  mapPool,
+  unlinkQuiet
 } from '../lib/preconAttachments.js';
 import { emailNotifyEnabled, getEmailConfig, sendPreconNotification } from '../lib/preconEmail.js';
 import { buildPreconNotifyBody, buildPreconNotifyEmailHtml } from '../lib/preconNotifyContent.js';
@@ -67,7 +71,14 @@ function canDeletePreconProjects(user) {
 }
 
 const upload = multer({
-  storage: multer.memoryStorage(),
+  // Disk staging avoids holding multi-MB CAD/PDF twice in RAM (multer + GridFS).
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, os.tmpdir()),
+    filename: (_req, file, cb) => {
+      const safe = String(file.originalname || 'file').replace(/[^\w.\-]+/g, '_').slice(0, 80);
+      cb(null, `precon_${Date.now()}_${Math.random().toString(36).slice(2, 8)}_${safe}`);
+    }
+  }),
   limits: { fileSize: MAX_UPLOAD_BYTES, files: 12 }
 });
 
@@ -573,6 +584,54 @@ preconstructionRouter.get(
 );
 
 preconstructionRouter.patch(
+  '/preconstruction/drawings/bulk',
+  withDb(async (req, res, db) => {
+    const sess = await requirePreconSession(db, req, res);
+    if (!sess) return;
+    try {
+      const updates = Array.isArray(req.body?.updates) ? req.body.updates : [];
+      if (!updates.length) return res.status(400).json({ error: 'updates[] required' });
+      const actor = sess.user.name || sess.user.email || 'User';
+      const now = new Date();
+      const allowedKeys = [
+        'projectPhase', 'building', 'commonAmenity', 'scopeType', 'scopeKey', 'scopeLabel',
+        'catalogItemId', 'stage', 'source', 'drawingName', 'plannedStart', 'plannedEnd',
+        'drawingType', 'subDrawing', 'revision', 'status', 'description', 'label',
+        'reviewTaskId', 'reviewPhaseId'
+      ];
+      let matched = 0;
+      const { projects } = await loadDrawingAccessWorkspace(db);
+      const accessibleIds = new Set(
+        (projects || [])
+          .filter((p) => projectMatchesAllowed(p, sess.user.allowedProjects))
+          .map((p) => String(p.id))
+      );
+      await mapPool(updates.slice(0, 40), 6, async (row) => {
+        const id = String(row?.id || '').trim();
+        if (!id) return;
+        const existing = await getAttachmentMeta(db, id);
+        if (!existing || existing.scope !== 'drawing' || existing.archivedAt) return;
+        if (!accessibleIds.has(String(existing.projectId || ''))) return;
+        const patch = { updatedAt: now, updatedBy: actor };
+        allowedKeys.forEach((key) => {
+          if (Object.prototype.hasOwnProperty.call(row, key)) {
+            patch[key] = String(row[key] || '').trim().slice(0, key === 'description' ? 1000 : 200);
+          }
+        });
+        const result = await db.collection('precon_attachments').updateOne(
+          { _id: id, scope: 'drawing' },
+          { $set: patch }
+        );
+        matched += result.matchedCount || 0;
+      });
+      res.json({ ok: true, matched });
+    } catch (e) {
+      res.status(400).json({ error: e?.message || String(e) });
+    }
+  })
+);
+
+preconstructionRouter.patch(
   '/preconstruction/drawings/:id',
   withDb(async (req, res, db) => {
     const sess = await requirePreconSession(db, req, res);
@@ -778,45 +837,50 @@ preconstructionRouter.post(
           drawingVersion = Math.max(1, Number(latest?.version || parentDrawing.version || 1)) + 1;
         }
 
-        // Files are already fully received by multer; persist independent files concurrently.
-        const attachments = await Promise.all(files.map(async (f, i) => {
+        // Stream from disk → GridFS with limited concurrency (faster + lower peak RAM).
+        const attachments = await mapPool(files, PRECON_UPLOAD_CONCURRENCY, async (f, i) => {
           const label =
             String(labels[i] || '').trim() ||
             String(req.body?.label || '').trim() ||
             f.originalname ||
             'Attachment';
-          return storePreconFile(db, {
-            buffer: f.buffer,
-            fileName: f.originalname || 'file',
-            mimeType: f.mimetype || 'application/octet-stream',
-            meta: {
-              projectId,
-              taskId,
-              scope,
-              label,
-              uploadedBy,
-              projectPhase: String(req.body?.projectPhase || parentDrawing?.projectPhase || '').trim(),
-              building: String(req.body?.building || parentDrawing?.building || '').trim(),
-              commonAmenity: String(req.body?.commonAmenity || parentDrawing?.commonAmenity || '').trim(),
-              scopeType: String(req.body?.scopeType || parentDrawing?.scopeType || 'project').trim(),
-              scopeKey: String(req.body?.scopeKey || parentDrawing?.scopeKey || 'project').trim(),
-              scopeLabel: String(req.body?.scopeLabel || parentDrawing?.scopeLabel || '').trim(),
-              catalogItemId: String(req.body?.catalogItemId || parentDrawing?.catalogItemId || '').trim(),
-              stage: String(req.body?.stage || parentDrawing?.stage || '').trim(),
-              source: String(req.body?.source || parentDrawing?.source || '').trim(),
-              drawingName: String(req.body?.drawingName || parentDrawing?.drawingName || '').trim(),
-              plannedStart: String(req.body?.plannedStart || parentDrawing?.plannedStart || '').trim(),
-              plannedEnd: String(req.body?.plannedEnd || parentDrawing?.plannedEnd || '').trim(),
-              drawingType: String(req.body?.drawingType || parentDrawing?.drawingType || '').trim(),
-              subDrawing: String(req.body?.subDrawing || parentDrawing?.subDrawing || '').trim(),
-              seriesId,
-              version: drawingVersion,
-              revision: String(req.body?.revision || '').trim(),
-              status: scope === 'drawing' ? 'For review' : String(req.body?.status || '').trim(),
-              description: String(req.body?.description || '').trim()
-            }
-          });
-        }));
+          try {
+            return await storePreconFile(db, {
+              path: f.path,
+              size: f.size,
+              fileName: f.originalname || 'file',
+              mimeType: f.mimetype || 'application/octet-stream',
+              meta: {
+                projectId,
+                taskId,
+                scope,
+                label,
+                uploadedBy,
+                projectPhase: String(req.body?.projectPhase || parentDrawing?.projectPhase || '').trim(),
+                building: String(req.body?.building || parentDrawing?.building || '').trim(),
+                commonAmenity: String(req.body?.commonAmenity || parentDrawing?.commonAmenity || '').trim(),
+                scopeType: String(req.body?.scopeType || parentDrawing?.scopeType || 'project').trim(),
+                scopeKey: String(req.body?.scopeKey || parentDrawing?.scopeKey || 'project').trim(),
+                scopeLabel: String(req.body?.scopeLabel || parentDrawing?.scopeLabel || '').trim(),
+                catalogItemId: String(req.body?.catalogItemId || parentDrawing?.catalogItemId || '').trim(),
+                stage: String(req.body?.stage || parentDrawing?.stage || '').trim(),
+                source: String(req.body?.source || parentDrawing?.source || '').trim(),
+                drawingName: String(req.body?.drawingName || parentDrawing?.drawingName || '').trim(),
+                plannedStart: String(req.body?.plannedStart || parentDrawing?.plannedStart || '').trim(),
+                plannedEnd: String(req.body?.plannedEnd || parentDrawing?.plannedEnd || '').trim(),
+                drawingType: String(req.body?.drawingType || parentDrawing?.drawingType || '').trim(),
+                subDrawing: String(req.body?.subDrawing || parentDrawing?.subDrawing || '').trim(),
+                seriesId,
+                version: drawingVersion,
+                revision: String(req.body?.revision || '').trim(),
+                status: scope === 'drawing' ? 'For review' : String(req.body?.status || '').trim(),
+                description: String(req.body?.description || '').trim()
+              }
+            });
+          } finally {
+            unlinkQuiet(f.path);
+          }
+        });
         if (parentDrawing && attachments[0]) {
           await db.collection('precon_attachments').updateMany(
             {
@@ -837,6 +901,7 @@ preconstructionRouter.post(
         }
         res.json({ ok: true, attachments });
       } catch (e) {
+        (req.files || []).forEach((f) => unlinkQuiet(f.path));
         res.status(400).json({ error: e?.message || String(e) });
       }
     });

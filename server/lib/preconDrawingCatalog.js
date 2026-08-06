@@ -7,6 +7,13 @@ export const DRAWING_CATALOG_COLLECTION = 'precon_drawing_catalog';
 export const DRAWING_PLAN_COLLECTION = 'precon_drawing_plan';
 
 const META_ID = '__catalog_meta__';
+/** Legacy stage labels merged into MEP GFCs (seed v2+). */
+export const LEGACY_MEP_GFC_STAGES = [
+  '06. Plumbing, Public Health & Firefighting GFC / Execution',
+  '07. Electrical & ELV GFC / Execution'
+];
+export const MEP_GFC_STAGE = '05. MEP GFCs';
+
 let drawingCatalogIndexesPromise = null;
 
 function cleanText(value, max = 300) {
@@ -32,41 +39,101 @@ export function ensureDrawingCatalogIndexes(db) {
   return drawingCatalogIndexesPromise;
 }
 
-export async function ensureDrawingCatalog(db) {
+/**
+ * Apply seed stage renames when seed.version advances.
+ * Initial seed only inserts once — migrations keep live Mongo aligned.
+ */
+export async function migrateDrawingCatalogSeed(db) {
   const col = db.collection(DRAWING_CATALOG_COLLECTION);
+  const target = Number(seed.version || 1);
   const meta = await col.findOne({ _id: META_ID });
-  if (meta) return;
+  const current = Number(meta?.seedVersion || 0);
+  if (current >= target) return { skipped: true, current, target };
+
   const now = new Date();
   const ops = (seed.items || []).map((item) => ({
     updateOne: {
       filter: { _id: item.id },
       update: {
+        $set: {
+          id: item.id,
+          stage: item.stage,
+          stageOrder: item.stageOrder,
+          source: item.source,
+          sourceOrder: item.sourceOrder,
+          drawingName: item.drawingName,
+          drawingOrder: item.drawingOrder,
+          seedVersion: target,
+          updatedAt: now
+        },
         $setOnInsert: {
           _id: item.id,
-          ...item,
-          seedVersion: seed.version || 1,
-          createdAt: now,
-          updatedAt: now,
-        },
+          createdAt: now
+        }
       },
-      upsert: true,
-    },
+      upsert: true
+    }
   }));
-  ops.push({
-    updateOne: {
-      filter: { _id: META_ID },
-      update: {
-        $setOnInsert: {
-          _id: META_ID,
-          seedVersion: seed.version || 1,
-          source: seed.source || '',
-          seededAt: now,
-        },
+  if (ops.length) await col.bulkWrite(ops, { ordered: false });
+
+  await db.collection('precon_attachments').updateMany(
+    { scope: 'drawing', stage: { $in: LEGACY_MEP_GFC_STAGES } },
+    { $set: { stage: MEP_GFC_STAGE } }
+  );
+
+  await col.updateOne(
+    { _id: META_ID },
+    {
+      $set: {
+        seedVersion: target,
+        source: seed.source || '',
+        migratedAt: now,
+        notes: seed.notes || ''
       },
-      upsert: true,
+      $setOnInsert: { _id: META_ID, seededAt: now }
     },
-  });
-  await col.bulkWrite(ops, { ordered: false });
+    { upsert: true }
+  );
+  return { skipped: false, from: current, to: target, items: ops.length };
+}
+
+export async function ensureDrawingCatalog(db) {
+  const col = db.collection(DRAWING_CATALOG_COLLECTION);
+  const meta = await col.findOne({ _id: META_ID });
+  if (!meta) {
+    const now = new Date();
+    const ops = (seed.items || []).map((item) => ({
+      updateOne: {
+        filter: { _id: item.id },
+        update: {
+          $setOnInsert: {
+            _id: item.id,
+            ...item,
+            seedVersion: seed.version || 1,
+            createdAt: now,
+            updatedAt: now
+          }
+        },
+        upsert: true
+      }
+    }));
+    ops.push({
+      updateOne: {
+        filter: { _id: META_ID },
+        update: {
+          $setOnInsert: {
+            _id: META_ID,
+            seedVersion: seed.version || 1,
+            source: seed.source || '',
+            seededAt: now
+          }
+        },
+        upsert: true
+      }
+    });
+    await col.bulkWrite(ops, { ordered: false });
+  }
+  await migrateDrawingCatalogSeed(db);
 }
 
 export async function listDrawingCatalog(db, { includeDeleted = false } = {}) {

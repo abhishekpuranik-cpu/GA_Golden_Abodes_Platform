@@ -1,4 +1,6 @@
 import crypto from 'crypto';
+import fs from 'fs';
+import { createReadStream } from 'fs';
 import { GridFSBucket, ObjectId } from 'mongodb';
 
 export const PRECON_FILES_BUCKET = 'precon_files';
@@ -7,6 +9,11 @@ export const MAX_UPLOAD_BYTES = Math.min(
   50,
   Math.max(5, Number(process.env.PRECON_MAX_UPLOAD_MB || 25))
 ) * 1024 * 1024;
+/** Cap parallel GridFS writes so multi-file uploads don't thrash Mongo. */
+export const PRECON_UPLOAD_CONCURRENCY = Math.min(
+  6,
+  Math.max(1, Number(process.env.PRECON_UPLOAD_CONCURRENCY || 3))
+);
 
 const ALLOWED_MIME_PREFIXES = ['image/', 'video/', 'application/pdf', 'text/'];
 const ALLOWED_MIME_EXACT = new Set([
@@ -92,12 +99,13 @@ export function ensurePreconAttachmentIndexes(db) {
 
 /**
  * @param {import('mongodb').Db} db
- * @param {{ buffer: Buffer, fileName: string, mimeType: string, meta?: object }} file
+ * @param {{ buffer?: Buffer, path?: string, size?: number, fileName: string, mimeType: string, meta?: object }} file
  */
 export async function storePreconFile(db, file) {
-  const { buffer, fileName, mimeType, meta = {} } = file;
-  if (!buffer?.length) throw new Error('Empty file');
-  if (buffer.length > MAX_UPLOAD_BYTES) {
+  const { buffer, path: diskPath, fileName, mimeType, meta = {} } = file;
+  const sizeHint = Number(file.size) || (buffer?.length) || 0;
+  if (!buffer?.length && !diskPath) throw new Error('Empty file');
+  if (sizeHint > MAX_UPLOAD_BYTES) {
     throw new Error(`File exceeds ${Math.round(MAX_UPLOAD_BYTES / (1024 * 1024))} MB limit`);
   }
   if (!isAllowedMime(mimeType, fileName)) throw new Error('File type not allowed');
@@ -111,16 +119,25 @@ export async function storePreconFile(db, file) {
       ? 'application/acad'
       : mimeType;
 
+  let byteLength = sizeHint;
   await new Promise((resolve, reject) => {
     const stream = bucket.openUploadStreamWithId(gridId, fileName, {
       contentType,
-      // Larger chunks cut Mongo round-trips substantially for multi-MB PDF/CAD drawings.
       chunkSizeBytes: PRECON_GRIDFS_CHUNK_BYTES,
       metadata: { ...meta, attId }
     });
     stream.on('error', reject);
-    stream.on('finish', resolve);
-    stream.end(buffer);
+    stream.on('finish', () => {
+      byteLength = Number(stream.length) || byteLength;
+      resolve();
+    });
+    if (diskPath) {
+      const read = createReadStream(diskPath);
+      read.on('error', reject);
+      read.pipe(stream);
+    } else {
+      stream.end(buffer);
+    }
   });
 
   const doc = {
@@ -128,7 +145,7 @@ export async function storePreconFile(db, file) {
     gridId: String(gridId),
     fileName: String(fileName || 'file').slice(0, 240),
     mimeType: contentType,
-    size: buffer.length,
+    size: byteLength,
     kind,
     projectId: meta.projectId || '',
     taskId: meta.taskId || '',
@@ -193,6 +210,26 @@ export async function storePreconFile(db, file) {
     uploadedAt: doc.uploadedAt,
     url: `/api/preconstruction/attachments/${attId}`
   };
+}
+
+/** Run async work with limited parallelism. */
+export async function mapPool(items, limit, worker) {
+  const list = Array.isArray(items) ? items : [];
+  const out = new Array(list.length);
+  let next = 0;
+  const runners = Array.from({ length: Math.min(limit, list.length) || 0 }, async () => {
+    while (next < list.length) {
+      const i = next++;
+      out[i] = await worker(list[i], i);
+    }
+  });
+  await Promise.all(runners);
+  return out;
+}
+
+export function unlinkQuiet(filePath) {
+  if (!filePath) return;
+  try { fs.unlinkSync(filePath); } catch { /* ignore */ }
 }
 
 export async function getAttachmentMeta(db, attId) {

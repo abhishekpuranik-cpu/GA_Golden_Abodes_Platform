@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "source": "GA Curated Drawing List 30.7.2026.xlsx",
   "items": [
     {
@@ -526,7 +526,7 @@
     },
     {
       "id": "cat_bde22efbc5ea",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -535,7 +535,7 @@
     },
     {
       "id": "cat_d4d09a6b3d13",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -544,7 +544,7 @@
     },
     {
       "id": "cat_1dc11f768fd3",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -553,7 +553,7 @@
     },
     {
       "id": "cat_31a247f42921",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -562,7 +562,7 @@
     },
     {
       "id": "cat_e3ad68664392",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -571,7 +571,7 @@
     },
     {
       "id": "cat_4e1871bfd21b",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -580,7 +580,7 @@
     },
     {
       "id": "cat_67d047472599",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -589,7 +589,7 @@
     },
     {
       "id": "cat_945cf9a56cd6",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -598,7 +598,7 @@
     },
     {
       "id": "cat_bc1fd0eaba3b",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -607,7 +607,7 @@
     },
     {
       "id": "cat_ba474f652f20",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -616,7 +616,7 @@
     },
     {
       "id": "cat_ac2defdc2867",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -625,7 +625,7 @@
     },
     {
       "id": "cat_ae70735fcb79",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -634,7 +634,7 @@
     },
     {
       "id": "cat_03806ac6723a",
-      "stage": "06. Plumbing, Public Health & Firefighting GFC / Execution",
+      "stage": "05. MEP GFCs",
       "stageOrder": 5,
       "source": "Plumbing Consultant",
       "sourceOrder": 1,
@@ -643,8 +643,8 @@
     },
     {
       "id": "cat_6c9b8911ae38",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Building, Lift, Meter Panel and Substation Earthing Layout",
@@ -652,8 +652,8 @@
     },
     {
       "id": "cat_4007acb93cf2",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "External Power, Telephone and Broadband Cable Routing Layout",
@@ -661,8 +661,8 @@
     },
     {
       "id": "cat_309df14357f0",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Basement Firefighting Services Layout",
@@ -670,8 +670,8 @@
     },
     {
       "id": "cat_2d9a5e3cf6d7",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Residential Building Power Backup Distribution Layout",
@@ -679,8 +679,8 @@
     },
     {
       "id": "cat_9c2cc4b5a1f4",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Telephone and ID / OD Provision Layout",
@@ -688,8 +688,8 @@
     },
     {
       "id": "cat_af18d38d900c",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Inverter Location and Capacity Plan",
@@ -697,8 +697,8 @@
     },
     {
       "id": "cat_84bb26ae0e7a",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Typical Flat and Parking Electrical Layouts",
@@ -706,8 +706,8 @@
     },
     {
       "id": "cat_eaa83e13171b",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Terrace Lighting Layout",
@@ -715,8 +715,8 @@
     },
     {
       "id": "cat_d97d2706dc1f",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Meter Room Details",
@@ -724,8 +724,8 @@
     },
     {
       "id": "cat_316c88571958",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Electrical Services Master Layout",
@@ -733,8 +733,8 @@
     },
     {
       "id": "cat_9f770b0b7fcf",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Substation Layout with Room Sizes",
@@ -742,8 +742,8 @@
     },
     {
       "id": "cat_ddaa99ed2c5b",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Clubhouse and Pump Room Electrical Layout",
@@ -751,8 +751,8 @@
     },
     {
       "id": "cat_bb44e3f76961",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Street Lighting Layout",
@@ -760,8 +760,8 @@
     },
     {
       "id": "cat_19fbbc7b6ef3",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Mini-Pillar Locations and Garden Electrical Layout",
@@ -769,8 +769,8 @@
     },
     {
       "id": "cat_18e97d3633e5",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Swimming Pool Lighting Layout",
@@ -778,8 +778,8 @@
     },
     {
       "id": "cat_019da1e181e0",
-      "stage": "07. Electrical & ELV GFC / Execution",
-      "stageOrder": 6,
+      "stage": "05. MEP GFCs",
+      "stageOrder": 5,
       "source": "Electrical Consultant",
       "sourceOrder": 1,
       "drawingName": "Lightning Protection / Lightning Arrestor Layout",
@@ -884,5 +884,6 @@
       "drawingName": "Signage Mounting Location and Fixing Details",
       "drawingOrder": 7
     }
-  ]
+  ],
+  "notes": " v2: Plumbing+Electrical GFC combined as MEP GFCs"
 }
