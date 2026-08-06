@@ -23,7 +23,7 @@ const DEFAULT_ROLE = {
   name: 'Viewer',
   description: 'Read-only vault access',
   permissions: [],
-  allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'dm_spv_governance', 'hiring'],
+  allowedApps: ['v1_cashflow', 'v2_resource_planner', 'v3_project_acquisition', 'sales_dashboard', 'marketing_kpi', 'preconstruction', 'execution', 'finance_kpi', 'dm_spv_governance', 'hiring', 'admin_services'],
   allowedProjects: [],
   allowedTabs: []
 };

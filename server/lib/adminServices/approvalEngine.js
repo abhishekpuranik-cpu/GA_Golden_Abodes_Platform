@@ -60,17 +60,31 @@ export const TRIP_TRANSITIONS = [
   { from: 'RETURNED', action: 'reject', to: 'REJECTED' }
 ];
 
-/** Claim-level machine (§5.3) */
+/** Claim-level machine — multi-level approve via AWAITING_L1…L5 */
 export const CLAIM_TRANSITIONS = [
-  { from: 'OPEN', action: 'submit', to: 'SUBMITTED' },
-  { from: 'RETURNED', action: 'submit', to: 'SUBMITTED' },
+  { from: 'OPEN', action: 'submit', to: 'AWAITING_L1' },
+  { from: 'RETURNED', action: 'submit', to: 'AWAITING_L1' },
   { from: 'SUBMITTED', action: 'verify', to: 'VERIFIED' },
-  { from: 'SUBMITTED', action: 'return', to: 'RETURNED' },
-  { from: 'VERIFIED', action: 'return', to: 'RETURNED' },
-  { from: 'VERIFIED', action: 'approve', to: 'APPROVED' },
+  { from: 'SUBMITTED', action: 'start_approval', to: 'AWAITING_L1' },
+  { from: 'VERIFIED', action: 'start_approval', to: 'AWAITING_L1' },
+  { from: 'AWAITING_L1', action: 'return', to: 'RETURNED' },
+  { from: 'AWAITING_L2', action: 'return', to: 'RETURNED' },
+  { from: 'AWAITING_L3', action: 'return', to: 'RETURNED' },
+  { from: 'AWAITING_L4', action: 'return', to: 'RETURNED' },
+  { from: 'AWAITING_L5', action: 'return', to: 'RETURNED' },
+  { from: 'AWAITING_L1', action: 'reject', to: 'REJECTED' },
+  { from: 'AWAITING_L2', action: 'reject', to: 'REJECTED' },
+  { from: 'AWAITING_L3', action: 'reject', to: 'REJECTED' },
+  { from: 'AWAITING_L4', action: 'reject', to: 'REJECTED' },
+  { from: 'AWAITING_L5', action: 'reject', to: 'REJECTED' },
   { from: 'SUBMITTED', action: 'reject', to: 'REJECTED' },
   { from: 'VERIFIED', action: 'reject', to: 'REJECTED' },
   { from: 'APPROVED', action: 'pay', to: 'PAID' }
+];
+
+/** Legacy single-step approve kept for engine tests; live path uses applyLevelApprove. */
+export const CLAIM_LEGACY_APPROVE = [
+  { from: 'VERIFIED', action: 'approve', to: 'APPROVED' }
 ];
 
 export function applyTransition(doc, transitions, action, { by, comment } = {}) {

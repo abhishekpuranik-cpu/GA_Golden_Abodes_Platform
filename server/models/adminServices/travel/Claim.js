@@ -11,6 +11,19 @@ const StateHistorySchema = new mongoose.Schema({
   at: { type: Date, default: Date.now }
 }, { _id: false });
 
+const LevelApprovalSchema = new mongoose.Schema({
+  level: { type: Number, required: true },
+  by: { type: mongoose.Schema.Types.ObjectId, ref: 'users' },
+  comment: String,
+  at: { type: Date, default: Date.now }
+}, { _id: false });
+
+const ChainSnapSchema = new mongoose.Schema({
+  level: { type: Number, required: true },
+  approverUserId: { type: String, required: true },
+  label: { type: String, default: '' }
+}, { _id: false });
+
 const ClaimSchema = new mongoose.Schema({
   entityTag: { type: String, enum: ENTITY_TAGS, required: true },
   employeeId: { type: mongoose.Schema.Types.ObjectId, ref: 'users', required: true },
@@ -25,6 +38,10 @@ const ClaimSchema = new mongoose.Schema({
   grandTotalPaise: { type: Number, default: 0 },
   exceptionCount: { type: Number, default: 0 },
   status: { type: String, enum: CLAIM_STATUSES, default: 'OPEN' },
+  /** Snapshot of L1…Ln at submit — immutable for this claim */
+  approvalChainSnapshot: { type: [ChainSnapSchema], default: [] },
+  pendingApprovalLevel: { type: Number, default: null },
+  levelApprovals: { type: [LevelApprovalSchema], default: [] },
   paymentReference: { type: String, default: '' },
   paidAt: { type: Date, default: null },
   stateHistory: { type: [StateHistorySchema], default: [] },

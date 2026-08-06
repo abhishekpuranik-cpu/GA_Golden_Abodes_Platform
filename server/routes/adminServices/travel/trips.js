@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import TravelTrip from '../../../models/adminServices/travel/Trip.js';
 import {
-  canClaim, canVerify, canTravelAdmin, requirePerm
+  canClaim, canVerify, canTravelAdmin, canApprove, requirePerm
 } from '../../../lib/adminServices/access.js';
 import { notDeletedFilter } from '../../../lib/adminServices/mongoose.js';
 import { buildTripComputed, assertNotSelfActor } from '../../../lib/adminServices/travelRules.js';
 import { applyTransition, TRIP_TRANSITIONS } from '../../../lib/adminServices/approvalEngine.js';
 import { writeAdminServicesAudit } from '../../../lib/adminServices/audit.js';
+import { sendXlsx, sendSimplePdf, rowsToAoa, aoaToPdfLines } from '../../../lib/adminServices/exportWorkbook.js';
 
 const router = Router();
 
@@ -20,27 +21,70 @@ function parsePage(q) {
   return { page, limit, skip: (page - 1) * limit };
 }
 
+function tripListFilter(req) {
+  const filter = notDeletedFilter();
+  if (req.query.employeeId) filter.employeeId = req.query.employeeId;
+  else if (!canVerify(req.authUser) && !canTravelAdmin(req.authUser) && !canApprove(req.authUser)) {
+    filter.employeeId = uid(req.authUser);
+  }
+  if (req.query.status) filter.status = req.query.status;
+  if (req.query.exception) filter.exceptionFlags = req.query.exception;
+  if (req.query.period) {
+    const [y, m] = String(req.query.period).split('-').map(Number);
+    const start = new Date(Date.UTC(y, m - 1, 1));
+    const end = new Date(Date.UTC(y, m, 1));
+    filter.travelDate = { $gte: start, $lt: end };
+  }
+  return filter;
+}
+
 router.get('/', async (req, res) => {
   try {
     const { page, limit, skip } = parsePage(req.query);
-    const filter = notDeletedFilter();
-    if (req.query.employeeId) filter.employeeId = req.query.employeeId;
-    else if (!canVerify(req.authUser) && !canTravelAdmin(req.authUser)) {
-      filter.employeeId = uid(req.authUser);
-    }
-    if (req.query.status) filter.status = req.query.status;
-    if (req.query.exception) filter.exceptionFlags = req.query.exception;
-    if (req.query.period) {
-      const [y, m] = String(req.query.period).split('-').map(Number);
-      const start = new Date(Date.UTC(y, m - 1, 1));
-      const end = new Date(Date.UTC(y, m, 1));
-      filter.travelDate = { $gte: start, $lt: end };
-    }
+    const filter = tripListFilter(req);
     const [trips, total] = await Promise.all([
       TravelTrip.find(filter).sort({ travelDate: -1 }).skip(skip).limit(limit).lean(),
       TravelTrip.countDocuments(filter)
     ]);
     res.json({ trips, page, limit, total });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/export', requirePerm((u) => canClaim(u) || canVerify(u) || canApprove(u) || canTravelAdmin(u), 'export permission required'), async (req, res) => {
+  try {
+    const format = String(req.query.format || 'xlsx').toLowerCase();
+    const filter = tripListFilter(req);
+    const trips = await TravelTrip.find(filter).sort({ travelDate: -1 }).limit(1000).lean();
+    const headers = [
+      'travelDate', 'status', 'entityTag', 'vehicleType', 'purpose',
+      'claimedDistanceMetres', 'fuelAmountPaise', 'ancillaryTotalPaise', 'totalClaimPaise',
+      'distanceBasis', 'exceptionFlags'
+    ];
+    const rows = trips.map((t) => ({
+      travelDate: t.travelDate?.toISOString?.()?.slice(0, 10) || '',
+      status: t.status,
+      entityTag: t.entityTag,
+      vehicleType: t.vehicleType,
+      purpose: t.purpose,
+      claimedDistanceMetres: t.claimedDistanceMetres,
+      fuelAmountPaise: t.fuelAmountPaise,
+      ancillaryTotalPaise: t.ancillaryTotalPaise,
+      totalClaimPaise: t.totalClaimPaise,
+      distanceBasis: t.distanceBasis,
+      exceptionFlags: (t.exceptionFlags || []).join('|')
+    }));
+    const aoa = rowsToAoa(headers, rows);
+    const stamp = req.query.period || req.query.status || 'all';
+    if (format === 'pdf') {
+      return sendSimplePdf(res, {
+        title: 'Travel trips',
+        filename: `travel-trips-${stamp}.pdf`,
+        lines: aoaToPdfLines(aoa)
+      });
+    }
+    return sendXlsx(res, `travel-trips-${stamp}.xlsx`, [{ name: 'Trips', aoa }]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

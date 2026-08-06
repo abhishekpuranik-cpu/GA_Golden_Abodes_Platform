@@ -3,12 +3,14 @@ import AdminServicesTab from '../../models/adminServices/Tab.js';
 import TravelLocation from '../../models/adminServices/travel/Location.js';
 import TravelTrip from '../../models/adminServices/travel/Trip.js';
 import TravelClaim from '../../models/adminServices/travel/Claim.js';
+import TravelApprovalChain from '../../models/adminServices/travel/ApprovalChain.js';
 import {
   canOpenTab, canApprove, canVerify, canClaim, canTravelAdmin, canSettle,
   canViewTravel, isTravelOpsStaff
 } from '../../lib/adminServices/access.js';
 import { notDeletedFilter } from '../../lib/adminServices/mongoose.js';
-import { ENTITY_TAGS, TAB_SEED } from '../../lib/adminServices/constants.js';
+import { ENTITY_TAGS, TAB_SEED, CLAIM_AWAITING_STATUSES } from '../../lib/adminServices/constants.js';
+import { parseAwaitingLevel } from '../../lib/adminServices/approvalChain.js';
 
 const router = Router();
 
@@ -29,18 +31,36 @@ async function loadTabsCached() {
   return TAB_SEED.map((t) => ({ ...t }));
 }
 
-function buildMeta(user) {
+async function isDesignatedApprover(user) {
+  if (!user) return false;
+  if (canApprove(user) || canTravelAdmin(user) || isTravelOpsStaff(user)) return true;
+  const actor = String(user.id || user._id || '');
+  if (!actor) return false;
+  const mongoose = (await import('mongoose')).default;
+  const idFilter = mongoose.Types.ObjectId.isValid(actor)
+    ? { $in: [actor, new mongoose.Types.ObjectId(actor)] }
+    : actor;
+  const n = await TravelApprovalChain.countDocuments(notDeletedFilter({
+    isActive: true,
+    'levels.approverUserId': idFilter
+  }));
+  return n > 0;
+}
+
+async function buildMeta(user) {
   const staff = isTravelOpsStaff(user);
+  const approver = await isDesignatedApprover(user);
   return {
     entityTags: ENTITY_TAGS,
     permissions: {
       view: canViewTravel(user),
       claim: canClaim(user),
       verify: canVerify(user),
-      approve: canApprove(user),
+      approve: canApprove(user) || approver,
       admin: canTravelAdmin(user),
       settle: canSettle(user),
-      staff
+      staff,
+      approver
     },
     user: user ? { id: user.id || user._id, email: user.email, name: user.name } : null
   };
@@ -48,17 +68,26 @@ function buildMeta(user) {
 
 async function buildCounts(user) {
   const counts = { travel: 0 };
-  if (!canApprove(user) && !canVerify(user)) return counts;
-  const [pendingClaims, exceptions] = await Promise.all([
-    TravelClaim.countDocuments(notDeletedFilter({
-      status: { $in: canApprove(user) ? ['VERIFIED', 'SUBMITTED'] : ['SUBMITTED'] }
-    })),
-    TravelTrip.countDocuments(notDeletedFilter({
-      exceptionFlags: { $exists: true, $ne: [] },
-      status: { $nin: ['REJECTED', 'DRAFT'] }
-    }))
+  const actor = String(user?.id || user?._id || '');
+  const [awaitingRows, exceptions] = await Promise.all([
+    TravelClaim.find(notDeletedFilter({ status: { $in: CLAIM_AWAITING_STATUSES } }))
+      .select({ pendingApprovalLevel: 1, status: 1, approvalChainSnapshot: 1 })
+      .limit(200)
+      .lean(),
+    (canApprove(user) || canTravelAdmin(user))
+      ? TravelTrip.countDocuments(notDeletedFilter({
+        exceptionFlags: { $exists: true, $ne: [] },
+        status: { $nin: ['REJECTED', 'DRAFT'] }
+      }))
+      : Promise.resolve(0)
   ]);
-  counts.travel = pendingClaims + exceptions;
+  const pendingClaims = awaitingRows.filter((c) => {
+    if (canTravelAdmin(user)) return true;
+    const level = c.pendingApprovalLevel || parseAwaitingLevel(c.status);
+    const step = (c.approvalChainSnapshot || []).find((l) => l.level === level);
+    return step && String(step.approverUserId) === actor;
+  }).length;
+  counts.travel = pendingClaims + (typeof exceptions === 'number' ? exceptions : 0);
   return counts;
 }
 
@@ -71,7 +100,7 @@ router.get('/bootstrap', async (req, res) => {
 
     const all = await loadTabsCached();
     const tabs = all.filter((t) => t.isEnabled && canOpenTab(user, t));
-    const meta = buildMeta(user);
+    const meta = await buildMeta(user);
 
     const jobs = [buildCounts(user)];
     if (wantLocs && meta.permissions.view) {
@@ -113,7 +142,11 @@ router.get('/tabs/counts', async (req, res) => {
 });
 
 router.get('/meta', async (req, res) => {
-  res.json(buildMeta(req.authUser));
+  try {
+    res.json(await buildMeta(req.authUser));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

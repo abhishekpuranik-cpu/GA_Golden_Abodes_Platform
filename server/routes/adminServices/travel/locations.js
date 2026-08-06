@@ -1,10 +1,11 @@
 import { Router } from 'express';
 import TravelLocation from '../../../models/adminServices/travel/Location.js';
 import TravelTrip from '../../../models/adminServices/travel/Trip.js';
-import { canTravelAdmin, canApprove, requirePerm } from '../../../lib/adminServices/access.js';
+import { canTravelAdmin, canApprove, canClaim, requirePerm } from '../../../lib/adminServices/access.js';
 import { notDeletedFilter } from '../../../lib/adminServices/mongoose.js';
 import { LOCATION_CATEGORIES, ENTITY_TAGS } from '../../../lib/adminServices/constants.js';
 import { writeAdminServicesAudit } from '../../../lib/adminServices/audit.js';
+import { sendXlsx, sendSimplePdf, rowsToAoa, aoaToPdfLines } from '../../../lib/adminServices/exportWorkbook.js';
 
 const router = Router();
 
@@ -28,6 +29,37 @@ router.get('/', async (req, res) => {
       TravelLocation.countDocuments(filter)
     ]);
     res.json({ locations, page, limit, total });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/export', requirePerm((u) => canClaim(u) || canApprove(u) || canTravelAdmin(u), 'export permission required'), async (req, res) => {
+  try {
+    const format = String(req.query.format || 'xlsx').toLowerCase();
+    const filter = notDeletedFilter();
+    if (req.query.entityTag) filter.entityTag = req.query.entityTag;
+    const locations = await TravelLocation.find(filter).sort({ name: 1 }).limit(1000).lean();
+    const headers = ['name', 'category', 'entityTag', 'lat', 'lng', 'address', 'isActive'];
+    const rows = locations.map((l) => ({
+      name: l.name,
+      category: l.category,
+      entityTag: l.entityTag,
+      lat: l.lat,
+      lng: l.lng,
+      address: l.address || '',
+      isActive: l.isActive !== false
+    }));
+    const aoa = rowsToAoa(headers, rows);
+    const stamp = req.query.entityTag || 'all';
+    if (format === 'pdf') {
+      return sendSimplePdf(res, {
+        title: 'Travel locations',
+        filename: `travel-locations-${stamp}.pdf`,
+        lines: aoaToPdfLines(aoa)
+      });
+    }
+    return sendXlsx(res, `travel-locations-${stamp}.xlsx`, [{ name: 'Locations', aoa }]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

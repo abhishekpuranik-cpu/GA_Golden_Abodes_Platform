@@ -20,6 +20,30 @@ function q(params = {}) {
   return s ? `?${s}` : '';
 }
 
+async function downloadBlob(path) {
+  const res = await fetch(path, { credentials: 'include' });
+  if (!res.ok) {
+    let msg = `Download failed (${res.status})`;
+    try {
+      const data = await res.json();
+      if (data?.error) msg = data.error;
+    } catch { /* ignore */ }
+    throw new Error(msg);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get('Content-Disposition') || '';
+  const m = /filename="([^"]+)"/.exec(cd);
+  const filename = m?.[1] || 'export.bin';
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 export const adminServicesApi = {
   bootstrap: (params) => asJson(`/api/admin-services/bootstrap${q(params)}`),
   tabs: () => asJson('/api/admin-services/tabs'),
@@ -34,6 +58,7 @@ export const adminServicesApi = {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }),
   deleteLocation: (id) => asJson(`/api/admin-services/travel/locations/${id}`, { method: 'DELETE' }),
+  downloadLocationsExport: (params) => downloadBlob(`/api/admin-services/travel/locations/export${q(params)}`),
 
   listDistances: (params) => asJson(`/api/admin-services/travel/distances${q(params)}`),
   previewDistance: (params) => asJson(`/api/admin-services/travel/distances/preview${q(params)}`),
@@ -55,21 +80,27 @@ export const adminServicesApi = {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }),
   deleteTrip: (id) => asJson(`/api/admin-services/travel/trips/${id}`, { method: 'DELETE' }),
+  downloadTripsExport: (params) => downloadBlob(`/api/admin-services/travel/trips/export${q(params)}`),
 
   listClaims: (params) => asJson(`/api/admin-services/travel/claims${q(params)}`),
   generateClaim: (body) => asJson('/api/admin-services/travel/claims/generate', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }),
+  submitMonthClaim: (body) => asJson('/api/admin-services/travel/claims/submit-month', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }),
   getClaim: (id) => asJson(`/api/admin-services/travel/claims/${id}`),
   claimAction: (id, action, body = {}) => asJson(`/api/admin-services/travel/claims/${id}/${action}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }),
+  downloadClaimsExport: (params) => downloadBlob(`/api/admin-services/travel/claims/export${q(params)}`),
 
   pendingApprovals: () => asJson('/api/admin-services/travel/approvals/pending'),
   exceptions: () => asJson('/api/admin-services/travel/approvals/exceptions'),
   exceptionAction: (tripId, action, body) => asJson(`/api/admin-services/travel/approvals/exceptions/${tripId}/${action}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }),
+  downloadApprovalsExport: (params) => downloadBlob(`/api/admin-services/travel/approvals/export${q(params)}`),
 
   getPolicy: (entityTag) => asJson(`/api/admin-services/travel/setup/policy${q({ entityTag })}`),
   updatePolicy: (entityTag, body) => asJson(`/api/admin-services/travel/setup/policy/${entityTag}`, {
@@ -79,6 +110,11 @@ export const adminServicesApi = {
   createRate: (body) => asJson('/api/admin-services/travel/setup/rates', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
   }),
+  listChains: () => asJson('/api/admin-services/travel/setup/chains'),
+  upsertChain: (body) => asJson('/api/admin-services/travel/setup/chains', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }),
+  usersLookup: (qStr) => asJson(`/api/admin-services/travel/setup/users-lookup${q({ q: qStr })}`),
 
   matrixHealth: () => asJson('/api/admin-services/travel/reports/matrix-health'),
   summary: (params) => asJson(`/api/admin-services/travel/reports/summary${q(params)}`)

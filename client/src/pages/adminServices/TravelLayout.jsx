@@ -11,7 +11,10 @@ export default function TravelLayout() {
     return (
       <div className="as-card">
         <h2>Travel &amp; Fuel Claim</h2>
-        <p className="as-error">You do not have travel permissions for this app.</p>
+        <p className="as-error">
+          You do not have access to Travel Expenses yet. Ask an admin to assign the
+          {' '}<strong>Travel Expenses · M9</strong> app (<code>admin_services</code>) to your account in Admin Security.
+        </p>
       </div>
     );
   }

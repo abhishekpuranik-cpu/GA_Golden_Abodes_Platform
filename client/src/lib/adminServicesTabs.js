@@ -2,23 +2,30 @@ export const TRAVEL_SCREENS = [
   { id: 'log', path: 'log', label: 'Log a trip', claimantOk: true },
   { id: 'claims', path: 'claims', label: 'My claims', claimantOk: true },
   { id: 'verify', path: 'verify', label: 'Verification', staffOnly: true },
-  { id: 'approvals', path: 'approvals', label: 'Approvals', staffOnly: true },
+  { id: 'approvals', path: 'approvals', label: 'Approvals', staffOnly: true, approverOk: true },
   { id: 'locations', path: 'locations', label: 'Locations', staffOnly: true },
   { id: 'setup', path: 'setup', label: 'Setup', staffOnly: true }
 ];
 
 /**
  * Claimants: Log + My claims only.
+ * Designated L1/L2 approvers: + Approvals.
  * Staff (admin / HR / elevated travel perms): all screens.
  */
 export function visibleTravelScreens(permissions = {}) {
   const staff = !!permissions.staff;
+  const approver = !!permissions.approver || !!permissions.approve;
   return TRAVEL_SCREENS.filter((s) => {
-    if (s.staffOnly) return staff;
+    if (s.staffOnly) {
+      if (staff) return true;
+      if (s.approverOk && approver) return true;
+      return false;
+    }
     if (s.claimantOk) return !!permissions.claim || staff;
     return false;
   });
 }
+
 
 export function formatPaise(paise) {
   const n = Number(paise) || 0;
@@ -27,6 +34,23 @@ export function formatPaise(paise) {
 
 export function formatKm(metres) {
   return `${((Number(metres) || 0) / 1000).toFixed(2)} km`;
+}
+
+/** Human label for claim status including multi-level approve. */
+export function claimStatusLabel(status) {
+  const s = String(status || '');
+  const m = /^AWAITING_L(\d+)$/.exec(s);
+  if (m) return `Awaiting L${m[1]}`;
+  return s || '—';
+}
+
+export function claimStatusTone(status) {
+  const s = String(status || '');
+  if (['APPROVED', 'PAID', 'VERIFIED'].includes(s)) return 'success';
+  if (/^AWAITING_L\d+$/.test(s)) return 'warning';
+  if (s === 'RETURNED') return 'warning';
+  if (s === 'REJECTED') return 'danger';
+  return 'neutral';
 }
 
 export function parseLatLng(input) {

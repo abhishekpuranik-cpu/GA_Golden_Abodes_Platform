@@ -3,7 +3,7 @@ import TravelPolicyConfig from '../../models/adminServices/travel/PolicyConfig.j
 import TravelRateCard from '../../models/adminServices/travel/RateCard.js';
 import {
   TAB_SEED, ENTITY_TAGS, PLACEHOLDER_RATES_PAISE, POLICY_DEFAULTS,
-  APPROVER_LOOKUP_EMAIL, PERMS, VEHICLE_TYPES, APP_ID
+  APPROVER_LOOKUP_EMAIL, PERMS, VEHICLE_TYPES, APP_ID, APPROVAL_CHAIN_EMAIL_SEEDS
 } from './constants.js';
 import { ensureAdminServicesMongoose } from './mongoose.js';
 import { ensureAuditIndexes } from './audit.js';
@@ -20,11 +20,13 @@ export async function ensureAdminServicesIndexes() {
   const TravelDistance = (await import('../../models/adminServices/travel/Distance.js')).default;
   const TravelTrip = (await import('../../models/adminServices/travel/Trip.js')).default;
   const TravelClaim = (await import('../../models/adminServices/travel/Claim.js')).default;
+  const TravelApprovalChain = (await import('../../models/adminServices/travel/ApprovalChain.js')).default;
   await Promise.all([
     TravelLocation.syncIndexes(),
     TravelDistance.syncIndexes(),
     TravelTrip.syncIndexes(),
-    TravelClaim.syncIndexes()
+    TravelClaim.syncIndexes(),
+    TravelApprovalChain.syncIndexes()
   ]);
   await ensureAuditIndexes();
 }
@@ -143,7 +145,132 @@ export async function migrateAdminServicesUp() {
   }
   steps.rateCardsCreated = rateUpserts;
 
+  // 5. Approval chains (email-resolved, idempotent)
+  steps.approvalChains = await seedApprovalChainsFromEmails(db);
+
   return { ok: true, steps };
+}
+
+async function findUserByEmailOrName(db, email, nameHints = []) {
+  if (!db) return null;
+  const em = String(email || '').trim().toLowerCase();
+  if (em) {
+    const byEmail = await db.collection('auth_users').findOne({
+      email: em,
+      status: { $ne: 'disabled' }
+    });
+    if (byEmail) return byEmail;
+    // local-part match (mahesh@… / mahesh.xxx@…)
+    const local = em.split('@')[0];
+    if (local) {
+      const fuzzy = await db.collection('auth_users').findOne({
+        email: { $regex: `^${local.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([.@]|$)`, $options: 'i' },
+        status: { $ne: 'disabled' }
+      });
+      if (fuzzy) return fuzzy;
+    }
+  }
+  for (const hint of nameHints) {
+    const h = String(hint || '').trim();
+    if (!h) continue;
+    const byName = await db.collection('auth_users').findOne({
+      name: { $regex: h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' },
+      status: { $ne: 'disabled' }
+    });
+    if (byName) return byName;
+  }
+  return null;
+}
+
+/**
+ * Seed standard L1→L2 chains from email config. Resolves users at runtime — no ObjectIds in code.
+ */
+export async function seedApprovalChainsFromEmails(db) {
+  if (!db) db = await ensureMongo();
+  if (!db) return { seeded: 0, skipped: true, reason: 'no db' };
+
+  const TravelApprovalChain = (await import('../../models/adminServices/travel/ApprovalChain.js')).default;
+  let seeds = APPROVAL_CHAIN_EMAIL_SEEDS;
+  if (process.env.TRAVEL_CHAIN_SEED_JSON) {
+    try {
+      seeds = JSON.parse(process.env.TRAVEL_CHAIN_SEED_JSON);
+    } catch (e) {
+      console.warn('[admin-services] TRAVEL_CHAIN_SEED_JSON parse failed:', e.message);
+    }
+  }
+
+  const nameHints = {
+    employee: ['Mahesh'],
+    l1: ['Akash'],
+    l2: ['Abhishek', 'Puranik']
+  };
+
+  const results = [];
+  for (const seed of seeds) {
+    const employee = await findUserByEmailOrName(db, seed.employeeEmail, nameHints.employee);
+    if (!employee) {
+      results.push({ ok: false, employeeEmail: seed.employeeEmail, error: 'employee not found' });
+      console.warn(`[admin-services] Chain seed skipped — employee not found: ${seed.employeeEmail} (also tried name Mahesh)`);
+      continue;
+    }
+    const levels = [];
+    let levelOk = true;
+    for (const lv of seed.levels || []) {
+      const hints = lv.level === 1 ? nameHints.l1 : lv.level === 2 ? nameHints.l2 : [];
+      const u = await findUserByEmailOrName(db, lv.email, hints);
+      if (!u) {
+        levelOk = false;
+        results.push({ ok: false, level: lv.level, email: lv.email, error: 'approver not found' });
+        console.warn(`[admin-services] Chain seed skipped — L${lv.level} not found: ${lv.email}`);
+        break;
+      }
+      levels.push({
+        level: lv.level,
+        approverUserId: u._id,
+        label: lv.label || `L${lv.level}`
+      });
+      await db.collection('auth_users').updateOne(
+        { _id: u._id },
+        {
+          $addToSet: {
+            allowedApps: APP_ID,
+            permissions: { $each: [PERMS.TRAVEL_VIEW, PERMS.TRAVEL_APPROVE] }
+          }
+        }
+      );
+    }
+    if (!levelOk || !levels.length) continue;
+
+    await TravelApprovalChain.findOneAndUpdate(
+      { employeeUserId: employee._id, entityTag: '', isDeleted: false },
+      {
+        $set: {
+          employeeUserId: employee._id,
+          entityTag: '',
+          levels,
+          notes: seed.notes || 'Seeded approval chain',
+          isActive: true
+        }
+      },
+      { upsert: true }
+    );
+    // Employee needs claim access
+    await db.collection('auth_users').updateOne(
+      { _id: employee._id },
+      {
+        $addToSet: {
+          allowedApps: APP_ID,
+          permissions: { $each: [PERMS.TRAVEL_VIEW, PERMS.TRAVEL_CLAIM] }
+        }
+      }
+    );
+    results.push({
+      ok: true,
+      employee: employee.email,
+      levels: levels.map((l) => ({ level: l.level, approverUserId: String(l.approverUserId) }))
+    });
+  }
+  return { seeded: results.filter((r) => r.ok).length, results };
 }
 
 /** Reversible down — soft-disables tabs and does not drop collections. */
@@ -180,15 +307,19 @@ export async function seedAdminServicesIfNeeded() {
     await ensureAdminServicesMongoose();
     const n = await AdminServicesTab.countDocuments();
     if (n >= TAB_SEED.length) {
-      // Still ensure travel enabled
       await AdminServicesTab.updateOne({ key: 'travel' }, { $set: { isEnabled: true } });
+      // Keep chains warm on every boot (idempotent)
+      try {
+        await seedApprovalChainsFromEmails();
+      } catch (e) {
+        console.warn('[admin-services] chain seed:', e?.message || e);
+      }
       return { skipped: true };
     }
     return await migrateAdminServicesUp();
   } catch (err) {
     if (err.code === 'APPROVER_NOT_FOUND') {
       console.warn('[admin-services] Migration deferred:', err.message);
-      // Seed tabs only so shell works; policy approver set when user exists
       for (const row of TAB_SEED) {
         await AdminServicesTab.updateOne({ key: row.key }, { $setOnInsert: row }, { upsert: true });
       }

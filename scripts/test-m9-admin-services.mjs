@@ -1,4 +1,4 @@
-/**
+﻿/**
  * M9 unit tests — BR rules, haversine, approval engine, permissions.
  * Run: node scripts/test-m9-admin-services.mjs
  */
@@ -7,6 +7,9 @@ import { haversineMetres, fuelAmountPaise, pairKey } from '../server/lib/adminSe
 import {
   nextStatus, assertTransition, TRIP_TRANSITIONS, CLAIM_TRANSITIONS, applyTransition
 } from '../server/lib/adminServices/approvalEngine.js';
+import {
+  applyLevelApprove, nextStatusAfterApprove, assertCanApproveLevel, awaitingStatus
+} from '../server/lib/adminServices/approvalChain.js';
 import { canOpenTab, canViewTravel, canApprove, hasPerm } from '../server/lib/adminServices/access.js';
 import { PERMS } from '../server/lib/adminServices/constants.js';
 import { resolveApproverUserId, assertNotSelfActor } from '../server/lib/adminServices/travelRules.js';
@@ -21,7 +24,6 @@ console.log('M9 Admin Services tests\n');
 
 // Haversine — reference pair labelled Pimpri-Chinchwad → Moshi corridor (~5.3 km)
 {
-  // Documented test fixtures (road corridor near PCMC / Moshi); straight-line target ~5.3 km
   const m = haversineMetres(18.6298, 73.7997, 18.6485, 73.8472);
   const km = m / 1000;
   assert.ok(km > 4.8 && km < 5.8, `expected ~5.3km, got ${km}`);
@@ -54,24 +56,75 @@ console.log('M9 Admin Services tests\n');
   ok('Trip state machine');
 }
 
-// Claim machine
+// Claim machine — submit → AWAITING_L1; pay from APPROVED
 {
-  assert.strictEqual(nextStatus(CLAIM_TRANSITIONS, 'VERIFIED', 'approve'), 'APPROVED');
+  assert.strictEqual(nextStatus(CLAIM_TRANSITIONS, 'OPEN', 'submit'), 'AWAITING_L1');
+  assert.strictEqual(nextStatus(CLAIM_TRANSITIONS, 'RETURNED', 'submit'), 'AWAITING_L1');
+  assert.strictEqual(nextStatus(CLAIM_TRANSITIONS, 'AWAITING_L1', 'return'), 'RETURNED');
+  assert.strictEqual(nextStatus(CLAIM_TRANSITIONS, 'AWAITING_L2', 'reject'), 'REJECTED');
   assert.strictEqual(nextStatus(CLAIM_TRANSITIONS, 'APPROVED', 'pay'), 'PAID');
-  ok('Claim state machine');
+  assert.strictEqual(nextStatus(CLAIM_TRANSITIONS, 'VERIFIED', 'approve'), null);
+  ok('Claim state machine (multi-level)');
 }
 
-// Tab permission hide
+// Multi-level chain: Mahesh → Akash (L1) → Abhishek (L2)
+{
+  const claim = {
+    status: 'AWAITING_L1',
+    employeeId: 'mahesh',
+    pendingApprovalLevel: 1,
+    approvalChainSnapshot: [
+      { level: 1, approverUserId: 'akash', label: 'L1' },
+      { level: 2, approverUserId: 'abhishek', label: 'L2' }
+    ],
+    levelApprovals: [],
+    stateHistory: []
+  };
+  assert.throws(() => assertCanApproveLevel(claim, 'abhishek'));
+  assert.throws(() => assertCanApproveLevel(claim, 'mahesh'));
+  assertCanApproveLevel(claim, 'akash');
+  assert.strictEqual(nextStatusAfterApprove(claim), 'AWAITING_L2');
+  applyLevelApprove(claim, { by: 'akash', comment: 'ok' });
+  assert.strictEqual(claim.status, 'AWAITING_L2');
+  assert.strictEqual(claim.pendingApprovalLevel, 2);
+  assertCanApproveLevel(claim, 'abhishek');
+  applyLevelApprove(claim, { by: 'abhishek', comment: 'final' });
+  assert.strictEqual(claim.status, 'APPROVED');
+  assert.strictEqual(claim.pendingApprovalLevel, null);
+  assert.strictEqual(claim.levelApprovals.length, 2);
+  assert.strictEqual(awaitingStatus(1), 'AWAITING_L1');
+  ok('L1→L2 approval chain (Akash then Abhishek)');
+}
+
+// Single-level fallback chain ends at APPROVED after L1
+{
+  const claim = {
+    status: 'AWAITING_L1',
+    employeeId: 'emp',
+    pendingApprovalLevel: 1,
+    approvalChainSnapshot: [{ level: 1, approverUserId: 'boss', label: 'L1' }],
+    levelApprovals: [],
+    stateHistory: []
+  };
+  applyLevelApprove(claim, { by: 'boss' });
+  assert.strictEqual(claim.status, 'APPROVED');
+  ok('Single-level chain approves to APPROVED');
+}
+
+// Tab permission — app entitlement grants travel view/claim
 {
   const tab = { key: 'travel', requiredPermission: PERMS.TRAVEL_VIEW, isEnabled: true };
-  const noPerm = { permissions: [], roleIds: [], allowedApps: ['admin_services'] };
-  assert.strictEqual(canOpenTab(noPerm, tab), false);
-  assert.strictEqual(canViewTravel(noPerm), false);
+  const entitled = { permissions: [], roleIds: [], allowedApps: ['admin_services'] };
+  assert.strictEqual(canViewTravel(entitled), true);
+  assert.strictEqual(canOpenTab(entitled, tab), true);
+  const noApp = { permissions: [], roleIds: [], allowedApps: ['hiring'] };
+  assert.strictEqual(canViewTravel(noApp), false);
+  assert.strictEqual(canOpenTab(noApp, tab), false);
   const claimer = { permissions: [PERMS.TRAVEL_CLAIM], roleIds: [], allowedApps: ['admin_services'] };
   assert.strictEqual(canOpenTab(claimer, tab), true);
   const fleet = { key: 'fleet', requiredPermission: 'ADMIN_SERVICES.FLEET.VIEW' };
   assert.strictEqual(canOpenTab(claimer, fleet), false);
-  ok('Tab registry hides tabs without permission');
+  ok('App entitlement opens travel; other tabs stay gated');
 }
 
 // BR-04 self-approval

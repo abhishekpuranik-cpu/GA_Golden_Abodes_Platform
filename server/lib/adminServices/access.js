@@ -35,12 +35,20 @@ export function hasPerm(user, perm) {
   if (roles.has('hiring_manager') && String(perm || '').startsWith('ADMIN_SERVICES.TRAVEL.')) {
     return true;
   }
+  // App entitlement: anyone with Travel Expenses assigned can claim (VIEW + CLAIM).
+  if (
+    hasAdminServicesApp(user) &&
+    (perm === PERMS.TRAVEL_VIEW || perm === PERMS.TRAVEL_CLAIM)
+  ) {
+    return true;
+  }
   return userPermissions(user).has(perm);
 }
 
 export function hasAnyTravelPerm(user) {
   if (!user) return false;
   if (isTravelOpsStaff(user)) return true;
+  if (hasAdminServicesApp(user)) return true;
   const set = userPermissions(user);
   return TRAVEL_ANY.some((p) => set.has(p));
 }
@@ -50,7 +58,7 @@ export function canViewTravel(user) {
 }
 
 export function canClaim(user) {
-  return hasPerm(user, PERMS.TRAVEL_CLAIM) || isTravelOpsStaff(user);
+  return hasPerm(user, PERMS.TRAVEL_CLAIM) || isTravelOpsStaff(user) || hasAdminServicesApp(user);
 }
 
 export function canVerify(user) {

@@ -94,6 +94,10 @@ export default function LocationsDistances() {
 
       <div className="as-card">
         <h2>Locations — {entityTag}</h2>
+        <div style={{ display: 'flex', gap: 8, marginBottom: '0.75rem' }}>
+          <button type="button" className="as-btn secondary" onClick={() => adminServicesApi.downloadLocationsExport({ format: 'xlsx', entityTag }).catch((e) => setErr(e.message))}>Excel</button>
+          <button type="button" className="as-btn secondary" onClick={() => adminServicesApi.downloadLocationsExport({ format: 'pdf', entityTag }).catch((e) => setErr(e.message))}>PDF</button>
+        </div>
         <table className="as-table">
           <thead><tr><th>Name</th><th>Category</th><th>Lat</th><th>Lng</th></tr></thead>
           <tbody>

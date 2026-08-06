@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { adminServicesApi } from '../../../lib/adminServicesApi.js';
-import { formatKm, formatPaise } from '../../../lib/adminServicesTabs.js';
+import { formatKm, formatPaise, claimStatusLabel, claimStatusTone } from '../../../lib/adminServicesTabs.js';
+
+function isAwaiting(status) {
+  return /^AWAITING_L\d+$/.test(String(status || ''));
+}
 
 export default function ApprovalsPage() {
   const [claims, setClaims] = useState([]);
@@ -12,12 +16,15 @@ export default function ApprovalsPage() {
 
   async function load() {
     try {
-      const [p, e] = await Promise.all([
-        adminServicesApi.pendingApprovals(),
-        adminServicesApi.exceptions()
-      ]);
+      const p = await adminServicesApi.pendingApprovals();
       setClaims(p.claims || []);
-      setExceptions(e.exceptions || {});
+      try {
+        const e = await adminServicesApi.exceptions();
+        setExceptions(e.exceptions || {});
+      } catch {
+        setExceptions({});
+      }
+      setErr('');
     } catch (ex) { setErr(ex.message); }
   }
 
@@ -34,6 +41,7 @@ export default function ApprovalsPage() {
         : { comment };
       await adminServicesApi.claimAction(id, action, body);
       setComment('');
+      setErr('');
       load();
     } catch (ex) { setErr(ex.message); }
   }
@@ -55,15 +63,25 @@ export default function ApprovalsPage() {
 
   const excCount = Object.values(exceptions).reduce((s, arr) => s + (arr?.length || 0), 0);
 
+  function chainHint(c) {
+    const level = c.pendingApprovalLevel;
+    const step = (c.approvalChainSnapshot || []).find((l) => l.level === level);
+    if (!step) return '—';
+    return `${step.label || `L${level}`}`;
+  }
+
   return (
     <div>
       <div className="as-card">
         <h2>Approvals</h2>
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem' }}>
+        <p className="as-muted">Multi-level: L1 then L2 (and beyond). You only see claims waiting on your level.</p>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
           <button type="button" className={`as-btn ${view === 'claims' ? '' : 'secondary'}`} onClick={() => setView('claims')}>Claims</button>
           <button type="button" className={`as-btn ${view === 'exceptions' ? '' : 'secondary'}`} onClick={() => setView('exceptions')}>
             Exceptions{excCount ? ` (${excCount})` : ''}
           </button>
+          <button type="button" className="as-btn secondary" onClick={() => adminServicesApi.downloadApprovalsExport({ format: 'xlsx' }).catch((e) => setErr(e.message))}>Excel</button>
+          <button type="button" className="as-btn secondary" onClick={() => adminServicesApi.downloadApprovalsExport({ format: 'pdf' }).catch((e) => setErr(e.message))}>PDF</button>
         </div>
         <div className="as-field">
           <label>Comment / payment reference</label>
@@ -77,14 +95,15 @@ export default function ApprovalsPage() {
           <table className="as-table">
             <thead>
               <tr>
-                <th>Period</th><th>Employee</th><th>Trips</th><th>Km</th><th>Verified %</th><th>Exceptions</th><th>Amount</th><th />
+                <th>Period</th><th>Status</th><th>Level</th><th>Trips</th><th>Km</th><th>Verified %</th><th>Exceptions</th><th>Amount</th><th />
               </tr>
             </thead>
             <tbody>
               {claims.map((c) => (
                 <tr key={c._id}>
                   <td>{c.claimPeriod}</td>
-                  <td>{String(c.employeeId).slice(-6)}</td>
+                  <td><span className={`as-pill ${claimStatusTone(c.status)}`}>{claimStatusLabel(c.status)}</span></td>
+                  <td>{chainHint(c)}</td>
                   <td>{c.tripCount}</td>
                   <td>{formatKm(c.totalDistanceMetres)}</td>
                   <td>{c.verifiedPercent}%</td>
@@ -93,18 +112,32 @@ export default function ApprovalsPage() {
                   <td style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     <button type="button" className="as-btn secondary" onClick={() => openDetail(c._id)}>Detail</button>
                     {c.status === 'SUBMITTED' && <button type="button" className="as-btn" onClick={() => claimAct(c._id, 'verify')}>Verify</button>}
-                    {c.status === 'VERIFIED' && <button type="button" className="as-btn" onClick={() => claimAct(c._id, 'approve')}>Approve</button>}
+                    {isAwaiting(c.status) && (
+                      <button type="button" className="as-btn" onClick={() => claimAct(c._id, 'approve')}>
+                        Approve {c.pendingApprovalLevel ? `L${c.pendingApprovalLevel}` : ''}
+                      </button>
+                    )}
                     {c.status === 'APPROVED' && <button type="button" className="as-btn" onClick={() => claimAct(c._id, 'pay')}>Mark paid</button>}
-                    <button type="button" className="as-btn warn" onClick={() => claimAct(c._id, 'return')}>Return</button>
-                    <button type="button" className="as-btn danger" onClick={() => claimAct(c._id, 'reject')}>Reject</button>
+                    {(isAwaiting(c.status) || ['SUBMITTED', 'VERIFIED'].includes(c.status)) && (
+                      <>
+                        <button type="button" className="as-btn warn" onClick={() => claimAct(c._id, 'return')}>Return</button>
+                        <button type="button" className="as-btn danger" onClick={() => claimAct(c._id, 'reject')}>Reject</button>
+                      </>
+                    )}
                   </td>
                 </tr>
               ))}
+              {!claims.length && (
+                <tr><td colSpan={9} className="as-muted">No claims waiting on you.</td></tr>
+              )}
             </tbody>
           </table>
           {detail && (
             <div style={{ marginTop: '1rem' }}>
               <h3>Claim detail</h3>
+              <p className="as-muted">
+                Chain: {(detail.claim?.approvalChainSnapshot || []).map((l) => `${l.label || `L${l.level}`}`).join(' → ') || '—'}
+              </p>
               <pre style={{ fontSize: 12, overflow: 'auto' }}>{JSON.stringify(detail, null, 2)}</pre>
             </div>
           )}

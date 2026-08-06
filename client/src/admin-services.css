@@ -367,3 +367,32 @@
 
 /* Hide PlatformShell chrome noise inside AS if present */
 .as-app .ga-shell-breadcrumb { display: none; }
+
+.as-lookup {
+  list-style: none;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  border: 1px solid var(--as-line);
+  border-radius: 8px;
+  background: #fff;
+  max-height: 180px;
+  overflow: auto;
+  z-index: 5;
+  position: absolute;
+  left: 0;
+  right: 0;
+  box-shadow: 0 8px 24px rgba(20, 30, 50, 0.12);
+}
+.as-lookup li button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+  cursor: pointer;
+}
+.as-lookup li button:hover {
+  background: #f3f5f8;
+}

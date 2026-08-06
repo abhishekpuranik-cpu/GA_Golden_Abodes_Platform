@@ -43,7 +43,11 @@ export default function VerificationQueue() {
         <label>Comment (required for return/reject)</label>
         <input value={comment} onChange={(e) => setComment(e.target.value)} />
       </div>
-      <button type="button" className="as-btn" onClick={bulkVerify} style={{ marginBottom: '1rem' }}>Bulk verify all listed</button>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <button type="button" className="as-btn" onClick={bulkVerify}>Bulk verify all listed</button>
+        <button type="button" className="as-btn secondary" onClick={() => adminServicesApi.downloadTripsExport({ format: 'xlsx', status: 'SUBMITTED' }).catch((e) => setErr(e.message))}>Excel</button>
+        <button type="button" className="as-btn secondary" onClick={() => adminServicesApi.downloadTripsExport({ format: 'pdf', status: 'SUBMITTED' }).catch((e) => setErr(e.message))}>PDF</button>
+      </div>
       {err && <p className="as-error">{err}</p>}
       <table className="as-table">
         <thead>

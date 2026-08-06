@@ -2,19 +2,171 @@ import { Router } from 'express';
 import TravelTrip from '../../../models/adminServices/travel/Trip.js';
 import TravelClaim from '../../../models/adminServices/travel/Claim.js';
 import {
-  canClaim, canVerify, canApprove, canSettle, canTravelAdmin, requirePerm
+  canClaim, canVerify, canApprove, canSettle, canTravelAdmin, requirePerm, isTravelOpsStaff
 } from '../../../lib/adminServices/access.js';
 import { notDeletedFilter } from '../../../lib/adminServices/mongoose.js';
-import {
-  hasUnresolvedExceptions, resolveApproverUserId, assertNotSelfActor, getPolicy
-} from '../../../lib/adminServices/travelRules.js';
+import { hasUnresolvedExceptions, assertNotSelfActor } from '../../../lib/adminServices/travelRules.js';
 import { applyTransition, CLAIM_TRANSITIONS } from '../../../lib/adminServices/approvalEngine.js';
+import {
+  snapshotChainForClaim,
+  assertCanApproveLevel,
+  applyLevelApprove,
+  parseAwaitingLevel,
+  awaitingStatus
+} from '../../../lib/adminServices/approvalChain.js';
 import { writeAdminServicesAudit } from '../../../lib/adminServices/audit.js';
+import { sendXlsx, sendSimplePdf, rowsToAoa, aoaToPdfLines } from '../../../lib/adminServices/exportWorkbook.js';
 
 const router = Router();
 
 function uid(user) {
   return user?.id || user?._id;
+}
+
+async function assertClaimApprovable(claim) {
+  const trips = await TravelTrip.find(notDeletedFilter({ _id: { $in: claim.tripIds } }));
+  for (const t of trips) {
+    if (hasUnresolvedExceptions(t)) {
+      const err = new Error('Claim has unresolved exceptions — accept or reject each flagged trip first');
+      err.status = 409;
+      err.tripId = String(t._id);
+      throw err;
+    }
+    if (t.distanceBasis === 'PARTIAL_ESTIMATE') {
+      const err = new Error('Trip has unverified distance pairs — not approvable until verified (BR-09)');
+      err.status = 409;
+      err.tripId = String(t._id);
+      throw err;
+    }
+  }
+}
+
+/** Build / refresh an OPEN claim from SUBMITTED+VERIFIED trips in period. */
+async function buildOrGetClaimForPeriod(employeeId, claimPeriod, actorId) {
+  if (!/^\d{4}-\d{2}$/.test(claimPeriod)) {
+    const err = new Error('claimPeriod must be YYYY-MM');
+    err.status = 400;
+    throw err;
+  }
+  let claim = await TravelClaim.findOne(notDeletedFilter({ employeeId, claimPeriod }));
+  if (claim && !['OPEN', 'RETURNED'].includes(claim.status)) {
+    return { claim, created: false };
+  }
+
+  const [y, m] = claimPeriod.split('-').map(Number);
+  const start = new Date(Date.UTC(y, m - 1, 1));
+  const end = new Date(Date.UTC(y, m, 1));
+
+  const trips = await TravelTrip.find(notDeletedFilter({
+    employeeId,
+    status: { $in: ['SUBMITTED', 'VERIFIED'] },
+    $or: [{ claimId: null }, { claimId: { $exists: false } }, ...(claim ? [{ claimId: claim._id }] : [])],
+    travelDate: { $gte: start, $lt: end }
+  }));
+
+  let usable = trips.filter((t) => !t.claimId || (claim && String(t.claimId) === String(claim._id)));
+  if (!usable.length) {
+    const drafts = await TravelTrip.countDocuments(notDeletedFilter({
+      employeeId,
+      status: { $in: ['DRAFT', 'RETURNED'] },
+      travelDate: { $gte: start, $lt: end }
+    }));
+    const err = new Error(
+      drafts
+        ? `No submitted trips for ${claimPeriod}. Submit your draft trips first (${drafts} still draft/returned).`
+        : `No submitted trips for ${claimPeriod}. Log and submit trips, then submit the monthly claim.`
+    );
+    err.status = 400;
+    err.code = 'NO_TRIPS_FOR_CLAIM';
+    throw err;
+  }
+
+  for (const t of usable) {
+    if (t.status === 'SUBMITTED') {
+      const from = t.status;
+      t.status = 'VERIFIED';
+      if (!Array.isArray(t.stateHistory)) t.stateHistory = [];
+      t.stateHistory.push({
+        from,
+        to: 'VERIFIED',
+        action: 'auto_verify_for_claim',
+        by: actorId,
+        comment: 'Auto-verified when generating monthly claim',
+        at: new Date()
+      });
+      await t.save();
+    }
+  }
+
+  usable = await TravelTrip.find(notDeletedFilter({
+    _id: { $in: usable.map((t) => t._id) }
+  }));
+
+  const entityTag = usable[0].entityTag;
+  let totalDistance = 0;
+  let verifiedDistance = 0;
+  let fuel = 0;
+  let anc = 0;
+  let exc = 0;
+  for (const t of usable) {
+    totalDistance += t.claimedDistanceMetres || 0;
+    if (t.distanceBasis === 'VERIFIED') verifiedDistance += t.claimedDistanceMetres || 0;
+    fuel += t.fuelAmountPaise || 0;
+    anc += t.ancillaryTotalPaise || 0;
+    if ((t.exceptionFlags || []).length) exc += 1;
+  }
+
+  const totals = {
+    entityTag,
+    tripIds: usable.map((t) => t._id),
+    tripCount: usable.length,
+    totalDistanceMetres: totalDistance,
+    verifiedDistanceMetres: verifiedDistance,
+    verifiedPercent: totalDistance ? Math.round((verifiedDistance / totalDistance) * 10000) / 100 : 0,
+    fuelTotalPaise: fuel,
+    ancillaryTotalPaise: anc,
+    grandTotalPaise: fuel + anc,
+    exceptionCount: exc
+  };
+
+  if (!claim) {
+    claim = await TravelClaim.create({
+      ...totals,
+      employeeId,
+      claimPeriod,
+      status: 'OPEN',
+      createdBy: actorId
+    });
+  } else {
+    Object.assign(claim, totals);
+    claim.status = 'OPEN';
+    claim.updatedBy = actorId;
+    await claim.save();
+  }
+
+  for (const t of usable) {
+    t.claimId = claim._id;
+    await t.save();
+  }
+
+  return { claim, created: true };
+}
+
+async function submitClaimDoc(claim, actor, comment = '') {
+  const snap = await snapshotChainForClaim(claim.employeeId, claim.entityTag);
+  claim.approvalChainSnapshot = snap;
+  claim.pendingApprovalLevel = 1;
+  claim.levelApprovals = [];
+  const firstStatus = awaitingStatus(1);
+  applyTransition(claim, CLAIM_TRANSITIONS, 'submit', { by: actor, comment });
+  claim.status = firstStatus;
+  claim.pendingApprovalLevel = 1;
+  if (claim.stateHistory?.length) {
+    claim.stateHistory[claim.stateHistory.length - 1].to = firstStatus;
+  }
+  claim.updatedBy = actor;
+  await claim.save();
+  return claim;
 }
 
 router.get('/', async (req, res) => {
@@ -33,71 +185,98 @@ router.get('/', async (req, res) => {
   }
 });
 
+router.get('/export', requirePerm((u) => canClaim(u) || canApprove(u) || canTravelAdmin(u), 'export permission required'), async (req, res) => {
+  try {
+    const format = String(req.query.format || 'xlsx').toLowerCase();
+    const filter = notDeletedFilter();
+    if (!canVerify(req.authUser) && !canApprove(req.authUser) && !canTravelAdmin(req.authUser)) {
+      filter.employeeId = uid(req.authUser);
+    } else if (req.query.employeeId) {
+      filter.employeeId = req.query.employeeId;
+    }
+    if (req.query.period) filter.claimPeriod = req.query.period;
+    const claims = await TravelClaim.find(filter).sort({ claimPeriod: -1 }).limit(500).lean();
+    const headers = [
+      'claimPeriod', 'status', 'entityTag', 'tripCount', 'totalDistanceMetres',
+      'fuelTotalPaise', 'ancillaryTotalPaise', 'grandTotalPaise', 'paymentReference', 'pendingApprovalLevel'
+    ];
+    const rows = claims.map((c) => ({
+      claimPeriod: c.claimPeriod,
+      status: c.status,
+      entityTag: c.entityTag,
+      tripCount: c.tripCount,
+      totalDistanceMetres: c.totalDistanceMetres,
+      fuelTotalPaise: c.fuelTotalPaise,
+      ancillaryTotalPaise: c.ancillaryTotalPaise,
+      grandTotalPaise: c.grandTotalPaise,
+      paymentReference: c.paymentReference || '',
+      pendingApprovalLevel: c.pendingApprovalLevel || ''
+    }));
+    const aoa = rowsToAoa(headers, rows);
+    const stamp = req.query.period || 'all';
+    if (format === 'pdf') {
+      return sendSimplePdf(res, {
+        title: 'Travel claims',
+        filename: `travel-claims-${stamp}.pdf`,
+        lines: aoaToPdfLines(aoa)
+      });
+    }
+    return sendXlsx(res, `travel-claims-${stamp}.xlsx`, [{ name: 'Claims', aoa }]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.post('/generate', requirePerm((u) => canClaim(u) || canTravelAdmin(u), 'CLAIM required'), async (req, res) => {
   try {
     const employeeId = req.body?.employeeId || uid(req.authUser);
     const claimPeriod = String(req.body?.claimPeriod || '').trim();
-    if (!/^\d{4}-\d{2}$/.test(claimPeriod)) {
-      return res.status(400).json({ error: 'claimPeriod must be YYYY-MM' });
-    }
     if (!canTravelAdmin(req.authUser) && String(employeeId) !== String(uid(req.authUser))) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-
-    const existing = await TravelClaim.findOne(notDeletedFilter({ employeeId, claimPeriod }));
-    if (existing) return res.status(409).json({ error: 'Claim already exists for period (BR-11)', claim: existing });
-
-    const [y, m] = claimPeriod.split('-').map(Number);
-    const start = new Date(Date.UTC(y, m - 1, 1));
-    const end = new Date(Date.UTC(y, m, 1));
-    const trips = await TravelTrip.find(notDeletedFilter({
-      employeeId,
-      status: 'VERIFIED',
-      claimId: null,
-      travelDate: { $gte: start, $lt: end }
-    }));
-    if (!trips.length) return res.status(400).json({ error: 'No VERIFIED trips for period' });
-
-    const entityTag = trips[0].entityTag;
-    let totalDistance = 0;
-    let verifiedDistance = 0;
-    let fuel = 0;
-    let anc = 0;
-    let exc = 0;
-    for (const t of trips) {
-      totalDistance += t.claimedDistanceMetres || 0;
-      if (t.distanceBasis === 'VERIFIED') verifiedDistance += t.claimedDistanceMetres || 0;
-      fuel += t.fuelAmountPaise || 0;
-      anc += t.ancillaryTotalPaise || 0;
-      if ((t.exceptionFlags || []).length) exc += 1;
-    }
-
-    const claim = await TravelClaim.create({
-      entityTag,
-      employeeId,
-      claimPeriod,
-      tripIds: trips.map((t) => t._id),
-      tripCount: trips.length,
-      totalDistanceMetres: totalDistance,
-      verifiedDistanceMetres: verifiedDistance,
-      verifiedPercent: totalDistance ? Math.round((verifiedDistance / totalDistance) * 10000) / 100 : 0,
-      fuelTotalPaise: fuel,
-      ancillaryTotalPaise: anc,
-      grandTotalPaise: fuel + anc,
-      exceptionCount: exc,
-      status: 'OPEN',
-      createdBy: uid(req.authUser)
-    });
-
-    for (const t of trips) {
-      t.claimId = claim._id;
-      await t.save();
-    }
-
+    const { claim } = await buildOrGetClaimForPeriod(employeeId, claimPeriod, uid(req.authUser));
     res.status(201).json({ claim });
   } catch (err) {
     if (err.code === 11000) return res.status(409).json({ error: 'Claim already exists (BR-11)' });
-    res.status(err.status || 500).json({ error: err.message });
+    res.status(err.status || 500).json({ error: err.message, code: err.code });
+  }
+});
+
+/** One-shot: generate (if needed) + submit for approval. */
+router.post('/submit-month', requirePerm((u) => canClaim(u) || canTravelAdmin(u), 'CLAIM required'), async (req, res) => {
+  try {
+    const employeeId = req.body?.employeeId || uid(req.authUser);
+    const claimPeriod = String(req.body?.claimPeriod || '').trim();
+    if (!canTravelAdmin(req.authUser) && String(employeeId) !== String(uid(req.authUser))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    let claim = await TravelClaim.findOne(notDeletedFilter({ employeeId, claimPeriod }));
+    if (!claim || ['OPEN', 'RETURNED'].includes(claim.status)) {
+      const built = await buildOrGetClaimForPeriod(employeeId, claimPeriod, uid(req.authUser));
+      claim = built.claim;
+    } else if (!['OPEN', 'RETURNED'].includes(claim.status)) {
+      return res.status(409).json({
+        error: `Claim for ${claimPeriod} is already ${claim.status}`,
+        claim,
+        code: 'CLAIM_ALREADY_IN_FLIGHT'
+      });
+    }
+    claim = await TravelClaim.findOne(notDeletedFilter({ _id: claim._id }));
+    await submitClaimDoc(claim, uid(req.authUser), String(req.body?.comment || ''));
+    await writeAdminServicesAudit({
+      entityType: 'travelClaim',
+      entityId: String(claim._id),
+      action: 'submit-month',
+      userId: uid(req.authUser),
+      userEmail: req.authUser.email,
+      after: { status: claim.status, pendingApprovalLevel: claim.pendingApprovalLevel }
+    });
+    res.json({
+      claim,
+      message: `Claim submitted — awaiting L1 approval`
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message, code: err.code, tripId: err.tripId });
   }
 });
 
@@ -125,71 +304,83 @@ async function transitionClaim(req, res, action) {
       if (!canClaim(req.authUser) && !canTravelAdmin(req.authUser)) {
         return res.status(403).json({ error: 'CLAIM required' });
       }
-    }
-    if (action === 'verify') {
+      await submitClaimDoc(claim, uid(req.authUser), comment);
+    } else if (action === 'verify') {
       if (!canVerify(req.authUser)) return res.status(403).json({ error: 'VERIFY required' });
       assertNotSelfActor(uid(req.authUser), claim.employeeId, 'verify');
-    }
-    if (action === 'approve') {
-      if (!canApprove(req.authUser)) return res.status(403).json({ error: 'APPROVE required' });
-      assertNotSelfActor(uid(req.authUser), claim.employeeId, 'approve');
-      const policy = await getPolicy(claim.entityTag);
-      const expected = resolveApproverUserId(policy, claim.employeeId);
-      if (expected && String(uid(req.authUser)) !== String(expected) && !canTravelAdmin(req.authUser)) {
-        // Allow any APPROVE holder if not the designated final; still block self
-      }
-      const trips = await TravelTrip.find(notDeletedFilter({ _id: { $in: claim.tripIds } }));
-      for (const t of trips) {
-        if (hasUnresolvedExceptions(t)) {
-          return res.status(409).json({
-            error: 'Claim has unresolved exceptions — accept or reject each flagged trip first (§5.4)',
-            tripId: String(t._id)
-          });
+      applyTransition(claim, CLAIM_TRANSITIONS, 'verify', { by: uid(req.authUser), comment });
+      claim.updatedBy = uid(req.authUser);
+      await claim.save();
+    } else if (action === 'approve') {
+      const actor = uid(req.authUser);
+      const staff = isTravelOpsStaff(req.authUser) || canApprove(req.authUser);
+      try {
+        assertCanApproveLevel(claim, actor, { allowStaffOverride: true, isStaff: staff && canTravelAdmin(req.authUser) });
+      } catch (e) {
+        if (!canApprove(req.authUser) && !canTravelAdmin(req.authUser)) {
+          const level = claim.pendingApprovalLevel || parseAwaitingLevel(claim.status);
+          const step = (claim.approvalChainSnapshot || []).find((l) => l.level === level);
+          if (!step || String(step.approverUserId) !== String(actor)) throw e;
+          assertNotSelfActor(actor, claim.employeeId, 'approve');
+        } else if (e.code === 'WRONG_APPROVER_LEVEL' && canTravelAdmin(req.authUser)) {
+          // admin override OK
+        } else if (e.code === 'WRONG_APPROVER_LEVEL') {
+          throw e;
+        } else {
+          throw e;
         }
-        if (t.exceptionFlags?.includes('EXC_UNVERIFIED')) {
-          const unresolved = !(t.exceptionResolutions || []).some(
-            (r) => r.flag === 'EXC_UNVERIFIED' && r.resolution === 'accepted'
-          );
-          // Unverified pairs: not approvable until verified (§ BR-09) unless exception accepted? Brief says not approvable until every pair verified.
-          if (t.distanceBasis === 'PARTIAL_ESTIMATE') {
-            return res.status(409).json({
-              error: 'Trip has unverified distance pairs — not approvable until verified (BR-09)',
-              tripId: String(t._id)
-            });
+      }
+      await assertClaimApprovable(claim);
+      assertNotSelfActor(actor, claim.employeeId, 'approve');
+      applyLevelApprove(claim, { by: actor, comment });
+      claim.updatedBy = actor;
+      await claim.save();
+    } else if (action === 'return' || action === 'reject') {
+      const level = parseAwaitingLevel(claim.status);
+      if (level) {
+        const actor = uid(req.authUser);
+        const step = (claim.approvalChainSnapshot || []).find((l) => l.level === level);
+        const allowed = (step && String(step.approverUserId) === String(actor))
+          || canApprove(req.authUser)
+          || canTravelAdmin(req.authUser);
+        if (!allowed) return res.status(403).json({ error: 'Not allowed to return/reject at this level' });
+      } else if (!canApprove(req.authUser) && !canVerify(req.authUser)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+      applyTransition(claim, CLAIM_TRANSITIONS, action, { by: uid(req.authUser), comment });
+      if (action === 'return') {
+        claim.pendingApprovalLevel = null;
+        await TravelTrip.updateMany(
+          { _id: { $in: claim.tripIds }, isDeleted: { $ne: true } },
+          {
+            $set: { status: 'DRAFT' },
+            $push: {
+              stateHistory: {
+                from: 'VERIFIED',
+                to: 'DRAFT',
+                action: 'return_via_claim',
+                by: uid(req.authUser),
+                comment,
+                at: new Date()
+              }
+            }
           }
-        }
+        );
       }
-    }
-    if (action === 'pay') {
+      claim.updatedBy = uid(req.authUser);
+      await claim.save();
+    } else if (action === 'pay') {
       if (!canSettle(req.authUser)) return res.status(403).json({ error: 'SETTLE required' });
       if (!req.body?.paymentReference) return res.status(400).json({ error: 'paymentReference required' });
       claim.paymentReference = String(req.body.paymentReference);
       claim.paidAt = req.body.paidAt ? new Date(req.body.paidAt) : new Date();
+      applyTransition(claim, CLAIM_TRANSITIONS, 'pay', { by: uid(req.authUser), comment });
+      claim.updatedBy = uid(req.authUser);
+      await claim.save();
+    } else {
+      return res.status(400).json({ error: `Unknown action ${action}` });
     }
 
-    applyTransition(claim, CLAIM_TRANSITIONS, action, { by: uid(req.authUser), comment });
-
-    if (action === 'return') {
-      await TravelTrip.updateMany(
-        { _id: { $in: claim.tripIds }, isDeleted: { $ne: true } },
-        {
-          $set: { status: 'DRAFT' },
-          $push: {
-            stateHistory: {
-              from: 'VERIFIED',
-              to: 'DRAFT',
-              action: 'return_via_claim',
-              by: uid(req.authUser),
-              comment,
-              at: new Date()
-            }
-          }
-        }
-      );
-    }
-
-    claim.updatedBy = uid(req.authUser);
-    await claim.save();
     await writeAdminServicesAudit({
       entityType: 'travelClaim',
       entityId: String(claim._id),
@@ -197,11 +388,11 @@ async function transitionClaim(req, res, action) {
       userId: uid(req.authUser),
       userEmail: req.authUser.email,
       reason: comment,
-      after: { status: claim.status }
+      after: { status: claim.status, pendingApprovalLevel: claim.pendingApprovalLevel }
     });
     res.json({ claim });
   } catch (err) {
-    res.status(err.status || 500).json({ error: err.message, code: err.code });
+    res.status(err.status || 500).json({ error: err.message, code: err.code, tripId: err.tripId });
   }
 }
 

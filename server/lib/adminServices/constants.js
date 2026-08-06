@@ -59,7 +59,24 @@ export const EXCEPTION_FLAGS = [
 
 export const TRIP_STATUSES = ['DRAFT', 'SUBMITTED', 'VERIFIED', 'RETURNED', 'REJECTED'];
 
-export const CLAIM_STATUSES = ['OPEN', 'SUBMITTED', 'VERIFIED', 'APPROVED', 'RETURNED', 'REJECTED', 'PAID'];
+export const CLAIM_AWAITING_STATUSES = [
+  'AWAITING_L1',
+  'AWAITING_L2',
+  'AWAITING_L3',
+  'AWAITING_L4',
+  'AWAITING_L5'
+];
+
+export const CLAIM_STATUSES = [
+  'OPEN',
+  'SUBMITTED',
+  'VERIFIED',
+  ...CLAIM_AWAITING_STATUSES,
+  'APPROVED',
+  'RETURNED',
+  'REJECTED',
+  'PAID'
+];
 
 export const DISTANCE_BASIS = ['VERIFIED', 'PARTIAL_ESTIMATE', 'OVERRIDE'];
 
@@ -84,5 +101,21 @@ export const POLICY_DEFAULTS = {
 };
 
 export const APPROVER_LOOKUP_EMAIL = 'abhishek.puranik@goldenabodes.com';
+
+/**
+ * Seed approval chains by email (resolved at migration — never hardcode ObjectIds).
+ * Override via env TRAVEL_CHAIN_SEED_JSON if needed.
+ * Default: Mahesh → L1 Akash → L2 Abhishek.
+ */
+export const APPROVAL_CHAIN_EMAIL_SEEDS = [
+  {
+    employeeEmail: process.env.TRAVEL_SEED_EMPLOYEE_EMAIL || 'mahesh@goldenabodes.com',
+    levels: [
+      { level: 1, label: 'L1', email: process.env.TRAVEL_SEED_L1_EMAIL || 'akash@goldenabodes.com' },
+      { level: 2, label: 'L2', email: process.env.TRAVEL_SEED_L2_EMAIL || APPROVER_LOOKUP_EMAIL }
+    ],
+    notes: 'Standard manager → director chain'
+  }
+];
 
 export const EARTH_RADIUS_KM = 6371;

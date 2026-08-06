@@ -25,14 +25,21 @@ vaultAttentionRouter.get('/attention', async (req, res) => {
       const TravelClaim = (await import('../models/adminServices/travel/Claim.js')).default;
       const TravelTrip = (await import('../models/adminServices/travel/Trip.js')).default;
 
-      if (canApprove(user) || canVerify(user)) {
-        const claimStatuses = canApprove(user) ? ['VERIFIED', 'SUBMITTED'] : ['SUBMITTED'];
-        const [claimCount, verifyCount, excCount] = await Promise.all([
-          TravelClaim.countDocuments(notDeletedFilter({ status: { $in: claimStatuses } })),
+      if (canApprove(user) || canVerify(user) || isTravelOpsStaff(user)) {
+        const { CLAIM_AWAITING_STATUSES } = await import('../lib/adminServices/constants.js');
+        const { parseAwaitingLevel } = await import('../lib/adminServices/approvalChain.js');
+        const { canTravelAdmin } = await import('../lib/adminServices/access.js');
+        const actor = String(user.id || user._id);
+
+        const [awaitingRows, verifyCount, excCount] = await Promise.all([
+          TravelClaim.find(notDeletedFilter({ status: { $in: CLAIM_AWAITING_STATUSES } }))
+            .select({ pendingApprovalLevel: 1, status: 1, approvalChainSnapshot: 1 })
+            .limit(200)
+            .lean(),
           canVerify(user)
             ? TravelTrip.countDocuments(notDeletedFilter({ status: 'SUBMITTED' }))
             : Promise.resolve(0),
-          canApprove(user)
+          canApprove(user) || canTravelAdmin(user)
             ? TravelTrip.countDocuments(notDeletedFilter({
               exceptionFlags: { $exists: true, $ne: [] },
               status: { $nin: ['REJECTED', 'DRAFT'] }
@@ -40,13 +47,20 @@ vaultAttentionRouter.get('/attention', async (req, res) => {
             : Promise.resolve(0)
         ]);
 
-        if (claimCount > 0 && canApprove(user)) {
+        const claimCount = awaitingRows.filter((c) => {
+          if (canTravelAdmin(user)) return true;
+          const level = c.pendingApprovalLevel || parseAwaitingLevel(c.status);
+          const step = (c.approvalChainSnapshot || []).find((l) => l.level === level);
+          return step && String(step.approverUserId) === actor;
+        }).length;
+
+        if (claimCount > 0) {
           items.push({
             id: 'as-approvals',
             appId: 'admin_services',
             kind: 'approval',
-            title: 'Travel claims awaiting approval',
-            detail: `${claimCount} claim${claimCount === 1 ? '' : 's'} need your review`,
+            title: 'Travel claims awaiting your approval',
+            detail: `${claimCount} claim${claimCount === 1 ? '' : 's'} at your level`,
             count: claimCount,
             href: '/app/admin-services/travel/approvals',
             priority: 1
