@@ -121,6 +121,10 @@ export default function LogTrip() {
             <div className="as-skeleton" />
             <div className="as-skeleton" style={{ width: '70%' }} />
           </>
+        ) : !(locations || []).length ? (
+          <p className="as-error">
+            No locations for entity {entityTag}. Ask an admin to add stops under Locations before logging trips.
+          </p>
         ) : (
           <>
             {stops.map((s, i) => (
@@ -129,9 +133,9 @@ export default function LogTrip() {
                 <select
                   value={s}
                   onChange={(e) => {
-                    const next = [...stops];
-                    next[i] = e.target.value;
-                    setStops(next);
+                    const nextStops = [...stops];
+                    nextStops[i] = e.target.value;
+                    setStops(nextStops);
                   }}
                   required
                 >

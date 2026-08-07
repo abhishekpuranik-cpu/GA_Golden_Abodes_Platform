@@ -69,27 +69,20 @@ TripSchema.index({ claimId: 1 });
 TripSchema.index({ exceptionFlags: 1, status: 1 });
 
 /** BR-12: approved/paid claims lock trips — also enforce immutability for REJECTED edits via routes. */
-TripSchema.pre('save', async function preSave(next) {
-  if (this.isNew) return next();
-  if (this.status === 'REJECTED' && this.isModified() && !this.isModified('isDeleted')) {
-    /* allow soft delete only — edits blocked in route layer for REJECTED */
-  }
-  try {
-    if (this.claimId) {
-      const Claim = mongoose.model('TravelClaim');
-      const claim = await Claim.findById(this.claimId).lean();
-      if (claim && (claim.status === 'APPROVED' || claim.status === 'PAID')) {
-        const allowed = ['updatedAt', 'updatedBy'];
-        const modified = this.modifiedPaths().filter((p) => !allowed.includes(p));
-        if (modified.length) {
-          return next(new Error('BR-12: trip on APPROVED/PAID claim is immutable'));
-        }
+TripSchema.pre('save', async function preSave() {
+  // Mongoose 7+: async hooks must not use next() — it is not passed and throws "next is not a function".
+  if (this.isNew) return;
+  if (this.claimId) {
+    const Claim = mongoose.model('TravelClaim');
+    const claim = await Claim.findById(this.claimId).lean();
+    if (claim && (claim.status === 'APPROVED' || claim.status === 'PAID')) {
+      const allowed = ['updatedAt', 'updatedBy'];
+      const modified = this.modifiedPaths().filter((p) => !allowed.includes(p));
+      if (modified.length) {
+        throw new Error('BR-12: trip on APPROVED/PAID claim is immutable');
       }
     }
-  } catch (e) {
-    return next(e);
   }
-  return next();
 });
 
 export default mongoose.models.TravelTrip
