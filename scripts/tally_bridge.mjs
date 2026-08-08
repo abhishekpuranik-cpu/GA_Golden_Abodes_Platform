@@ -4,11 +4,13 @@
  *
  * Forwards XML to Tally (default http://127.0.0.1:9000) for Cashflow live sync.
  *
- * Payment + Receipt full history (robust):
- *   Do NOT rely on "Payment Register" / "Receipt Register" report titles — Tally often
- *   ignores SVFROMDATE/SVTODATE on those and returns only the current day.
- *   Instead: Day Book / Voucher Register + VOUCHERTYPENAME=Payment|Receipt, dated windows,
- *   reject out-of-range responses, and re-chunk year → month when truncated.
+ * Payment + Receipt full history (v3.3):
+ *   Tally Day Book often ignores multi-day SVFROMDATE/SVTODATE and returns only "today".
+ *   Strategy:
+ *     1) Month windows (never trust a multi-year single export)
+ *     2) Prefer Collection + date formula filter (respects range)
+ *     3) If a month looks truncated / date-ignored → day-by-day Day Book for that month
+ *     4) Merge + filter vouchers strictly to the requested From–To
  *
  *   POST /tally/export
  *   { "preset":"payment_receipt", "fromDate":"20000401", "toDate":"20260713" }
@@ -22,8 +24,8 @@ const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || '34876', 10);
 /** Keep short — empty/hung Tally exports must not block Cashflow for minutes. */
 const TALLY_TIMEOUT_MS = Math.max(5000, parseInt(process.env.TALLY_TIMEOUT_MS || '20000', 10) || 20000);
 /** Max XML shapes tried per window before declaring empty (prevents multi-minute hangs). */
-const MAX_PROBES_PER_WINDOW = Math.max(2, parseInt(process.env.TALLY_MAX_PROBES || '5', 10) || 5);
-const BRIDGE_VERSION = 3.2;
+const MAX_PROBES_PER_WINDOW = Math.max(3, parseInt(process.env.TALLY_MAX_PROBES || '6', 10) || 6);
+const BRIDGE_VERSION = 3.3;
 /** Remember last winning export shape across windows/jobs. */
 let lastWinningTag = '';
 
@@ -83,6 +85,9 @@ function staticVarsBlock(fromDd, toDd, opts, mode) {
   } else if (mode === 'typed') {
     fromLine = '      <SVFROMDATE Type="Date">' + fromDd + '</SVFROMDATE>\n';
     toLine = '      <SVTODATE Type="Date">' + toDd + '</SVTODATE>\n';
+  } else if (mode === 'dmyPlain') {
+    fromLine = '      <SVFROMDATE>' + yyyymmddToTallyDMyyyy(fromDd) + '</SVFROMDATE>\n';
+    toLine = '      <SVTODATE>' + yyyymmddToTallyDMyyyy(toDd) + '</SVTODATE>\n';
   }
   let vars =
     mode === 'datesFirst'
@@ -117,6 +122,67 @@ function staticVarsBlockLegacyIndent(fromDd, toDd, opts, mode) {
   return staticVarsBlock(fromDd, toDd, opts, mode).replace(/^      /gm, '        ');
 }
 
+function companyStaticBlock(opts) {
+  if (
+    opts &&
+    opts.sendCompanyToTally === true &&
+    opts.currentCompany &&
+    String(opts.currentCompany).trim()
+  ) {
+    return (
+      '        <SVCURRENTCOMPANY>' +
+      escapeXml(String(opts.currentCompany).trim()) +
+      '</SVCURRENTCOMPANY>\n'
+    );
+  }
+  return '';
+}
+
+/**
+ * Collection export with explicit date formula — most reliable range filter on Tally Prime.
+ * Day Book SVFROMDATE/SVTODATE is frequently ignored (returns only the current day).
+ */
+function buildVoucherCollectionDated(fromDd, toDd, voucherType, opts) {
+  opts = opts || {};
+  const fromDmy = yyyymmddToTallyDMyyyy(fromDd);
+  const toDmy = yyyymmddToTallyDMyyyy(toDd);
+  const vt = String(voucherType || '').trim();
+  let formula =
+    '($Date >= $$DateValue:"' + fromDmy + '") AND ($Date <= $$DateValue:"' + toDmy + '")';
+  if (vt) formula = '(' + formula + ') AND ($VoucherTypeName = "' + escapeXml(vt) + '")';
+  return (
+    '<?xml version="1.0" encoding="UTF-8"?>\n' +
+    '<ENVELOPE>\n' +
+    ' <HEADER>\n' +
+    '  <VERSION>1</VERSION>\n' +
+    '  <TALLYREQUEST>Export</TALLYREQUEST>\n' +
+    '  <TYPE>Collection</TYPE>\n' +
+    '  <ID>GA Dated Vouchers</ID>\n' +
+    ' </HEADER>\n' +
+    ' <BODY>\n' +
+    '  <DESC>\n' +
+    '   <STATICVARIABLES>\n' +
+    '    <SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>\n' +
+    companyStaticBlock(opts) +
+    '   </STATICVARIABLES>\n' +
+    '   <TDL>\n' +
+    '    <TDLMESSAGE>\n' +
+    '     <COLLECTION NAME="GA Dated Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">\n' +
+    '      <TYPE>Voucher</TYPE>\n' +
+    '      <FETCH>Date, VoucherNumber, VoucherTypeName, Narration, AllLedgerEntries.*</FETCH>\n' +
+    '      <FILTER>GADatedVchFilter</FILTER>\n' +
+    '     </COLLECTION>\n' +
+    '     <SYSTEM TYPE="Formulae" NAME="GADatedVchFilter">' +
+    formula +
+    '</SYSTEM>\n' +
+    '    </TDLMESSAGE>\n' +
+    '   </TDL>\n' +
+    '  </DESC>\n' +
+    ' </BODY>\n' +
+    '</ENVELOPE>'
+  );
+}
+
 function buildExportData(reportId, fromDd, toDd, opts, mode) {
   opts = opts || {};
   const name = reportId || 'Voucher Register';
@@ -125,9 +191,11 @@ function buildExportData(reportId, fromDd, toDd, opts, mode) {
       ? 'typedDmy'
       : mode === 'typed'
         ? 'typed'
-        : mode === 'datesFirst'
-          ? 'datesFirst'
-          : 'fmtFirst';
+        : mode === 'dmyPlain'
+          ? 'dmyPlain'
+          : mode === 'datesFirst'
+            ? 'datesFirst'
+            : 'fmtFirst';
   const vars = staticVarsBlock(fromDd, toDd, opts, m);
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -145,41 +213,6 @@ function buildExportData(reportId, fromDd, toDd, opts, mode) {
     '    <STATICVARIABLES>\n' +
     vars +
     '    </STATICVARIABLES>\n' +
-    '   </REQUESTDESC>\n' +
-    '  </EXPORTDATA>\n' +
-    ' </BODY>\n' +
-    '</ENVELOPE>'
-  );
-}
-
-function buildExportDataVarsBeforeReport(reportId, fromDd, toDd, opts, mode) {
-  opts = opts || {};
-  const name = reportId || 'Voucher Register';
-  const m =
-    mode === 'typedDmy'
-      ? 'typedDmy'
-      : mode === 'typed'
-        ? 'typed'
-        : mode === 'datesFirst'
-          ? 'datesFirst'
-          : 'fmtFirst';
-  const vars = staticVarsBlock(fromDd, toDd, opts, m);
-  return (
-    '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<ENVELOPE>\n' +
-    ' <HEADER>\n' +
-    '  <VERSION>1</VERSION>\n' +
-    '  <TALLYREQUEST>Export Data</TALLYREQUEST>\n' +
-    ' </HEADER>\n' +
-    ' <BODY>\n' +
-    '  <EXPORTDATA>\n' +
-    '   <REQUESTDESC>\n' +
-    '    <STATICVARIABLES>\n' +
-    vars +
-    '    </STATICVARIABLES>\n' +
-    '    <REPORTNAME>' +
-    escapeXml(name) +
-    '</REPORTNAME>\n' +
     '   </REQUESTDESC>\n' +
     '  </EXPORTDATA>\n' +
     ' </BODY>\n' +
@@ -195,9 +228,11 @@ function buildExportXmlLegacy(objectId, fromDd, toDd, opts, mode) {
       ? 'typedDmy'
       : mode === 'typed'
         ? 'typed'
-        : mode === 'datesFirst'
-          ? 'datesFirst'
-          : 'fmtFirst';
+        : mode === 'dmyPlain'
+          ? 'dmyPlain'
+          : mode === 'datesFirst'
+            ? 'datesFirst'
+            : 'fmtFirst';
   const vars = staticVarsBlockLegacyIndent(fromDd, toDd, opts, m);
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
@@ -229,9 +264,11 @@ function buildDayBookTdlFilter(fromDd, toDd, voucherType, opts, mode) {
       ? 'typedDmy'
       : mode === 'typed'
         ? 'typed'
-        : mode === 'datesFirst'
-          ? 'datesFirst'
-          : 'fmtFirst';
+        : mode === 'dmyPlain'
+          ? 'dmyPlain'
+          : mode === 'datesFirst'
+            ? 'datesFirst'
+            : 'fmtFirst';
   const vars = staticVarsBlockLegacyIndent(fromDd, toDd, { ...opts, voucherTypeName: undefined }, m);
   const vt = escapeXml(String(voucherType || 'Payment').trim());
   return (
@@ -267,6 +304,17 @@ function buildDayBookTdlFilter(fromDd, toDd, voucherType, opts, mode) {
 
 function isMultiDayRequest(fromDd, toDd) {
   return String(fromDd) < String(toDd);
+}
+
+function daysBetween(fromDd, toDd) {
+  const a = String(fromDd || '');
+  const b = String(toDd || '');
+  if (!/^\d{8}$/.test(a) || !/^\d{8}$/.test(b) || a > b) return 0;
+  return Math.round(
+    (Date.UTC(+b.slice(0, 4), +b.slice(4, 6) - 1, +b.slice(6, 8)) -
+      Date.UTC(+a.slice(0, 4), +a.slice(4, 6) - 1, +a.slice(6, 8))) /
+      86400000
+  );
 }
 
 function extractVoucherBlocks(xml) {
@@ -308,63 +356,50 @@ function scoreExportBody(xml, fromDd, toDd) {
     if (fromDd && toDd && (d < fromDd || d > toDd)) outRange += 1;
     else inRange += 1;
   }
-  // Heavy penalty if Tally returned only outside-window vouchers (classic register bug)
   if (inRange === 0 && outRange > 0) return -1000 - outRange;
   if (outRange > inRange && inRange < 3) return inRange - outRange;
   return dates.size * 100000 + inRange * 10 - outRange;
 }
 
+/** Tally returned vouchers, but none fall inside the requested From–To (dates ignored). */
+function responseIgnoresDateWindow(xml, fromDd, toDd) {
+  const blocks = extractVoucherBlocks(xml);
+  if (!blocks.length) return false;
+  let inR = 0;
+  let outR = 0;
+  for (const b of blocks) {
+    const d = voucherDate(b);
+    if (!d) continue;
+    if (fromDd && toDd && (d < fromDd || d > toDd)) outR += 1;
+    else inR += 1;
+  }
+  return outR > 0 && inR === 0;
+}
+
 /**
- * True when Tally returned some in-range vouchers but the date span looks cut short.
- * Empty responses are NOT truncation — do not month-fan-out on score=-1 / 0 vouchers.
+ * True when Tally returned some in-range vouchers but the date span looks cut short
+ * (classic: only "today" for a multi-day window).
  */
 function looksLikeTruncation(xml, fromDd, toDd) {
   if (!isMultiDayRequest(fromDd, toDd)) return false;
   if (!responseHasVoucherXml(xml)) return false;
   const dates = [...collectDates(xml)].filter((d) => !fromDd || !toDd || (d >= fromDd && d <= toDd));
   if (!dates.length) return false;
-  if (dates.length <= 1 && isMultiDayRequest(fromDd, toDd)) {
-    const reqSpan =
-      (Date.UTC(+toDd.slice(0, 4), +toDd.slice(4, 6) - 1, +toDd.slice(6, 8)) -
-        Date.UTC(+fromDd.slice(0, 4), +fromDd.slice(4, 6) - 1, +fromDd.slice(6, 8))) /
-      86400000;
-    return reqSpan >= 14;
-  }
+  const reqSpan = daysBetween(fromDd, toDd);
+  if (dates.length <= 1) return reqSpan >= 1;
   dates.sort();
-  // Truncated if span of returned dates is tiny vs requested window (>60 days asked, <3 days returned)
-  const reqSpan =
-    (Date.UTC(+toDd.slice(0, 4), +toDd.slice(4, 6) - 1, +toDd.slice(6, 8)) -
-      Date.UTC(+fromDd.slice(0, 4), +fromDd.slice(4, 6) - 1, +fromDd.slice(6, 8))) /
-    86400000;
-  const gotSpan =
-    (Date.UTC(+dates[dates.length - 1].slice(0, 4), +dates[dates.length - 1].slice(4, 6) - 1, +dates[dates.length - 1].slice(6, 8)) -
-      Date.UTC(+dates[0].slice(0, 4), +dates[0].slice(4, 6) - 1, +dates[0].slice(6, 8))) /
-    86400000;
-  if (reqSpan >= 60 && gotSpan <= 2) return true;
+  const gotSpan = daysBetween(dates[0], dates[dates.length - 1]);
+  if (reqSpan >= 7 && gotSpan <= 2) return true;
+  if (reqSpan >= 28 && gotSpan < Math.min(7, Math.floor(reqSpan / 4))) return true;
   return false;
 }
 
 function isAcceptable(xml, fromDd, toDd) {
   const sc = scoreExportBody(xml, fromDd, toDd);
   if (sc <= 0) return false;
+  if (responseIgnoresDateWindow(xml, fromDd, toDd)) return false;
   if (looksLikeTruncation(xml, fromDd, toDd)) return false;
   return true;
-}
-
-function yearChunks(fromDd, toDd) {
-  const a = String(fromDd || '');
-  const b = String(toDd || '');
-  if (!/^\d{8}$/.test(a) || !/^\d{8}$/.test(b) || a > b) return [[a, b]];
-  const y0 = parseInt(a.slice(0, 4), 10);
-  const y1 = parseInt(b.slice(0, 4), 10);
-  if (y0 === y1) return [[a, b]];
-  const out = [];
-  for (let y = y0; y <= y1; y += 1) {
-    const start = y === y0 ? a : String(y) + '0101';
-    const end = y === y1 ? b : String(y) + '1231';
-    if (start <= end) out.push([start, end]);
-  }
-  return out;
 }
 
 function monthChunks(fromDd, toDd) {
@@ -388,6 +423,36 @@ function monthChunks(fromDd, toDd) {
       m = 1;
       y += 1;
     }
+  }
+  return out.length ? out : [[a, b]];
+}
+
+/** Inclusive day windows — Day Book reliably respects single-day SVFROMDATE=SVTODATE. */
+function dayChunks(fromDd, toDd) {
+  const a = String(fromDd || '');
+  const b = String(toDd || '');
+  if (!/^\d{8}$/.test(a) || !/^\d{8}$/.test(b) || a > b) return [[a, b]];
+  const out = [];
+  let y = parseInt(a.slice(0, 4), 10);
+  let m = parseInt(a.slice(4, 6), 10);
+  let d = parseInt(a.slice(6, 8), 10);
+  const endY = parseInt(b.slice(0, 4), 10);
+  const endM = parseInt(b.slice(4, 6), 10);
+  const endD = parseInt(b.slice(6, 8), 10);
+  while (
+    y < endY ||
+    (y === endY && m < endM) ||
+    (y === endY && m === endM && d <= endD)
+  ) {
+    const key =
+      String(y) + String(m).padStart(2, '0') + String(d).padStart(2, '0');
+    out.push([key, key]);
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    dt.setUTCDate(dt.getUTCDate() + 1);
+    y = dt.getUTCFullYear();
+    m = dt.getUTCMonth() + 1;
+    d = dt.getUTCDate();
+    if (out.length > 400) break;
   }
   return out.length ? out : [[a, b]];
 }
@@ -439,7 +504,6 @@ function filterAndMergeVouchers(xmlList, fromDd, toDd, voucherTypes) {
 function resolveJobs(body) {
   const preset = String(body.preset || '').trim().toLowerCase();
   if (preset === 'payment_receipt' || preset === 'payment_receipts') {
-    // Robust path: dated Day Book / Voucher Register filtered by voucher type
     return [
       {
         label: 'Payment',
@@ -492,23 +556,32 @@ function buildAttemptList(reportIds, fromDd, toDd, optsOut) {
     list.push({ tag, fn });
   };
 
-  // Prefer last winning shape first (fast path after first success).
-  if (vt && lastWinningTag.startsWith('DayBook-TDL|' + vt)) {
-    const fmt = lastWinningTag.includes('|fmtFirst') ? 'fmtFirst' : 'typedDmy';
-    push(lastWinningTag, () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, fmt));
+  // 1) Collection + date formula (best range fidelity)
+  if (vt) {
+    push('Collection-dated|' + vt, () => buildVoucherCollectionDated(fromDd, toDd, vt, optsOut));
   }
+  push('Collection-dated|all', () => buildVoucherCollectionDated(fromDd, toDd, '', optsOut));
 
-  // Day Book TDL filter once per window (not once per report name).
+  // 2) Day Book TDL type filter with typed dates
   if (vt) {
     push('DayBook-TDL|' + vt + '|typedDmy', () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, 'typedDmy'));
-    push('DayBook-TDL|' + vt + '|fmtFirst', () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, 'fmtFirst'));
+    push('DayBook-TDL|' + vt + '|dmyPlain', () => buildDayBookTdlFilter(fromDd, toDd, vt, optsOut, 'dmyPlain'));
   }
 
+  // 3) Export Data Day Book / Voucher Register
   for (const rid of uniqueNames) {
     const reportName = rid || 'Day Book';
     push(reportName + '+vtype|typedDmy', () => buildExportData(reportName, fromDd, toDd, optsOut, 'typedDmy'));
+    push(reportName + '+vtype|dmyPlain', () => buildExportData(reportName, fromDd, toDd, optsOut, 'dmyPlain'));
     push(reportName + '+vtype|fmtFirst', () => buildExportData(reportName, fromDd, toDd, optsOut, 'fmtFirst'));
-    push(reportName + '+vtype|typedYmd', () => buildExportData(reportName, fromDd, toDd, optsOut, 'typed'));
+  }
+
+  if (lastWinningTag) {
+    const ix = list.findIndex((x) => x.tag === lastWinningTag);
+    if (ix > 0) {
+      const [w] = list.splice(ix, 1);
+      list.unshift(w);
+    }
   }
 
   return list.slice(0, MAX_PROBES_PER_WINDOW);
@@ -575,7 +648,6 @@ async function exportOneWindow(reportIds, fromDd, toDd, optsIn) {
 
     if (sc < 0 && nv === 0) {
       emptyStreak += 1;
-      // Two empties is enough — more formats rarely help and burn 20s each.
       if (emptyStreak >= 2) {
         console.warn('[ga-tally-bridge] empty streak — stop probes for', fromDd, '→', toDd);
         break;
@@ -597,70 +669,75 @@ async function exportOneWindow(reportIds, fromDd, toDd, optsIn) {
 }
 
 /**
- * Year window first; month fan-out ONLY when the year returned partial data that looks truncated.
- * Empty years (0 vouchers / score=-1) skip month retries — that was the multi-minute hang.
+ * Month windows first (year-wide Day Book often returns only "today").
+ * Truncated / date-ignored months → day-by-day (single-day Day Book is reliable).
  */
 async function exportAdaptive(job, fromDd, toDd, optsIn) {
   const opts = { ...(optsIn || {}), voucherTypeName: job.voucherType || optsIn?.voucherTypeName || undefined };
   const parts = [];
   const meta = [];
 
-  const yearWins = yearChunks(fromDd, toDd);
-  for (const [yFrom, yTo] of yearWins) {
-    console.log('[ga-tally-bridge] year', job.label, yFrom, '→', yTo);
-    const yr = await exportOneWindow(job.reportIds, yFrom, yTo, opts);
-    if (yr.acceptable) {
-      parts.push(yr.out.body || '');
-      meta.push({
-        job: job.label,
-        from: yFrom,
-        to: yTo,
-        tag: yr.tag,
-        score: yr.score,
-        mode: 'year',
-        vouchers: extractVoucherBlocks(yr.out.body || '').length,
-      });
-      continue;
-    }
+  const windows = isMultiDayRequest(fromDd, toDd) ? monthChunks(fromDd, toDd) : [[fromDd, toDd]];
+  for (const [wFrom, wTo] of windows) {
+    console.log('[ga-tally-bridge] window', job.label, wFrom, '→', wTo);
+    const wr = await exportOneWindow(job.reportIds, wFrom, wTo, opts);
+    const body = wr.out.body || '';
+    const truncated = looksLikeTruncation(body, wFrom, wTo);
+    const ignores = responseIgnoresDateWindow(body, wFrom, wTo);
+    const needDays =
+      isMultiDayRequest(wFrom, wTo) && (!wr.acceptable || truncated || ignores);
 
-    const yrVouchers = extractVoucherBlocks(yr.out.body || '').length;
-    if (yr.empty || yr.score < 0 || yrVouchers === 0) {
-      console.warn(
-        '[ga-tally-bridge] year empty — skip month fan-out',
-        job.label,
-        yFrom,
-        yTo,
-        '(open company in Tally / check FY / narrow dates)'
-      );
-      parts.push(yr.out.body || '');
+    if (wr.acceptable && !needDays) {
+      parts.push(body);
       meta.push({
         job: job.label,
-        from: yFrom,
-        to: yTo,
-        tag: yr.tag,
-        score: yr.score,
-        mode: 'year_empty',
-        vouchers: 0,
-      });
-      continue;
-    }
-
-    console.warn('[ga-tally-bridge] year truncated — retry months', job.label, yFrom, yTo);
-    for (const [mFrom, mTo] of monthChunks(yFrom, yTo)) {
-      console.log('[ga-tally-bridge] month', job.label, mFrom, '→', mTo);
-      const mr = await exportOneWindow(job.reportIds, mFrom, mTo, yr.optsOut || opts);
-      parts.push(mr.out.body || '');
-      meta.push({
-        job: job.label,
-        from: mFrom,
-        to: mTo,
-        tag: mr.tag,
-        score: mr.score,
+        from: wFrom,
+        to: wTo,
+        tag: wr.tag,
+        score: wr.score,
         mode: 'month',
-        acceptable: mr.acceptable,
-        vouchers: extractVoucherBlocks(mr.out.body || '').length,
+        vouchers: extractVoucherBlocks(body).length,
       });
+      continue;
     }
+
+    if (needDays) {
+      console.warn(
+        '[ga-tally-bridge] month incomplete — day fan-out',
+        job.label,
+        wFrom,
+        wTo,
+        truncated ? 'truncated' : '',
+        ignores ? 'date-ignored' : '',
+        wr.acceptable ? '' : 'not-acceptable'
+      );
+      for (const [dFrom, dTo] of dayChunks(wFrom, wTo)) {
+        const dr = await exportOneWindow(job.reportIds, dFrom, dTo, wr.optsOut || opts);
+        parts.push(dr.out.body || '');
+        meta.push({
+          job: job.label,
+          from: dFrom,
+          to: dTo,
+          tag: dr.tag,
+          score: dr.score,
+          mode: 'day',
+          acceptable: dr.acceptable,
+          vouchers: extractVoucherBlocks(dr.out.body || '').length,
+        });
+      }
+      continue;
+    }
+
+    parts.push(body);
+    meta.push({
+      job: job.label,
+      from: wFrom,
+      to: wTo,
+      tag: wr.tag,
+      score: wr.score,
+      mode: wr.empty ? 'month_empty' : 'month_partial',
+      vouchers: extractVoucherBlocks(body).length,
+    });
   }
   return { parts, meta, optsOut: opts };
 }
@@ -681,9 +758,10 @@ const server = http.createServer(async (req, res) => {
       tallyUrl: TALLY_URL,
       port: BRIDGE_PORT,
       features: [
-        'payment_receipt_daybook_vtype',
-        'year_then_month_chunks',
+        'payment_receipt_collection_dated',
+        'month_then_day_chunks',
         'date_window_guard',
+        'truncation_day_fanout',
         'fail_fast_empty',
         'tally_timeout',
       ],
@@ -704,12 +782,14 @@ const server = http.createServer(async (req, res) => {
         tallyStatus: out.status,
         preview: (out.body || '').slice(0, 400),
         error: out.ok ? null : 'Tally returned non-OK status',
+        bridgeVersion: BRIDGE_VERSION,
       });
     } catch (e) {
       send(res, 200, {
         ok: false,
         error: e.message || String(e),
         hint: 'Is Tally Prime running? Enable HTTP/XML server on port 9000.',
+        bridgeVersion: BRIDGE_VERSION,
       });
     }
     return;
@@ -774,9 +854,42 @@ const server = http.createServer(async (req, res) => {
         meta.push(...r.meta);
       }
 
-      const merged = filterAndMergeVouchers(xmlParts, fromDd, toDd, voucherTypes.length ? voucherTypes : null);
-      const totalV = extractVoucherBlocks(merged).length;
-      const dates = [...collectDates(merged)].sort();
+      let merged = filterAndMergeVouchers(xmlParts, fromDd, toDd, voucherTypes.length ? voucherTypes : null);
+      let totalV = extractVoucherBlocks(merged).length;
+      let dates = [...collectDates(merged)].sort();
+
+      if (
+        totalV > 0 &&
+        looksLikeTruncation(merged, fromDd, toDd) &&
+        daysBetween(fromDd, toDd) <= 62
+      ) {
+        console.warn('[ga-tally-bridge] FINAL still truncated — forced day walk', fromDd, '→', toDd);
+        const forceParts = [];
+        for (const job of jobs) {
+          const opts = {
+            ...optsOut,
+            voucherTypeName: job.voucherType || undefined,
+          };
+          for (const [dFrom, dTo] of dayChunks(fromDd, toDd)) {
+            const dr = await exportOneWindow(job.reportIds, dFrom, dTo, opts);
+            forceParts.push(dr.out.body || '');
+            meta.push({
+              job: job.label,
+              from: dFrom,
+              to: dTo,
+              tag: dr.tag,
+              score: dr.score,
+              mode: 'day_forced',
+              vouchers: extractVoucherBlocks(dr.out.body || '').length,
+            });
+          }
+        }
+        merged = filterAndMergeVouchers(forceParts, fromDd, toDd, voucherTypes.length ? voucherTypes : null);
+        totalV = extractVoucherBlocks(merged).length;
+        dates = [...collectDates(merged)].sort();
+      }
+
+      const stillTruncated = looksLikeTruncation(merged, fromDd, toDd);
       console.log(
         '[ga-tally-bridge] FINAL vouchers=',
         totalV,
@@ -784,16 +897,8 @@ const server = http.createServer(async (req, res) => {
         dates[0] || '-',
         '→',
         dates[dates.length - 1] || '-',
+        stillTruncated ? 'TRUNCATED' : 'OK'
       );
-      if (totalV === 0) {
-        console.warn(
-          '[ga-tally-bridge] 0 vouchers — open the Tally company, confirm FY covers',
-          fromDd,
-          '→',
-          toDd,
-          ', and that Payment/Receipt exist. Empty windows no longer month-retry.'
-        );
-      }
 
       res.writeHead(200, {
         'Content-Type': 'application/xml; charset=utf-8',
@@ -801,7 +906,7 @@ const server = http.createServer(async (req, res) => {
         'Access-Control-Expose-Headers': 'X-GA-Tally-Meta',
         'X-GA-Tally-Meta': headerSafeJson({
           preset: body.preset || null,
-          strategy: 'daybook_voucher_type_dated_v3.2',
+          strategy: 'collection_month_day_v3.3',
           version: BRIDGE_VERSION,
           fromDate: fromDd,
           toDate: toDd,
@@ -809,11 +914,14 @@ const server = http.createServer(async (req, res) => {
           dateMin: dates[0] || null,
           dateMax: dates[dates.length - 1] || null,
           empty: totalV === 0,
+          truncated: stillTruncated,
           hint:
             totalV === 0
-              ? 'No Payment/Receipt vouchers in this date range. In Tally: open the company, confirm FY covers the From/To dates you chose, then pull again. Any From-To window is allowed.'
-              : null,
-          parts: meta.slice(0, 80),
+              ? 'No Payment/Receipt vouchers in this date range. In Tally: open the company, confirm FY covers the From/To dates you chose, then pull again.'
+              : stillTruncated
+                ? 'Tally still returned a narrow date span vs your From–To. Restart bridge v3.3, confirm company/FY is open, and pull again.'
+                : null,
+          parts: meta.slice(0, 120),
         }),
       });
       res.end(merged);
@@ -845,5 +953,7 @@ server.listen(BRIDGE_PORT, '127.0.0.1', () => {
       ')'
   );
   console.log('Forwarding to Tally at ' + TALLY_URL);
-  console.log('payment_receipt = Day Book/Voucher Register + Payment|Receipt types, dated, year→month fallback');
+  console.log(
+    'payment_receipt = Collection dated filter + month windows; truncated months → day-by-day Day Book'
+  );
 });

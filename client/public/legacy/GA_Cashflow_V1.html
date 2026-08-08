@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 79;
+var CF_VERSION = 80;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
@@ -3040,7 +3040,7 @@ function showTallySyncModal(){
   var preset=s.pullPreset||'payment_receipt';
   openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
     +'<h3>Tally Prime — live sync (local)</h3>'
-    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> with XML/HTTP on port <strong>9000</strong> and <strong>Node bridge v3</strong>. Imports <strong>Payment + Receipt vouchers only</strong> — Journal, Contra, Sales, etc. are never imported.</p>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> with XML/HTTP on port <strong>9000</strong> and <strong>Node bridge v3.3+</strong> (restart the bridge after updating). Imports <strong>Payment + Receipt</strong> for the <strong>full From–To range</strong> (month windows; truncated months expand day-by-day).</p>'
     +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Replace</strong> clears old Tally lines across the selected building’s Project Group + Phase before re-routing the fresh pull. Bank/cash sides are skipped except <strong>CF Z / BAL</strong> control cost centres.</p>'
     +perProjNote
     +'<div class="field"><label>Bridge URL (shared)</label><input id="tset-bridge" type="text" value="'+escAttr(s.bridgeUrl)+'" placeholder="http://127.0.0.1:34876"/></div>'
@@ -3128,11 +3128,12 @@ function runTallyPullVouchers(){
   if(fd>td){alert('From date must be on or before To date.');return;}
   var preset=s.pullPreset||'payment_receipt';
   var label=preset==='payment_receipt'?'Payment + Receipt vouchers (dated)':'report '+s.reportId;
-  el.textContent='Requesting Tally export ('+label+', '+fd+'–'+td+'). Bridge v3.1 — empty periods stop quickly…';
+  el.textContent='Requesting Tally export ('+label+', '+fd+'–'+td+'). Bridge v3.3 — month windows + day fan-out for full range (can take several minutes)…';
   var exportBody={
     fromDate:fd,
     toDate:td,
-    chunkByYear:true,
+    chunkByYear:false,
+    forceMonthChunks:true,
     sendCompanyToTally:!!s.tallySendCompany
   };
   if(preset==='payment_receipt'){
@@ -3202,8 +3203,24 @@ function runTallyPullVouchers(){
       autoAllocate:s.autoAllocate!==false
     });
     var metaHint='';
-    try{ if(resp.meta){ var m=JSON.parse(resp.meta); if(m&&m.voucherCount!=null) metaHint=' · vouchers≈'+m.voucherCount+(m.dateMin&&m.dateMax?(' · dates '+m.dateMin+'→'+m.dateMax):''); } }catch(e3){}
+    try{
+      if(resp.meta){
+        var m=JSON.parse(resp.meta);
+        if(m&&m.voucherCount!=null) metaHint=' · vouchers≈'+m.voucherCount+(m.dateMin&&m.dateMax?(' · dates '+m.dateMin+'→'+m.dateMax):'');
+        if(m&&m.version!=null) metaHint+=' · bridge v'+m.version;
+        if(m&&m.truncated) metaHint+=' ⚠ Bridge reported truncated date span — restart bridge v3.3 and pull again';
+        if(m&&m.hint&&!rows.length) metaHint+=' · '+m.hint;
+      }
+    }catch(e3){}
     if(onlyPR) metaHint+=' · Payment/Receipt only (Journal/Contra/bank sides dropped)';
+    if(String(fd)!==String(td) && bridgeMeta){
+      try{
+        var bm=typeof bridgeMeta==='object'?bridgeMeta:(resp.meta?JSON.parse(resp.meta):null);
+        if(bm&&bm.dateMin&&bm.dateMax&&(String(bm.dateMin)===String(bm.dateMax))){
+          metaHint+=' ⚠ Only one voucher day ('+bm.dateMin+') for range '+fd+'–'+td+' — restart local bridge v3.3 (scripts/tally_bridge.mjs)';
+        }
+      }catch(eSpan){}
+    }
     if(parsed.parseMode) metaHint+=' · parse:'+parsed.parseMode;
     if(rows.length<=5 && fd!==td){
       metaHint+=' ⚠ Very few Payment/Receipt lines — restart bridge v3 (start-tally-bridge.bat) and confirm Tally HTTP :9000.';
