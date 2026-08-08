@@ -194,8 +194,8 @@ async function boot() {
     await seedAdminServicesIfNeeded();
     await ensureAdminServicesIndexes();
   } catch (err) {
-    console.error('[admin-services] boot seed/indexes failed:', err?.message || err);
-    throw err;
+    // Do not crash the whole process (e.g. Atlas free-tier write quota) — serve reads and retry later.
+    console.error('[admin-services] boot seed/indexes failed (continuing):', err?.message || err);
   }
 
   const server = app.listen(PORT, () => {
