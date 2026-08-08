@@ -268,8 +268,29 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 81;
+var CF_VERSION = 82;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
+/** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
+var TALLY_XML_DOM_MAX_CHARS = 800000;
+/** Yield to the browser so large imports/renders do not freeze the tab. */
+function gaScheduleIdle(fn, delayMs){
+  var d=delayMs==null?0:delayMs;
+  if(typeof requestAnimationFrame==='function' && d<=0){
+    requestAnimationFrame(function(){ setTimeout(fn, 0); });
+  }else setTimeout(fn, d);
+}
+/** Process array in slices with UI yields. */
+function gaForEachChunk(arr, chunkSize, onChunk, onDone){
+  var list=arr||[], i=0, size=Math.max(50, chunkSize||400);
+  function step(){
+    if(i>=list.length){ if(onDone) onDone(); return; }
+    var end=Math.min(i+size, list.length);
+    try{ onChunk(list, i, end); }catch(eChunk){ console.warn('gaForEachChunk', eChunk); }
+    i=end;
+    gaScheduleIdle(step);
+  }
+  gaScheduleIdle(step);
+}
 var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
@@ -2443,8 +2464,6 @@ function normalizeTallyUploadText(text){
   }
   return s;
 }
-/** Above this size, skip DOMParser (OOM/crash) and use regex-only parse. */
-var TALLY_XML_DOM_MAX_CHARS = 1500000;
 function tallyDecodeXmlText(s){
   return String(s||'')
     .replace(/&amp;/gi,'&')
@@ -2825,17 +2844,22 @@ function downloadTallyMissedEntriesXlsx(){
   XLSX.writeFile(wb, 'GA_Tally_Missed_Entries_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
 /** Master Common Z vs rest of CF (phase-wide Tally). BAL1-1 excluded from both sides. */
-function computePhaseCfZVsRestBalance(sourcePid){
+function computePhaseCfZVsRestBalance(sourcePid, opts){
+  opts=opts||{};
+  var light=!!opts.light;
+  var sampleCap=light?(opts.sampleCap||200):Infinity;
   var pid=sourcePid||_curPid;
   var phase=tallyPhaseProjects(pid);
   var cfzLines=[], restLines=[], balLines=[], routeRows=[];
   var cfzSum=0, restSum=0, balSum=0;
+  var cfzCount=0, restCount=0, balCount=0;
   (phase||[]).forEach(function(p){
     var h=getProjectHierarchy(p.id);
     (getCF(p.id).actuals||[]).forEach(function(a){
       if(!a||a.source!=='tally') return;
       var amt=coerceMoney(a.amount);
-      var row={
+      var wantRow=!light || (routeRows.length<sampleCap) || (cfzLines.length<sampleCap) || (restLines.length<sampleCap) || (balLines.length<sampleCap);
+      var row=wantRow?{
         pid:String(p.id),
         building:h.building||p.building||'',
         date:a.date||'',
@@ -2848,16 +2872,21 @@ function computePhaseCfZVsRestBalance(sourcePid){
         note:String(a.note||a.narration||'').slice(0,200),
         routeKind:a.routeKind||'',
         tallyKey:a.tallyKey||''
-      };
-      routeRows.push(row);
+      }:null;
+      if(row && routeRows.length<sampleCap) routeRows.push(row);
       if(isBalResiduaryCashflowLine(a)||isBalResiduaryCostCentreName(a.costCentre)){
-        balLines.push(row); balSum+=amt; return;
+        balCount++; balSum+=amt;
+        if(row && balLines.length<sampleCap) balLines.push(row);
+        return;
       }
       if(isCfZCashEquivalentsLine(a)||isCfZCashEquivalentsCostCentreName(a.costCentre)){
-        cfzLines.push(row); cfzSum+=amt; return;
+        cfzCount++; cfzSum+=amt;
+        if(row && cfzLines.length<sampleCap) cfzLines.push(row);
+        return;
       }
       if(String(a.flow||'')==='pl_only') return;
-      restLines.push(row); restSum+=amt;
+      restCount++; restSum+=amt;
+      if(row && restLines.length<sampleCap) restLines.push(row);
     });
   });
   var deltaEqual=cfzSum-restSum;
@@ -2866,8 +2895,9 @@ function computePhaseCfZVsRestBalance(sourcePid){
   var delta=Math.abs(deltaOpposite)<=Math.abs(deltaEqual)?deltaOpposite:deltaEqual;
   return {
     sourcePid:String(pid||''),
+    light:light,
     cfzSum:cfzSum, restSum:restSum, balSum:balSum,
-    cfzCount:cfzLines.length, restCount:restLines.length, balCount:balLines.length,
+    cfzCount:cfzCount, restCount:restCount, balCount:balCount,
     delta:delta, deltaEqual:deltaEqual, deltaOpposite:deltaOpposite,
     balanced:balanced,
     cfzLines:cfzLines, restLines:restLines, balLines:balLines, routeRows:routeRows
@@ -2876,6 +2906,9 @@ function computePhaseCfZVsRestBalance(sourcePid){
 function downloadCfZVsRestDeltaXlsx(audit){
   audit=audit||window.__gaLastCfZBalanceAudit;
   if(!audit){ alert('No CF Z balance audit yet — sync or import Tally first.'); return; }
+  if(audit.light || (!(audit.cfzLines&&audit.cfzLines.length) && (audit.cfzCount||0)>0)){
+    try{ audit=computePhaseCfZVsRestBalance(audit.sourcePid||_curPid, {light:false}); window.__gaLastCfZBalanceAudit=audit; }catch(eFull){}
+  }
   function sheetFrom(lines, title){
     var aoa=[[title],['Building','Date','Party','Cost centre','GA L3','Cat1','Flow','Amount','Route','Note','tallyKey']];
     (lines||[]).forEach(function(r){
@@ -2992,6 +3025,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
   });
   var added=0, routedBuildings=0, routedCommon=0, unmapped=0, codingUnmapped=0, perProject={};
   var touched={};
+  var largeFeed=eligible.length>=600 || (rows||[]).length>=1200;
   eligible.forEach(function(x){
     var route=x.route;
     if(existing[x.row.tallyKey]){skipped++;return;}
@@ -3009,7 +3043,10 @@ function mergeTallyLinesIntoActuals(rows, opts){
     added++;
   });
   var rerouted=0;
-  if(opts.autoAllocate!==false){
+  // Full phase re-route on huge pulls freezes the tab — skip unless forced (new lines already routed).
+  var doReroute=opts.autoAllocate!==false && opts.forceReroute!==false && !largeFeed && opts.skipReroute!==true;
+  if(opts.forceReroute===true) doReroute=opts.autoAllocate!==false;
+  if(doReroute){
     try{ rerouted=reroutePhaseTallyActuals(_curPid)||0; }catch(eR){ rerouted=0; }
   }
   touched[String(_curPid)]=1;
@@ -3018,13 +3055,19 @@ function mergeTallyLinesIntoActuals(rows, opts){
     cfg.tallyFeedAt=Date.now();
     cfg.tallyFeedLines=(cfg.actuals||[]).filter(function(a){return a&&a.source==='tally';}).length;
   });
-  // Persist immediately so refresh cannot revive a stale server pack without this feed.
+  // Persist locally first; defer Mongo PUT so large JSON stringify does not freeze the UI mid-import.
   saveAll({full:true});
-  if(canUseMongoState()){
-    try{ mongoStatePutNow(); }catch(eFlush){}
+  if(canUseMongoState() && opts.skipMongoFlush!==true){
+    if(largeFeed || opts.deferMongoFlush){
+      gaScheduleIdle(function(){ try{ mongoStatePutNow(); }catch(eFlush){} }, 120);
+    }else{
+      try{ mongoStatePutNow(); }catch(eFlush){}
+    }
   }
   var balance=null;
-  try{ balance=computePhaseCfZVsRestBalance(_curPid); }catch(eBal){ balance=null; }
+  try{
+    balance=computePhaseCfZVsRestBalance(_curPid, {light: largeFeed || !!opts.lightBalance});
+  }catch(eBal){ balance=null; }
   window.__gaLastCfZBalanceAudit=balance;
   return {
     added:added,skipped:skipped,replaced:replaced,
@@ -3217,12 +3260,17 @@ function runTallyPullVouchers(){
       parsedRows:(parsed.rows||[]).length
     };
     window.__gaLastTallyParsedRows=rows.slice(0,5000);
+    var largeLive=rows.length>=600 || (text&&text.length>800000);
     var res=mergeTallyLinesIntoActuals(rows,{
       replaceTally:s.replaceTally,
       costCentreSubstr:s.costCentreSubstr,
       onlyPaymentReceipt:false, // already filtered above — avoid double voucher-type drop
-      autoAllocate:s.autoAllocate!==false
+      autoAllocate:s.autoAllocate!==false,
+      skipReroute:!!largeLive,
+      deferMongoFlush:!!largeLive,
+      lightBalance:!!largeLive
     });
+    try{ text=null; }catch(eTxt){}
     var metaHint='';
     try{
       if(resp.meta){
@@ -7780,14 +7828,29 @@ function renderTab(t){
     showTab('sales');
     return;
   }
-  if(t==='cashflow') renderCashflow();
-  else if(t==='pl') renderPL();
-  else if(t==='activities') renderActivities();
-  else if(t==='sales') renderSales();
+  var heavy=t==='cashflow'||t==='expenses'||t==='ga'||t==='pl'||t==='sales';
+  if(heavy){
+    var pageId=t==='ga'?'page-ga':('page-'+t);
+    var page=document.getElementById(pageId);
+    if(page && !page.dataset.gaRenderBusy){
+      page.dataset.gaRenderBusy='1';
+      page.innerHTML='<div style="padding:28px 12px;color:var(--muted);font-size:12px">Loading '+String(t)+'…</div>';
+    }
+    gaScheduleIdle(function(){
+      var el=document.getElementById(pageId);
+      if(el) delete el.dataset.gaRenderBusy;
+      if(_curTab!==t) return;
+      if(t==='cashflow') renderCashflow();
+      else if(t==='pl') renderPL();
+      else if(t==='sales') renderSales();
+      else if(t==='expenses') renderExpenses();
+      else if(t==='ga') renderGA();
+    });
+    return;
+  }
+  if(t==='activities') renderActivities();
   else if(t==='capital') renderCapital();
-  else if(t==='expenses') renderExpenses();
   else if(t==='debt') renderDebt();
-  else if(t==='ga') renderGA();
 }
 var _cfCalApi=null;
 function cfEvStatus(ymd){
@@ -10427,13 +10490,18 @@ function renderExpenses(){
             h+='<tr><td colspan="2" style="padding-left:52px;font-size:9px;color:var(--muted)">No voucher lines stored for this L3 (re-import Tally if needed).</td></tr>';
             return;
           }
-          lines.forEach(function(ln){
+          var lineCap=40;
+          var shown=lines.slice(0,lineCap);
+          shown.forEach(function(ln){
             var nar=String(ln.note||'');
             var narShort=nar.length>90?nar.slice(0,90)+'…':nar;
             var label=escHtml(String(ln.date||'').slice(0,10))+' · <strong style="color:var(--slate)">'+escHtml(ln.party||'—')+'</strong>';
             if(narShort) label+=' <span style="color:var(--muted)">— '+escHtml(narShort)+'</span>';
             h+='<tr><td style="padding-left:52px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+'</td><td class="amt" style="font-size:9px">'+cr(ln.amount)+'</td></tr>';
           });
+          if(lines.length>lineCap){
+            h+='<tr><td colspan="2" style="padding-left:52px;font-size:9px;color:var(--muted)">Showing '+lineCap+' of '+lines.length+' voucher lines (narrow date/category filters to see more).</td></tr>';
+          }
         });
       });
     });
@@ -11637,66 +11705,93 @@ function importTallyXmlBatch(filePayloads){
   openModal('<div class="modal-bg"><div class="modal" style="width:420px;max-width:96vw"><h3>Importing Tally XML…</h3>'
     +'<p id="tally-xml-import-msg" style="font-size:12px;line-height:1.45">Preparing '+(filePayloads.length)+' file(s)'
     +(totalChars>1e6?(' · ~'+Math.round(totalChars/1e6)+' MB — large file mode (no DOM)'):'')
-    +'…</p></div></div>');
+    +'…</p><p id="tally-xml-import-bar" style="font-size:10px;color:var(--muted);margin-top:8px"></p></div></div>');
   var msgEl=function(){ return document.getElementById('tally-xml-import-msg'); };
-  setTimeout(function(){
-    try{
-      var allRows=[], fileStats=[], errors=[], cfStatement=false, previewRaw='';
-      filePayloads.forEach(function(fp, idx){
-        if(msgEl()) msgEl().textContent='Parsing '+(idx+1)+'/'+filePayloads.length+': '+(fp.name||'file')+'…';
+  var barEl=function(){ return document.getElementById('tally-xml-import-bar'); };
+  var allRows=[], fileStats=[], errors=[], previewRaw='';
+  var idx=0;
+  function finishMerge(){
+    if(!allRows.length){
+      closeModal();
+      alert('No Payment/Receipt lines imported.'+(errors.length?'\n\n'+errors.join('\n'):''));
+      return;
+    }
+    if(msgEl()) msgEl().textContent='Merging '+allRows.length+' line(s) into Cashflow (UI stays responsive)…';
+    if(barEl()) barEl().textContent=errors.length?(errors.length+' file warning(s)'):'';
+    gaScheduleIdle(function(){
+      try{
+        var sync=getTallySyncForPull();
+        var large=allRows.length>=600 || totalChars>800000;
+        var res=mergeTallyLinesIntoActuals(allRows,{
+          replaceTally:!!sync.replaceTally,
+          costCentreSubstr:sync.costCentreSubstr||'',
+          onlyPaymentReceipt:false,
+          autoAllocate:sync.autoAllocate!==false,
+          skipReroute:!!large,
+          deferMongoFlush:!!large,
+          lightBalance:!!large
+        });
+        window.__gaLastTallyExportRaw=previewRaw||'';
+        window.__gaLastTallyExportMeta={
+          reportId:'uploaded-xml-batch',
+          fromDate:'',
+          toDate:'',
+          sendCompanyToTally:false,
+          currentCompany:'',
+          pulledAt:new Date().toISOString(),
+          files:fileStats,
+          onlyPaymentReceipt:true,
+          errors:errors,
+          largeImport:!!large
+        };
+        window.__gaLastTallyParsedRows=allRows.slice(0,5000);
+        allRows=null;
+        closeModal();
+        gaScheduleIdle(function(){
+          renderTab(_curTab);
+          refreshProjectCashflowViews();
+          showCfZBalanceAfterSync(res);
+        }, 40);
+      }catch(eImp){
+        closeModal();
+        alert('Tally XML import failed: '+(eImp&&eImp.message||eImp)+'\n\nIf the file is very large, export Payment+Receipt only or split by month.');
+      }
+    });
+  }
+  function parseNext(){
+    if(idx>=filePayloads.length){
+      finishMerge();
+      return;
+    }
+    var fp=filePayloads[idx];
+    var nFile=idx+1;
+    idx++;
+    if(msgEl()) msgEl().textContent='Parsing '+nFile+'/'+filePayloads.length+': '+(fp.name||'file')+'…';
+    if(barEl()) barEl().textContent=allRows.length?('Lines so far: '+allRows.length):'';
+    gaScheduleIdle(function(){
+      try{
         var text=normalizeTallyUploadText(String(fp.text||'').replace(/^\uFEFF/,''));
-        // Drop payload text reference ASAP for GC on huge uploads
         fp.text=null;
-        if(!text.trim()){ errors.push((fp.name||'file')+': empty'); return; }
+        if(!text.trim()){ errors.push((fp.name||'file')+': empty'); parseNext(); return; }
         if(!/<ENVELOPE[\s>]/i.test(text) && !/<VOUCHER[\s/>]/i.test(text) && !/<DSPDISPNAME>/i.test(text)){
           errors.push((fp.name||'file')+': not Tally XML (expected voucher or Cash Flow statement export)');
-          return;
+          parseNext(); return;
         }
         var parsed=parseTallyXmlToLedgerLines(text, {onlyPaymentReceipt:true});
         if(!previewRaw && text) previewRaw=text.length>400000?(text.slice(0,400000)+'\n<!-- truncated -->'):text;
         text=null;
-        if(parsed.error){ errors.push((fp.name||'file')+': '+parsed.error); return; }
+        if(parsed.error){ errors.push((fp.name||'file')+': '+parsed.error); parseNext(); return; }
         var rows=parsed.rows||[];
-        if(!rows.length){ errors.push((fp.name||'file')+': no Payment/Receipt ledger lines'); return; }
-        if(parsed.format==='cashflow-statement') cfStatement=true;
+        if(!rows.length){ errors.push((fp.name||'file')+': no Payment/Receipt ledger lines'); parseNext(); return; }
         fileStats.push({name:fp.name||'file', count:rows.length, format:parsed.format||'voucher', parseMode:parsed.parseMode||''});
         allRows=allRows.concat(rows);
-      });
-      if(!allRows.length){
-        closeModal();
-        alert('No Payment/Receipt lines imported.'+(errors.length?'\n\n'+errors.join('\n'):''));
-        return;
+      }catch(eOne){
+        errors.push((fp.name||'file')+': '+(eOne&&eOne.message||eOne));
       }
-      if(msgEl()) msgEl().textContent='Merging '+allRows.length+' line(s) into Cashflow…';
-      var s=getTallySyncForPull();
-      var res=mergeTallyLinesIntoActuals(allRows,{
-        replaceTally:!!s.replaceTally,
-        costCentreSubstr:s.costCentreSubstr||'',
-        onlyPaymentReceipt:false,
-        autoAllocate:s.autoAllocate!==false
-      });
-      window.__gaLastTallyExportRaw=previewRaw||'';
-      window.__gaLastTallyExportMeta={
-        reportId:'uploaded-xml-batch',
-        fromDate:'',
-        toDate:'',
-        sendCompanyToTally:false,
-        currentCompany:'',
-        pulledAt:new Date().toISOString(),
-        files:fileStats,
-        onlyPaymentReceipt:true,
-        errors:errors
-      };
-      window.__gaLastTallyParsedRows=allRows.slice(0,5000);
-      closeModal();
-      renderTab(_curTab);
-      refreshProjectCashflowViews();
-      showCfZBalanceAfterSync(res);
-    }catch(eImp){
-      closeModal();
-      alert('Tally XML import failed: '+(eImp&&eImp.message||eImp)+'\n\nIf the file is very large, export Payment+Receipt only or split by month.');
-    }
-  }, 30);
+      parseNext();
+    });
+  }
+  gaScheduleIdle(parseNext, 20);
 }
 function importTallyFile(input){
   if(!input.files||!input.files.length) return;
