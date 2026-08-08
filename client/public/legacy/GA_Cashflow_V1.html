@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 78;
+var CF_VERSION = 79;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
@@ -2305,12 +2305,14 @@ function decodeTallyUploadArrayBuffer(buf){
 function isTallyBankOrCashLedger(ledgerName){
   var p=String(ledgerName||'').toLowerCase().trim();
   if(!p) return false;
-  if(/\bbank\b|a\/c[\s\-]|account\s*no|current\s*a\/c|savings\s*a\/c/i.test(p)) return true;
-  if(/\bicici\b|\bhdfc\b|\baxis\b|\bsbi\b|\bkotak\b|\byes bank\b|\bbob\b|\bidbi\b/i.test(p)) return true;
-  if(/^cash$|^petty cash$|^cash in hand$/i.test(p)) return true;
-  // Chart codes like T2-2 / T2_3 used for bank / cash ledgers in GA books
-  if(/^t\d+[-_\s]/i.test(p) && /(bank|a\/c|account|cash)/i.test(p)) return true;
+  // Strict bank/cash ledgers only — do NOT treat every "A/c" party (vendors) as bank.
+  if(/^cash$|^petty cash$|^cash in hand$|^cash a\/c$/i.test(p)) return true;
+  if(/\b(bank a\/c|bank account|current a\/c|savings a\/c|od a\/c|cc a\/c)\b/i.test(p)) return true;
+  if(/\b(icici|hdfc|axis|sbi|kotak|yes bank|idbi|bob|pnb|union bank|canara)\b/i.test(p) && /(bank|a\/c|account|od\b|cc\b)/i.test(p)) return true;
+  if(/\bbank\b/i.test(p) && /(a\/c|account|ltd|limited)\b/i.test(p)) return true;
+  // Chart codes like T2-2 used for bank / cash ledgers in GA books
   if(/^t2[-_\s]/i.test(p)) return true;
+  if(/^t\d+[-_\s]/i.test(p) && /(bank|cash in hand|petty cash)/i.test(p)) return true;
   return false;
 }
 /** Match Payment / Receipt voucher types only (same as Payment.xml / Receipts.xml). */
@@ -2407,19 +2409,29 @@ function sanitizeTallyXmlForDomParser(xmlText){
   var s=stripIllegalXmlCharacters(xmlText.replace(/^\uFEFF/,''));
   return s.replace(/&(?!(?:amp|apos|quot|lt|gt);|#(?:[0-9]+|x[0-9A-Fa-f]+);|[a-zA-Z][a-zA-Z0-9]*;)/gi,'&amp;');
 }
+/** Safe UTF-16LE decode without String.fromCharCode.apply on huge arrays (crashes large Tally XML). */
+function utf16LeBinaryStringToUtf8(s){
+  if(!s) return '';
+  var out=[], i=0, n=s.length, CHUNK=0x4000;
+  while(i<n){
+    var end=Math.min(i+CHUNK*2, n), codes=[];
+    for(;i<end;i+=2) codes.push(s.charCodeAt(i));
+    out.push(String.fromCharCode.apply(null, codes));
+  }
+  return out.join('');
+}
 function normalizeTallyUploadText(text){
   if(!text||typeof text!=='string') return '';
   var s=text.replace(/^\uFEFF/,'');
   if(s.indexOf('<')>=0 && s.indexOf('>')>=0) return s;
-  if(s.length>4 && s.charCodeAt(0)<32 && s.charCodeAt(1)===0 && s.charCodeAt(2)===60){
-    try{
-      var codes=[];
-      for(var i=0;i<s.length;i+=2) codes.push(s.charCodeAt(i));
-      return String.fromCharCode.apply(null, codes);
-    }catch(e){}
+  // UTF-16LE XML often arrives as binary string (nul bytes between ASCII)
+  if(s.length>4 && s.charCodeAt(1)===0 && (s.charCodeAt(0)===60||s.charCodeAt(2)===60)){
+    try{ return utf16LeBinaryStringToUtf8(s); }catch(e){}
   }
   return s;
 }
+/** Above this size, skip DOMParser (OOM/crash) and use regex-only parse. */
+var TALLY_XML_DOM_MAX_CHARS = 1500000;
 function tallyDecodeXmlText(s){
   return String(s||'')
     .replace(/&amp;/gi,'&')
@@ -2598,19 +2610,33 @@ function parseTallyXmlToLedgerLinesRegex(safeXml, opts){
   }
   return rows;
 }
-/** Parse Tally export XML → ledger lines. Default keeps Payment/Receipt only (like Payment.xml + Receipts.xml). */
+/** Parse Tally export XML → ledger lines. Default keeps Payment/Receipt only (like Payment.xml + Receipts.xml). Always returns {rows} or {error}. */
 function parseTallyXmlToLedgerLines(xmlText, opts){
   opts=opts||{};
   var onlyPR=opts.onlyPaymentReceipt!==false;
   var rows=[];
-  if(!xmlText||typeof xmlText!=='string') return rows;
+  if(!xmlText||typeof xmlText!=='string') return {error:'Empty Tally response (no XML text).'};
   var trimmed=normalizeTallyUploadText(String(xmlText||'').trim());
+  if(!trimmed) return {error:'Empty Tally response after normalize.'};
   if(trimmed.charAt(0)==='{'){
     try{
       var er=JSON.parse(trimmed);
       if(er.error) return {error:String(er.error)};
       if(er.ok===false) return {error:String(er.error||er.message||'Bridge returned JSON instead of XML.')};
+      if(er.xml||er.data){
+        trimmed=normalizeTallyUploadText(String(er.xml||er.data||''));
+        if(!trimmed) return {error:'Bridge JSON had no XML payload.'};
+      }else if(!/<VOUCHER[\s/>]/i.test(trimmed) && !/<ENVELOPE[\s>]/i.test(trimmed)){
+        return {error:'Bridge returned JSON without voucher XML. '+(er.message||er.hint||JSON.stringify(er).slice(0,180))};
+      }
     }catch(e){}
+  }
+  // Large exports: never DOMParser (browser OOM / tab crash). Regex-only path.
+  if(trimmed.length>TALLY_XML_DOM_MAX_CHARS){
+    var lightLarge=stripIllegalXmlCharacters(trimmed);
+    rows=parseTallyXmlToLedgerLinesRegex(lightLarge, opts);
+    if(rows.length) return {rows:rows, parseMode:'regex-large', xmlChars:trimmed.length};
+    return {error:'Large XML (~'+Math.round(trimmed.length/1e6)+' MB) parsed with no Payment/Receipt ledger lines. Export Payment+Receipt only, or split by date range.'};
   }
   var safe=sanitizeTallyXmlForDomParser(trimmed);
   var lem=/<LINEERROR>([\s\S]*?)<\/LINEERROR>/i.exec(safe);
@@ -2620,10 +2646,16 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
     var lhint=/SVCURRENTCOMPANY|SVCurrentCompany|Could not set/i.test(lmsg)?' Turn off “Send company name to Tally” in Live sync, or type the exact company name from Gateway → Select Company.':'';
     return {error:'Tally LINEERROR: '+lmsg+'.'+lhint};
   }
-  var p=new DOMParser().parseFromString(safe,'text/xml');
+  var p;
+  try{ p=new DOMParser().parseFromString(safe,'text/xml'); }
+  catch(eDom){
+    rows=parseTallyXmlToLedgerLinesRegex(safe, opts);
+    if(rows.length) return {rows:rows, parseMode:'regex-dom-throw'};
+    return {error:'DOMParser failed on Tally XML: '+(eDom&&eDom.message||eDom)};
+  }
   if(p.getElementsByTagName('parsererror').length){
     rows=parseTallyXmlToLedgerLinesRegex(safe, opts);
-    if(rows.length) return {rows:rows};
+    if(rows.length) return {rows:rows, parseMode:'regex-parsererror'};
     if(/<DSPDISPNAME>/i.test(safe) && !onlyPR){
       rows=parseTallyCashFlowStatementLines(safe);
       if(rows.length) return {rows:rows, format:'cashflow-statement'};
@@ -2655,19 +2687,20 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
       var ent=ents[ei];
       var party=txt(ent,'LEDGERNAME');
       if(!party) continue;
-      if(shouldSkipTallyBankLedgerLine(party, tallyCostCentreFromEntryDom(ent)||txt(vch,'COSTCENTRENAME'))) continue;
+      var ccEarly=tallyCostCentreFromEntryDom(ent)||txt(vch,'COSTCENTRENAME');
+      if(shouldSkipTallyBankLedgerLine(party, ccEarly)) continue;
       var amtStr=tallyLedgerPrimaryAmountDom(ent)||txt(ent,'AMOUNT');
       var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
       if(!amt) continue;
-      var cc=tallyCostCentreFromEntryDom(ent)||txt(vch,'COSTCENTRENAME');
+      var cc=ccEarly;
       var narr=txt(ent,'NARRATION')||txt(vch,'NARRATION');
       var tk='tally|'+date+'|'+vno+'|'+party+'|'+amtStr+'|'+(cc||'');
       rows.push({date:date,party:party,rawAmount:amt,voucherNo:vno,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,tallyKey:tk});
     }
   }
-  if(rows.length) return {rows:rows};
+  if(rows.length) return {rows:rows, parseMode:'dom'};
   rows=parseTallyXmlToLedgerLinesRegex(safe, opts);
-  if(rows.length) return {rows:rows};
+  if(rows.length) return {rows:rows, parseMode:'regex-fallback'};
   if(/<DSPDISPNAME>/i.test(safe) && !onlyPR){
     rows=parseTallyCashFlowStatementLines(safe);
     if(rows.length) return {rows:rows, format:'cashflow-statement'};
@@ -2859,10 +2892,21 @@ function downloadCfZVsRestDeltaXlsx(audit){
   XLSX.utils.book_append_sheet(wb, sheetFrom(audit.routeRows,'All routed Tally'), 'Routing_audit');
   XLSX.writeFile(wb, 'GA_CF_Z_vs_Rest_Delta_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
-/** After each sync/import: populated window; Excel download when CF Z ≠ rest of CF. */
+/** After each sync/import: populated window when lines exist; Excel download when CF Z ≠ rest of CF. */
 function showCfZBalanceAfterSync(res){
-  var audit=(res&&res.cfzBalance)||window.__gaLastCfZBalanceAudit||computePhaseCfZVsRestBalance(_curPid);
+  var audit=(res&&res.cfzBalance)||window.__gaLastCfZBalanceAudit;
+  if(!audit){
+    try{ audit=computePhaseCfZVsRestBalance(_curPid); }catch(eA){ audit=null; }
+  }
   window.__gaLastCfZBalanceAudit=audit;
+  var lineCount=audit?((audit.cfzCount||0)+(audit.restCount||0)+(audit.balCount||0)):0;
+  var added=res&&res.added||0;
+  // Never present an empty "₹0 / balanced" window as a successful sync — that hid zero-import failures.
+  if(!lineCount && !added){
+    var skip=res&&res.skipped||0;
+    alert('Tally sync finished but no Payment/Receipt lines were imported into Cashflow.\n\nAdded: 0 · Skipped: '+skip+'.\n\nCheck: bridge returns vouchers, date range covers books, cost-centre filter is blank, and Replace is only used when you intend to wipe prior Tally lines.');
+    return;
+  }
   if(!audit) return;
   var ok=!!audit.balanced;
   var border=ok?'#166534':'#991B1B';
@@ -2871,10 +2915,10 @@ function showCfZBalanceAfterSync(res){
   h+='<h3 style="margin-top:0">Cash &amp; Cash Equivalents (CF Z) balance check</h3>';
   h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">Master Common · Z — after sync, CF Z Tally sum must equal the sum of the remaining CF entries. <strong>BAL1-1</strong> (pure TDS / residuary) is excluded from cashflow calculations.</p>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">CF Z sum</div><div style="font-weight:800;font-size:16px">'+cr(audit.cfzSum,'₹0')+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.cfzCount+' lines)</span></div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Rest of CF sum</div><div style="font-weight:800;font-size:16px">'+cr(audit.restSum,'₹0')+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.restCount+' lines)</span></div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">BAL1-1 excluded</div><div style="font-weight:700">'+cr(audit.balSum,'₹0')+' ('+audit.balCount+')</div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Delta</div><div style="font-weight:800;color:'+(ok?'#166534':'#991B1B')+'">'+cr(audit.delta,'₹0')+' · '+(ok?'BALANCED':'NOT EQUAL')+'</div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">CF Z sum</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.cfzSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.cfzCount+' lines)</span></div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Rest of CF sum</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.restSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.restCount+' lines)</span></div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">BAL1-1 excluded</div><div style="font-weight:700">'+formatRupeesDisplay(audit.balSum)+' ('+audit.balCount+')</div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Delta</div><div style="font-weight:800;color:'+(ok?'#166534':'#991B1B')+'">'+formatRupeesDisplay(audit.delta)+' · '+(ok?'BALANCED':'NOT EQUAL')+'</div></div>';
   h+='</div>';
   if(res){
     h+='<p style="font-size:11px;color:var(--muted);margin:0 0 12px">Sync: +'+(res.added||0)+' · skipped '+(res.skipped||0);
@@ -3127,7 +3171,14 @@ function runTallyPullVouchers(){
     }
     var filt=onlyPR?filterTallyRowsPaymentReceiptOnly(parsed.rows||[]):{rows:(parsed.rows||[]).slice(),skippedType:0,skippedBank:0};
     var rows=filt.rows;
-    window.__gaLastTallyExportRaw=text;
+    if(!rows.length){
+      el.textContent='Tally returned XML but 0 importable Payment/Receipt party lines after filters'
+        +(filt.skippedType?(' · skipped type '+filt.skippedType):'')
+        +(filt.skippedBank?(' · skipped bank '+filt.skippedBank):'')
+        +'. Check date range / company, or Download last raw XML.';
+      return;
+    }
+    window.__gaLastTallyExportRaw=(text&&text.length>TALLY_XML_DOM_MAX_CHARS)?(text.slice(0,500000)+'\n<!-- truncated for memory; original '+text.length+' chars -->'):text;
     window.__gaLastTallyExportMeta={
       preset:preset,
       reportId:s.reportId,
@@ -3139,18 +3190,21 @@ function runTallyPullVouchers(){
       bridgeMeta:resp.meta||null,
       onlyPaymentReceipt:onlyPR,
       filteredOutType:filt.skippedType||0,
-      filteredOutBank:filt.skippedBank||0
+      filteredOutBank:filt.skippedBank||0,
+      parseMode:parsed.parseMode||'',
+      parsedRows:(parsed.rows||[]).length
     };
-    window.__gaLastTallyParsedRows=rows.slice();
+    window.__gaLastTallyParsedRows=rows.slice(0,5000);
     var res=mergeTallyLinesIntoActuals(rows,{
       replaceTally:s.replaceTally,
       costCentreSubstr:s.costCentreSubstr,
-      onlyPaymentReceipt:onlyPR,
+      onlyPaymentReceipt:false, // already filtered above — avoid double voucher-type drop
       autoAllocate:s.autoAllocate!==false
     });
     var metaHint='';
     try{ if(resp.meta){ var m=JSON.parse(resp.meta); if(m&&m.voucherCount!=null) metaHint=' · vouchers≈'+m.voucherCount+(m.dateMin&&m.dateMax?(' · dates '+m.dateMin+'→'+m.dateMax):''); } }catch(e3){}
     if(onlyPR) metaHint+=' · Payment/Receipt only (Journal/Contra/bank sides dropped)';
+    if(parsed.parseMode) metaHint+=' · parse:'+parsed.parseMode;
     if(rows.length<=5 && fd!==td){
       metaHint+=' ⚠ Very few Payment/Receipt lines — restart bridge v3 (start-tally-bridge.bat) and confirm Tally HTTP :9000.';
     }
@@ -3163,7 +3217,7 @@ function runTallyPullVouchers(){
     if(res.hadPriorPull) metaHint+=' · vs prior upload: '+res.missedVsPrior+' missing, '+res.newVsPrior+' new (Excel available)';
     if(res.replaced) metaHint+=' · replaced '+res.replaced+' prior Tally line(s)';
     if(res.rerouted) metaHint+=' · re-routed '+res.rerouted+' prior line(s)';
-    if(res.cfzBalance) metaHint+=' · CF Z vs rest: '+(res.cfzBalance.balanced?'balanced':'DELTA '+cr(res.cfzBalance.delta,'₹0'));
+    if(res.cfzBalance) metaHint+=' · CF Z vs rest: '+(res.cfzBalance.balanced?'balanced':'DELTA '+formatRupeesDisplay(res.cfzBalance.delta));
     el.textContent='✓ Added '+res.added+' Payment/Receipt line(s). Skipped '+res.skipped+'.'+metaHint;
     closeModal();
     renderTab(_curTab);
@@ -11538,48 +11592,71 @@ function importTallyXmlFromFileText(xmlText, fileName){
 function importTallyXmlBatch(filePayloads){
   if(!_curPid){alert('Select a project first.');return;}
   if(!filePayloads||!filePayloads.length){alert('No files to import.');return;}
-  var allRows=[], fileStats=[], errors=[], combinedRaw=[], cfStatement=false;
-  filePayloads.forEach(function(fp){
-    var text=normalizeTallyUploadText(String(fp.text||'').replace(/^\uFEFF/,''));
-    if(!text.trim()){ errors.push((fp.name||'file')+': empty'); return; }
-    if(!/<ENVELOPE[\s>]/i.test(text) && !/<VOUCHER[\s/>]/i.test(text) && !/<DSPDISPNAME>/i.test(text)){
-      errors.push((fp.name||'file')+': not Tally XML (expected voucher or Cash Flow statement export)');
-      return;
+  var totalChars=0;
+  filePayloads.forEach(function(fp){ totalChars+=(fp.text&&fp.text.length)||0; });
+  openModal('<div class="modal-bg"><div class="modal" style="width:420px;max-width:96vw"><h3>Importing Tally XML…</h3>'
+    +'<p id="tally-xml-import-msg" style="font-size:12px;line-height:1.45">Preparing '+(filePayloads.length)+' file(s)'
+    +(totalChars>1e6?(' · ~'+Math.round(totalChars/1e6)+' MB — large file mode (no DOM)'):'')
+    +'…</p></div></div>');
+  var msgEl=function(){ return document.getElementById('tally-xml-import-msg'); };
+  setTimeout(function(){
+    try{
+      var allRows=[], fileStats=[], errors=[], cfStatement=false, previewRaw='';
+      filePayloads.forEach(function(fp, idx){
+        if(msgEl()) msgEl().textContent='Parsing '+(idx+1)+'/'+filePayloads.length+': '+(fp.name||'file')+'…';
+        var text=normalizeTallyUploadText(String(fp.text||'').replace(/^\uFEFF/,''));
+        // Drop payload text reference ASAP for GC on huge uploads
+        fp.text=null;
+        if(!text.trim()){ errors.push((fp.name||'file')+': empty'); return; }
+        if(!/<ENVELOPE[\s>]/i.test(text) && !/<VOUCHER[\s/>]/i.test(text) && !/<DSPDISPNAME>/i.test(text)){
+          errors.push((fp.name||'file')+': not Tally XML (expected voucher or Cash Flow statement export)');
+          return;
+        }
+        var parsed=parseTallyXmlToLedgerLines(text, {onlyPaymentReceipt:true});
+        if(!previewRaw && text) previewRaw=text.length>400000?(text.slice(0,400000)+'\n<!-- truncated -->'):text;
+        text=null;
+        if(parsed.error){ errors.push((fp.name||'file')+': '+parsed.error); return; }
+        var rows=parsed.rows||[];
+        if(!rows.length){ errors.push((fp.name||'file')+': no Payment/Receipt ledger lines'); return; }
+        if(parsed.format==='cashflow-statement') cfStatement=true;
+        fileStats.push({name:fp.name||'file', count:rows.length, format:parsed.format||'voucher', parseMode:parsed.parseMode||''});
+        allRows=allRows.concat(rows);
+      });
+      if(!allRows.length){
+        closeModal();
+        alert('No Payment/Receipt lines imported.'+(errors.length?'\n\n'+errors.join('\n'):''));
+        return;
+      }
+      if(msgEl()) msgEl().textContent='Merging '+allRows.length+' line(s) into Cashflow…';
+      var s=getTallySyncForPull();
+      var res=mergeTallyLinesIntoActuals(allRows,{
+        replaceTally:!!s.replaceTally,
+        costCentreSubstr:s.costCentreSubstr||'',
+        onlyPaymentReceipt:false,
+        autoAllocate:s.autoAllocate!==false
+      });
+      window.__gaLastTallyExportRaw=previewRaw||'';
+      window.__gaLastTallyExportMeta={
+        reportId:'uploaded-xml-batch',
+        fromDate:'',
+        toDate:'',
+        sendCompanyToTally:false,
+        currentCompany:'',
+        pulledAt:new Date().toISOString(),
+        files:fileStats,
+        onlyPaymentReceipt:true,
+        errors:errors
+      };
+      window.__gaLastTallyParsedRows=allRows.slice(0,5000);
+      closeModal();
+      renderTab(_curTab);
+      refreshProjectCashflowViews();
+      showCfZBalanceAfterSync(res);
+    }catch(eImp){
+      closeModal();
+      alert('Tally XML import failed: '+(eImp&&eImp.message||eImp)+'\n\nIf the file is very large, export Payment+Receipt only or split by month.');
     }
-    var parsed=parseTallyXmlToLedgerLines(text, {onlyPaymentReceipt:true});
-    if(parsed.error){ errors.push((fp.name||'file')+': '+parsed.error); return; }
-    var rows=parsed.rows||[];
-    if(!rows.length){ errors.push((fp.name||'file')+': no Payment/Receipt ledger lines'); return; }
-    if(parsed.format==='cashflow-statement') cfStatement=true;
-    fileStats.push({name:fp.name||'file', count:rows.length, format:parsed.format||'voucher'});
-    allRows=allRows.concat(rows);
-    combinedRaw.push('<!-- '+String(fp.name||'file')+' -->\n'+text);
-  });
-  if(!allRows.length){
-    alert('No Payment/Receipt lines imported.'+(errors.length?'\n\n'+errors.join('\n'):''));
-    return;
-  }
-  var s=getTallySyncForPull();
-  var res=mergeTallyLinesIntoActuals(allRows,{
-    replaceTally:!!s.replaceTally,
-    costCentreSubstr:s.costCentreSubstr||'',
-    onlyPaymentReceipt:true
-  });
-  window.__gaLastTallyExportRaw=combinedRaw.join('\n\n');
-  window.__gaLastTallyExportMeta={
-    reportId:'uploaded-xml-batch',
-    fromDate:'',
-    toDate:'',
-    sendCompanyToTally:false,
-    currentCompany:'',
-    pulledAt:new Date().toISOString(),
-    files:fileStats,
-    onlyPaymentReceipt:true
-  };
-  window.__gaLastTallyParsedRows=allRows.slice();
-  renderTab(_curTab);
-  refreshProjectCashflowViews();
-  showCfZBalanceAfterSync(res);
+  }, 30);
 }
 function importTallyFile(input){
   if(!input.files||!input.files.length) return;
@@ -11594,7 +11671,14 @@ function importTallyFile(input){
     }
   }
   var pending=files.length, payloads=[], readErr=false;
+  var maxBytes=80*1024*1024; // soft warn above 80MB
   files.forEach(function(file){
+    if(file.size>maxBytes){
+      if(!window.confirm((file.name||'XML')+' is ~'+Math.round(file.size/1e6)+' MB. Large imports can be slow. Continue?')){
+        input.value='';
+        return;
+      }
+    }
     var reader=new FileReader();
     reader.onload=function(e){
       var buf=e.target.result;
