@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 76;
+var CF_VERSION = 77;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
@@ -306,8 +306,11 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
   var isInflow=isCashflowInflowCat(cat1);
   if(cl.flow==='in' && !isInflow) isInflow=true;
   if(cl.flow==='out' && isInflow) isInflow=false;
+  // Master flow cash / exclude / pl_only must not be rewritten by voucher heuristics
+  var masterFlow=String(cl.flow||'');
+  var preserveMasterFlow=masterFlow==='cash'||masterFlow==='exclude'||masterFlow==='pl_only';
   var vt=String(voucherType||'').trim();
-  if(/^payment\b/i.test(vt)){
+  if(!preserveMasterFlow && /^payment\b/i.test(vt)){
     isInflow=false;
     // Never invent a master L1 for unmapped lines — keep Unmapped and highlight for audit.
     if(!codingUnmapped && isCashflowInflowCat(cat1)){
@@ -318,7 +321,7 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
       else cat1='Construction';
       mapSrc=mapSrc?(mapSrc+'+cf-sot-pay-out'):'cf-sot-pay-out';
     }
-  }else if(/^receipt\b/i.test(vt)){
+  }else if(!preserveMasterFlow && /^receipt\b/i.test(vt)){
     isInflow=true;
     if(!codingUnmapped && !isCashflowInflowCat(cat1)){
       var blob=String(cl.gaL1||'')+' '+String(cl.gaL2||'')+' '+String(cl.gaL3Name||'')+' '+cat1+' '+String(partyHint||cl.party||'');
@@ -336,7 +339,7 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
   }
   return {
     cat1:cat1,
-    isInflow:isInflow,
+    isInflow:preserveMasterFlow?false:isInflow,
     tallyMapSrc:mapSrc,
     codingAuthority:'cashflow',
     codingUnmapped:codingUnmapped,
@@ -348,7 +351,7 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
     masterKey:cl.masterKey||'',
     gaScope:cl.gaScope||'',
     plL1:cl.plL1||'',
-    flow:isInflow?'in':'out'
+    flow:preserveMasterFlow?masterFlow:(isInflow?'in':'out')
   };
 }
 /** Expense dashboard: collections & other inflows stay out of outflow rollups. */
@@ -380,12 +383,12 @@ function ensureGaL1CashflowCols(){
     (GA_ACCT_CF_L1_BUILDING||[]).forEach(function(x){
       if(!x||!x.label) return;
       if(x.flow==='in') inf.push(x.label);
-      else if(x.flow!=='cash') ouf.push(x.label);
+      else if(x.flow==='out') ouf.push(x.label);
     });
     (GA_ACCT_CF_L1_COMMON||[]).forEach(function(x){
       if(!x||!x.label) return;
       if(x.flow==='in') inf.push(x.label);
-      else if(x.flow!=='cash') ouf.push(x.label);
+      else if(x.flow==='out') ouf.push(x.label);
     });
     CF_INFLOW_L1_COLS = inf.length ? inf : INFLOW_CATS.slice();
     CF_OUTFLOW_L1_COLS = ouf.length ? ouf : OUTFLOW_CATS.slice();
@@ -405,7 +408,7 @@ function ensureGaL1CashflowCols(){
     var lbl=String(g.cfL1Label||g.l1Name||'').trim();
     if(!lbl) return;
     if(g.flow==='in') inf[lbl]=lbl;
-    else if(g.flow!=='cash') ouf[lbl]=lbl;
+    else if(g.flow==='out') ouf[lbl]=lbl;
   });
   CF_INFLOW_L1_COLS = Object.keys(inf).sort();
   CF_OUTFLOW_L1_COLS = Object.keys(ouf).sort();
@@ -2053,7 +2056,7 @@ function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildi
   if(g){
     var gaL1=g.cfApplicable ? String(g.cfL1Label||g.l1Name||'') : String(g.plL1Label||g.l1Name||'');
     var leg=g.legacyCat1;
-    if((g.l1==='R'||g.l1==='W'||String(g.l1Name||'').toLowerCase().indexOf('payable')>=0) && leg==='Construction') leg='Payables';
+    if((g.l1==='R'||g.l1==='W'||g.l1==='BAL'||String(g.l1Name||'').toLowerCase().indexOf('payable')>=0) && leg==='Construction') leg='Payables';
     return {
       cat1:leg,
       gaL1:gaL1,
@@ -2603,6 +2606,7 @@ function ledgerLineToActual(row, route){
     voucherType:vt||'',
     gaL1:sot.gaL1,gaL2:sot.gaL2,gaL3:sot.gaL3,gaL3Name:sot.gaL3Name,tallyMapSrc:sot.tallyMapSrc,
     masterKey:sot.masterKey||'',gaScope:sot.gaScope||'building',plL1:sot.plL1||'',
+    flow:sot.flow||'',
     codingUnmapped:!!sot.codingUnmapped,
     suggestedCat1:sot.suggestedCat1||'',
     tallyRouteKind:route.kind||'selected_project',
@@ -4512,6 +4516,7 @@ function migrateReclassifyTallyActuals(){
         if((a.masterKey||'')!==(sot.masterKey||'')){ a.masterKey=sot.masterKey||''; touched=true; }
         if((a.gaScope||'')!==(sot.gaScope||'')){ a.gaScope=sot.gaScope||scope; touched=true; }
         if((a.plL1||'')!==(sot.plL1||'')){ a.plL1=sot.plL1||''; touched=true; }
+        if((a.flow||'')!==(sot.flow||'')){ a.flow=sot.flow||''; touched=true; }
         if((a.voucherType||'')!==(vt||'')){ a.voucherType=vt||''; touched=true; }
         if(a.codingAuthority!=='cashflow'){ a.codingAuthority='cashflow'; touched=true; }
         if(Number(a._cfCodingVer)!==CF_VERSION){ a._cfCodingVer=CF_VERSION; touched=true; }
@@ -6700,9 +6705,27 @@ function actualCostCenterMatchBlob(a){
 function normCcBlob(s){
   return String(s||'').toLowerCase().replace(/&/g,' and ').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();
 }
+/** Resolve master-row flow when actual carries masterKey / short L3. */
+function masterFlowForActual(a){
+  if(!a) return '';
+  var direct=String(a.flow||'').trim();
+  if(direct==='cash'||direct==='exclude'||direct==='pl_only') return direct;
+  if(typeof GA_ACCT_L3_BY_CODE==='undefined'||!GA_ACCT_L3_BY_CODE) return '';
+  var mk=String(a.masterKey||'').trim();
+  if(mk&&GA_ACCT_L3_BY_CODE[mk]) return String(GA_ACCT_L3_BY_CODE[mk].flow||'');
+  var sc=String(a.gaL3||'').trim();
+  if(sc&&typeof GA_ACCT_L3_BY_SHORT!=='undefined'&&GA_ACCT_L3_BY_SHORT[sc]&&GA_ACCT_L3_BY_SHORT[sc].length){
+    var hit=GA_ACCT_L3_BY_CODE[GA_ACCT_L3_BY_SHORT[sc][0]];
+    if(hit) return String(hit.flow||'');
+  }
+  return '';
+}
 /** BAL1-1 MISC Residuary for Cashflow — residuary plug; exclude amount from CF movements. */
 function isBalResiduaryCashflowLine(a){
   if(!a) return false;
+  var mf=masterFlowForActual(a);
+  if(mf==='exclude') return true;
+  if(String(a.cat1||'')==='BAL Residuary') return true;
   var blob=normCcBlob(actualCostCenterMatchBlob(a));
   var l3=normCcBlob([a.gaL3,a.gaL3Name,a.costCentre,a.masterKey].join(' '));
   if(/\bbal1\s*-\s*1\b|\bbal1-1\b/.test(l3) && /misc\s*residuary|residuary\s*for\s*cashflow/.test(blob)) return true;
@@ -6714,9 +6737,13 @@ function isBalResiduaryCashflowLine(a){
 /** CF Z hierarchy — Cash & Cash Equivalents (banks, FD, cash). Balance only; not a movement. */
 function isCfZCashEquivalentsLine(a){
   if(!a) return false;
+  var mf=masterFlowForActual(a);
+  if(mf==='cash') return true;
+  if(String(a.cat1||'')==='Cash Equivalents') return true;
   var blob=normCcBlob(actualCostCenterMatchBlob(a));
   if(/cf\s*z\s*cash\s*(and|&)\s*cash\s*equivalents/.test(blob)) return true;
-  if(/\bcf\s*z1\s*-\s*[1-5]\b|\bcf\s*z1-[1-5]\b|\bcf\s*z2-1\b|\bcf\s*z3-1\b/.test(blob)) return true;
+  if(/common\s*·\s*cash\s*(and|&)\s*cash\s*equivalents/.test(blob)) return true;
+  if(/\bcf\s*z1\s*-\s*[1-5]\b|\bcf\s*z1-[1-5]\b|\bcf\s*z2-1\b|\bcf\s*z3-1\b|\bz1-[1-5]\b|\bz2-1\b|\bz3-1\b/.test(blob)) return true;
   if(/\bcf\s*z1\s*bank|\bcf\s*z2\s*fd|\bcf\s*z3\s*cash/.test(blob)) return true;
   if(/026305008761|0550151702|0549232672|0550151689|0550151719/.test(blob)) return true;
   if(/icici\s*bank\s*a\s*\/?\s*c.*026305008761|kotak\s*collection\s*ac|kotak\s*mahindra\s*bank\s*a\s*\/?\s*c.*0549232672|kotak\s*main\s*operation|kotak\s*rera\s*ac/.test(blob)) return true;

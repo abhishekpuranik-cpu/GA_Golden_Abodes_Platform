@@ -24,26 +24,22 @@ function sortedKeys(map) {
   return Object.keys(map || {}).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 }
 
+/** Prefer the dated 8.8.2026 master, then undated V3 Master.xlsx. */
 function candidateXlsxPaths() {
   const fromEnv = process.env.GA_ACCT_XLSX && process.env.GA_ACCT_XLSX.trim();
   if (fromEnv) return [path.resolve(fromEnv)];
+  const acctDir = path.join('C:', 'Users', 'HP', 'OneDrive', 'Projects', 'Golden Abodes', 'Accounting');
   return [
-    path.join(
-      'C:',
-      'Users',
-      'HP',
-      'OneDrive',
-      'Projects',
-      'Golden Abodes',
-      'Accounting',
-      'GA Accounting Categories V3 Master.xlsx',
-    ),
+    path.join(acctDir, 'GA Accounting Categories V3 Master 8.8.2026.xlsx'),
+    path.join(acctDir, 'GA Accounting Categories V3 Master.xlsx'),
     path.join(platformRoot, 'data', 'GA_Accounting_Categories_V3.xlsx'),
+    path.join(platformRoot, 'data', 'GA Accounting Categories V3 Master 8.8.2026.xlsx'),
     path.join('C:', 'Users', 'HP', 'Downloads', 'Coding (1) (1).xlsx'),
     path.join('C:', 'Users', 'HP', 'Downloads', 'Coding (1).xlsx'),
+    path.join(platformRoot, '..', 'Golden Abodes', 'Accounting', 'GA Accounting Categories V3 Master 8.8.2026.xlsx'),
     path.join(platformRoot, '..', 'Golden Abodes', 'Accounting', 'GA Accounting Categories V3 Master.xlsx'),
     path.join(platformRoot, '..', 'Golden Abodes', 'Accounting', 'GA Accounting Categories V2.xlsx'),
-    path.join('C:', 'Users', 'HP', 'OneDrive', 'Projects', 'Golden Abodes', 'Accounting', 'GA Accounting Categories V2.xlsx'),
+    path.join(acctDir, 'GA Accounting Categories V2.xlsx'),
   ];
 }
 
@@ -55,28 +51,49 @@ function clean(v) {
   return String(v ?? '').trim();
 }
 
-/** Extract short ledger code like B1-1 from a CF/PL full string. */
+/** Extract short ledger code like B1-1, Z1-1, BAL1-1 from a CF/PL full string. */
 function extractShortCode(fullStr) {
   const t = clean(fullStr);
   if (!t || t === '0') return '';
+  // Multi-letter L1 (BAL1-1) before single-letter (Z1-1 / A1-1)
+  const mBal = t.match(/\b(BAL\d+-\d+)\b/i);
+  if (mBal) return mBal[1].toUpperCase();
   const m = t.match(/\b([A-Z]\d+-\d+)\b/);
   return m ? m[1] : '';
 }
 
 /**
- * Align with GA Accounting Categories V3 Master:
+ * Align with GA Accounting Categories V3 Master 8.8.2026:
  * - Building inflows: Sales Revenue (A), Customer Collections (B)
- * - Common inflows: L Unsecured Loan, M Investor, N FI Funding, O Promoter, P Other Income
- * - Common A–G / I / Q / … are costs & BS movements (cash out), NOT "Other Inflow"
+ * - Common inflows: M Unsecured Loan, N Investor, O FI Funding, P Promoter, Q Other Income
+ * - Common Z = Cash & Cash Equivalents (closing balance only — not a movement)
+ * - BAL Balancing Cashflow Residuary only = exclude from all CF calculations
+ * - BAL Payables / P&L Residuary = PL control (not CF movements)
  */
 function inferFlow(l1Letter, l1Name, scope) {
   const lc = clean(l1Letter).toUpperCase();
   const name = clean(l1Name).toLowerCase();
-  if (scope === 'common' && lc === 'Z') return 'cash';
+
+  // Exception cost centers (master sheet notes)
+  if (/balancing\s*cashflow\s*residuary|misc\s*residuary\s*for\s*cashflow/i.test(name)) {
+    return 'exclude';
+  }
+  if (/balancing\s*p\s*&\s*l\s*residuary|residuary\s*for\s*pl/i.test(name)) {
+    return 'pl_only';
+  }
+  if (lc === 'BAL' && /payable/i.test(name)) {
+    return 'pl_only';
+  }
+  if (
+    scope === 'common' &&
+    (lc === 'Z' || /cash\s*&\s*cash\s*equivalents|cash\s+and\s+cash\s+equivalents/i.test(name))
+  ) {
+    return 'cash';
+  }
 
   // Balance-sheet advances given = cash out (name contains "loan" but is not funding received)
   if (/loans?\s*and\s*advance|advances?\s+given|advance\s+receivable/i.test(name)) return 'out';
-  if (/deposit|fixed asset|payable|suspense|other current|retention|creditor|depreciation/i.test(name)) {
+  if (/deposit|fixed asset|payable|suspense|other current|retention|creditor|depreciation|club\s*house/i.test(name)) {
     return 'out';
   }
 
@@ -88,20 +105,44 @@ function inferFlow(l1Letter, l1Name, scope) {
   if (/investor funding|financial institution funding|promoter funding|equity infusion/i.test(name)) return 'in';
 
   if (scope === 'building') {
-    // Building chart: A Sales Revenue, B Customer Collections → in; rest out
     if (lc === 'A' && /sales|revenue/i.test(name)) return 'in';
     if (lc === 'B' && /collection/i.test(name)) return 'in';
     return 'out';
   }
 
-  // Common chart: funding / income letters only
-  if (/^[LMNOP]$/.test(lc)) return 'in';
+  // Common chart 8.8.2026: funding / income letters M–Q only (L is Deposit = out)
+  if (/^[MNOPQ]$/.test(lc)) return 'in';
   return 'out';
+}
+
+/** Unique short codes — BAL groups reuse 1-1 numbering across Cashflow / P&L / Payables. */
+function buildShortCode(curL1, curL2, l3CodeNum, cfL3, plL3, curL1Name) {
+  const l1 = clean(curL1).toUpperCase();
+  const name = clean(curL1Name);
+  if (l1 === 'BAL') {
+    if (/cashflow\s*residuary/i.test(name)) {
+      return extractShortCode(cfL3) || 'BAL1-1';
+    }
+    if (/p\s*&\s*l\s*residuary/i.test(name)) {
+      return extractShortCode(plL3) || `BALPL${clean(curL2)}-${clean(l3CodeNum)}`;
+    }
+    if (/payable/i.test(name)) {
+      return `BALP${clean(curL2)}-${clean(l3CodeNum)}`;
+    }
+  }
+  return (
+    extractShortCode(cfL3) ||
+    extractShortCode(plL3) ||
+    (l1 && l3CodeNum ? `${l1}${clean(curL2)}-${clean(l3CodeNum)}` : '')
+  );
 }
 
 function inferLegacyCat1({ l1Name, flow, scope }) {
   const n = clean(l1Name);
   const nl = n.toLowerCase();
+  if (flow === 'cash') return 'Cash Equivalents';
+  if (flow === 'exclude') return 'BAL Residuary';
+  if (flow === 'pl_only') return 'Payables';
   if (flow === 'in') {
     if (nl.includes('customer collection')) return 'Customer Collections';
     if (nl.includes('sales revenue')) return 'Sales Revenue';
@@ -133,7 +174,8 @@ function inferLegacyCat1({ l1Name, flow, scope }) {
     nl.includes('loans and advance') ||
     nl.includes('fixed asset') ||
     nl.includes('deposit') ||
-    nl.includes('common expenses')
+    nl.includes('common expenses') ||
+    nl.includes('club house')
   ) {
     return 'Construction';
   }
@@ -177,6 +219,8 @@ function parseV3MasterSheet(ws, scope, prefix) {
     const l3CodeNum = clean(row[6]);
     const l3Name = clean(row[7]);
     if (!l3Name) continue;
+    // Skip blank control rows (e.g. Z with no nature after Cash & Cash Equivalents block)
+    if (!curL1 || !curL1Name) continue;
 
     const desc = clean(row[8]);
     const cfL1 = clean(row[9]);
@@ -186,10 +230,7 @@ function parseV3MasterSheet(ws, scope, prefix) {
     const plL2 = clean(row[13]);
     const plL3 = clean(row[14]);
 
-    const shortCode =
-      extractShortCode(cfL3) ||
-      extractShortCode(plL3) ||
-      (curL1 && l3CodeNum ? `${curL1}${curL2}-${l3CodeNum}` : '');
+    const shortCode = buildShortCode(curL1, curL2, l3CodeNum, cfL3, plL3, curL1Name);
 
     if (!shortCode) continue;
 
@@ -226,14 +267,15 @@ function parseV3MasterSheet(ws, scope, prefix) {
 
     entries[masterKey] = entry;
 
-    if (cfApplicable && curL1Name) {
+    // Movement columns only — cash (CF Z) and exclude (BAL residuary) stay off the grid
+    if (cfApplicable && curL1Name && (flow === 'in' || flow === 'out')) {
       const col = entry.cfL1Label;
       if (!cfL1Seen.has(col)) {
         cfL1Seen.add(col);
         cfL1Order.push({ scope, l1: curL1, l1Name: curL1Name, label: col, flow });
       }
     }
-    if (plApplicable && curL1Name) {
+    if (plApplicable && curL1Name && flow !== 'exclude' && flow !== 'cash') {
       const col = entry.plL1Label;
       if (!plL1Seen.has(col)) {
         plL1Seen.add(col);
