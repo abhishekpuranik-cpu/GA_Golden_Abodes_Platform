@@ -66,7 +66,14 @@ ClaimSchema.pre('save', function preSave(next) {
     if (modified.length && this.status === 'PAID') {
       return next(new Error('PAID claim is immutable'));
     }
-    if (modified.length && this.status === 'APPROVED' && !this.isModified('status') && !this.isModified('paymentReference') && !this.isModified('paidAt') && !this.isModified('stateHistory')) {
+    if (
+      modified.length
+      && this.status === 'APPROVED'
+      && !this.isModified('status')
+      && !this.isModified('paymentReference')
+      && !this.isModified('paidAt')
+      && !this.isModified('stateHistory')
+    ) {
       return next(new Error('APPROVED claim money/trip fields are immutable'));
     }
   }
