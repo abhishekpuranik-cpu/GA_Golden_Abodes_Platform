@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 75;
+var CF_VERSION = 76;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
@@ -3778,6 +3778,8 @@ function emptyProjData(pid){
     tallyCommonCostOwner:false, // one deterministic storage owner per phase; displayed as phase-level common
     // Actuals
     actuals:[],            // {id,date,party,cat1,note,amount,costCentre}
+    // Balance Sheet Cash & Bank (Rule 1 recon vs CF Z L1 total) — not a cashflow movement
+    bsCashBankBalance:null,
     // Overrides (per period per cat)
     overrides:{},          // {period:{cat:amount}}
     // Interactive forecast controls (applied on projected months only)
@@ -6680,9 +6682,53 @@ function coerceMoney(v){
   if(typeof v==='object'&&v&&'v' in v) return coerceMoney(v.v);
   return parseCRMNumber(v);
 }
+/**
+ * CA / GA cashflow cost-centre rules (CF v76+):
+ * 1) BAL Balancing Cashflow Residuary Ledger → BAL1 → BAL1-1 MISC Residuary for Cashflow
+ *    — exclude ONLY that line amount from movement calculations (never drop the whole voucher).
+ * 2) CF Z Cash & Cash Equivalents (bank / FD / cash) — closing balance & BS recon ONLY;
+ *    never include in Total Inflow / Total Outflow / movement grids.
+ * Matching uses full L1/L2/L3 names and codes; bare "BAL" / "BAL1" alone do not match.
+ */
+function actualCostCenterMatchBlob(a){
+  if(!a) return '';
+  return [
+    a.costCentre, a.gaL1, a.gaL2, a.gaL3, a.gaL3Name, a.cat1, a.plL1,
+    a.masterKey, a.party, a.note, a.narration, a.suggestedCat1
+  ].map(function(x){ return String(x||''); }).join(' | ');
+}
+function normCcBlob(s){
+  return String(s||'').toLowerCase().replace(/&/g,' and ').replace(/[–—]/g,'-').replace(/\s+/g,' ').trim();
+}
+/** BAL1-1 MISC Residuary for Cashflow — residuary plug; exclude amount from CF movements. */
+function isBalResiduaryCashflowLine(a){
+  if(!a) return false;
+  var blob=normCcBlob(actualCostCenterMatchBlob(a));
+  var l3=normCcBlob([a.gaL3,a.gaL3Name,a.costCentre,a.masterKey].join(' '));
+  if(/\bbal1\s*-\s*1\b|\bbal1-1\b/.test(l3) && /misc\s*residuary|residuary\s*for\s*cashflow/.test(blob)) return true;
+  if(/\bbal1-1\s*misc\s*residuary\s*for\s*cashflow\b/.test(blob)) return true;
+  if(/bal\s*balancing\s*cashflow\s*residuary/.test(blob) && /\bbal1\b/.test(blob) && /\bbal1-1\b/.test(blob)) return true;
+  if(/\bbal1-1\b/.test(l3) && !/\bbal1-1[0-9a-z]/.test(l3.replace(/\s/g,''))) return true;
+  return false;
+}
+/** CF Z hierarchy — Cash & Cash Equivalents (banks, FD, cash). Balance only; not a movement. */
+function isCfZCashEquivalentsLine(a){
+  if(!a) return false;
+  var blob=normCcBlob(actualCostCenterMatchBlob(a));
+  if(/cf\s*z\s*cash\s*(and|&)\s*cash\s*equivalents/.test(blob)) return true;
+  if(/\bcf\s*z1\s*-\s*[1-5]\b|\bcf\s*z1-[1-5]\b|\bcf\s*z2-1\b|\bcf\s*z3-1\b/.test(blob)) return true;
+  if(/\bcf\s*z1\s*bank|\bcf\s*z2\s*fd|\bcf\s*z3\s*cash/.test(blob)) return true;
+  if(/026305008761|0550151702|0549232672|0550151689|0550151719/.test(blob)) return true;
+  if(/icici\s*bank\s*a\s*\/?\s*c.*026305008761|kotak\s*collection\s*ac|kotak\s*mahindra\s*bank\s*a\s*\/?\s*c.*0549232672|kotak\s*main\s*operation|kotak\s*rera\s*ac/.test(blob)) return true;
+  if(/autosweep\s*fd\s*[-–]?\s*kotak|cf\s*z2-1\s*autosweep/.test(blob)) return true;
+  if(/\bcf\s*z3-1\s*cash\s*a\s*\/?\s*c\b|\bcf\s*z3\s*cash\s*a\s*\/?\s*c\b/.test(blob)) return true;
+  return false;
+}
 /** Bank Autosweep / internal sweeps are excluded from project inflow & outflow sums. */
 function isAutosweepBankLine(a){
   if(!a) return false;
+  // CF Z lines are excluded via isCfZCashEquivalentsLine — do not reclassify them here.
+  if(isCfZCashEquivalentsLine(a)||isBalResiduaryCashflowLine(a)) return false;
   var p=String(a.party||'').toLowerCase();
   var n=String(a.note||a.narration||'').toLowerCase();
   var c=String(a.cat1||a.gaL1||'').toLowerCase();
@@ -6693,8 +6739,123 @@ function isAutosweepBankLine(a){
   if(/sweep.*transfer|transfer.*sweep/i.test(b)) return true;
   return false;
 }
-function includeActualInCashflowSums(a){ return !isAutosweepBankLine(a); }
+/** Why a line is kept out of Total Inflow / Total Outflow (entry still stored). */
+function cashflowMovementExclusionReason(a){
+  if(!a) return '';
+  if(isBalResiduaryCashflowLine(a)) return 'bal';
+  if(isCfZCashEquivalentsLine(a)) return 'cfz';
+  if(isAutosweepBankLine(a)) return 'autosweep';
+  return '';
+}
+/** For monthly cashflow, GA rollups, expense dashboards, collections — movements only. */
+function includeActualInCashflowSums(a){
+  return !cashflowMovementExclusionReason(a);
+}
+function sumCfZCashEquivalentsL1(actuals, opts){
+  opts=opts||{};
+  var fromMo=opts.fromMonth||'', toMo=opts.toMonth||'';
+  var total=0, n=0, byL3={};
+  (actuals||[]).forEach(function(a){
+    if(!isCfZCashEquivalentsLine(a)) return;
+    if(a.date){
+      var mo=String(a.date).slice(0,7);
+      if(fromMo && mo<fromMo) return;
+      if(toMo && mo>toMo) return;
+    }
+    var amt=coerceMoney(a.amount);
+    total+=amt; n++;
+    var k=String(a.gaL3||a.gaL3Name||a.costCentre||'CF Z').trim()||'CF Z';
+    if(!byL3[k]) byL3[k]={label:k, amount:0, count:0};
+    byL3[k].amount+=amt; byL3[k].count++;
+  });
+  return {total:total, count:n, byL3:byL3, absTotal:Math.abs(total)};
+}
+function sumCashflowMovementInOut(actuals, opts){
+  opts=opts||{};
+  var fromMo=opts.fromMonth||'', toMo=opts.toMonth||'';
+  var inflow=0, outflow=0, nIn=0, nOut=0, exclBal=0, exclCfz=0, exclAuto=0;
+  (actuals||[]).forEach(function(a){
+    if(!a) return;
+    if(a.date){
+      var mo=String(a.date).slice(0,7);
+      if(fromMo && mo<fromMo) return;
+      if(toMo && mo>toMo) return;
+    }
+    var why=cashflowMovementExclusionReason(a);
+    var amt=coerceMoney(a.amount);
+    if(why==='bal'){ exclBal+=amt; return; }
+    if(why==='cfz'){ exclCfz+=amt; return; }
+    if(why==='autosweep'){ exclAuto+=amt; return; }
+    if(amt>=0){ inflow+=amt; nIn++; }
+    else { outflow+=Math.abs(amt); nOut++; }
+  });
+  return {inflow:inflow, outflow:outflow, nIn:nIn, nOut:nOut, exclBal:exclBal, exclCfz:exclCfz, exclAuto:exclAuto};
+}
+/** Rule 1 (BS vs CF Z) + Rule 2 (In − Out + CF Z = 0). Entries are never mutated. */
+function computeCashflowValidation(cfg, opts){
+  opts=opts||{};
+  var acts=(cfg&&cfg.actuals)||[];
+  var mov=sumCashflowMovementInOut(acts, opts);
+  var cfz=sumCfZCashEquivalentsL1(acts, opts);
+  var cfzL1=cfz.total;
+  var bsRaw=cfg&&cfg.bsCashBankBalance;
+  var bsHas=bsRaw!==null&&bsRaw!==undefined&&bsRaw!=='';
+  var bs=bsHas?coerceMoney(bsRaw):null;
+  var rule1Diff=bsHas?(bs-cfzL1):null;
+  var rule1Pass=bsHas&&Math.abs(rule1Diff)<0.005;
+  var rule2Diff=mov.inflow-mov.outflow+cfzL1;
+  var rule2Pass=Math.abs(rule2Diff)<0.005;
+  var finalOk=rule1Pass&&rule2Pass;
+  return {
+    mov:mov, cfz:cfz, cfzL1:cfzL1,
+    bsCashBankBalance:bs, bsEntered:bsHas,
+    rule1Diff:rule1Diff, rule1Pass:rule1Pass, rule1Ready:bsHas,
+    rule2Diff:rule2Diff, rule2Pass:rule2Pass,
+    finalOk:finalOk, finalReady:bsHas
+  };
+}
+function htmlCashflowValidationPanel(cfg){
+  if(!cfg) return '';
+  var V=computeCashflowValidation(cfg);
+  var passClr='#166534', failClr='#991B1B', waitClr='#A07800';
+  function badge(ok, ready, passLbl, failLbl, waitLbl){
+    if(!ready) return '<span style="font-size:10px;font-weight:800;color:'+waitClr+';background:#FFF8E8;padding:2px 8px;border-radius:999px">'+(waitLbl||'PENDING')+'</span>';
+    return ok
+      ? '<span style="font-size:10px;font-weight:800;color:'+passClr+';background:#DCFCE7;padding:2px 8px;border-radius:999px">'+(passLbl||'PASS')+'</span>'
+      : '<span style="font-size:10px;font-weight:800;color:'+failClr+';background:#FEE2E2;padding:2px 8px;border-radius:999px">'+(failLbl||'FAIL')+'</span>';
+  }
+  var h='';
+  h+='<div class="card" style="margin:4px 0 12px;border-left:4px solid '+(V.finalOk?'#166534':(V.finalReady?'#991B1B':'#A07800'))+';background:#F8FAFF">';
+  h+='<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Cashflow validation (CA Rule 1 + Rule 2)</div>';
+  h+=badge(V.finalOk, V.finalReady, 'CORRECT', 'INCORRECT / NOT RECONCILED', 'ENTER BS BALANCE');
+  h+='</div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:10px">Movements exclude <strong>BAL1-1 MISC Residuary for Cashflow</strong> and all <strong>CF Z Cash &amp; Cash Equivalents</strong> lines (amount-only; voucher kept). CF Z is closing cash only — not inflow/outflow.</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:10px;font-size:11px">';
+  h+='<div><div style="font-size:9px;color:var(--muted);font-weight:700">Total Inflow (excl. CF Z / BAL)</div><div style="font-weight:800;color:var(--green-b)">'+cr(V.mov.inflow,'₹0')+'</div></div>';
+  h+='<div><div style="font-size:9px;color:var(--muted);font-weight:700">Total Outflow (excl. CF Z / BAL)</div><div style="font-weight:800;color:var(--red-b)">'+cr(V.mov.outflow,'₹0')+'</div></div>';
+  h+='<div><div style="font-size:9px;color:var(--muted);font-weight:700">CF Z L1 Total (closing C&amp;CE)</div><div style="font-weight:800">'+cr(V.cfzL1,'₹0')+' <span style="font-size:9px;color:var(--muted)">('+V.cfz.count+' lines)</span></div></div>';
+  h+='<div><label class="fld-lbl">Balance Sheet Cash &amp; Bank (₹)</label>';
+  h+='<input type="number" step="0.01" data-action="upd-cfg" data-key="bsCashBankBalance" class="cap-inp" style="width:100%;max-width:220px" value="'+(V.bsEntered?escAttr(String(V.bsCashBankBalance)):'')+'" placeholder="Enter BS closing"/></div>';
+  h+='</div>';
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-bottom:8px">';
+  h+='<div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff">';
+  h+='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px"><strong style="font-size:11px;color:var(--blue-b)">Rule 1 — BS vs CF Z</strong>'+badge(V.rule1Pass,V.rule1Ready,'PASSED / RECONCILED','FAILED / NOT RECONCILED','ENTER BS')+'</div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.4">BS − CF Z L1 = '+(V.rule1Ready?cr(V.rule1Diff,'+0'):'—')+'</div>';
+  h+='</div>';
+  h+='<div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff">';
+  h+='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px"><strong style="font-size:11px;color:var(--blue-b)">Rule 2 — In − Out + CF Z = 0</strong>'+badge(V.rule2Pass,true,'PASSED / BALANCED','FAILED / NOT BALANCED')+'</div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.4">Difference = '+cr(V.rule2Diff,'+0')+'</div>';
+  h+='</div></div>';
+  if(V.mov.exclBal||V.mov.exclCfz||V.mov.exclAuto){
+    h+='<div style="font-size:9px;color:var(--muted);margin-top:4px">Excluded from movements (kept in ledger): BAL residuary '+cr(V.mov.exclBal,'₹0')+' · CF Z '+cr(V.mov.exclCfz,'₹0')+' · other autosweep '+cr(V.mov.exclAuto,'₹0')+'</div>';
+  }
+  h+='</div>';
+  return h;
+}
 function narrationCategoryForLine(a){
+  if(isBalResiduaryCashflowLine(a)) return {id:'bal',label:'BAL1-1 residuary (excl. from cashflow movements)'};
+  if(isCfZCashEquivalentsLine(a)) return {id:'cfz',label:'CF Z Cash & Equivalents (closing bal. only)'};
   if(isAutosweepBankLine(a)) return {id:'autosweep',label:'Bank autosweep (excl. from cashflow)'};
   var t=(String(a.party||'')+' '+(a.note||a.narration||'')+' '+(a.cat1||'')+' '+(a.gaL1||'')).toLowerCase();
   if(/salary|wages|payroll|pf\b|esi|bonus|gratuity/i.test(t)) return {id:'payroll',label:'Payroll & statutory'};
@@ -7401,6 +7562,7 @@ function buildPLRollupFromActuals(actuals, opts){
   var byL1={}, byL3={}, unmapped=0, revenue=0, expense=0;
   (actuals||[]).forEach(function(a){
     if(!a||!a.date) return;
+    if(isBalResiduaryCashflowLine(a)||isCfZCashEquivalentsLine(a)) return;
     var mo=String(a.date).slice(0,7);
     if(fromMo && mo<fromMo) return;
     if(toMo && mo>toMo) return;
@@ -7717,6 +7879,9 @@ function renderCashflow(){
     h+='</div>';
   }
 
+  // ── CA validation: Rule 1 (BS vs CF Z) + Rule 2 (In − Out + CF Z = 0) ──
+  if(!useRollup) h+=htmlCashflowValidationPanel(cfg);
+
   // ── KPI strip ──
   h+='<div class="kpi-row">';
   var kpis=[
@@ -7727,6 +7892,10 @@ function renderCashflow(){
     {l:'Peak Funding Need',v:peakNeg<0?cr(Math.abs(peakNeg)):'—',c:'var(--orange)'},
     {l:'Project Months',v:(useRollup?rows.length:(cfg.totalMonths||60))+' mo',c:'var(--slate)'},
   ];
+  if(!useRollup){
+    var _cfzK=sumCfZCashEquivalentsL1(cfg.actuals||[]);
+    kpis.splice(4,0,{l:'CF Z Closing (C&CE)',v:cr(_cfzK.total,'₹0'),c:'#0D4D30'});
+  }
   kpis.forEach(function(k){
     h+='<div class="kpi" style="border-top:3px solid '+k.c+'">';
     h+='<div style="font-size:15px;font-weight:800;color:'+k.c+'">'+k.v+'</div>';
@@ -7894,16 +8063,20 @@ function renderTransLog(cfg){
       var pos=a.amount>=0;
       var unmapped=!!(a.codingUnmapped||isCodingUnmappedCat(a.cat1)||String(a.gaL1||'')==='Unmapped');
       var routeMiss=a.tallyRouteKind==='unmapped_prefix'||a.tallyRouteKind==='unmapped_cost_centre';
+      var exclWhy=cashflowMovementExclusionReason(a);
       var gaH=(a.gaL1?('<div style="font-size:9px">'+escHtml(a.gaL1)+'</div>'):'')
         +(a.gaL2?('<div style="font-size:8px;color:var(--slate)">'+escHtml(a.gaL2)+'</div>'):'')
         +((a.gaL3||a.gaL3Name)?('<div style="font-size:8px;color:var(--muted)">'+(a.gaL3?escHtml(a.gaL3)+' ':'')+escHtml(a.gaL3Name||'')+'</div>'):'');
       if(a.suggestedCat1&&unmapped) gaH+='<div style="font-size:8px;color:var(--gold)">hint: '+escHtml(a.suggestedCat1)+'</div>';
       if(!gaH) gaH='<span style="font-size:8px;color:var(--muted)">—</span>';
-      var rowBg=unmapped?'background:#FDF8EC':(routeMiss?'background:#FEF0E5':'');
+      var rowBg=exclWhy==='cfz'?'background:#ECFDF5':(exclWhy==='bal'?'background:#F5F3FF':(unmapped?'background:#FDF8EC':(routeMiss?'background:#FEF0E5':'')));
       h+='<tr style="border-bottom:1px solid var(--border);'+rowBg+'">';
       h+='<td style="padding:4px 8px">'+a.date+'</td>';
       h+='<td style="padding:4px 8px">'+a.party+'<br/><span style="font-size:9px;color:var(--muted)">'+a.note+'</span></td>';
       h+='<td style="padding:4px 8px"><span style="background:'+(unmapped?'var(--gold-l)':(pos?'var(--green-l)':'var(--red-l)'))+';color:'+(unmapped?'var(--gold)':(pos?'var(--green-b)':'var(--red-b)'))+';padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700">'+(unmapped?'⚠ Unmapped':a.cat1)+'</span>'
+        +(exclWhy==='bal'?'<div style="font-size:8px;color:#5B21B6;margin-top:2px;font-weight:700">excl. BAL1-1 residuary</div>':'')
+        +(exclWhy==='cfz'?'<div style="font-size:8px;color:#166534;margin-top:2px;font-weight:700">CF Z closing only (not movement)</div>':'')
+        +(exclWhy==='autosweep'?'<div style="font-size:8px;color:var(--muted);margin-top:2px">excl. autosweep</div>':'')
         +((a.tallyMapSrc&&a.source==='tally')?('<div style="font-size:7px;margin-top:2px;color:var(--muted)">'+escHtml(a.tallyMapSrc)+'</div>'):'')+'</td>';
       h+='<td style="padding:4px 6px;vertical-align:top">'+gaH+'</td>';
       h+='<td style="padding:4px 8px;color:var(--muted)">'+(a.costCentre||'—')+'</td>';
@@ -12965,7 +13138,7 @@ document.addEventListener('change',function(e){
     return;
   }
   var v=el.value, n=parseFloat(v)||0;
-  var isNum=['amount','drawMonth','ratePct','termYrs','drawAmount','month','contingencyPct','gaMonthly','gaGAAnnual','gaMktgAnnual'];
+  var isNum=['amount','drawMonth','ratePct','termYrs','drawAmount','month','contingencyPct','gaMonthly','gaGAAnnual','gaMktgAnnual','bsCashBankBalance'];
   if(a==='set-milestone')          { if(!cfg.milestonesDates)cfg.milestonesDates={}; cfg.milestonesDates[el.dataset.key]=v; refreshPostSalesRoadmap(); saveAll(); refreshProjectCashflowViews(); return; }
   if(a==='stage-outflow-amt')      { setStageOutflowAmount(_curPid, el.dataset.key, v); return; }
   if(a==='stage-target-date')      { setStageTargetDate(_curPid, el.dataset.key, v); return; }
@@ -13061,7 +13234,14 @@ document.addEventListener('change',function(e){
     cfg.forecast[k]=vv;
     saveAll(); renderCashflow(); refreshProjectCashflowViews(); return;
   }
-  if(a==='upd-cfg')                { cfg[el.dataset.key]=isNum.indexOf(el.dataset.key)>=0?n:v; saveAll(); renderTab(_curTab); refreshProjectCashflowViews(); return; }
+  if(a==='upd-cfg'){
+    if(el.dataset.key==='bsCashBankBalance'){
+      cfg.bsCashBankBalance=(String(v||'').trim()===''||!isFinite(parseFloat(v)))?null:parseFloat(v);
+    } else {
+      cfg[el.dataset.key]=isNum.indexOf(el.dataset.key)>=0?n:v;
+    }
+    saveAll(); renderTab(_curTab); refreshProjectCashflowViews(); return;
+  }
   if(a==='upd-inv'){
     var invI=cfg.investors[+el.dataset.idx];
     if(invI){
