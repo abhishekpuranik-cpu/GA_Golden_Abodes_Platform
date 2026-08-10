@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 84;
+var CF_VERSION = 85;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 800000;
@@ -3003,14 +3003,22 @@ function computePhaseCfZVsRestBalance(sourcePid, opts){
         return;
       }
       if(String(a.flow||'')==='pl_only') return;
+      // Align with cashflow movement exclusions (autosweep is not a CF movement leg).
+      try{ if(cashflowMovementExclusionReason(a)==='autosweep') return; }catch(eEx){}
       restCount++; restSum+=amt;
       if(row && restLines.length<sampleCap) restLines.push(row);
     });
   });
+  // Objective: bank/C&CE (CF Z) legs should cancel party/movement legs after Payment+Receipt import.
+  // Primary: signed cancel (cfzSum + restSum ≈ 0). Secondary: absolute magnitudes match.
+  // Do NOT treat "equal signed sums" as balanced — that caused false BALANCED/NOT EQUAL.
   var deltaEqual=cfzSum-restSum;
   var deltaOpposite=cfzSum+restSum;
-  var balanced=Math.abs(deltaEqual)<0.05||Math.abs(deltaOpposite)<0.05;
-  var delta=Math.abs(deltaOpposite)<=Math.abs(deltaEqual)?deltaOpposite:deltaEqual;
+  var absMatch=Math.abs(Math.abs(cfzSum)-Math.abs(restSum))<0.05;
+  var cancelOk=Math.abs(deltaOpposite)<0.05;
+  var balanced=cancelOk||absMatch;
+  var delta=deltaOpposite;
+  var ruleUsed=cancelOk?'signed_cancel':(absMatch?'abs_match':'failed');
   return {
     sourcePid:String(pid||''),
     light:light,
@@ -3018,6 +3026,7 @@ function computePhaseCfZVsRestBalance(sourcePid, opts){
     cfzCount:cfzCount, restCount:restCount, balCount:balCount,
     delta:delta, deltaEqual:deltaEqual, deltaOpposite:deltaOpposite,
     balanced:balanced,
+    ruleUsed:ruleUsed,
     cfzLines:cfzLines, restLines:restLines, balLines:balLines, routeRows:routeRows
   };
 }
@@ -3041,13 +3050,14 @@ function downloadCfZVsRestDeltaXlsx(audit){
     ['CF Z sum', audit.cfzSum],
     ['Rest of CF sum (excl. CF Z & BAL1-1)', audit.restSum],
     ['BAL1-1 excluded sum (not in CF calcs)', audit.balSum],
+    ['Delta (CF Z + Rest) signed cancel', audit.deltaOpposite],
     ['Delta (CF Z − Rest)', audit.deltaEqual],
-    ['Delta (CF Z + Rest)', audit.deltaOpposite],
-    ['Primary delta', audit.delta],
+    ['Primary delta (signed cancel)', audit.delta],
+    ['Rule used', audit.ruleUsed||''],
     ['CF Z lines', audit.cfzCount],
     ['Rest CF lines', audit.restCount],
     ['BAL excluded lines', audit.balCount],
-    ['Rule', 'Master Common Z (Cash & Cash Equivalents) sum must equal sum of remaining CF entries; BAL1-1 TDS/residuary excluded from both']
+    ['Rule', 'CF Z bank/C&CE legs should cancel rest of Payment/Receipt CF movements (cfz+rest≈0). BAL1-1 and autosweep excluded.']
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summary), 'Summary');
   XLSX.utils.book_append_sheet(wb, sheetFrom(audit.cfzLines,'CF Z lines'), 'CF_Z');
@@ -3077,12 +3087,12 @@ function showCfZBalanceAfterSync(res){
   var bg=ok?'#F0FDF4':'#FEF2F2';
   var h='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:640px;max-width:96vw;border-top:4px solid '+border+';background:'+bg+'">';
   h+='<h3 style="margin-top:0">Cash &amp; Cash Equivalents (CF Z) balance check</h3>';
-  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">Master Common · Z — after sync, CF Z Tally sum must equal the sum of the remaining CF entries. <strong>BAL1-1</strong> (pure TDS / residuary) is excluded from cashflow calculations.</p>';
+  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px"><strong>Objective:</strong> after Payment/Receipt sync, bank/C&amp;CE (CF Z) legs should <em>cancel</em> the other CF movement legs in this Project Group + Phase (<code>CF Z + Rest ≈ 0</code>). <strong>BAL1-1</strong> and bank autosweep are excluded. This is an import completeness check — not the monthly cashflow In−Out grid.</p>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">CF Z sum</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.cfzSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.cfzCount+' lines)</span></div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Rest of CF sum</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.restSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.restCount+' lines)</span></div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">CF Z sum (signed)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.cfzSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.cfzCount+' lines)</span></div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Rest of CF sum (signed)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.restSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.restCount+' lines)</span></div></div>';
   h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">BAL1-1 excluded</div><div style="font-weight:700">'+formatRupeesDisplay(audit.balSum)+' ('+audit.balCount+')</div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Delta</div><div style="font-weight:800;color:'+(ok?'#166534':'#991B1B')+'">'+formatRupeesDisplay(audit.delta)+' · '+(ok?'BALANCED':'NOT EQUAL')+'</div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">CF Z + Rest</div><div style="font-weight:800;color:'+(ok?'#166534':'#991B1B')+'">'+formatRupeesDisplay(audit.deltaOpposite!=null?audit.deltaOpposite:audit.delta)+' · '+(ok?'BALANCED':'NOT CANCELLED')+(audit.ruleUsed?' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+escHtml(audit.ruleUsed)+')</span>':'')+'</div></div>';
   h+='</div>';
   if(res){
     h+='<p style="font-size:11px;color:var(--muted);margin:0 0 12px">Sync: +'+(res.added||0)+' · skipped '+(res.skipped||0);
@@ -3230,7 +3240,7 @@ function showTallySyncModal(){
   var preset=s.pullPreset||'payment_receipt';
   openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
     +'<h3>Tally Prime — live sync (local)</h3>'
-    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> HTTP :9000 and <strong>bridge v3.4+</strong> (double-click <code>API_Tool\\start-tally-bridge.bat</code>). <strong>Cashflow owns the From–To range</strong> — Tally date filters are not trusted; Payment+Receipt are pulled by type then filtered here.</p>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> HTTP :9000 and <strong>bridge v3.5+</strong> (run <code>scripts\\start-tally-bridge.bat</code>). Target ~10s pull — type-only Payment+Receipt. <strong>Cashflow owns From–To</strong>.</p>'
     +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Replace</strong> clears old Tally lines across the selected building’s Project Group + Phase before re-routing the fresh pull. Bank/cash sides are skipped except <strong>CF Z / BAL</strong> control cost centres.</p>'
     +perProjNote
     +'<div class="field"><label>Bridge URL (shared)</label><input id="tset-bridge" type="text" value="'+escAttr(s.bridgeUrl)+'" placeholder="http://127.0.0.1:34876"/></div>'
@@ -3338,11 +3348,15 @@ function runTallyPullVouchers(){
     exportBody.reportId=s.reportId||'Day Book';
   }
   if(s.tallySendCompany&&s.tallyCompanyName) exportBody.currentCompany=s.tallyCompanyName;
+  var pullCtrl=typeof AbortController!=='undefined'?new AbortController():null;
+  var pullTimer=setTimeout(function(){ try{ if(pullCtrl) pullCtrl.abort(); }catch(eAb){} }, 12000);
   fetch(s.bridgeUrl+'/tally/export',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(exportBody)
+    body:JSON.stringify(exportBody),
+    signal:pullCtrl?pullCtrl.signal:undefined
   }).then(function(r){return r.text().then(function(text){return {ok:r.ok,status:r.status,text:text,meta:r.headers.get('X-GA-Tally-Meta')};});}).then(function(resp){
+    clearTimeout(pullTimer);
     var text=resp.text;
     window.__gaLastTallyExportRaw=text;
     var bridgeMeta=null;
@@ -3374,7 +3388,7 @@ function runTallyPullVouchers(){
         +(filt.skippedType?(' · skipped type '+filt.skippedType):'')
         +(filt.skippedBank?(' · skipped bank '+filt.skippedBank):'')
         +(dateFilt.skippedDate?(' · outside range '+dateFilt.skippedDate):'')
-        +'. Restart bridge v3.4 (API_Tool\\start-tally-bridge.bat). Check company/FY in Tally.';
+        +'. Restart bridge v3.5 (scripts\\start-tally-bridge.bat). Check company/FY in Tally.';
       return;
     }
     window.__gaLastTallyExportRaw=(text&&text.length>TALLY_XML_DOM_MAX_CHARS)?(text.slice(0,500000)+'\n<!-- truncated for memory; original '+text.length+' chars -->'):text;
@@ -3412,7 +3426,7 @@ function runTallyPullVouchers(){
         if(m&&m.voucherCount!=null) metaHint=' · vouchers≈'+m.voucherCount+(m.dateMin&&m.dateMax?(' · dates '+m.dateMin+'→'+m.dateMax):'');
         if(m&&m.version!=null) metaHint+=' · bridge v'+m.version;
         if(m&&m.truncated) metaHint+=' ⚠ Bridge reported truncated date span vs '+fd+'–'+td;
-        if(m&&m.version!=null && Number(m.version)<3.4) metaHint+=' ⚠ Old bridge v'+m.version+' — restart API_Tool\\start-tally-bridge.bat (need v3.4)';
+        if(m&&m.version!=null && Number(m.version)<3.5) metaHint+=' ⚠ Old bridge v'+m.version+' — restart scripts\\start-tally-bridge.bat (need v3.5)';
         if(m&&m.hint&&!rows.length) metaHint+=' · '+m.hint;
       }
     }catch(e3){}
@@ -3446,7 +3460,10 @@ function runTallyPullVouchers(){
     refreshProjectCashflowViews();
     showCfZBalanceAfterSync(res);
   }).catch(function(e){
-    el.textContent='Error: '+e.message+(isNetworkOrBridgeFetchFailure(e)?tallyBridgeUnreachableHint(s.bridgeUrl):'');
+    try{ clearTimeout(pullTimer); }catch(eT){}
+    var msg=e&&e.message||e;
+    if(e&&e.name==='AbortError') msg='Timed out (~12s). Restart bridge v3.5 (scripts\\start-tally-bridge.bat) and pull again.';
+    el.textContent='Error: '+msg+(isNetworkOrBridgeFetchFailure(e)?tallyBridgeUnreachableHint(s.bridgeUrl):'');
   });
 }
 
@@ -4832,9 +4849,9 @@ function loadAllFromMongo(){
       if(!res.ok) throw new Error((res.body&&res.body.error)||'Load failed');
       var d=(res.body&&res.body.data)||{};
       if(!isV1EnvelopeLike(d)) throw new Error('Server payload invalid for v1_cashflow');
-      var beforeProtect=JSON.stringify((d.data||{}));
+      var beforeFp=tallyFeedFingerprint(d.data||{});
       d=protectTallyFeedsFromStaleServer(d);
-      var tallyProtected=beforeProtect!==JSON.stringify((d.data||{}));
+      var tallyProtected=beforeFp!==tallyFeedFingerprint(d.data||{});
       _cfData=d.data||{};
       if(Array.isArray(d.manualProjs)){
         d.manualProjs.forEach(function(mp){
@@ -4849,15 +4866,19 @@ function loadAllFromMongo(){
       _curBuilding=(d.ui&&d.ui.building)||'__all__';
       _mongoStateVersion=Number(res.body.version)||0;
       bootstrapGaAcctMaster(d);
-      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||migrateReclassifyTallyActuals()||tallyProtected){
+      // Fast path: cheap migrations only. Heavy Tally reclassify runs after first paint.
+      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||tallyProtected){
         if(tallyProtected){ _mongoForceFullSave=true; _mongoDirtyPids={}; _mongoDirtyPidSections={}; }
-        scheduleMongoStateSave(200);
+        scheduleMongoStateSave(400);
       }
-      localSnapshotSave();
+      window.__gaNeedDeferredTallyRecode=true;
       var loadedUnits=countWorkbookSoldUnits(_cfData);
       mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion+' · '+loadedUnits+' sold units','green');
       updateMongoStatusLabel();
-      return syncCollectionsFromPostSales({quiet:true}).then(function(){ return {ok:true, units:loadedUnits}; });
+      // Do not block open on localSnapshot / Post Sales sync
+      gaScheduleIdle(function(){ try{ localSnapshotSave(); }catch(eLs){} }, 120);
+      gaScheduleIdle(function(){ syncCollectionsFromPostSales({quiet:true}).catch(function(){}); }, 600);
+      return {ok:true, units:loadedUnits};
     })
     .catch(function(e){
       mongoStateStatus('Mongo load failed: '+String(e&&e.message||e).slice(0,90),'red');
@@ -5031,6 +5052,20 @@ function migrateReclassifyTallyActuals(){
   }catch(e){}
   return touched;
 }
+/** Cheap per-project Tally feed fingerprint (avoid full workbook JSON.stringify on load). */
+function tallyFeedFingerprint(data){
+  var o={};
+  Object.keys(data||{}).forEach(function(pid){
+    var c=data[pid]||{};
+    var n=c.tallyFeedLines;
+    if(n==null){
+      n=0;
+      (c.actuals||[]).forEach(function(a){ if(a&&a.source==='tally') n++; });
+    }
+    o[pid]=String(c.tallyFeedAt||0)+':'+String(n);
+  });
+  return JSON.stringify(o);
+}
 /** Prefer fresher local/in-memory Tally feeds over a stale Mongo pack after refresh. */
 function protectTallyFeedsFromStaleServer(incomingEnv){
   try{
@@ -5134,19 +5169,10 @@ function loadAll(){
       if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
       bootstrapGaAcctMaster(d);
       var needVersionBump=!d.v||d.v<CF_VERSION;
-      var rerouteTouched=false;
-      if(needVersionBump){
-        var seenPhase={};
-        (PROJS||[]).forEach(function(p){
-          if(!p||!p.id) return;
-          var h=getProjectHierarchy(p.id);
-          var key=normHierarchyRouteValue(h.projectGroup)+'|'+normHierarchyRouteValue(h.phase);
-          if(seenPhase[key]) return;
-          seenPhase[key]=1;
-          try{ if(reroutePhaseTallyActuals(p.id)) rerouteTouched=true; }catch(eR){}
-        });
-      }
-      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||migrateReclassifyTallyActuals()||needVersionBump||rerouteTouched) saveAll();
+      // Defer phase re-route + reclassify until after first paint (was freezing refresh).
+      if(needVersionBump) window.__gaNeedDeferredTallyReroute=true;
+      window.__gaNeedDeferredTallyRecode=true;
+      if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
     }else bootstrapGaAcctMaster(null);
     _curProjectGroup='__all__';
     try{ localStorage.setItem('ga_v1_project_group_filter','__all__'); }catch(x){}
@@ -7079,7 +7105,7 @@ function setShowPriorCalendarYears(on){
 /** User-facing hint when fetch() cannot reach the local Tally bridge. */
 function tallyBridgeUnreachableHint(bridgeUrl){
   var u=String(bridgeUrl||'http://127.0.0.1:34876').replace(/\/$/,'');
-  return ' The Node bridge is not running (connection refused). In the API_Tool folder, double‑click start-tally-bridge.bat or run: node tally_bridge.mjs — keep that window open. Bridge URL in the modal must match ('+u+').';
+  return ' The Node bridge is not running (connection refused). In scripts\\, double‑click start-tally-bridge.bat or run: node tally_bridge.mjs — keep that window open. Bridge URL in the modal must match ('+u+').';
 }
 function isNetworkOrBridgeFetchFailure(err){
   var m=String((err&&err.message)||err||'');
@@ -14016,6 +14042,29 @@ loadAll().finally(function(){
   }catch(e){}
   try{ updateMongoStatusLabel(); }catch(eM){}
   syncFromV3(true);
+  // Heavy post-open work — keep first paint under ~3s
+  gaScheduleIdle(function(){
+    var touched=false;
+    try{
+      if(window.__gaNeedDeferredTallyReroute){
+        window.__gaNeedDeferredTallyReroute=false;
+        var seenPhase={};
+        (PROJS||[]).forEach(function(p){
+          if(!p||!p.id) return;
+          var h=getProjectHierarchy(p.id);
+          var key=normHierarchyRouteValue(h.projectGroup)+'|'+normHierarchyRouteValue(h.phase);
+          if(seenPhase[key]) return;
+          seenPhase[key]=1;
+          try{ if(reroutePhaseTallyActuals(p.id)) touched=true; }catch(eR){}
+        });
+      }
+      if(window.__gaNeedDeferredTallyRecode){
+        window.__gaNeedDeferredTallyRecode=false;
+        if(migrateReclassifyTallyActuals()) touched=true;
+      }
+      if(touched){ try{ saveAll({full:true}); }catch(eS){} }
+    }catch(eDef){}
+  }, 50);
 });
 (function gaApplyProjectFromUrl(){
   try{

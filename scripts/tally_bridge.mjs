@@ -21,11 +21,15 @@ import { URL } from 'url';
 
 const TALLY_URL = process.env.TALLY_URL || 'http://127.0.0.1:9000';
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || '34876', 10);
-/** Large type-only collections need more than 20s on busy companies. */
-const TALLY_TIMEOUT_MS = Math.max(15000, parseInt(process.env.TALLY_TIMEOUT_MS || '60000', 10) || 60000);
+/** Large type-only collections — keep probes short so live sync stays near 10s. */
+const TALLY_TIMEOUT_MS = Math.max(5000, parseInt(process.env.TALLY_TIMEOUT_MS || '12000', 10) || 12000);
 /** Max XML shapes tried per window before declaring empty (prevents multi-minute hangs). */
-const MAX_PROBES_PER_WINDOW = Math.max(3, parseInt(process.env.TALLY_MAX_PROBES || '6', 10) || 6);
-const BRIDGE_VERSION = 3.4;
+const MAX_PROBES_PER_WINDOW = Math.max(1, parseInt(process.env.TALLY_MAX_PROBES || '2', 10) || 2);
+/** Hard wall-clock for /tally/export Payment+Receipt (Cashflow live sync). */
+const EXPORT_BUDGET_MS = Math.max(3000, parseInt(process.env.TALLY_EXPORT_BUDGET_MS || '10000', 10) || 10000);
+/** Day fan-out is opt-in only — default OFF (was the main hang). */
+const ENABLE_DAY_FANOUT = /^(1|true|yes)$/i.test(String(process.env.TALLY_ENABLE_DAY_FANOUT || ''));
+const BRIDGE_VERSION = 3.5;
 /** Remember last winning export shape across windows/jobs. */
 let lastWinningTag = '';
 
@@ -829,28 +833,25 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
   const parts = [];
   const meta = [];
   let strategy = 'type_only_ssot';
+  const t0 = Date.now();
+  const budgetLeft = () => EXPORT_BUDGET_MS - (Date.now() - t0);
+  const overBudget = () => budgetLeft() < 800;
 
-  // --- A) Type-only Collection (best when Day Book date filter is broken) ---
-  for (const job of jobs) {
+  // --- A) Type-only Collection (Payment + Receipt in parallel when possible) ---
+  async function probeTypeOnly(job) {
     console.log('[ga-tally-bridge] SSOT type-only collection', job.label);
     const attempts = [
       {
         tag: 'TypeOnly|' + job.voucherType,
         fn: () => buildVoucherCollectionByType(job.voucherType, opts),
       },
-      {
-        tag: 'TypeOnly-datedFY|' + job.voucherType,
-        fn: () => {
-          const fys = indianFyChunksCovering(fromDd, toDd);
-          // Use first FY spanning the request for this probe; full FY loop below
-          return buildVoucherCollectionDated(fys[0][0], fys[0][1], job.voucherType, opts);
-        },
-      },
     ];
+    // Only try dated FY probe if first attempt empty and budget remains
     let bestBody = '';
     let bestTag = 'empty';
     let bestN = 0;
     for (const a of attempts) {
+      if (overBudget()) break;
       let out;
       try {
         out = await forwardToTally(a.fn());
@@ -880,7 +881,9 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
         'rawSpan',
         dates[0] || '-',
         '→',
-        dates[dates.length - 1] || '-'
+        dates[dates.length - 1] || '-',
+        'budgetLeftMs=',
+        budgetLeft()
       );
       meta.push({
         job: job.label,
@@ -895,10 +898,21 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
         bestBody = body;
         bestTag = a.tag;
       }
+      if (n > 0) break; // first non-empty type pull wins
     }
-    if (bestBody) {
-      parts.push(bestBody);
-      meta.push({ job: job.label, mode: 'type_only_keep', tag: bestTag, vouchers: bestN });
+    return { job, bestBody, bestTag, bestN };
+  }
+
+  const typeResults = await Promise.all(jobs.map((job) => probeTypeOnly(job)));
+  for (const r of typeResults) {
+    if (r.bestBody) {
+      parts.push(r.bestBody);
+      meta.push({
+        job: r.job.label,
+        mode: 'type_only_keep',
+        tag: r.bestTag,
+        vouchers: r.bestN,
+      });
     }
   }
 
@@ -915,15 +929,23 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
     'span',
     dates[0] || '-',
     '→',
-    dates[dates.length - 1] || '-'
+    dates[dates.length - 1] || '-',
+    'elapsedMs=',
+    Date.now() - t0
   );
 
-  // --- B) If still truncated: pull each overlapping Indian FY with dated Collection ---
-  if (totalV === 0 || looksLikeTruncation(merged, fromDd, toDd)) {
+  // Sparse real books are OK after type-only + Cashflow date filter.
+  // Escalate ONLY when zero in-range vouchers and budget remains (never on looksLikeTruncation alone).
+  if (totalV === 0 && !overBudget()) {
     strategy = 'fy_dated_ssot';
-    console.warn('[ga-tally-bridge] SSOT type-only insufficient — FY dated collections');
+    console.warn('[ga-tally-bridge] SSOT type-only empty — FY dated collections (budget-limited)');
     for (const [fyFrom, fyTo] of indianFyChunksCovering(fromDd, toDd)) {
+      if (overBudget()) {
+        meta.push({ mode: 'budget_stop', stage: 'fy', budgetMs: EXPORT_BUDGET_MS });
+        break;
+      }
       for (const job of jobs) {
+        if (overBudget()) break;
         const wr = await exportOneWindow(job.reportIds, fyFrom, fyTo, {
           ...opts,
           voucherTypeName: job.voucherType,
@@ -944,18 +966,22 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
     totalV = extractVoucherBlocks(merged).length;
   }
 
-  // --- C) Day walk: keep only vouchers whose DATE equals the requested day ---
-  if (totalV === 0 || looksLikeTruncation(merged, fromDd, toDd)) {
+  // Day walk: opt-in only, still budget-capped (default OFF — was the multi-minute hang).
+  if (ENABLE_DAY_FANOUT && totalV === 0 && !overBudget()) {
     strategy = 'day_exact_ssot';
-    console.warn('[ga-tally-bridge] SSOT still truncated — exact day walk', fromDd, '→', toDd);
+    console.warn('[ga-tally-bridge] SSOT empty — limited day walk', fromDd, '→', toDd);
     const dayParts = [];
+    const days = dayChunks(fromDd, toDd).slice(0, 14); // hard cap 14 days
     for (const job of jobs) {
-      for (const [dFrom, dTo] of dayChunks(fromDd, toDd)) {
+      for (const [dFrom, dTo] of days) {
+        if (overBudget()) {
+          meta.push({ mode: 'budget_stop', stage: 'day', budgetMs: EXPORT_BUDGET_MS });
+          break;
+        }
         const dr = await exportOneWindow(job.reportIds, dFrom, dTo, {
           ...opts,
           voucherTypeName: job.voucherType,
         });
-        // Exact-day keep (discard Tally's "always return Apr-1" noise for other days)
         const exact = filterAndMergeVouchers([dr.out.body || ''], dFrom, dTo, [job.voucherType]);
         const nExact = extractVoucherBlocks(exact).length;
         if (nExact) dayParts.push(exact);
@@ -974,7 +1000,16 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
       dates = [...collectDates(merged)].sort();
       totalV = extractVoucherBlocks(merged).length;
     }
+  } else if (totalV === 0 && !ENABLE_DAY_FANOUT) {
+    meta.push({
+      mode: 'day_fanout_skipped',
+      hint: 'Set TALLY_ENABLE_DAY_FANOUT=1 only for empty type-only companies (slow).',
+    });
   }
+
+  const elapsedMs = Date.now() - t0;
+  const budgetExceeded = elapsedMs >= EXPORT_BUDGET_MS - 50;
+  if (budgetExceeded) strategy = strategy + '+budget';
 
   return {
     merged,
@@ -985,6 +1020,9 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
     totalV,
     dateMin: dates[0] || null,
     dateMax: dates[dates.length - 1] || null,
+    elapsedMs,
+    budgetMs: EXPORT_BUDGET_MS,
+    budgetExceeded,
   };
 }
 
@@ -1004,16 +1042,18 @@ const server = http.createServer(async (req, res) => {
       tallyUrl: TALLY_URL,
       port: BRIDGE_PORT,
       features: [
-        'payment_receipt_ssot_v34',
+        'payment_receipt_ssot_v35',
         'type_only_collection',
-        'fy_dated_fallback',
-        'day_exact_keep',
+        'export_budget_10s',
+        'day_fanout_opt_in',
         'cashflow_date_authority',
         'tally_timeout',
       ],
       version: BRIDGE_VERSION,
       tallyTimeoutMs: TALLY_TIMEOUT_MS,
       maxProbesPerWindow: MAX_PROBES_PER_WINDOW,
+      exportBudgetMs: EXPORT_BUDGET_MS,
+      enableDayFanout: ENABLE_DAY_FANOUT,
     });
     return;
   }
@@ -1107,19 +1147,72 @@ const server = http.createServer(async (req, res) => {
         dates = [ssot.dateMin, ssot.dateMax].filter(Boolean);
         if (!dates.length) dates = [...collectDates(merged)].sort();
         strategy = ssot.strategy || 'type_only_ssot';
-      } else {
-        const xmlParts = [];
-        for (const job of jobs) {
-          const r = await exportAdaptive(job, fromDd, toDd, optsOut);
-          optsOut = r.optsOut || optsOut;
-          xmlParts.push(...r.parts);
-          meta.push(...r.meta);
-        }
-        merged = filterAndMergeVouchers(xmlParts, fromDd, toDd, voucherTypes.length ? voucherTypes : null);
+        // Final SSOT clamp — never return vouchers outside Cashflow From–To
+        merged = filterAndMergeVouchers([merged], fromDd, toDd, voucherTypes.length ? voucherTypes : null);
         totalV = extractVoucherBlocks(merged).length;
         dates = [...collectDates(merged)].sort();
-        strategy = 'adaptive_v34';
+
+        // Sparse books after type-only are NOT truncated failures.
+        const stillTruncated = totalV === 0;
+        console.log(
+          '[ga-tally-bridge] FINAL strategy=',
+          strategy,
+          'vouchers=',
+          totalV,
+          'dateSpan=',
+          dates[0] || '-',
+          '→',
+          dates[dates.length - 1] || '-',
+          'elapsedMs=',
+          ssot.elapsedMs || null,
+          stillTruncated ? 'EMPTY' : 'OK'
+        );
+
+        res.writeHead(200, {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Expose-Headers': 'X-GA-Tally-Meta',
+          'X-GA-Tally-Meta': headerSafeJson({
+            preset: body.preset || null,
+            strategy: strategy,
+            version: BRIDGE_VERSION,
+            dateAuthority: 'cashflow',
+            fromDate: fromDd,
+            toDate: toDd,
+            voucherCount: totalV,
+            dateMin: dates[0] || null,
+            dateMax: dates[dates.length - 1] || null,
+            empty: totalV === 0,
+            truncated: false,
+            elapsedMs: ssot.elapsedMs || null,
+            budgetMs: ssot.budgetMs || EXPORT_BUDGET_MS,
+            budgetExceeded: !!ssot.budgetExceeded,
+            hint:
+              totalV === 0
+                ? 'No Payment/Receipt vouchers in this date range after Cashflow date filter. Open the company in Tally, confirm FY, and ensure Payment/Receipt vouchers exist between From and To.'
+                : ssot.budgetExceeded
+                  ? 'Returned best result within ' +
+                    EXPORT_BUDGET_MS +
+                    'ms export budget (bridge v3.5).'
+                  : null,
+            parts: meta.slice(0, 160),
+          }),
+        });
+        res.end(merged);
+        return;
       }
+
+      const xmlParts = [];
+      for (const job of jobs) {
+        const r = await exportAdaptive(job, fromDd, toDd, optsOut);
+        optsOut = r.optsOut || optsOut;
+        xmlParts.push(...r.parts);
+        meta.push(...r.meta);
+      }
+      merged = filterAndMergeVouchers(xmlParts, fromDd, toDd, voucherTypes.length ? voucherTypes : null);
+      totalV = extractVoucherBlocks(merged).length;
+      dates = [...collectDates(merged)].sort();
+      strategy = 'adaptive_v35';
 
       // Final SSOT clamp — never return vouchers outside Cashflow From–To
       merged = filterAndMergeVouchers([merged], fromDd, toDd, voucherTypes.length ? voucherTypes : null);
@@ -1166,7 +1259,7 @@ const server = http.createServer(async (req, res) => {
               : stillTruncated
                 ? 'Cashflow kept only vouchers inside From–To, but Tally supplied a narrow date set.' +
                   rawBeforeFilterHint +
-                  ' Restart bridge v3.4 (start-tally-bridge.bat).'
+                  ' Restart bridge v3.5 (scripts\\start-tally-bridge.bat).'
                 : null,
           parts: meta.slice(0, 160),
         }),
@@ -1201,6 +1294,8 @@ server.listen(BRIDGE_PORT, '127.0.0.1', () => {
   );
   console.log('Forwarding to Tally at ' + TALLY_URL);
   console.log(
-    'payment_receipt SSOT = type-only Collection → FY dated → day-exact; Cashflow From–To is final date authority'
+    'payment_receipt SSOT v3.5 = type-only (parallel) → FY only if empty; day fan-out OFF by default; budget ' +
+      EXPORT_BUDGET_MS +
+      'ms'
   );
 });

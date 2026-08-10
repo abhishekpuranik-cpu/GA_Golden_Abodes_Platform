@@ -7,12 +7,12 @@ if errorlevel 1 (
   exit /b 1
 )
 echo ============================================================
-echo  GA Tally bridge v3.4  —  http://127.0.0.1:34876
-echo  Date authority: Cashflow (not Tally Day Book)
+echo  GA Tally bridge v3.5  —  http://127.0.0.1:34876
+echo  Live sync budget: ~10 seconds (no day fan-out by default)
 echo ============================================================
 echo  Keep this window open while using Tally live sync.
-echo  Pulls Payment + Receipt by type, then filters to the
-echo  From/To dates selected in Cashflow.
+echo  Pulls Payment + Receipt by type in parallel, then filters
+echo  to the From/To dates selected in Cashflow.
 echo  Tally HTTP/XML must be enabled on port 9000.
 echo ============================================================
 echo.
