@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 82;
+var CF_VERSION = 83;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 800000;
@@ -614,8 +614,11 @@ function gaAcctCloneForPrefix(entry, buildingPrefix){
   var c=JSON.parse(JSON.stringify(entry));
   c.prefix=p;
   c.masterKey=p+'|'+entry.shortCode;
-  c.cfL1Label='Building '+p+' · '+(entry.l1Name||'');
-  c.plL1Label='Building '+p+' · '+(entry.l1Name||'');
+  // Keep stable chart L1 labels ("Building · Construction Cost") so expense tree / CF columns match.
+  // Letter-specific "Building E · …" broke column match and remapped Construction → Common · Club House.
+  if(!c.cfL1Label) c.cfL1Label='Building · '+(entry.l1Name||'');
+  if(!c.plL1Label) c.plL1Label='Building · '+(entry.l1Name||'');
+  c.buildingPrefix=p;
   return c;
 }
 function gaAcctEntryByShortCode(shortCode, scopeHint, buildingPrefix){
@@ -1132,32 +1135,55 @@ function cfDisplayOutflowCols(){
   return (CF_OUTFLOW_L1_COLS && CF_OUTFLOW_L1_COLS.length) ? CF_OUTFLOW_L1_COLS : OUTFLOW_CATS;
 }
 /** Resolve legacy expense cat1 (keyword / schedule) → chart / cashflow OUTFLOW column keys (usually workbook L1 Category name). */
+/** Normalize "Building E · Construction Cost" → "Building · Construction Cost" for column match. */
+function normalizeGaL1ChartLabel(label){
+  var g=String(label||'').trim();
+  if(!g) return '';
+  var m=g.match(/^Building\s+[A-Z]\s*·\s*(.+)$/i);
+  if(m) return 'Building · '+String(m[1]||'').trim();
+  return g;
+}
+function pickPreferredConstructionGaL1(candidates, cols){
+  var list=(candidates||[]).filter(Boolean);
+  var prefer=['Building · Construction Cost','Construction Cost'];
+  for(var i=0;i<prefer.length;i++){
+    if(list.indexOf(prefer[i])>=0 && cols.indexOf(prefer[i])>=0) return prefer[i];
+  }
+  for(var j=0;j<list.length;j++){
+    if(/^Building\s*·/i.test(list[j]) && cols.indexOf(list[j])>=0) return list[j];
+  }
+  for(var k=0;k<list.length;k++){
+    if(cols.indexOf(list[k])>=0 && !/^Common\s*·/i.test(list[k])) return list[k];
+  }
+  for(var n=0;n<list.length;n++){ if(cols.indexOf(list[n])>=0) return list[n]; }
+  return list[0]||'';
+}
 function legacyCashflowCat1ToDisplayGaL1(cat1){
   var leg=String(cat1||'').trim();
   if(!leg) return '';
   ensureGaL1CashflowCols();
   var cols=CF_OUTFLOW_L1_COLS||[];
-  var inCol='', fb='';
+  var cands=[], seen={};
   if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE){
     Object.keys(GA_ACCT_L3_BY_CODE).forEach(function(k){
       var g=GA_ACCT_L3_BY_CODE[k];
       if(!g||!g.cfApplicable||String(g.flow||'')!=='out'||String(g.legacyCat1||'')!==leg) return;
       var nm=String(g.cfL1Label||g.l1Name||'').trim();
-      if(!nm) return;
-      if(!fb) fb=nm;
-      if(cols.indexOf(nm)>=0) inCol=nm;
+      if(!nm||seen[nm]) return;
+      seen[nm]=1; cands.push(nm);
     });
-    if(inCol) return inCol;
-    if(fb&&cols.indexOf(fb)>=0) return fb;
+    var picked=pickPreferredConstructionGaL1(cands, cols);
+    if(picked) return picked;
   }
   if(cols.indexOf(leg)>=0) return leg;
   var alias={
     'Land':'Project Acquisition','NOC':'Project Acquisition','Consultant':'Project Acquisition',
-    'Regulatory & Consulting':'Regulatory & Consulting','Construction':'Construction Cost','Marketing':'Marketing Cost',
-    'GA DM Fee':'G&A Cost','Contingency':'Construction Cost','Interest Paid':'Interest & Panelty Cost','Principal Repaid':'Principal Repaid'
+    'Regulatory & Consulting':'Regulatory & Consulting','Construction':'Building · Construction Cost','Marketing':'Marketing Cost',
+    'GA DM Fee':'G&A Cost','Contingency':'Building · Construction Cost','Interest Paid':'Interest & Panelty Cost','Principal Repaid':'Principal Repaid'
   };
   var d=alias[leg];
   if(d&&cols.indexOf(d)>=0) return d;
+  if(d==='Building · Construction Cost'&&cols.indexOf('Construction Cost')>=0) return 'Construction Cost';
   if(leg==='Principal Repaid'&&cols.indexOf('Principal Repaid')<0&&cols.indexOf('Interest & Panelty Cost')>=0) return 'Interest & Panelty Cost';
   return '';
 }
@@ -1166,15 +1192,20 @@ function legacyCashflowCat1ToDisplayGaL1(cat1){
 function effectiveGaL1ForActualLine(cat1, gaL1){
   ensureGaL1CashflowCols();
   var cols=CF_OUTFLOW_L1_COLS||[];
-  var g=String(gaL1||'').trim();
+  var g=normalizeGaL1ChartLabel(gaL1);
   if(g){
     if(cols.indexOf(g)>=0) return g;
     var gl=g.toLowerCase();
     for(var i=0;i<cols.length;i++){
       if(String(cols[i]).toLowerCase()===gl) return cols[i];
     }
+    // Suffix match: stored "Building E · Construction Cost" vs column "Building · Construction Cost"
+    for(var j=0;j<cols.length;j++){
+      var c=String(cols[j]||'');
+      if(/·/.test(c) && g.toLowerCase().endsWith(c.slice(c.indexOf('·')).toLowerCase()) && /^Building\b/i.test(c)) return c;
+    }
   }
-  return legacyCashflowCat1ToDisplayGaL1(String(cat1||'').trim())||g||'';
+  return legacyCashflowCat1ToDisplayGaL1(String(cat1||'').trim())||g||String(gaL1||'').trim()||'';
 }
 /** Narrow table headers: break on every space (e.g. GA / DM / Fee). */
 function cfCatThLabel(c){ return String(c).replace(/ /g,'<br/>'); }
