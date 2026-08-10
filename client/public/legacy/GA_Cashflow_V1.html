@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 83;
+var CF_VERSION = 84;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 800000;
@@ -2667,8 +2667,9 @@ function parseTallyXmlToLedgerLinesRegex(safeXml, opts){
       var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
       if(!amt) continue;
       var narr=tallyXmlSimpleTag(ent,'NARRATION')||tallyXmlSimpleTag(vb,'NARRATION');
-      var tk='tally|'+date+'|'+vno+'|'+party+'|'+amtStr+'|'+(cc||'');
-      rows.push({date:date,party:party,rawAmount:amt,voucherNo:vno,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,tallyKey:tk});
+      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
+      row0.tallyKey=buildTallyLineKey(row0);
+      rows.push(row0);
     }
   }
   return rows;
@@ -2757,8 +2758,9 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
       if(!amt) continue;
       var cc=ccEarly;
       var narr=txt(ent,'NARRATION')||txt(vch,'NARRATION');
-      var tk='tally|'+date+'|'+vno+'|'+party+'|'+amtStr+'|'+(cc||'');
-      rows.push({date:date,party:party,rawAmount:amt,voucherNo:vno,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,tallyKey:tk});
+      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
+      row0.tallyKey=buildTallyLineKey(row0);
+      rows.push(row0);
     }
   }
   if(rows.length) return {rows:rows, parseMode:'dom'};
@@ -2773,6 +2775,91 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
   return {error: onlyPR
     ? 'No Payment/Receipt voucher ledger lines found. Journal/Contra and other Day Book types are excluded. Use Live sync (Payment+Receipt) or import Payment.xml + Receipts.xml.'
     : 'No importable lines in this XML. Use (1) Voucher Register / Day Book export with VOUCHER entries, or (2) Tally Cash Flow statement export (DSPDISPNAME rows).'};
+}
+/** Stable amount token for Tally dedupe keys. */
+function normalizeTallyAmtKey(amt){
+  var n=Math.abs(parseFloat(String(amt==null?'':amt).replace(/,/g,''))||0);
+  return n.toFixed(2);
+}
+/** Narration fingerprint (strip voucher-type tags + HTML entities). */
+function normalizeTallyNarrKey(note){
+  return String(note||'')
+    .replace(/&#13;|&#10;|&#x0d;|&#x0a;/gi,' ')
+    .replace(/\[\s*(Payment|Receipt)\s*\]/gi,'')
+    .replace(/\s+/g,' ')
+    .trim()
+    .toLowerCase()
+    .slice(0,140);
+}
+/** Business fingerprint — catches re-imports when tallyKey string drifted. */
+function tallyActualSoftFingerprint(a){
+  if(!a) return '';
+  return [
+    String(a.date||'').slice(0,10),
+    String(a.party||'').trim().toLowerCase(),
+    normalizeTallyAmtKey(a.rawAmount!=null?a.rawAmount:a.amount),
+    normTallyCostCentreLabel(a.costCentre||''),
+    normalizeTallyNarrKey(a.note||a.narration||'')
+  ].join('|');
+}
+/** Canonical tallyKey for a parsed ledger row. */
+function buildTallyLineKey(row){
+  var date=String(row&&row.date||'').slice(0,10);
+  var party=String(row&&row.party||'').trim().toLowerCase();
+  var amt=normalizeTallyAmtKey(row&&(row.rawAmount!=null?row.rawAmount:row.amount));
+  var cc=normTallyCostCentreLabel(row&&row.costCentre||'');
+  var vno=String(row&&row.voucherNo||'').trim().toLowerCase();
+  var narr=normalizeTallyNarrKey(row&&(row.note||row.narration)||'');
+  // Index-only voucher numbers are unstable across re-exports — prefer narr.
+  if(vno && !/^\d{1,4}$/.test(vno)) return 'tally|'+date+'|'+vno+'|'+party+'|'+amt+'|'+cc;
+  return 'tally|'+date+'|'+party+'|'+amt+'|'+cc+'|'+narr;
+}
+/** Remove duplicate Tally actuals on one project (exact key + soft fingerprint). */
+function dedupeTallyActualsForPid(pid){
+  var cfg=getCF(pid);
+  if(!cfg||!Array.isArray(cfg.actuals)) return 0;
+  var seenKey={}, seenSoft={}, out=[], removed=0;
+  cfg.actuals.forEach(function(a){
+    if(!a||a.source!=='tally'){ out.push(a); return; }
+    var k=String(a.tallyKey||'');
+    var soft=tallyActualSoftFingerprint(a);
+    if((k && seenKey[k]) || (soft && seenSoft[soft])){ removed++; return; }
+    if(k) seenKey[k]=1;
+    if(soft) seenSoft[soft]=1;
+    var needsHeal=!k;
+    if(!needsHeal){
+      var parts=k.split('|');
+      if(parts.length>=3 && /^\d{1,4}$/.test(parts[2])) needsHeal=true;
+    }
+    if(needsHeal){
+      try{ a.tallyKey=buildTallyLineKey({date:a.date,party:a.party,rawAmount:a.amount,costCentre:a.costCentre,voucherNo:a.voucherNo||'',note:a.note||a.narration||''}); }catch(eK){}
+    }
+    out.push(a);
+  });
+  if(removed) cfg.actuals=out;
+  return removed;
+}
+/** Phase-wide heal after sync / on load. */
+function dedupeTallyActualsPhase(sourcePid){
+  var n=0;
+  var list=sourcePid?tallyPhaseProjects(sourcePid):(PROJS||[]);
+  (list||[]).forEach(function(p){ if(p&&p.id) n+=dedupeTallyActualsForPid(p.id); });
+  return n;
+}
+/** Run once per phase per session (also after merge). Fixes already-stored triples. */
+function ensureTallyActualsDeduped(sourcePid){
+  if(!sourcePid) return 0;
+  var key=tallyPhaseFingerprintKey(sourcePid)||String(sourcePid);
+  if(!window.__gaTallyDedupePhases) window.__gaTallyDedupePhases={};
+  if(window.__gaTallyDedupePhases[key]) return 0;
+  window.__gaTallyDedupePhases[key]=1;
+  var rm=0;
+  try{ rm=dedupeTallyActualsPhase(sourcePid)||0; }catch(e){ rm=0; }
+  if(rm>0){
+    try{ saveAll({full:true}); }catch(eSv){}
+    try{ setSS('Removed '+rm+' duplicate Tally line(s)','green'); }catch(eSs){}
+  }
+  return rm;
 }
 function ledgerLineToActual(row, route){
   route=route||resolveTallyActualRoute(row,_curPid,false);
@@ -3049,22 +3136,31 @@ function mergeTallyLinesIntoActuals(rows, opts){
     });
   }
 
-  // Dedupe within this hierarchy scope so pulling from another building cannot duplicate the same voucher.
-  var existing={};
+  // Dedupe within this hierarchy scope (exact key + soft fingerprint) so re-pulls cannot triple lines.
+  var existing={}, existingSoft={};
   scopePids.forEach(function(pid){
-    (getCF(pid).actuals||[]).forEach(function(a){if(a&&a.tallyKey) existing[a.tallyKey]=1;});
+    (getCF(pid).actuals||[]).forEach(function(a){
+      if(!a||a.source!=='tally') return;
+      if(a.tallyKey) existing[a.tallyKey]=1;
+      var soft=tallyActualSoftFingerprint(a);
+      if(soft) existingSoft[soft]=1;
+    });
   });
   var added=0, routedBuildings=0, routedCommon=0, unmapped=0, codingUnmapped=0, perProject={};
   var touched={};
   var largeFeed=eligible.length>=600 || (rows||[]).length>=1200;
   eligible.forEach(function(x){
     var route=x.route;
-    if(existing[x.row.tallyKey]){skipped++;return;}
+    var row=x.row||{};
+    if(!row.tallyKey) row.tallyKey=buildTallyLineKey(row);
+    var soft=tallyActualSoftFingerprint(row);
+    if(existing[row.tallyKey] || (soft && existingSoft[soft])){skipped++;return;}
     var cfg=getCF(route.pid);
     if(!Array.isArray(cfg.actuals)) cfg.actuals=[];
-    var act=ledgerLineToActual(x.row,route);
+    var act=ledgerLineToActual(row,route);
     cfg.actuals.push(act);
     existing[act.tallyKey]=1;
+    if(soft) existingSoft[soft]=1;
     touched[String(route.pid)]=1;
     perProject[String(route.pid)]=(perProject[String(route.pid)]||0)+1;
     if(route.kind==='building') routedBuildings++;
@@ -3086,6 +3182,13 @@ function mergeTallyLinesIntoActuals(rows, opts){
     cfg.tallyFeedAt=Date.now();
     cfg.tallyFeedLines=(cfg.actuals||[]).filter(function(a){return a&&a.source==='tally';}).length;
   });
+  try{
+    if(window.__gaTallyDedupePhases){
+      var pk=tallyPhaseFingerprintKey(_curPid);
+      if(pk) delete window.__gaTallyDedupePhases[pk];
+    }
+    dedupeTallyActualsPhase(_curPid);
+  }catch(eDed){}
   // Persist locally first; defer Mongo PUT so large JSON stringify does not freeze the UI mid-import.
   saveAll({full:true});
   if(canUseMongoState() && opts.skipMongoFlush!==true){
@@ -3406,10 +3509,19 @@ function expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, line){
   if(!treeOut[l1][l2]) treeOut[l1][l2]={};
   if(!treeOut[l1][l2][l3k] || typeof treeOut[l1][l2][l3k]==='number'){
     var prev=typeof treeOut[l1][l2][l3k]==='number'?treeOut[l1][l2][l3k]:0;
-    treeOut[l1][l2][l3k]={total:prev, lines:[]};
+    treeOut[l1][l2][l3k]={total:prev, lines:[], _seen:{}};
   }
-  treeOut[l1][l2][l3k].total+=mag;
-  if(line) treeOut[l1][l2][l3k].lines.push(line);
+  var leaf=treeOut[l1][l2][l3k];
+  if(!leaf._seen) leaf._seen={};
+  if(line){
+    var sid=String(line.id||line.tallyKey||'');
+    var soft=tallyActualSoftFingerprint(line);
+    if((sid && leaf._seen[sid]) || (soft && leaf._seen['s:'+soft])) return;
+    if(sid) leaf._seen[sid]=1;
+    if(soft) leaf._seen['s:'+soft]=1;
+    leaf.lines.push(line);
+  }
+  leaf.total+=mag;
 }
 /** Keys for L1 / L2 / L3 rows in the GA outflow tree (uses same slugs as render). */
 function collectExpenseGATreeKeys(acts){
@@ -8212,6 +8324,7 @@ function renderCashflowForecastPanel(vis, useRollup){
 }
 function renderCashflow(){
   var el=document.getElementById('page-cashflow'); if(!el) return;
+  if(_curPid){ try{ ensureTallyActualsDeduped(_curPid); }catch(eDd){} }
   var vis=getVisibleProjects();
   if(!vis.length){el.innerHTML=noProjectMsg();return;}
   if(!_curPid || (_curPid!=='__rollup__' && !vis.some(function(p){return p.id===_curPid;}))) _curPid=vis[0].id;
@@ -10366,6 +10479,9 @@ function exportVendorGstExcel(report){
 function renderExpenses(){
   var el=document.getElementById('page-expenses'); if(!el) return;
   if(!PROJS.length){el.innerHTML=noProjectMsg();return;}
+  if(_curPid){
+    try{ ensureTallyActualsDeduped(_curPid); }catch(eDd){}
+  }
   var cfg=getCF(_curPid);
   var actsAll=cfg.actuals||[];
   var acts=actsAll.filter(function(a){ return includeActualInCashflowSums(a); });
