@@ -30,6 +30,7 @@ export default function TaskWorkModal({
   const [nextActionDate, setNextActionDate] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [markComplete, setMarkComplete] = useState(false);
+  const [checklistBusy, setChecklistBusy] = useState(false);
 
   const isClp = task.taskType === 'clp_letter';
 
@@ -86,6 +87,7 @@ export default function TaskWorkModal({
 
   const toggleCheck = async (index, doneVal) => {
     setErr(null);
+    setChecklistBusy(true);
     try {
       if (isClp) {
         const updated = await postSalesApi.toggleClpLetterChecklist(task.clpLetterTaskId, index, { done: doneVal, by: actor });
@@ -96,6 +98,8 @@ export default function TaskWorkModal({
       }
     } catch (e) {
       setErr(e.message);
+    } finally {
+      setChecklistBusy(false);
     }
   };
 
@@ -125,8 +129,8 @@ export default function TaskWorkModal({
         setErr('Add a comment when marking complete.');
         return;
       }
-    } else if (text && !actionDate) {
-      setErr('Next action date is required when adding a comment.');
+    } else if (text && action && !actionDate) {
+      setErr('Next action date is required when adding a follow-up action.');
       return;
     }
 
@@ -161,22 +165,21 @@ export default function TaskWorkModal({
           return;
         }
       } else {
-        let updated = detail;
-        if (text) {
-          updated = await postSalesApi.addStepComment(task.unitId, task.stepNumber, { text, by: actor });
-        }
-        updated = await postSalesApi.updateStep(task.unitId, task.stepNumber, {
-          nextAction: action,
-          nextActionDate: actionDate || undefined,
+        const updated = await postSalesApi.postStepWorkUpdate(task.unitId, task.stepNumber, {
+          text: text || undefined,
+          nextAction: markComplete ? undefined : action,
+          nextActionDate: markComplete ? undefined : (actionDate || undefined),
           assignedTo,
+          markComplete,
           by: actor,
         });
         setDetail(updated);
         setCommentText('');
+        setNextAction(updated.nextAction || '');
+        setNextActionDate(toInputDate(updated.nextActionDate));
         onUpdated?.({ ...task, ...updated, nextAction: updated.nextAction, nextActionDate: updated.nextActionDate });
 
         if (markComplete) {
-          await postSalesApi.updateStep(task.unitId, task.stepNumber, { status: 'completed', by: actor });
           onCompleted?.(task);
           onClose();
           return;
@@ -255,116 +258,118 @@ export default function TaskWorkModal({
           </div>
         </header>
 
-        <div className="ps-task-modal-body">
-          <section className="ps-task-modal-pane">
-            <div className="ps-task-modal-pane-head">
-              <h3>Comment history</h3>
-              <span className="ps-reports-muted">{comments.length} entries</span>
-            </div>
-            <div className="ps-task-modal-scroll">
-              {loading && <div className="ps-reports-muted">Loading…</div>}
-              {!loading && !comments.length && (
-                <p className="ps-reports-muted">No comments yet — add your first update on the right.</p>
-              )}
-              {[...comments].reverse().map((c, i) => (
-                <div key={i} className="ps-task-modal-comment">
-                  <div className="ps-task-modal-comment-meta">
-                    {c.at ? new Date(c.at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}
-                    {c.by ? ` · ${c.by}` : ''}
+        <div className="ps-task-modal-main">
+          <div className="ps-task-modal-body">
+            <section className="ps-task-modal-pane">
+              <div className="ps-task-modal-pane-head">
+                <h3>Comment history</h3>
+                <span className="ps-reports-muted">{comments.length} entries</span>
+              </div>
+              <div className="ps-task-modal-scroll">
+                {loading && <div className="ps-reports-muted">Loading…</div>}
+                {!loading && !comments.length && (
+                  <p className="ps-reports-muted">No comments yet — add your first update on the right.</p>
+                )}
+                {[...comments].reverse().map((c, i) => (
+                  <div key={i} className="ps-task-modal-comment">
+                    <div className="ps-task-modal-comment-meta">
+                      {c.at ? new Date(c.at).toLocaleString('en-IN', { dateStyle: 'short', timeStyle: 'short' }) : ''}
+                      {c.by ? ` · ${c.by}` : ''}
+                    </div>
+                    <div>{c.text}</div>
                   </div>
-                  <div>{c.text}</div>
-                </div>
-              ))}
-            </div>
-          </section>
+                ))}
+              </div>
+            </section>
 
-          <section className="ps-task-modal-pane">
-            <div className="ps-task-modal-pane-head">
-              <h3>Your update</h3>
-              <span className="ps-reports-muted">Work here — no need to open Units</span>
-            </div>
-            <form className="ps-task-modal-form" onSubmit={handleSubmit}>
-              <label>
-                Comment
-                <textarea
-                  rows={3}
-                  value={commentText}
-                  onChange={(e) => setCommentText(e.target.value)}
-                  disabled={busy || frozen}
-                  placeholder="Progress update, call notes, handoff…"
-                />
-              </label>
-              {!markComplete && (
-                <>
-                  <label>
-                    Next action
-                    <input
-                      type="text"
-                      value={nextAction}
-                      onChange={(e) => setNextAction(e.target.value)}
-                      disabled={busy || frozen}
-                      placeholder="What needs to happen next?"
-                    />
-                  </label>
-                  <label>
-                    Next action date
-                    <input
-                      type="date"
-                      value={nextActionDate}
-                      onChange={(e) => setNextActionDate(e.target.value)}
-                      disabled={busy || frozen}
-                    />
-                  </label>
-                </>
-              )}
-              <label>
-                Assigned to
-                <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={busy || frozen}>
-                  <option value="">Unassigned</option>
-                  {assignees.map((a) => (
-                    <option key={a.id} value={a.name || a.email || a.id}>{a.label}</option>
-                  ))}
-                </select>
-              </label>
-              {!frozen && (
-                <label className="ps-task-modal-complete-opt">
-                  <input type="checkbox" checked={markComplete} onChange={(e) => setMarkComplete(e.target.checked)} disabled={busy} />
-                  <span>Mark activity complete on save</span>
-                </label>
-              )}
-              {err && <div className="ps-error">{err}</div>}
-              <button type="submit" className="ps-btn ps-btn-primary" disabled={busy || frozen}>
-                {busy ? 'Saving…' : markComplete ? 'Save & complete' : 'Save update'}
-              </button>
-            </form>
-          </section>
-        </div>
-
-        {checklistTotal > 0 && (
-          <section className="ps-task-modal-checklist">
-            <div className="ps-task-modal-pane-head">
-              <h3>Checklist ({checklistDone}/{checklistTotal})</h3>
-              {isClp && !frozen && checklistDone < checklistTotal && (
-                <button type="button" className="ps-btn ps-reports-mini-btn" onClick={completeAllChecklist} disabled={busy}>
-                  Complete all
-                </button>
-              )}
-            </div>
-            <div className="ps-task-modal-checklist-items">
-              {checklist.map((item, i) => (
-                <label key={i} className={`ps-clp-checklist-row ${item.done ? 'done' : ''}`}>
-                  <input
-                    type="checkbox"
-                    checked={!!item.done}
-                    disabled={frozen || busy}
-                    onChange={(e) => toggleCheck(i, e.target.checked)}
+            <section className="ps-task-modal-pane">
+              <div className="ps-task-modal-pane-head">
+                <h3>Your update</h3>
+                <span className="ps-reports-muted">Work here — no need to open Units</span>
+              </div>
+              <form className="ps-task-modal-form" onSubmit={handleSubmit}>
+                <label>
+                  Comment
+                  <textarea
+                    rows={4}
+                    value={commentText}
+                    onChange={(e) => setCommentText(e.target.value)}
+                    disabled={busy || frozen || checklistBusy}
+                    placeholder="Progress update, call notes, handoff…"
                   />
-                  <span className="ps-clp-checklist-text">{item.item}</span>
                 </label>
-              ))}
-            </div>
-          </section>
-        )}
+                {!markComplete && (
+                  <>
+                    <label>
+                      Next action
+                      <input
+                        type="text"
+                        value={nextAction}
+                        onChange={(e) => setNextAction(e.target.value)}
+                        disabled={busy || frozen || checklistBusy}
+                        placeholder="What needs to happen next?"
+                      />
+                    </label>
+                    <label>
+                      Next action date
+                      <input
+                        type="date"
+                        value={nextActionDate}
+                        onChange={(e) => setNextActionDate(e.target.value)}
+                        disabled={busy || frozen || checklistBusy}
+                      />
+                    </label>
+                  </>
+                )}
+                <label>
+                  Assigned to
+                  <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)} disabled={busy || frozen || checklistBusy}>
+                    <option value="">Unassigned</option>
+                    {assignees.map((a) => (
+                      <option key={a.id} value={a.name || a.email || a.id}>{a.label}</option>
+                    ))}
+                  </select>
+                </label>
+                {!frozen && (
+                  <label className="ps-task-modal-complete-opt">
+                    <input type="checkbox" checked={markComplete} onChange={(e) => setMarkComplete(e.target.checked)} disabled={busy || checklistBusy} />
+                    <span>Mark activity complete on save</span>
+                  </label>
+                )}
+                {err && <div className="ps-error">{err}</div>}
+                <button type="submit" className="ps-btn ps-btn-primary" disabled={busy || frozen || checklistBusy}>
+                  {busy ? 'Saving…' : markComplete ? 'Save & complete' : 'Save update'}
+                </button>
+              </form>
+            </section>
+          </div>
+
+          {checklistTotal > 0 && (
+            <section className="ps-task-modal-checklist">
+              <div className="ps-task-modal-pane-head">
+                <h3>Checklist ({checklistDone}/{checklistTotal})</h3>
+                {isClp && !frozen && checklistDone < checklistTotal && (
+                  <button type="button" className="ps-btn ps-reports-mini-btn" onClick={completeAllChecklist} disabled={busy || checklistBusy}>
+                    Complete all
+                  </button>
+                )}
+              </div>
+              <div className="ps-task-modal-checklist-items">
+                {checklist.map((item, i) => (
+                  <label key={i} className={`ps-task-modal-check-row ${item.done ? 'is-done' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={!!item.done}
+                      disabled={frozen || busy || checklistBusy}
+                      onChange={(e) => toggleCheck(i, e.target.checked)}
+                    />
+                    <span>{item.item}</span>
+                  </label>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
 
         <footer className="ps-task-modal-foot">
           <p className="ps-reports-muted" style={{ margin: 0, flex: 1, fontSize: '0.75rem' }}>

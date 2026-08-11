@@ -16,6 +16,7 @@ import {
   checklistComplete,
   CLP_STEP,
 } from '../../lib/postsales/clpLetterTasks.js';
+import { mutatePipelineStep, serializePipelineStep } from '../../lib/postsales/stepMutations.js';
 
 
 
@@ -300,44 +301,131 @@ router.patch('/:stepNumber/checklist/:index', async (req, res) => {
 
     const index = Number(req.params.index);
 
-    const step = await PipelineStep.findOne({ unitId, stepNumber });
-
-    if (!step) return res.status(404).json({ error: 'Step not found' });
-
-    if (step.status === 'completed' && req.body.done) {
-      return res.status(400).json({ error: 'Reopen the step before editing checklist.' });
-    }
-
-
-
-    const item = step.checklist[index];
-
-    if (!item) return res.status(404).json({ error: 'Checklist item not found' });
-
-
-
     const by = actorLabel(req, req.body);
 
-    item.done = !!req.body.done;
+    const step = await mutatePipelineStep(unitId, stepNumber, async (doc) => {
+      if (doc.status === 'completed' && req.body.done) {
+        const err = new Error('Reopen the step before editing checklist.');
+        err.status = 400;
+        throw err;
+      }
+      const item = doc.checklist[index];
+      if (!item) {
+        const err = new Error('Checklist item not found');
+        err.status = 404;
+        throw err;
+      }
+      item.done = !!req.body.done;
+      item.doneAt = item.done ? new Date() : undefined;
+      item.doneBy = item.done ? by : '';
+      pushActivity(doc, 'checklist', by, item.item);
+    });
 
-    item.doneAt = item.done ? new Date() : undefined;
-
-    item.doneBy = item.done ? by : '';
-
-    pushActivity(step, 'checklist', by, item.item);
-
-    step.markModified('checklist');
-
-    await step.save();
-
-    res.json(step);
+    res.json(serializePipelineStep(step));
 
   } catch (err) {
 
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
 
   }
 
+});
+
+
+
+router.post('/:stepNumber/work-update', async (req, res) => {
+  try {
+    const unitId = req.params.unitId || req.body.unitId;
+    const stepNumber = Number(req.params.stepNumber);
+    const {
+      text,
+      nextAction,
+      nextActionDate,
+      assignedTo,
+      markComplete,
+      status,
+    } = req.body || {};
+    const by = actorLabel(req, req.body);
+    const commentText = String(text || '').trim();
+
+    const step = await mutatePipelineStep(unitId, stepNumber, async (doc) => {
+      if (commentText) {
+        if (!doc.comments) doc.comments = [];
+        doc.comments.push({ text: commentText, at: new Date(), by });
+        pushActivity(doc, 'note', by, commentText);
+      }
+
+      if (nextAction !== undefined || nextActionDate !== undefined) {
+        const prevAction = doc.nextAction || '';
+        const prevDate = doc.nextActionDate ? doc.nextActionDate.toISOString().slice(0, 10) : '';
+        if (nextAction !== undefined) doc.nextAction = nextAction;
+        if (nextActionDate !== undefined) {
+          doc.nextActionDate = nextActionDate ? new Date(nextActionDate) : null;
+        }
+        const newAction = doc.nextAction || '';
+        const newDate = doc.nextActionDate ? doc.nextActionDate.toISOString().slice(0, 10) : '';
+        if (!commentText && (newAction !== prevAction || newDate !== prevDate)) {
+          pushActivity(doc, 'note', by, [newAction, newDate].filter(Boolean).join(' · ') || 'Follow-up cleared');
+        }
+      }
+
+      if (assignedTo !== undefined && assignedTo !== doc.assignedTo) {
+        pushActivity(doc, 'assigned', by, `Assigned to ${assignedTo || '—'}`);
+        doc.assignedTo = assignedTo;
+      }
+
+      const wantComplete = markComplete || status === 'completed';
+      if (wantComplete) {
+        if (!checklistComplete(doc.checklist)) {
+          const err = new Error('Complete all checklist items before marking this step done.');
+          err.status = 400;
+          throw err;
+        }
+        doc.status = 'completed';
+        doc.completedDate = new Date();
+        doc.completedBy = by;
+        doc.slaBreach = false;
+        pushActivity(doc, 'completed', by, commentText || 'Step marked complete');
+      }
+    });
+
+    let result = step;
+    if (markComplete || status === 'completed') {
+      const blockMsg = await checkBlockedSteps(unitId, stepNumber, PipelineStep);
+      if (blockMsg) return res.status(400).json({ error: blockMsg });
+
+      if (stepNumber !== CLP_STEP) {
+        const nextDef = getStepDef(stepNumber + 1);
+        if (nextDef) {
+          const nextStep = await PipelineStep.findOne({ unitId, stepNumber: stepNumber + 1 });
+          if (nextStep && nextStep.status !== 'completed') {
+            nextStep.status = 'in_progress';
+            nextStep.triggerDate = new Date();
+            nextStep.dueDate = computeDueDate(nextDef, nextStep.triggerDate);
+            if (!nextStep.taskKind) nextStep.taskKind = getStepTaskKind(stepNumber + 1);
+            if (!nextStep.assignedTo) {
+              const unit = await Unit.findById(unitId).lean();
+              const autoAssignee = defaultAssigneeForKind(unit, nextStep.taskKind);
+              if (autoAssignee) {
+                nextStep.assignedTo = autoAssignee;
+                pushActivity(nextStep, 'assigned', by, `Auto-assigned to ${autoAssignee}`);
+              }
+            }
+            pushActivity(nextStep, 'started', by, `Auto-started after step ${stepNumber} completed`);
+            await nextStep.save();
+          }
+          await Unit.findByIdAndUpdate(unitId, { currentStepNumber: stepNumber + 1 });
+        } else {
+          await Unit.findByIdAndUpdate(unitId, { currentStepNumber: 20, overallStatus: 'possession_given' });
+        }
+      }
+      result = await PipelineStep.findOne({ unitId, stepNumber });
+    }
+
+    res.json(serializePipelineStep(result));
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message });
+  }
 });
 
 
@@ -354,27 +442,19 @@ router.post('/:stepNumber/comments', async (req, res) => {
 
     if (!text) return res.status(400).json({ error: 'Comment text is required' });
 
-    const step = await PipelineStep.findOne({ unitId, stepNumber });
-
-    if (!step) return res.status(404).json({ error: 'Step not found' });
-
     const by = actorLabel(req, req.body);
 
-    const comment = { text, at: new Date(), by };
+    const step = await mutatePipelineStep(unitId, stepNumber, async (doc) => {
+      if (!doc.comments) doc.comments = [];
+      doc.comments.push({ text, at: new Date(), by });
+      pushActivity(doc, 'note', by, text);
+    });
 
-    if (!step.comments) step.comments = [];
-
-    step.comments.push(comment);
-
-    pushActivity(step, 'note', by, text);
-
-    await step.save();
-
-    res.status(201).json(step);
+    res.status(201).json(serializePipelineStep(step));
 
   } catch (err) {
 
-    res.status(400).json({ error: err.message });
+    res.status(err.status || 400).json({ error: err.message });
 
   }
 

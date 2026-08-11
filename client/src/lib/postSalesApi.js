@@ -115,6 +115,7 @@ export const postSalesApi = {
   getStep: (unitId, stepNumber) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   updateStep: (unitId, stepNumber, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   addStepComment: (unitId, stepNumber, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/comments`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  postStepWorkUpdate: (unitId, stepNumber, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/work-update`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   toggleChecklist: (unitId, stepNumber, index, body) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/checklist/${index}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   getStepActivityLog: (unitId, stepNumber) => apiFetch(`${BASE}/units/${unitId}/steps/${stepNumber}/log`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
 
