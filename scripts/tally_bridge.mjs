@@ -26,10 +26,10 @@ const TALLY_TIMEOUT_MS = Math.max(5000, parseInt(process.env.TALLY_TIMEOUT_MS ||
 /** Max XML shapes tried per window before declaring empty (prevents multi-minute hangs). */
 const MAX_PROBES_PER_WINDOW = Math.max(1, parseInt(process.env.TALLY_MAX_PROBES || '2', 10) || 2);
 /** Hard wall-clock for /tally/export Payment+Receipt (Cashflow live sync). */
-const EXPORT_BUDGET_MS = Math.max(3000, parseInt(process.env.TALLY_EXPORT_BUDGET_MS || '10000', 10) || 10000);
+const EXPORT_BUDGET_MS = Math.max(3000, parseInt(process.env.TALLY_EXPORT_BUDGET_MS || '16000', 10) || 16000);
 /** Day fan-out is opt-in only — default OFF (was the main hang). */
 const ENABLE_DAY_FANOUT = /^(1|true|yes)$/i.test(String(process.env.TALLY_ENABLE_DAY_FANOUT || ''));
-const BRIDGE_VERSION = 3.5;
+const BRIDGE_VERSION = 3.7;
 /** Remember last winning export shape across windows/jobs. */
 let lastWinningTag = '';
 
@@ -173,7 +173,7 @@ function buildVoucherCollectionDated(fromDd, toDd, voucherType, opts) {
     '    <TDLMESSAGE>\n' +
     '     <COLLECTION NAME="GA Dated Vouchers" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">\n' +
     '      <TYPE>Voucher</TYPE>\n' +
-    '      <FETCH>Date, VoucherNumber, VoucherTypeName, Narration, AllLedgerEntries.*</FETCH>\n' +
+    '      <FETCH>Date, VoucherNumber, VoucherTypeName, Narration, GUID, MasterID, AlterID, AllLedgerEntries.*</FETCH>\n' +
     '      <FILTER>GADatedVchFilter</FILTER>\n' +
     '     </COLLECTION>\n' +
     '     <SYSTEM TYPE="Formulae" NAME="GADatedVchFilter">' +
@@ -219,7 +219,7 @@ function buildVoucherCollectionByType(voucherType, opts) {
     escapeXml(id) +
     '" ISMODIFY="No" ISFIXED="No" ISINITIALIZE="No" ISOPTION="No" ISINTERNAL="No">\n' +
     '      <TYPE>Voucher</TYPE>\n' +
-    '      <FETCH>Date, VoucherNumber, VoucherTypeName, Narration, AllLedgerEntries.*</FETCH>\n' +
+    '      <FETCH>Date, VoucherNumber, VoucherTypeName, Narration, GUID, MasterID, AlterID, AllLedgerEntries.*</FETCH>\n' +
     '      <FILTER>GATypeOnlyFilter</FILTER>\n' +
     '     </COLLECTION>\n' +
     '     <SYSTEM TYPE="Formulae" NAME="GATypeOnlyFilter">' +
@@ -603,6 +603,16 @@ function resolveJobs(body) {
         voucherType: 'Receipt',
         reportIds: ['Day Book', 'Voucher Register'],
       },
+      {
+        label: 'Contra',
+        voucherType: 'Contra',
+        reportIds: ['Day Book', 'Voucher Register'],
+      },
+      {
+        label: 'Journal',
+        voucherType: 'Journal',
+        reportIds: ['Day Book', 'Voucher Register'],
+      },
     ];
   }
   if (Array.isArray(body.reportIds) && body.reportIds.length) {
@@ -850,12 +860,16 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
     let bestBody = '';
     let bestTag = 'empty';
     let bestN = 0;
+    let attemptsMade = 0;
+    let failedAttempts = 0;
     for (const a of attempts) {
       if (overBudget()) break;
+      attemptsMade += 1;
       let out;
       try {
         out = await forwardToTally(a.fn());
       } catch (e) {
+        failedAttempts += 1;
         console.warn('[ga-tally-bridge]', a.tag, e.message || e);
         continue;
       }
@@ -900,10 +914,17 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
       }
       if (n > 0) break; // first non-empty type pull wins
     }
-    return { job, bestBody, bestTag, bestN };
+    return {
+      job,
+      bestBody,
+      bestTag,
+      bestN,
+      failed: attemptsMade === 0 || failedAttempts === attemptsMade,
+    };
   }
 
   const typeResults = await Promise.all(jobs.map((job) => probeTypeOnly(job)));
+  const sourceComplete = typeResults.every((r) => !r.failed);
   for (const r of typeResults) {
     if (r.bestBody) {
       parts.push(r.bestBody);
@@ -1023,6 +1044,7 @@ async function exportPaymentReceiptSsot(fromDd, toDd, optsIn) {
     elapsedMs,
     budgetMs: EXPORT_BUDGET_MS,
     budgetExceeded,
+    complete: sourceComplete,
   };
 }
 
@@ -1042,8 +1064,10 @@ const server = http.createServer(async (req, res) => {
       tallyUrl: TALLY_URL,
       port: BRIDGE_PORT,
       features: [
-        'payment_receipt_ssot_v35',
+        'payment_receipt_ssot_v37',
         'type_only_collection',
+        'stable_voucher_identity',
+        'complete_range_metadata',
         'export_budget_10s',
         'day_fanout_opt_in',
         'cashflow_date_authority',
@@ -1152,8 +1176,9 @@ const server = http.createServer(async (req, res) => {
         totalV = extractVoucherBlocks(merged).length;
         dates = [...collectDates(merged)].sort();
 
-        // Sparse books after type-only are NOT truncated failures.
-        const stillTruncated = totalV === 0;
+        // Type-only reads the complete voucher-type collection; Cashflow then owns
+        // the date clamp. A non-empty result is complete even when the books are sparse.
+        const stillTruncated = ssot.complete === false;
         console.log(
           '[ga-tally-bridge] FINAL strategy=',
           strategy,
@@ -1183,17 +1208,20 @@ const server = http.createServer(async (req, res) => {
             dateMin: dates[0] || null,
             dateMax: dates[dates.length - 1] || null,
             empty: totalV === 0,
-            truncated: false,
+            truncated: stillTruncated,
+            complete: !stillTruncated,
             elapsedMs: ssot.elapsedMs || null,
             budgetMs: ssot.budgetMs || EXPORT_BUDGET_MS,
             budgetExceeded: !!ssot.budgetExceeded,
             hint:
-              totalV === 0
+              stillTruncated
+                ? 'At least one Payment/Receipt collection request failed. The response is incomplete and Cashflow must not import it. Keep Tally open and retry.'
+                : totalV === 0
                 ? 'No Payment/Receipt vouchers in this date range after Cashflow date filter. Open the company in Tally, confirm FY, and ensure Payment/Receipt vouchers exist between From and To.'
                 : ssot.budgetExceeded
                   ? 'Returned best result within ' +
                     EXPORT_BUDGET_MS +
-                    'ms export budget (bridge v3.5).'
+                    'ms export budget (bridge v3.6).'
                   : null,
             parts: meta.slice(0, 160),
           }),
@@ -1212,7 +1240,7 @@ const server = http.createServer(async (req, res) => {
       merged = filterAndMergeVouchers(xmlParts, fromDd, toDd, voucherTypes.length ? voucherTypes : null);
       totalV = extractVoucherBlocks(merged).length;
       dates = [...collectDates(merged)].sort();
-      strategy = 'adaptive_v35';
+      strategy = 'adaptive_v36';
 
       // Final SSOT clamp — never return vouchers outside Cashflow From–To
       merged = filterAndMergeVouchers([merged], fromDd, toDd, voucherTypes.length ? voucherTypes : null);
@@ -1253,13 +1281,14 @@ const server = http.createServer(async (req, res) => {
           dateMax: dates[dates.length - 1] || null,
           empty: totalV === 0,
           truncated: stillTruncated,
+          complete: !stillTruncated,
           hint:
             totalV === 0
               ? 'No Payment/Receipt vouchers in this date range after Cashflow date filter. Open the company in Tally, confirm FY, and ensure Payment/Receipt vouchers exist between From and To.'
               : stillTruncated
                 ? 'Cashflow kept only vouchers inside From–To, but Tally supplied a narrow date set.' +
                   rawBeforeFilterHint +
-                  ' Restart bridge v3.5 (scripts\\start-tally-bridge.bat).'
+                  ' Restart bridge v3.6 (scripts\\start-tally-bridge.bat).'
                 : null,
           parts: meta.slice(0, 160),
         }),
@@ -1294,7 +1323,7 @@ server.listen(BRIDGE_PORT, '127.0.0.1', () => {
   );
   console.log('Forwarding to Tally at ' + TALLY_URL);
   console.log(
-    'payment_receipt SSOT v3.5 = type-only (parallel) → FY only if empty; day fan-out OFF by default; budget ' +
+    'payment_receipt SSOT v3.6 = type-only (parallel) → FY only if empty; day fan-out OFF by default; budget ' +
       EXPORT_BUDGET_MS +
       'ms'
   );

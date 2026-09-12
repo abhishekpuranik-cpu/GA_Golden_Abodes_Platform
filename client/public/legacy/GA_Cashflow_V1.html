@@ -268,10 +268,10 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 86;
+var CF_VERSION = 89;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
-var TALLY_XML_DOM_MAX_CHARS = 800000;
+var TALLY_XML_DOM_MAX_CHARS = 120000;
 /** Yield to the browser so large imports/renders do not freeze the tab. */
 function gaScheduleIdle(fn, delayMs){
   var d=delayMs==null?0:delayMs;
@@ -304,14 +304,14 @@ function isCashflowInflowCat(cat1){
   return INFLOW_CATS.indexOf(c)>=0;
 }
 /**
- * Cashflow is the source of truth for cash direction + legacy bucket.
- * Tally XML/bridge is a voucher feed only — never owns sign or category.
- * Payment → cash out; Receipt → cash in (even if an L3 name looks inverted).
+ * Cashflow owns category (master L3). Voucher type owns the signed direction.
+ * Payment → signed outflow; Receipt → signed inflow. Opposite-nature lines net inside the L3.
+ * Do not remap an inflow L3 to Construction (or an outflow L3 to collections) on refunds.
  */
 function extractTallyVoucherType(noteOrType){
   var s=String(noteOrType||'').trim();
   if(!s) return '';
-  if(/^(payment|receipt|journal|contra)\b/i.test(s) && s.indexOf('[')<0) return s;
+  if(/^(payment|receipt|journal|contra|sales|purchase|debit note|credit note|debit|credit)\b/i.test(s) && s.indexOf('[')<0) return s;
   var m=/^\[([^\]]+)\]/.exec(s);
   return m?String(m[1]||'').trim():'';
 }
@@ -324,43 +324,32 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
   var codingUnmapped=!!cl.codingUnmapped || isCodingUnmappedCat(cl.cat1);
   var cat1=String(cl.cat1||'').trim()||(codingUnmapped?'Unmapped':'Construction');
   var mapSrc=String(cl.tallyMapSrc||'');
-  var isInflow=isCashflowInflowCat(cat1);
-  if(cl.flow==='in' && !isInflow) isInflow=true;
-  if(cl.flow==='out' && isInflow) isInflow=false;
-  // Master flow cash / exclude / pl_only must not be rewritten by voucher heuristics
   var masterFlow=String(cl.flow||'');
-  var preserveMasterFlow=masterFlow==='cash'||masterFlow==='exclude'||masterFlow==='pl_only';
   var vt=String(voucherType||'').trim();
-  if(!preserveMasterFlow && /^payment\b/i.test(vt)){
-    isInflow=false;
-    // Never invent a master L1 for unmapped lines — keep Unmapped and highlight for audit.
-    if(!codingUnmapped && isCashflowInflowCat(cat1)){
-      if(/unsecured loan/i.test(cat1)) cat1='Principal Repaid';
-      else if(/investor funding|equity infusion/i.test(cat1)) cat1='Principal Repaid';
-      else if(/customer collection|customer ul|sales revenue/i.test(cat1)) cat1='Construction';
-      else if(/other income|other inflow/i.test(cat1)) cat1='Construction';
-      else cat1='Construction';
-      mapSrc=mapSrc?(mapSrc+'+cf-sot-pay-out'):'cf-sot-pay-out';
-    }
-  }else if(!preserveMasterFlow && /^receipt\b/i.test(vt)){
+  var isInflow=false;
+  if(/^receipt\b/i.test(vt)){
     isInflow=true;
-    if(!codingUnmapped && !isCashflowInflowCat(cat1)){
-      var blob=String(cl.gaL1||'')+' '+String(cl.gaL2||'')+' '+String(cl.gaL3Name||'')+' '+cat1+' '+String(partyHint||cl.party||'');
-      if(/-ul\b|customer ul/i.test(blob)) cat1='Customer UL';
-      else if(/customer|collection|sales|booking|milestone/i.test(blob)) cat1='Customer Collections';
-      else if(/unsecured|loan|funding|investor|promoter|equity/i.test(blob)) cat1='Unsecured Loan';
-      else cat1='Other Income';
-      mapSrc=mapSrc?(mapSrc+'+cf-sot-rcpt-in'):'cf-sot-rcpt-in';
-    }
+    mapSrc=mapSrc?(mapSrc+'+cf-sot-rcpt'):'cf-sot-rcpt';
+  }else if(/^payment\b/i.test(vt)){
+    isInflow=false;
+    mapSrc=mapSrc?(mapSrc+'+cf-sot-pay'):'cf-sot-pay';
+  }else if(/^contra\b/i.test(vt)){
+    isInflow=false;
+    mapSrc=mapSrc?(mapSrc+'+cf-sot-contra'):'cf-sot-contra';
+  }else if(masterFlow==='in' || isCashflowInflowCat(cat1)){
+    isInflow=true;
   }
   if(cat1==='Other Inflow') cat1='Other Income';
   if(codingUnmapped){
     cat1='Unmapped';
     if(!cl.gaL1) cl.gaL1='Unmapped';
   }
+  var flowOut=masterFlow==='cash'||masterFlow==='exclude'||masterFlow==='pl_only'||masterFlow==='in'||masterFlow==='out'
+    ? masterFlow
+    : (isInflow?'in':'out');
   return {
     cat1:cat1,
-    isInflow:preserveMasterFlow?false:isInflow,
+    isInflow:isInflow,
     tallyMapSrc:mapSrc,
     codingAuthority:'cashflow',
     codingUnmapped:codingUnmapped,
@@ -372,7 +361,7 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
     masterKey:cl.masterKey||'',
     gaScope:cl.gaScope||'',
     plL1:cl.plL1||'',
-    flow:preserveMasterFlow?masterFlow:(isInflow?'in':'out')
+    flow:flowOut
   };
 }
 /** Expense dashboard: collections & other inflows stay out of outflow rollups. */
@@ -748,8 +737,8 @@ function isTallyControlCashflowCostCentre(costCentre){
   return isCfZCashEquivalentsCostCentreName(costCentre)||isBalResiduaryCostCentreName(costCentre);
 }
 function shouldSkipTallyBankLedgerLine(party, costCentre){
-  if(!isTallyBankOrCashLedger(party)) return false;
-  return !isTallyControlCashflowCostCentre(costCentre);
+  // SOP: untagged / missing-Z bank lines must be stored as exceptions, not dropped.
+  return false;
 }
 /**
  * Common / phase-level cost centres only.
@@ -1599,6 +1588,30 @@ function htmlExpenseDashFilterBar(actsBase){
   h+='</div></div>';
   return h;
 }
+function htmlExpenseSopReconcileTable(cfg, filt){
+  filt=filt||{};
+  var V=computeCashflowValidation(cfg, {fromMonth:filt.from||'', toMonth:filt.to||''});
+  var sop=window.__gaLastSopAudit||{};
+  var untaggedN=(sop.untagged||[]).length;
+  var wrongN=(sop.pairingRows||[]).filter(function(r){ return r.verdict==='Wrong'; }).length;
+  var missZ=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'')==='missing_z'; }).length;
+  var ok=!!V.rule2Pass;
+  var h='<div class="card" style="margin-bottom:12px;border-left:4px solid '+(ok?'#166534':'#991B1B')+';padding:14px 16px">';
+  h+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Accounting reconcile — Cashflow vs Z</div>';
+  h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:'+(ok?'#DCFCE7':'#FEE2E2')+';color:'+(ok?'#166534':'#991B1B')+'">'+(ok?'TALLIED':'NOT TALLIED')+'</span></div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Same date window as the dashboard filter. Inflows − Outflows (L3 nature; refunds netted) vs sum of Z Cash &amp; Cash Equivalents. Contra is in Z only. BAL and SOP exceptions are not in the cashflow sum.</div>';
+  h+='<table class="amt-pair-tbl" style="width:100%;font-size:12px"><thead><tr><th>Measure</th><th style="text-align:right">Amount</th></tr></thead><tbody>';
+  h+='<tr><td>Sum of cashflow (inflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.inflow)+'</td></tr>';
+  h+='<tr><td>Sum of cashflow (outflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.outflow)+'</td></tr>';
+  h+='<tr><td><strong>Net cashflow (In − Out)</strong></td><td class="amt"><strong>'+formatRupeesDisplay(V.netCf)+'</strong></td></tr>';
+  h+='<tr><td>Sum of Z (Cash &amp; Cash Equivalents)</td><td class="amt">'+formatRupeesDisplay(V.cfzL1)+'</td></tr>';
+  h+='<tr><td>Difference</td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesDisplay(V.rule2Diff)+'</strong></td></tr>';
+  h+='</tbody></table>';
+  h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged in data (not in cashflow): untagged '+untaggedN+' · missing Z '+missZ+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
+  h+='</div>';
+  return h;
+}
 function htmlExpenseMetricsDashboard(cfg, filt){
   filt=filt||{from:_dashFrom,to:_dashTo,cat1:_dashCat1};
   var m=collectExpenseMetrics(cfg, filt);
@@ -2385,9 +2398,15 @@ function isTallyPaymentOrReceiptType(vtype){
   var t=String(vtype||'').trim().toLowerCase();
   if(!t) return false;
   if(t==='payment'||t==='receipt') return true;
-  // Custom types that still start with Payment / Receipt
   if(/^payment\b/.test(t)||/^receipt\b/.test(t)) return true;
   return false;
+}
+function isTallyContraType(vtype){
+  var t=String(vtype||'').trim().toLowerCase();
+  return t==='contra' || /^contra\b/.test(t);
+}
+function isTallyCfFamilyVoucherType(vtype){
+  return isTallyPaymentOrReceiptType(vtype) || isTallyContraType(vtype);
 }
 function tallyRowVoucherType(row){
   if(!row) return '';
@@ -2395,16 +2414,10 @@ function tallyRowVoucherType(row){
   var m=String(row.note||'').match(/^\[([^\]]+)\]/);
   return m?m[1]:'';
 }
-/** Keep only Payment/Receipt party lines (drop Journal/Contra/Sales/etc and bank sides — except CF Z / BAL bank CCs). */
+/** Keep ledger lines for SOP pairing (including untagged bank). Type filter is applied at pull. */
 function filterTallyRowsPaymentReceiptOnly(rows){
   var out=[], skippedType=0, skippedBank=0;
-  (rows||[]).forEach(function(r){
-    if(!r) return;
-    var vt=tallyRowVoucherType(r);
-    if(!isTallyPaymentOrReceiptType(vt)){ skippedType++; return; }
-    if(shouldSkipTallyBankLedgerLine(r.party, r.costCentre)){ skippedBank++; return; }
-    out.push(r);
-  });
+  (rows||[]).forEach(function(r){ if(r) out.push(r); });
   return {rows:out, skippedType:skippedType, skippedBank:skippedBank};
 }
 function isUsableTallyCostCentreName(nm){
@@ -2585,10 +2598,40 @@ function tallyXmlSimpleTag(block, tag){
 }
 /** All direct child blocks named tag (siblings), inner XML only. */
 function tallyXmlListInners(parentXml, tag){
-  var esc=tallyReEsc(tag);
-  var re=new RegExp('<'+esc+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+esc+'>','gi');
-  var out=[], x;
-  while((x=re.exec(parentXml))!==null) out.push(x[1]);
+  return tallyXmlDirectChildInners(parentXml, tag);
+}
+/** Direct-child LIST blocks only — nested ALLLEDGERENTRIES must not inflate line counts. */
+function tallyXmlDirectChildInners(parentXml, tag){
+  var s=String(parentXml||''), tagU=String(tag||'').toUpperCase();
+  if(!s||!tagU) return [];
+  var openU='<'+tagU, closeU='</'+tagU+'>', out=[], i=0, upper=s.toUpperCase();
+  while(i<s.length){
+    var start=upper.indexOf(openU, i);
+    if(start<0) break;
+    var after=start+openU.length;
+    var ch=after<s.length?s.charAt(after):'';
+    if(ch!=='>' && ch!==' ' && ch!=='\t' && ch!=='\r' && ch!=='\n'){ i=after; continue; }
+    var gt=s.indexOf('>', start);
+    if(gt<0) break;
+    var depth=1, search=gt+1, closeAt=-1;
+    while(depth>0 && search<s.length){
+      var nOpen=upper.indexOf(openU, search);
+      var nClose=upper.indexOf(closeU, search);
+      if(nClose<0) break;
+      if(nOpen>=0 && nOpen<nClose){
+        var och=s.charAt(nOpen+openU.length);
+        if(och==='>' || och===' ' || och==='\t' || och==='\r' || och==='\n') depth++;
+        search=nOpen+openU.length;
+      }else{
+        depth--;
+        if(depth===0){ closeAt=nClose; break; }
+        search=nClose+closeU.length;
+      }
+    }
+    if(closeAt<0) break;
+    out.push(s.slice(gt+1, closeAt));
+    i=closeAt+closeU.length;
+  }
   return out;
 }
 /**
@@ -2635,44 +2678,117 @@ function parseTallyCashFlowStatementLines(safeXml){
   }
   return rows;
 }
-function parseTallyXmlToLedgerLinesRegex(safeXml, opts){
+function tallyNormVoucherDate(s){
+  s=String(s||'').trim();
+  if(/^\d{8}$/.test(s)) return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8);
+  return normalizeDate(s);
+}
+function tallyAppendLedgerRowsFromVoucher(attrs, vb, vi, opts, rows){
   opts=opts||{};
   var onlyPR=opts.onlyPaymentReceipt!==false;
-  var rows=[], vi=0;
-  function normDate(s){
-    s=String(s||'').trim();
-    if(/^\d{8}$/.test(s)) return s.slice(0,4)+'-'+s.slice(4,6)+'-'+s.slice(6,8);
-    return normalizeDate(s);
+  var dRaw=tallyVoucherDateRawFromInner(vb);
+  var date=tallyNormVoucherDate(dRaw)||today();
+  var vno=tallyXmlSimpleTag(vb,'VOUCHERNUMBER')||tallyXmlSimpleTag(vb,'VOUCHERNUMBERLIST')||String(vi);
+  var vtypeAttr=/VCHTYPE\s*=\s*"([^"]+)"/i.exec(attrs||'');
+  var vtype=tallyXmlSimpleTag(vb,'VOUCHERTYPENAME')||(vtypeAttr&&vtypeAttr[1])||'';
+  var voucherId=tallyXmlSimpleTag(vb,'GUID')||tallyXmlSimpleTag(vb,'MASTERID')||tallyXmlSimpleTag(vb,'ALTERID')||'';
+  if(onlyPR && vtype && !isTallyCfFamilyVoucherType(vtype) && !/^(journal|sales|purchase|debit note|credit note|debit|credit)\b/i.test(String(vtype))) return;
+  var ents=tallyXmlListInners(vb,'ALLLEDGERENTRIES.LIST');
+  for(var ei=0;ei<ents.length;ei++){
+    var ent=ents[ei];
+    var party=tallyXmlSimpleTag(ent,'LEDGERNAME');
+    if(!party) continue;
+    var cc=tallyCostCentreFromEntryStr(ent)||tallyXmlSimpleTag(vb,'COSTCENTRENAME');
+    var amtStr=tallyLedgerPrimaryAmountStr(ent);
+    var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
+    if(!amt) continue;
+    var narr=tallyXmlSimpleTag(ent,'NARRATION')||tallyXmlSimpleTag(vb,'NARRATION');
+    var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
+    row0.tallyKey=buildTallyLineKey(row0);
+    rows.push(row0);
   }
-  var reV=/<VOUCHER\b([^>]*)>([\s\S]*?)<\/VOUCHER>/gi;
-  var vm;
-  while((vm=reV.exec(safeXml))!==null){
-    vi++;
-    var attrs=vm[1]||'';
-    var vb=vm[2];
-    var dRaw=tallyVoucherDateRawFromInner(vb);
-    var date=normDate(dRaw)||today();
-    var vno=tallyXmlSimpleTag(vb,'VOUCHERNUMBER')||tallyXmlSimpleTag(vb,'VOUCHERNUMBERLIST')||String(vi);
-    var vtypeAttr=/VCHTYPE\s*=\s*"([^"]+)"/i.exec(attrs);
-    var vtype=tallyXmlSimpleTag(vb,'VOUCHERTYPENAME')||(vtypeAttr&&vtypeAttr[1])||'';
-    if(onlyPR && !isTallyPaymentOrReceiptType(vtype)) continue;
-    var ents=tallyXmlListInners(vb,'ALLLEDGERENTRIES.LIST');
-    for(var ei=0;ei<ents.length;ei++){
-      var ent=ents[ei];
-      var party=tallyXmlSimpleTag(ent,'LEDGERNAME');
-      if(!party) continue;
-      var cc=tallyCostCentreFromEntryStr(ent)||tallyXmlSimpleTag(vb,'COSTCENTRENAME');
-      if(shouldSkipTallyBankLedgerLine(party, cc)) continue;
-      var amtStr=tallyLedgerPrimaryAmountStr(ent);
-      var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
-      if(!amt) continue;
-      var narr=tallyXmlSimpleTag(ent,'NARRATION')||tallyXmlSimpleTag(vb,'NARRATION');
-      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
-      row0.tallyKey=buildTallyLineKey(row0);
-      rows.push(row0);
-    }
+}
+/** Linear scan — avoids one giant /[\s\S]*?/ regex over multi-MB Tally XML. */
+function tallyXmlFindVoucherSpans(xml){
+  var s=String(xml||''), spans=[], i=0;
+  var open='<VOUCHER', close='</VOUCHER>';
+  while(true){
+    var start=s.indexOf(open, i);
+    if(start<0) break;
+    var next=s.charAt(start+8);
+    if(next && next!==' ' && next!=='>' && next!=='\t' && next!=='\r' && next!=='\n'){ i=start+8; continue; }
+    var gt=s.indexOf('>', start);
+    if(gt<0) break;
+    var end=s.indexOf(close, gt);
+    if(end<0) break;
+    spans.push({attrFrom:start+8, attrTo:gt, innerFrom:gt+1, innerTo:end});
+    i=end+close.length;
+  }
+  return spans;
+}
+function parseTallyXmlToLedgerLinesRegex(safeXml, opts){
+  opts=opts||{};
+  var rows=[], spans=tallyXmlFindVoucherSpans(safeXml);
+  for(var i=0;i<spans.length;i++){
+    var sp=spans[i];
+    tallyAppendLedgerRowsFromVoucher(safeXml.slice(sp.attrFrom, sp.attrTo), safeXml.slice(sp.innerFrom, sp.innerTo), i+1, opts, rows);
   }
   return rows;
+}
+/** Yielding parser so Chrome does not show “Page Unresponsive” on 6–20 MB live pulls. */
+function parseTallyXmlToLedgerLinesAsync(xmlText, opts, onProgress, onDone){
+  opts=opts||{};
+  function fail(msg){ gaScheduleIdle(function(){ onDone({error:msg}); }); }
+  if(!xmlText||typeof xmlText!=='string'){ fail('Empty Tally response (no XML text).'); return; }
+  var trimmed;
+  try{ trimmed=normalizeTallyUploadText(String(xmlText||'').trim()); }
+  catch(eN){ fail('Could not normalize Tally XML: '+(eN&&eN.message||eN)); return; }
+  if(!trimmed){ fail('Empty Tally response after normalize.'); return; }
+  if(trimmed.charAt(0)==='{'){
+    try{
+      var er=JSON.parse(trimmed);
+      if(er.error){ fail(String(er.error)); return; }
+      if(er.ok===false){ fail(String(er.error||er.message||'Bridge returned JSON instead of XML.')); return; }
+      if(er.xml||er.data) trimmed=normalizeTallyUploadText(String(er.xml||er.data||''));
+      else if(!/<VOUCHER[\s/>]/i.test(trimmed) && !/<ENVELOPE[\s>]/i.test(trimmed)){
+        fail('Bridge returned JSON without voucher XML. '+(er.message||er.hint||JSON.stringify(er).slice(0,180)));
+        return;
+      }
+    }catch(eJ){}
+  }
+  var xml=stripIllegalXmlCharacters(trimmed);
+  var lem=/<LINEERROR>([\s\S]*?)<\/LINEERROR>/i.exec(xml);
+  if(lem){
+    var rawL=lem[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1').replace(/<[^>]+>/g,'').trim();
+    fail('Tally LINEERROR: '+tallyDecodeXmlText(rawL));
+    return;
+  }
+  var spans=tallyXmlFindVoucherSpans(xml);
+  if(!spans.length){
+    fail(opts.onlyPaymentReceipt!==false
+      ? 'No Payment/Receipt voucher ledger lines found. Journal/Contra and other Day Book types are excluded.'
+      : 'No importable lines in this XML.');
+    return;
+  }
+  var rows=[], i=0, CHUNK=6;
+  function step(){
+    var end=Math.min(i+CHUNK, spans.length);
+    for(;i<end;i++){
+      var sp=spans[i];
+      tallyAppendLedgerRowsFromVoucher(xml.slice(sp.attrFrom, sp.attrTo), xml.slice(sp.innerFrom, sp.innerTo), i+1, opts, rows);
+    }
+    if(onProgress) try{ onProgress({done:i, total:spans.length, rows:rows.length}); }catch(eP){}
+    if(i>=spans.length){
+      if(!rows.length){
+        fail('Parsed '+spans.length+' voucher(s) but no Payment/Receipt ledger lines remained after bank/type filters.');
+        return;
+      }
+      onDone({rows:rows, parseMode:'regex-async', xmlChars:xml.length, voucherCount:spans.length});
+      return;
+    }
+    gaScheduleIdle(step);
+  }
+  gaScheduleIdle(step);
 }
 /** Parse Tally export XML → ledger lines. Default keeps Payment/Receipt only (like Payment.xml + Receipts.xml). Always returns {rows} or {error}. */
 function parseTallyXmlToLedgerLines(xmlText, opts){
@@ -2745,10 +2861,12 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
     var date=normDate(dRaw)||today();
     var vno=txt(vch,'VOUCHERNUMBER')||txt(vch,'VOUCHERNUMBERLIST')||String(vi);
     var vtype=txt(vch,'VOUCHERTYPENAME')||(vch.getAttribute&&(vch.getAttribute('VCHTYPE')||vch.getAttribute('VoucherTypeName')))||'';
+    var voucherId=txt(vch,'GUID')||txt(vch,'MASTERID')||txt(vch,'ALTERID')||'';
     if(onlyPR && !isTallyPaymentOrReceiptType(vtype)) continue;
     var ents=vch.getElementsByTagName('ALLLEDGERENTRIES.LIST');
     for (var ei=0; ei<ents.length; ei++){
       var ent=ents[ei];
+      if(ent.parentNode && ent.parentNode!==vch) continue;
       var party=txt(ent,'LEDGERNAME');
       if(!party) continue;
       var ccEarly=tallyCostCentreFromEntryDom(ent)||txt(vch,'COSTCENTRENAME');
@@ -2758,7 +2876,7 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
       if(!amt) continue;
       var cc=ccEarly;
       var narr=txt(ent,'NARRATION')||txt(vch,'NARRATION');
-      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
+      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
       row0.tallyKey=buildTallyLineKey(row0);
       rows.push(row0);
     }
@@ -2794,25 +2912,25 @@ function normalizeTallyNarrKey(note){
 /** Business fingerprint — catches re-imports when tallyKey string drifted. */
 function tallyActualSoftFingerprint(a){
   if(!a) return '';
+  var voucherId=String(a.voucherId||'').trim().toLowerCase();
+  if(voucherId) return 'v:'+voucherId+'|l:'+(a.ledgerIndex==null?'':a.ledgerIndex)+'|'+String(a.party||'').trim().toLowerCase()+'|'+normalizeTallyAmtKey(a.rawAmount!=null?a.rawAmount:a.amount);
   return [
     String(a.date||'').slice(0,10),
     String(a.party||'').trim().toLowerCase(),
     normalizeTallyAmtKey(a.rawAmount!=null?a.rawAmount:a.amount),
-    normTallyCostCentreLabel(a.costCentre||''),
-    normalizeTallyNarrKey(a.note||a.narration||'')
+    String(a.voucherNo||'').trim().toLowerCase()
   ].join('|');
 }
 /** Canonical tallyKey for a parsed ledger row. */
 function buildTallyLineKey(row){
+  var voucherId=String(row&&row.voucherId||'').trim().toLowerCase();
   var date=String(row&&row.date||'').slice(0,10);
   var party=String(row&&row.party||'').trim().toLowerCase();
   var amt=normalizeTallyAmtKey(row&&(row.rawAmount!=null?row.rawAmount:row.amount));
-  var cc=normTallyCostCentreLabel(row&&row.costCentre||'');
   var vno=String(row&&row.voucherNo||'').trim().toLowerCase();
   var narr=normalizeTallyNarrKey(row&&(row.note||row.narration)||'');
-  // Index-only voucher numbers are unstable across re-exports — prefer narr.
-  if(vno && !/^\d{1,4}$/.test(vno)) return 'tally|'+date+'|'+vno+'|'+party+'|'+amt+'|'+cc;
-  return 'tally|'+date+'|'+party+'|'+amt+'|'+cc+'|'+narr;
+  if(voucherId) return 'tally|v:'+voucherId+'|l:'+((row&&row.ledgerIndex!=null)?row.ledgerIndex:'')+'|'+party+'|'+amt;
+  return 'tally|'+date+'|'+(vno||'')+'|'+party+'|'+amt+'|'+narr;
 }
 /** Remove duplicate Tally actuals on one project (exact key + soft fingerprint). */
 function dedupeTallyActualsForPid(pid){
@@ -2873,9 +2991,10 @@ function ledgerLineToActual(row, route){
   var vt=row.voucherType||extractTallyVoucherType(note);
   var sot=applyCashflowSourceOfTruth(cl, vt, party);
   var mag=Math.abs(raw);
-  var amt=sot.isInflow?mag:-mag;
+  var amt=isTallyContraType(vt)?raw:(sot.isInflow?mag:-mag);
   return {
     id:uid(),date:row.date,party:party,cat1:sot.cat1,note:note,amount:amt,costCentre:cc,source:'tally',tallyKey:row.tallyKey,
+    tallyRawAmount:raw,voucherNo:row.voucherNo||'',voucherId:row.voucherId||'',ledgerIndex:row.ledgerIndex,
     voucherType:vt||'',
     gaL1:sot.gaL1,gaL2:sot.gaL2,gaL3:sot.gaL3,gaL3Name:sot.gaL3Name,tallyMapSrc:sot.tallyMapSrc,
     masterKey:sot.masterKey||'',gaScope:sot.gaScope||'building',plL1:sot.plL1||'',
@@ -3066,49 +3185,120 @@ function downloadCfZVsRestDeltaXlsx(audit){
   XLSX.utils.book_append_sheet(wb, sheetFrom(audit.routeRows,'All routed Tally'), 'Routing_audit');
   XLSX.writeFile(wb, 'GA_CF_Z_vs_Rest_Delta_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
-/** After each sync/import: populated window when lines exist; Excel download when CF Z ≠ rest of CF. */
+/** After each sync/import: Net CF vs Z, pairing list, missing Z / untagged exceptions. */
 function showCfZBalanceAfterSync(res){
-  var audit=(res&&res.cfzBalance)||window.__gaLastCfZBalanceAudit;
-  if(!audit){
-    try{ audit=computePhaseCfZVsRestBalance(_curPid); }catch(eA){ audit=null; }
-  }
-  window.__gaLastCfZBalanceAudit=audit;
-  var lineCount=audit?((audit.cfzCount||0)+(audit.restCount||0)+(audit.balCount||0)):0;
+  try{ annotatePhaseTallySopRules(_curPid); }catch(eAn){}
+  var cfg=getCF(_curPid)||{};
+  var V=computeCashflowValidation(cfg);
+  var sop=window.__gaLastSopAudit||{pairingRows:[],untagged:[],missingZ:[]};
   var added=res&&res.added||0;
-  // Never present an empty "₹0 / balanced" window as a successful sync — that hid zero-import failures.
-  if(!lineCount && !added){
-    var skip=res&&res.skipped||0;
-    alert('Tally sync finished but no Payment/Receipt lines were imported into Cashflow.\n\nAdded: 0 · Skipped: '+skip+'.\n\nCheck: bridge returns vouchers, date range covers books, cost-centre filter is blank, and Replace is only used when you intend to wipe prior Tally lines.');
+  var untaggedN=(sop.untagged||[]).length;
+  var missZ=(sop.pairingRows||[]).filter(function(r){ return r.reason==='missing_z'||(String(r.reason||'').indexOf('missing_z')>=0); }).length;
+  var wrongN=(sop.pairingRows||[]).filter(function(r){ return r.verdict==='Wrong'; }).length;
+  var ok=!!V.rule2Pass && !untaggedN && !missZ && !wrongN;
+  if(!added && !(cfg.actuals||[]).some(function(a){return a&&a.source==='tally';})){
+    alert('Tally sync finished but no voucher lines were imported.\n\nAdded: 0 · Skipped: '+(res&&res.skipped||0)+'.');
     return;
   }
-  if(!audit) return;
-  var ok=!!audit.balanced;
-  var border=ok?'#166534':'#991B1B';
-  var bg=ok?'#F0FDF4':'#FEF2F2';
-  var h='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:640px;max-width:96vw;border-top:4px solid '+border+';background:'+bg+'">';
-  h+='<h3 style="margin-top:0">Cash &amp; Cash Equivalents (CF Z) balance check</h3>';
-  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px"><strong>Objective:</strong> after Payment/Receipt sync, bank/C&amp;CE (CF Z) legs should <em>cancel</em> the other CF movement legs in this Project Group + Phase (<code>CF Z + Rest ≈ 0</code>). <strong>BAL1-1</strong> and bank autosweep are excluded. This is an import completeness check — not the monthly cashflow In−Out grid.</p>';
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">CF Z sum (signed)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.cfzSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.cfzCount+' lines)</span></div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Rest of CF sum (signed)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(audit.restSum)+' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+audit.restCount+' lines)</span></div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">BAL1-1 excluded</div><div style="font-weight:700">'+formatRupeesDisplay(audit.balSum)+' ('+audit.balCount+')</div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">CF Z + Rest</div><div style="font-weight:800;color:'+(ok?'#166534':'#991B1B')+'">'+formatRupeesDisplay(audit.deltaOpposite!=null?audit.deltaOpposite:audit.delta)+' · '+(ok?'BALANCED':'NOT CANCELLED')+(audit.ruleUsed?' <span style="font-size:10px;font-weight:600;color:var(--muted)">('+escHtml(audit.ruleUsed)+')</span>':'')+'</div></div>';
+  var border=V.rule2Pass?'#166534':'#991B1B';
+  var bg=V.rule2Pass?'#F0FDF4':'#FEF2F2';
+  var h='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:760px;max-width:96vw;max-height:90vh;overflow:auto;border-top:4px solid '+border+';background:'+bg+'">';
+  h+='<h3 style="margin-top:0">Tally SOP check — '+(V.rule2Pass?'Cashflow tallied':'Cashflow not tallied')+'</h3>';
+  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px"><strong>Inflows − Outflows</strong> (refunds netted in the L3) must equal <strong>Z Cash &amp; Cash Equivalents</strong>. Contra is Z-to-Z only (not in cashflow). BAL is excluded. Exceptions stay in the file, flagged — they are not cashflow lines.</p>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Net cashflow (In − Out)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.netCf)+'</div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Z total C&amp;CE</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.cfzL1)+'</div></div>';
+  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Difference</div><div style="font-weight:800;font-size:16px;color:'+(V.rule2Pass?'#166534':'#991B1B')+'">'+formatRupeesDisplay(V.rule2Diff)+'</div></div>';
   h+='</div>';
+  h+='<p style="font-size:11px;margin:0 0 8px">Exceptions: <strong>'+untaggedN+'</strong> untagged · <strong>'+missZ+'</strong> missing Z · <strong>'+wrongN+'</strong> wrong pairing (CF+PL / family mismatch).</p>';
+  h+='<div style="font-size:11px;font-weight:800;margin:8px 0 4px">Entry-wise voucher pairing</div>';
+  h+='<div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:10px">';
+  h+='<table class="amt-pair-tbl" style="width:100%;font-size:10px"><thead><tr><th>Date</th><th>Type</th><th>Vch</th><th>Pairing</th><th>Verdict</th></tr></thead><tbody>';
+  (sop.pairingRows||[]).slice(0,200).forEach(function(r){
+    var col=r.verdict==='Correct'?'#166534':'#991B1B';
+    h+='<tr><td>'+escHtml(r.date||'')+'</td><td>'+escHtml(r.voucherType||'')+'</td><td>'+escHtml(r.voucherNo||'')+'</td><td>'+escHtml(r.pairing||'')+'</td><td style="font-weight:800;color:'+col+'">'+escHtml(r.verdict||'')+(r.reason?(' · '+escHtml(r.reason)):'')+'</td></tr>';
+  });
+  if(!(sop.pairingRows||[]).length) h+='<tr><td colspan="5" style="color:var(--muted)">No grouped vouchers yet.</td></tr>';
+  h+='</tbody></table></div>';
   if(res){
-    h+='<p style="font-size:11px;color:var(--muted);margin:0 0 12px">Sync: +'+(res.added||0)+' · skipped '+(res.skipped||0);
-    if(res.rerouted) h+=' · re-routed '+res.rerouted+' prior line(s)';
-    if(res.routedBuildings!=null) h+=' · building '+res.routedBuildings+' · common '+res.routedCommon;
-    if(res.unmapped) h+=' · ⚠ '+res.unmapped+' unmapped';
-    h+='</p>';
+    h+='<p style="font-size:11px;color:var(--muted);margin:0 0 12px">Sync: +'+(res.added||0)+' · skipped '+(res.skipped||0)+(res.codingUnmapped?(' · unmapped master '+res.codingUnmapped):'')+'</p>';
   }
   h+='<div style="display:flex;gap:8px;flex-wrap:wrap">';
-  if(!ok){
-    h+='<button type="button" class="btn btn-primary" data-action="tally-dl-cfz-delta-xlsx">Download Excel delta</button>';
-  }else{
-    h+='<button type="button" class="btn btn-outline" data-action="tally-dl-cfz-delta-xlsx">Download Excel audit</button>';
-  }
+  h+='<button type="button" class="btn btn-primary" data-action="tally-dl-sop-xlsx">Extract exception / pairing list</button>';
   h+='<button type="button" class="btn btn-outline" data-action="close-modal">Close</button>';
   h+='</div></div></div>';
+  openModal(h);
+}
+function downloadTallySopExceptionsXlsx(){
+  var sop=window.__gaLastSopAudit;
+  if(!sop){ try{ sop=annotatePhaseTallySopRules(_curPid); }catch(e){ sop=null; } }
+  if(!sop||!window.XLSX){ alert('Pull or import Tally first, then extract.'); return; }
+  var wb=XLSX.utils.book_new();
+  var pair=[['Date','Voucher type','Voucher no','Pairing','Verdict','Reason','Lines','Has Z']];
+  (sop.pairingRows||[]).forEach(function(r){
+    pair.push([r.date,r.voucherType,r.voucherNo,r.pairing,r.verdict,r.reason,r.lineCount,r.hasZ?'Y':'N']);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pair), 'Pairing');
+  var un=[['Date','Party','Amount','Cost centre','Voucher type','Note']];
+  (sop.untagged||[]).forEach(function(a){
+    un.push([a.date,a.party,a.amount,a.costCentre,a.voucherType,String(a.note||'').slice(0,200)]);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(un), 'Untagged');
+  XLSX.writeFile(wb, 'GA_Tally_SOP_Exceptions_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+/**
+ * Verify source coverage and deterministic translation after XML/live import.
+ * CF Z is a closing-balance master, so Payment/Receipt movements must not be
+ * presented as a CF Z closing-balance reconciliation.
+ */
+function buildTallyImportIntegrity(rows, opts){
+  opts=opts||{};
+  var dates={}, vouchers={}, seen={}, duplicateRows=0, rawAbs=0;
+  (rows||[]).forEach(function(r, i){
+    if(!r) return;
+    var d=String(r.date||'').slice(0,10); if(d) dates[d]=1;
+    var vk=String(r.voucherId||'').trim()||[d,r.voucherType||'',r.voucherNo||'',normalizeTallyNarrKey(r.note||'')].join('|');
+    if(!vouchers[vk]) vouchers[vk]={net:0,type:r.voucherType||'',date:d};
+    vouchers[vk].net+=coerceMoney(r.rawAmount);
+    rawAbs+=Math.abs(coerceMoney(r.rawAmount));
+    var rk=String(r.tallyKey||buildTallyLineKey(r)||('row-'+i));
+    if(seen[rk]) duplicateRows++; else seen[rk]=1;
+  });
+  var dateList=Object.keys(dates).sort(), sourceCashControl=0;
+  Object.keys(vouchers).forEach(function(k){ sourceCashControl+=Math.abs(vouchers[k].net); });
+  var bm=opts.bridgeMeta||null;
+  var incomplete=!!(bm&&(bm.complete===false||bm.truncated===true));
+  var oneDayOnly=!!(opts.live&&opts.fromDate&&opts.toDate&&opts.fromDate!==opts.toDate&&dateList.length===1);
+  return {
+    source:opts.live?'Live Tally sync':'Uploaded XML',
+    fromDate:opts.fromDate||dateList[0]||'',
+    toDate:opts.toDate||dateList[dateList.length-1]||'',
+    dateMin:dateList[0]||'', dateMax:dateList[dateList.length-1]||'',
+    dateCount:dateList.length, voucherCount:Object.keys(vouchers).length,
+    ledgerRows:(rows||[]).length, duplicateRows:duplicateRows,
+    rawLedgerAbs:rawAbs, sourceCashControl:sourceCashControl,
+    incomplete:incomplete, oneDayOnly:oneDayOnly,
+    ok:(rows||[]).length>0&&!incomplete&&!oneDayOnly&&duplicateRows===0
+  };
+}
+function showTallyImportIntegrityAfterSync(res, audit){
+  audit=audit||(res&&res.importIntegrity);
+  if(!audit) return;
+  var ok=!!audit.ok, border=ok?'#166534':'#991B1B', bg=ok?'#F0FDF4':'#FEF2F2';
+  var h='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:660px;max-width:96vw;border-top:4px solid '+border+';background:'+bg+'">';
+  h+='<h3 style="margin-top:0">Tally import integrity · '+(ok?'VERIFIED':'ATTENTION REQUIRED')+'</h3>';
+  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px"><strong>Objective:</strong> confirm that the selected source range was fetched, each voucher ledger line was translated once, and duplicate source rows were not introduced.</p>';
+  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
+  h+='<div><strong>Source</strong><br>'+escHtml(audit.source)+'</div>';
+  h+='<div><strong>Voucher dates received</strong><br>'+escHtml(audit.dateMin||'—')+' → '+escHtml(audit.dateMax||'—')+' ('+audit.dateCount+' day(s))</div>';
+  h+='<div><strong>Vouchers / ledger rows</strong><br>'+audit.voucherCount+' / '+audit.ledgerRows+'</div>';
+  h+='<div><strong>Duplicate source rows</strong><br><span style="color:'+(audit.duplicateRows?'#991B1B':'#166534')+';font-weight:800">'+audit.duplicateRows+'</span></div>';
+  h+='<div><strong>Tally cash-movement control</strong><br>'+formatRupeesDisplay(audit.sourceCashControl)+'</div>';
+  h+='<div><strong>Translated</strong><br>added '+((res&&res.added)||0)+' · skipped '+((res&&res.skipped)||0)+'</div>';
+  h+='</div>';
+  if(audit.oneDayOnly) h+='<p style="font-size:11px;color:#991B1B;font-weight:700">Only one voucher date was returned for a multi-day request. Cashflow did not accept this as a complete live range.</p>';
+  h+='<p style="font-size:11px;line-height:1.5;color:var(--muted);margin:0 0 12px"><strong>Cash &amp; Cash Equivalents (CF Z):</strong> the accounting master defines CF Z as a <em>closing balance</em>, not a Payment/Receipt movement. Therefore CF Z is no longer compared with gross voucher legs after sync. Closing cash must be reconciled from a Tally balance/closing-balance source; this import check validates fetching and translation only.</p>';
+  h+='<div style="display:flex;gap:8px"><button type="button" class="btn btn-outline" data-action="close-modal">Close</button></div></div></div>';
   openModal(h);
 }
 function mergeTallyLinesIntoActuals(rows, opts){
@@ -3120,15 +3310,19 @@ function mergeTallyLinesIntoActuals(rows, opts){
   }
   ensureCommonAmenitiesProject(_curPid);
   var ccSub=(opts.costCentreSubstr||'').trim().toLowerCase();
-  var eligible=[], skipped=0;
-  (rows||[]).forEach(function(row){
-    if(shouldSkipTallyBankLedgerLine(row.party, row.costCentre)){skipped++;return;}
-    if(ccSub){
-      var c=(row.costCentre||'').toLowerCase();
-      if(!c||c.indexOf(ccSub)<0){skipped++;return;}
-    }
-    eligible.push({row:row,route:resolveTallyActualRoute(row,_curPid,opts.autoAllocate!==false)});
-  });
+  var eligible=[], skipped=opts._preSkipped||0;
+  if(Array.isArray(opts._prebuiltEligible)){
+    eligible=opts._prebuiltEligible;
+  }else{
+    (rows||[]).forEach(function(row){
+      if(shouldSkipTallyBankLedgerLine(row.party, row.costCentre)){skipped++;return;}
+      if(ccSub){
+        var c=(row.costCentre||'').toLowerCase();
+        if(!c||c.indexOf(ccSub)<0){skipped++;return;}
+      }
+      eligible.push({row:row,route:resolveTallyActualRoute(row,_curPid,opts.autoAllocate!==false)});
+    });
+  }
 
   var audit=compareAndStoreTallyPullFingerprint(eligible, _curPid);
 
@@ -3142,6 +3336,20 @@ function mergeTallyLinesIntoActuals(rows, opts){
       if(!Array.isArray(c.actuals)) c.actuals=[];
       var before=c.actuals.length;
       c.actuals=c.actuals.filter(function(a){return !a||a.source!=='tally';});
+      replaced+=before-c.actuals.length;
+    });
+  }else if(eligible.length && opts.purgeNonPaymentReceipt!==false){
+    scopePids.forEach(function(pid){
+      var c=getCF(pid);
+      if(!Array.isArray(c.actuals)) c.actuals=[];
+      var before=c.actuals.length;
+      c.actuals=c.actuals.filter(function(a){
+        if(!a||a.source!=='tally') return true;
+        var vt=tallyRowVoucherType(a);
+        if(isTallyCfFamilyVoucherType(vt)) return true;
+        if(/^(journal|sales|purchase|debit note|credit note|debit|credit)\b/i.test(String(vt||''))) return true;
+        return false;
+      });
       replaced+=before-c.actuals.length;
     });
   }
@@ -3200,7 +3408,12 @@ function mergeTallyLinesIntoActuals(rows, opts){
     dedupeTallyActualsPhase(_curPid);
   }catch(eDed){}
   // Persist locally first; defer Mongo PUT so large JSON stringify does not freeze the UI mid-import.
-  saveAll({full:true});
+  if(opts.deferSave){
+    saveAll({full:true, skipLocal:true});
+    gaScheduleIdle(function(){ try{ localSnapshotSave(); }catch(eLs){} }, 80);
+  }else{
+    saveAll({full:true});
+  }
   if(canUseMongoState() && opts.skipMongoFlush!==true){
     if(largeFeed || opts.deferMongoFlush){
       gaScheduleIdle(function(){ try{ mongoStatePutNow(); }catch(eFlush){} }, 120);
@@ -3208,11 +3421,6 @@ function mergeTallyLinesIntoActuals(rows, opts){
       try{ mongoStatePutNow(); }catch(eFlush){}
     }
   }
-  var balance=null;
-  try{
-    balance=computePhaseCfZVsRestBalance(_curPid, {light: largeFeed || !!opts.lightBalance});
-  }catch(eBal){ balance=null; }
-  window.__gaLastCfZBalanceAudit=balance;
   return {
     added:added,skipped:skipped,replaced:replaced,
     routedBuildings:routedBuildings,routedCommon:routedCommon,unmapped:unmapped,
@@ -3222,8 +3430,37 @@ function mergeTallyLinesIntoActuals(rows, opts){
     newVsPrior:(audit&&audit.newlyAppeared)?audit.newlyAppeared.length:0,
     hadPriorPull:!!(audit&&audit.hadPrior),
     perProject:perProject,
-    cfzBalance:balance
+    sopAudit:(function(){ try{ return annotatePhaseTallySopRules(_curPid); }catch(eS){ return null; } })()
   };
+}
+function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
+  opts=opts||{};
+  opts.deferSave=true;
+  opts.skipReroute=true;
+  var pending=(rows||[]).slice();
+  var eligible=[], skipped=0, i=0, CHUNK=35;
+  var ccSub=(opts.costCentreSubstr||'').trim().toLowerCase();
+  ensureCommonAmenitiesProject(_curPid);
+  function routeStep(){
+    if(onProgress) try{ onProgress('Routing '+Math.min(i+CHUNK, pending.length)+'/'+pending.length); }catch(eP){}
+    var end=Math.min(i+CHUNK, pending.length);
+    for(;i<end;i++){
+      var row=pending[i];
+      if(!row) continue;
+      if(shouldSkipTallyBankLedgerLine(row.party, row.costCentre)){ skipped++; continue; }
+      if(ccSub){
+        var c=(row.costCentre||'').toLowerCase();
+        if(!c||c.indexOf(ccSub)<0){ skipped++; continue; }
+      }
+      eligible.push({row:row, route:resolveTallyActualRoute(row,_curPid,opts.autoAllocate!==false)});
+    }
+    if(i<pending.length){ gaScheduleIdle(routeStep); return; }
+    opts._prebuiltEligible=eligible;
+    opts._preSkipped=skipped;
+    var res=mergeTallyLinesIntoActuals(eligible.map(function(x){return x.row;}), opts);
+    onDone(res);
+  }
+  gaScheduleIdle(routeStep);
 }
 function showTallySyncModal(){
   var s, perProjNote='';
@@ -3240,7 +3477,7 @@ function showTallySyncModal(){
   var preset=s.pullPreset||'payment_receipt';
   openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
     +'<h3>Tally Prime — live sync (local)</h3>'
-    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> HTTP :9000 and <strong>bridge v3.5+</strong> (run <code>scripts\\start-tally-bridge.bat</code>). Target ~10s pull — type-only Payment+Receipt. <strong>Cashflow owns From–To</strong>.</p>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> HTTP :9000 and <strong>bridge v3.6</strong> (run <code>scripts\\start-tally-bridge.bat</code>). Payment+Receipt are pulled in parallel and Cashflow owns From–To. Runtime depends on Tally response size; incomplete ranges are rejected without changing stored data.</p>'
     +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Replace</strong> clears old Tally lines across the selected building’s Project Group + Phase before re-routing the fresh pull. Bank/cash sides are skipped except <strong>CF Z / BAL</strong> control cost centres.</p>'
     +perProjNote
     +'<div class="field"><label>Bridge URL (shared)</label><input id="tset-bridge" type="text" value="'+escAttr(s.bridgeUrl)+'" placeholder="http://127.0.0.1:34876"/></div>'
@@ -3333,7 +3570,7 @@ function runTallyPullVouchers(){
   if(fd>td){alert('From date must be on or before To date.');return;}
   var preset=s.pullPreset||'payment_receipt';
   var label=preset==='payment_receipt'?'Payment + Receipt vouchers (dated)':'report '+s.reportId;
-  el.textContent='Requesting Tally export ('+label+', '+fd+'–'+td+'). Bridge v3.4 SSOT — Cashflow owns the date range (type pull + filter). Keep bridge window open…';
+  el.textContent='Checking Tally bridge v3.6, then requesting '+label+' for '+fd+'–'+td+'…';
   var exportBody={
     fromDate:fd,
     toDate:td,
@@ -3349,18 +3586,26 @@ function runTallyPullVouchers(){
   }
   if(s.tallySendCompany&&s.tallyCompanyName) exportBody.currentCompany=s.tallyCompanyName;
   var pullCtrl=typeof AbortController!=='undefined'?new AbortController():null;
-  var pullTimer=setTimeout(function(){ try{ if(pullCtrl) pullCtrl.abort(); }catch(eAb){} }, 12000);
-  fetch(s.bridgeUrl+'/tally/export',{
-    method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(exportBody),
-    signal:pullCtrl?pullCtrl.signal:undefined
+  var pullTimer=setTimeout(function(){ try{ if(pullCtrl) pullCtrl.abort(); }catch(eAb){} }, 90000);
+  fetch(s.bridgeUrl+'/health',{signal:pullCtrl?pullCtrl.signal:undefined}).then(function(r){
+    if(!r.ok) throw new Error('Bridge health check failed (HTTP '+r.status+').');
+    return r.json();
+  }).then(function(health){
+    var ver=Number(health&&health.version||0);
+    if(ver<3.7) throw new Error('Bridge v'+(ver||'unknown')+' is still running. Close its command window and restart scripts\\start-tally-bridge.bat (v3.7 required). No Tally data was changed.');
+    el.textContent='Bridge v'+ver+' verified. Fetching Payment, Receipt, Contra, Journal… the page will stay responsive while results arrive.';
+    return fetch(s.bridgeUrl+'/tally/export',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify(exportBody),
+      signal:pullCtrl?pullCtrl.signal:undefined
+    });
   }).then(function(r){return r.text().then(function(text){return {ok:r.ok,status:r.status,text:text,meta:r.headers.get('X-GA-Tally-Meta')};});}).then(function(resp){
     clearTimeout(pullTimer);
-    var text=resp.text;
-    window.__gaLastTallyExportRaw=text;
+    var text=resp.text||'';
     var bridgeMeta=null;
     try{ if(resp.meta) bridgeMeta=JSON.parse(resp.meta); }catch(eMeta){}
+    window.__gaLastTallyExportRaw=text.length>200000?(text.slice(0,200000)+'\n<!-- truncated for memory; original '+text.length+' chars -->'):text;
     if(!resp.ok&&text.trim().charAt(0)==='{'){
       try{
         var j=JSON.parse(text);
@@ -3369,100 +3614,100 @@ function runTallyPullVouchers(){
       }catch(e2){}
     }
     var onlyPR=preset==='payment_receipt';
-    var parsed=parseTallyXmlToLedgerLines(text, {onlyPaymentReceipt:onlyPR});
-    if(parsed.error){
-      var hint=(bridgeMeta&&bridgeMeta.hint)?(' '+bridgeMeta.hint):'';
-      if(bridgeMeta&&bridgeMeta.empty){
-        el.textContent='No Payment/Receipt vouchers returned for '+fd+'–'+td+'.'+hint+' Tip: confirm Tally company/FY covers your From–To dates, then pull again. Use Download last raw XML to inspect.';
-      }else{
-        el.textContent='Parse: '+parsed.error+hint;
-      }
-      if(text.indexOf('<')>=0) console.warn('Tally raw (first 2k):', text.slice(0,2000));
-      return;
-    }
-    var filt=onlyPR?filterTallyRowsPaymentReceiptOnly(parsed.rows||[]):{rows:(parsed.rows||[]).slice(),skippedType:0,skippedBank:0};
-    var dateFilt=filterTallyRowsByCashflowDateRange(filt.rows, fd, td);
-    var rows=dateFilt.rows;
-    if(!rows.length){
-      el.textContent='Tally returned XML but 0 lines inside Cashflow range '+fd+'–'+td
-        +(filt.skippedType?(' · skipped type '+filt.skippedType):'')
-        +(filt.skippedBank?(' · skipped bank '+filt.skippedBank):'')
-        +(dateFilt.skippedDate?(' · outside range '+dateFilt.skippedDate):'')
-        +'. Restart bridge v3.5 (scripts\\start-tally-bridge.bat). Check company/FY in Tally.';
-      return;
-    }
-    window.__gaLastTallyExportRaw=(text&&text.length>TALLY_XML_DOM_MAX_CHARS)?(text.slice(0,500000)+'\n<!-- truncated for memory; original '+text.length+' chars -->'):text;
-    window.__gaLastTallyExportMeta={
-      preset:preset,
-      reportId:s.reportId,
-      fromDate:fd,
-      toDate:td,
-      sendCompanyToTally:!!s.tallySendCompany,
-      currentCompany:(s.tallySendCompany&&s.tallyCompanyName)?s.tallyCompanyName:'',
-      pulledAt:new Date().toISOString(),
-      bridgeMeta:resp.meta||null,
-      onlyPaymentReceipt:onlyPR,
-      filteredOutType:filt.skippedType||0,
-      filteredOutBank:filt.skippedBank||0,
-      parseMode:parsed.parseMode||'',
-      parsedRows:(parsed.rows||[]).length
-    };
-    window.__gaLastTallyParsedRows=rows.slice(0,5000);
-    var largeLive=rows.length>=600 || (text&&text.length>800000);
-    var res=mergeTallyLinesIntoActuals(rows,{
-      replaceTally:s.replaceTally,
-      costCentreSubstr:s.costCentreSubstr,
-      onlyPaymentReceipt:false, // already filtered above — avoid double voucher-type drop
-      autoAllocate:s.autoAllocate!==false,
-      skipReroute:!!largeLive,
-      deferMongoFlush:!!largeLive,
-      lightBalance:!!largeLive
-    });
-    try{ text=null; }catch(eTxt){}
-    var metaHint='';
-    try{
-      if(resp.meta){
-        var m=JSON.parse(resp.meta);
-        if(m&&m.voucherCount!=null) metaHint=' · vouchers≈'+m.voucherCount+(m.dateMin&&m.dateMax?(' · dates '+m.dateMin+'→'+m.dateMax):'');
-        if(m&&m.version!=null) metaHint+=' · bridge v'+m.version;
-        if(m&&m.truncated) metaHint+=' ⚠ Bridge reported truncated date span vs '+fd+'–'+td;
-        if(m&&m.version!=null && Number(m.version)<3.5) metaHint+=' ⚠ Old bridge v'+m.version+' — restart scripts\\start-tally-bridge.bat (need v3.5)';
-        if(m&&m.hint&&!rows.length) metaHint+=' · '+m.hint;
-      }
-    }catch(e3){}
-    if(dateFilt.skippedDate) metaHint+=' · dropped '+dateFilt.skippedDate+' outside '+fd+'–'+td;
-    if(onlyPR) metaHint+=' · Payment/Receipt only (Journal/Contra/bank sides dropped)';
-    if(String(fd)!==String(td)){
-      try{
-        var bm=typeof bridgeMeta==='object'&&bridgeMeta?bridgeMeta:(resp.meta?JSON.parse(resp.meta):null);
-        if(bm&&bm.dateMin&&bm.dateMax&&(String(bm.dateMin)===String(bm.dateMax))){
-          metaHint+=' ⚠ Only one voucher day ('+bm.dateMin+') inside range '+fd+'–'+td+' — if mid-range vouchers exist in Tally Day Book, export Payment.xml+Receipts.xml for the period and Import XML';
+    var mb=(text.length/1e6).toFixed(1);
+    el.textContent='Received '+mb+' MB from Tally. Parsing in small slices so Chrome stays responsive…';
+    parseTallyXmlToLedgerLinesAsync(text, {onlyPaymentReceipt:onlyPR}, function(p){
+      el.textContent='Parsing Tally vouchers '+p.done+'/'+p.total+' · '+p.rows+' ledger lines (page stays usable)…';
+    }, function(parsed){
+      try{ text=null; resp.text=null; }catch(eTxt){}
+      if(parsed.error){
+        var hint=(bridgeMeta&&bridgeMeta.hint)?(' '+bridgeMeta.hint):'';
+        if(bridgeMeta&&bridgeMeta.empty){
+          el.textContent='No Payment/Receipt vouchers returned for '+fd+'–'+td+'.'+hint+' Tip: confirm Tally company/FY covers your From–To dates, then pull again.';
+        }else{
+          el.textContent='Parse: '+parsed.error+hint;
         }
-      }catch(eSpan){}
-    }
-    if(parsed.parseMode) metaHint+=' · parse:'+parsed.parseMode;
-    if(rows.length<=5 && fd!==td){
-      metaHint+=' ⚠ Very few Payment/Receipt lines — restart bridge v3 (start-tally-bridge.bat) and confirm Tally HTTP :9000.';
-    }
-    if(!s.replaceTally) metaHint+=' · Tip: tick Replace to clear old Journal/Contra imports';
-    if(s.autoAllocate!==false){
-      metaHint+=' · Auto-routed: '+res.routedBuildings+' building, '+res.routedCommon+' common';
-      if(res.unmapped) metaHint+=' · ⚠ '+res.unmapped+' unmapped cost centre (kept on selected project)';
-    }
-    if(res.codingUnmapped) metaHint+=' · ⚠ '+res.codingUnmapped+' line(s) with no master L1 (highlighted Unmapped)';
-    if(res.hadPriorPull) metaHint+=' · vs prior upload: '+res.missedVsPrior+' missing, '+res.newVsPrior+' new (Excel available)';
-    if(res.replaced) metaHint+=' · replaced '+res.replaced+' prior Tally line(s)';
-    if(res.rerouted) metaHint+=' · re-routed '+res.rerouted+' prior line(s)';
-    if(res.cfzBalance) metaHint+=' · CF Z vs rest: '+(res.cfzBalance.balanced?'balanced':'DELTA '+formatRupeesDisplay(res.cfzBalance.delta));
-    el.textContent='✓ Added '+res.added+' Payment/Receipt line(s). Skipped '+res.skipped+'.'+metaHint;
-    closeModal();
-    renderTab(_curTab);
-    refreshProjectCashflowViews();
-    showCfZBalanceAfterSync(res);
+        return;
+      }
+      var filt=onlyPR?filterTallyRowsPaymentReceiptOnly(parsed.rows||[]):{rows:(parsed.rows||[]).slice(),skippedType:0,skippedBank:0};
+      var dateFilt=filterTallyRowsByCashflowDateRange(filt.rows, fd, td);
+      var rows=dateFilt.rows;
+      if(!rows.length){
+        el.textContent='Tally returned XML but 0 lines inside Cashflow range '+fd+'–'+td
+          +(filt.skippedType?(' · skipped type '+filt.skippedType):'')
+          +(filt.skippedBank?(' · skipped bank '+filt.skippedBank):'')
+          +(dateFilt.skippedDate?(' · outside range '+dateFilt.skippedDate):'')
+          +'. Restart bridge v3.6 (scripts\\start-tally-bridge.bat). Check company/FY in Tally.';
+        return;
+      }
+      var integrity=buildTallyImportIntegrity(rows,{live:true,fromDate:fd,toDate:td,bridgeMeta:bridgeMeta});
+      if(integrity.incomplete||integrity.oneDayOnly){
+        el.textContent=integrity.oneDayOnly
+          ? 'Live sync rejected: Tally returned only '+(integrity.dateMin||'one date')+' for multi-day range '+fd+'–'+td+'. Existing Cashflow data was left unchanged. Restart bridge v3.6 and retry; if Tally still supplies one date, import the period XML.'
+          : 'Live sync rejected: the bridge reported an incomplete Payment/Receipt source response. Existing Cashflow data was left unchanged. Keep Tally open, restart bridge v3.6, and retry.';
+        showTallyImportIntegrityAfterSync({added:0,skipped:0},integrity);
+        return;
+      }
+      window.__gaLastTallyExportMeta={
+        preset:preset,
+        reportId:s.reportId,
+        fromDate:fd,
+        toDate:td,
+        sendCompanyToTally:!!s.tallySendCompany,
+        currentCompany:(s.tallySendCompany&&s.tallyCompanyName)?s.tallyCompanyName:'',
+        pulledAt:new Date().toISOString(),
+        bridgeMeta:resp.meta||null,
+        onlyPaymentReceipt:onlyPR,
+        filteredOutType:filt.skippedType||0,
+        filteredOutBank:filt.skippedBank||0,
+        parseMode:parsed.parseMode||'',
+        parsedRows:(parsed.rows||[]).length
+      };
+      window.__gaLastTallyParsedRows=rows.slice(0,5000);
+      el.textContent='Routing '+rows.length+' ledger line(s) into Cashflow…';
+      mergeTallyLinesIntoActualsAsync(rows,{
+        replaceTally:s.replaceTally,
+        costCentreSubstr:s.costCentreSubstr,
+        onlyPaymentReceipt:false,
+        autoAllocate:s.autoAllocate!==false,
+        skipReroute:true,
+        deferMongoFlush:true,
+        lightBalance:true,
+        deferSave:true
+      }, function(msg){ el.textContent=msg; }, function(res){
+        res.importIntegrity=integrity;
+        var metaHint='';
+        try{
+          if(resp.meta){
+            var m=JSON.parse(resp.meta);
+            if(m&&m.voucherCount!=null) metaHint=' · vouchers≈'+m.voucherCount+(m.dateMin&&m.dateMax?(' · dates '+m.dateMin+'→'+m.dateMax):'');
+            if(m&&m.version!=null) metaHint+=' · bridge v'+m.version;
+            if(m&&m.truncated) metaHint+=' ⚠ Bridge reported truncated date span vs '+fd+'–'+td;
+          }
+        }catch(e3){}
+        if(dateFilt.skippedDate) metaHint+=' · dropped '+dateFilt.skippedDate+' outside '+fd+'–'+td;
+        if(onlyPR) metaHint+=' · Payment/Receipt only';
+        if(parsed.parseMode) metaHint+=' · parse:'+parsed.parseMode;
+        if(s.autoAllocate!==false){
+          metaHint+=' · Auto-routed: '+res.routedBuildings+' building, '+res.routedCommon+' common';
+          if(res.unmapped) metaHint+=' · ⚠ '+res.unmapped+' unmapped cost centre';
+        }
+        if(res.codingUnmapped) metaHint+=' · ⚠ '+res.codingUnmapped+' unmapped master line(s)';
+        if(res.replaced) metaHint+=' · replaced '+res.replaced+' prior Tally line(s)';
+        metaHint+=' · integrity '+(integrity.ok?'verified':'attention');
+        el.textContent='✓ Added '+res.added+' Payment/Receipt line(s). Skipped '+res.skipped+'.'+metaHint;
+        closeModal();
+        gaScheduleIdle(function(){
+          renderTab(_curTab);
+          refreshProjectCashflowViews();
+          showCfZBalanceAfterSync(res);
+        }, 40);
+      });
+    });
   }).catch(function(e){
     try{ clearTimeout(pullTimer); }catch(eT){}
     var msg=e&&e.message||e;
-    if(e&&e.name==='AbortError') msg='Timed out (~12s). Restart bridge v3.5 (scripts\\start-tally-bridge.bat) and pull again.';
+    if(e&&e.name==='AbortError') msg='Timed out waiting for Tally. Keep the bridge window open, confirm Tally HTTP :9000, and pull again. Existing data was not changed.';
     el.textContent='Error: '+msg+(isNetworkOrBridgeFetchFailure(e)?tallyBridgeUnreachableHint(s.bridgeUrl):'');
   });
 }
@@ -4695,7 +4940,7 @@ function saveAll(opts){
   }else{
     markMongoDirtyPid(_curPid);
   }
-  localSnapshotSave();
+  if(opts.skipLocal!==true) localSnapshotSave();
   if(canUseMongoState()) scheduleMongoStateSave();
   scheduleCfCloudPush();
 }
@@ -5023,7 +5268,14 @@ function migrateReclassifyTallyActuals(){
       cfg.actuals.forEach(function(a){
         if(!a||a.source!=='tally') return;
         // Sticky coding: once Cashflow-coded for this CF version, don't reshuffle on every refresh.
-        if(a.codingAuthority==='cashflow' && Number(a._cfCodingVer)===CF_VERSION) return;
+        var vtEarly=a.voucherType||extractTallyVoucherType(a.note);
+        var stickyOk=a.codingAuthority==='cashflow' && Number(a._cfCodingVer)===CF_VERSION;
+        if(stickyOk){
+          var signed=coerceMoney(a.amount);
+          var paymentStoredAsIn= /^payment\b/i.test(String(vtEarly||'')) && signed>0;
+          var receiptStoredAsOut= /^receipt\b/i.test(String(vtEarly||'')) && signed<0;
+          if(!paymentStoredAsIn && !receiptStoredAsOut) return;
+        }
         var cc=a.costCentre||'';
         var scope=inferAcctScopeFromText((a.party||'')+' '+(a.note||'')+' '+cc, cc);
         var cl=classifyTallyLineFromText((a.party||'')+' '+(a.note||'')+' '+cc, a.party||'', a.amount||0, scope, bPrefix, cc);
@@ -5044,12 +5296,21 @@ function migrateReclassifyTallyActuals(){
         if(Number(a._cfCodingVer)!==CF_VERSION){ a._cfCodingVer=CF_VERSION; touched=true; }
         var mag=Math.abs(coerceMoney(a.amount));
         if(mag>0){
-          var desired=sot.isInflow?mag:-mag;
+          var desired=isTallyContraType(vt)?coerceMoney(a.tallyRawAmount!=null?a.tallyRawAmount:a.amount):(sot.isInflow?mag:-mag);
           if(coerceMoney(a.amount)!==desired){ a.amount=desired; touched=true; }
         }
       });
     });
   }catch(e){}
+  try{
+    var seenPh={};
+    Object.keys(_cfData||{}).forEach(function(pid){
+      var k=tallyPhaseFingerprintKey(pid);
+      if(seenPh[k]) return;
+      seenPh[k]=1;
+      annotatePhaseTallySopRules(pid);
+    });
+  }catch(eSopM){}
   return touched;
 }
 /** Cheap per-project Tally feed fingerprint (avoid full workbook JSON.stringify on load). */
@@ -7307,10 +7568,103 @@ function isAutosweepBankLine(a){
   if(/sweep.*transfer|transfer.*sweep/i.test(b)) return true;
   return false;
 }
+/** SOP: CF vs PL from the cost-centre name (CF / PL as its own word). */
+function tallyCostCentreTagFamily(name){
+  var s=String(name||'').trim();
+  if(!s) return 'none';
+  if(/^(CF)\s/i.test(s) || /\sCF\s/.test(' '+s+' ') || /^CM\s+CF\b/i.test(s) || /^[A-Z]\s+CF\b/i.test(s) || /^CF\s*Z\b/i.test(s) || /^CF\s*BAL/i.test(s)) return 'CF';
+  if(/^(PL)\s/i.test(s) || /\sPL\s/.test(' '+s+' ') || /^CM\s+PL\b/i.test(s) || /^PL\s/i.test(s)) return 'PL';
+  if(/^BAL\b/i.test(s) && /cashflow/i.test(s)) return 'CF';
+  if(/^BAL\b/i.test(s) || /payables/i.test(s)) return 'PL';
+  return 'none';
+}
+function tallyVoucherGroupKey(a){
+  if(!a) return '';
+  var vid=String(a.voucherId||'').trim();
+  if(vid) return 'id:'+vid.toLowerCase();
+  return ['d:'+String(a.date||'').slice(0,10), 't:'+String(a.voucherType||extractTallyVoucherType(a.note)||'').toLowerCase(), 'n:'+String(a.voucherNo||'').toLowerCase()].join('|');
+}
+function isBalExcludedLine(a){
+  if(!a) return false;
+  if(isBalResiduaryCashflowLine(a)) return true;
+  var mk=String(a.masterKey||'');
+  if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && mk && GA_ACCT_L3_BY_CODE[mk] && String(GA_ACCT_L3_BY_CODE[mk].l1||'')==='BAL') return true;
+  if(/^BAL\b/i.test(String(a.costCentre||'').trim())) return true;
+  if(/\bCM\s+PL\s+BAL\b/i.test(String(a.costCentre||''))) return true;
+  if(/balancing\s*(cashflow|p&l|p and l)|residuary ledger|je adj/i.test(normCcBlob(actualCostCenterMatchBlob(a)))) return true;
+  return false;
+}
+function isL3InflowNature(a){
+  if(!a) return false;
+  var mf=masterFlowForActual(a);
+  if(mf==='in') return true;
+  if(mf==='out'||mf==='cash'||mf==='exclude'||mf==='pl_only') return false;
+  return isCashflowInflowCat(a.cat1);
+}
+/**
+ * Flag voucher pairing + missing Z / untagged. Lines stay in the dataset.
+ * Cashflow sums only use Payment/Receipt category lines that pass SOP.
+ */
+function annotatePhaseTallySopRules(sourcePid){
+  var phase=tallyPhaseProjects(sourcePid||_curPid);
+  var groups={};
+  (phase||[]).forEach(function(p){
+    (getCF(p.id).actuals||[]).forEach(function(a){
+      if(!a||a.source!=='tally') return;
+      var k=tallyVoucherGroupKey(a);
+      if(!k) return;
+      if(!groups[k]) groups[k]={lines:[], vt:'', date:'', vno:''};
+      groups[k].lines.push(a);
+      groups[k].vt=groups[k].vt||String(a.voucherType||extractTallyVoucherType(a.note)||'');
+      groups[k].date=groups[k].date||String(a.date||'').slice(0,10);
+      groups[k].vno=groups[k].vno||String(a.voucherNo||'');
+    });
+  });
+  var pairingRows=[], missingZ=[], untagged=[], mixed=[];
+  Object.keys(groups).forEach(function(k){
+    var g=groups[k], fam={CF:0,PL:0,none:0}, hasZ=false, hasCat=false;
+    g.lines.forEach(function(a){
+      var fam1=tallyCostCentreTagFamily(a.costCentre);
+      fam[fam1]=(fam[fam1]||0)+1;
+      if(isCfZCashEquivalentsLine(a)||isCfZCashEquivalentsCostCentreName(a.costCentre)) hasZ=true;
+      if(!String(a.costCentre||'').trim()) untagged.push(a);
+      if(!isCfZCashEquivalentsLine(a) && !isBalExcludedLine(a) && String(a.costCentre||'').trim()) hasCat=true;
+    });
+    var vt=g.vt;
+    var pairing='', verdict='', reason='';
+    if(fam.CF && fam.PL){ pairing='CF + PL'; verdict='Wrong'; reason='mixed_pair'; }
+    else if(fam.CF && !fam.PL){ pairing='CF + CF'; verdict=isTallyCfFamilyVoucherType(vt)?'Correct':'Wrong'; reason=verdict==='Wrong'?'cf_on_pl_voucher':''; }
+    else if(fam.PL && !fam.CF){ pairing='PL + PL'; verdict=isTallyCfFamilyVoucherType(vt)?'Wrong':'Correct'; reason=verdict==='Wrong'?'pl_on_cf_voucher':''; }
+    else { pairing='untagged'; verdict='Wrong'; reason='no_cost_centre'; }
+    if(isTallyPaymentOrReceiptType(vt) && !hasZ){ reason=reason||'missing_z'; }
+    if(isTallyContraType(vt) && pairing==='CF + CF'){ verdict='Correct'; reason=reason==='missing_z'?'':reason; }
+    var includeCf=isTallyPaymentOrReceiptType(vt) && verdict==='Correct' && hasZ && !reason;
+    g.lines.forEach(function(a){
+      a.tallyPairing=pairing;
+      a.tallyPairingVerdict=verdict;
+      a.tallyException=reason||'';
+      var lineUntagged=!String(a.costCentre||'').trim();
+      if(lineUntagged) a.tallyException=a.tallyException||'no_cost_centre';
+      var zLine=isCfZCashEquivalentsLine(a)||isCfZCashEquivalentsCostCentreName(a.costCentre);
+      var balLine=isBalExcludedLine(a);
+      a.tallyIncludeInCashflow=!!(includeCf && !zLine && !balLine && !lineUntagged && !isTallyContraType(vt));
+    });
+    pairingRows.push({key:k, voucherType:vt, date:g.date, voucherNo:g.vno, pairing:pairing, verdict:verdict, reason:reason||'', lineCount:g.lines.length, hasZ:hasZ, hasCat:hasCat});
+    if(reason==='missing_z' || (isTallyPaymentOrReceiptType(vt) && !hasZ)) missingZ.push(g);
+    if(verdict==='Wrong' && pairing==='CF + PL') mixed.push(g);
+  });
+  var audit={pairingRows:pairingRows, missingZ:missingZ, untagged:untagged, mixed:mixed, at:Date.now()};
+  window.__gaLastSopAudit=audit;
+  return audit;
+}
 /** Why a line is kept out of Total Inflow / Total Outflow (entry still stored). */
 function cashflowMovementExclusionReason(a){
   if(!a) return '';
-  if(isBalResiduaryCashflowLine(a)) return 'bal';
+  if(a.tallyIncludeInCashflow===false || a.tallyException) return a.tallyException||'exception';
+  var vt=a.voucherType||extractTallyVoucherType(a.note);
+  if(isTallyContraType(vt)) return 'contra';
+  if(vt && !isTallyPaymentOrReceiptType(vt)) return 'pl_voucher';
+  if(isBalExcludedLine(a)||isBalResiduaryCashflowLine(a)) return 'bal';
   if(isCfZCashEquivalentsLine(a)) return 'cfz';
   if(isAutosweepBankLine(a)) return 'autosweep';
   return '';
@@ -7354,8 +7708,9 @@ function sumCashflowMovementInOut(actuals, opts){
     if(why==='bal'){ exclBal+=amt; return; }
     if(why==='cfz'){ exclCfz+=amt; return; }
     if(why==='autosweep'){ exclAuto+=amt; return; }
-    if(amt>=0){ inflow+=amt; nIn++; }
-    else { outflow+=Math.abs(amt); nOut++; }
+    if(why) return;
+    if(isL3InflowNature(a)){ inflow+=amt; nIn++; }
+    else { outflow+=(-amt); nOut++; }
   });
   return {inflow:inflow, outflow:outflow, nIn:nIn, nOut:nOut, exclBal:exclBal, exclCfz:exclCfz, exclAuto:exclAuto};
 }
@@ -7371,15 +7726,16 @@ function computeCashflowValidation(cfg, opts){
   var bs=bsHas?coerceMoney(bsRaw):null;
   var rule1Diff=bsHas?(bs-cfzL1):null;
   var rule1Pass=bsHas&&Math.abs(rule1Diff)<0.005;
-  var rule2Diff=mov.inflow-mov.outflow+cfzL1;
-  var rule2Pass=Math.abs(rule2Diff)<0.005;
-  var finalOk=rule1Pass&&rule2Pass;
+  var netCf=mov.inflow-mov.outflow;
+  var rule2Diff=netCf-cfzL1;
+  var rule2Pass=Math.abs(rule2Diff)<0.05;
+  var finalOk=rule2Pass;
   return {
-    mov:mov, cfz:cfz, cfzL1:cfzL1,
+    mov:mov, cfz:cfz, cfzL1:cfzL1, netCf:netCf,
     bsCashBankBalance:bs, bsEntered:bsHas,
     rule1Diff:rule1Diff, rule1Pass:rule1Pass, rule1Ready:bsHas,
     rule2Diff:rule2Diff, rule2Pass:rule2Pass,
-    finalOk:finalOk, finalReady:bsHas
+    finalOk:finalOk, finalReady:true
   };
 }
 function htmlCashflowValidationPanel(cfg){
@@ -7395,14 +7751,14 @@ function htmlCashflowValidationPanel(cfg){
   var h='';
   h+='<div class="card" style="margin:4px 0 12px;border-left:4px solid '+(V.finalOk?'#166534':(V.finalReady?'#991B1B':'#A07800'))+';background:#F8FAFF">';
   h+='<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">';
-  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Cashflow validation (CA Rule 1 + Rule 2)</div>';
-  h+=badge(V.finalOk, V.finalReady, 'CORRECT', 'INCORRECT / NOT RECONCILED', 'ENTER BS BALANCE');
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Cashflow vs Z (SOP tally)</div>';
+  h+=badge(V.finalOk, true, 'TALLIED', 'NOT TALLIED', 'PENDING');
   h+='</div>';
-  h+='<div style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:10px">Movements exclude <strong>BAL1-1 MISC Residuary for Cashflow</strong> and all <strong>CF Z Cash &amp; Cash Equivalents</strong> lines (amount-only; voucher kept). CF Z is closing cash only — not inflow/outflow.</div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:10px">Inflows − Outflows (L3 nature, refunds netted) must equal <strong>Z Cash &amp; Cash Equivalents</strong> (Contra is Z-to-Z only). BAL, untagged, missing-Z, and mixed CF+PL lines stay in the file as exceptions.</div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-bottom:10px;font-size:11px">';
   h+='<div><div style="font-size:9px;color:var(--muted);font-weight:700">Total Inflow (excl. CF Z / BAL)</div><div style="font-weight:800;color:var(--green-b)">'+cr(V.mov.inflow,'₹0')+'</div></div>';
   h+='<div><div style="font-size:9px;color:var(--muted);font-weight:700">Total Outflow (excl. CF Z / BAL)</div><div style="font-weight:800;color:var(--red-b)">'+cr(V.mov.outflow,'₹0')+'</div></div>';
-  h+='<div><div style="font-size:9px;color:var(--muted);font-weight:700">CF Z L1 Total (closing C&amp;CE)</div><div style="font-weight:800">'+cr(V.cfzL1,'₹0')+' <span style="font-size:9px;color:var(--muted)">('+V.cfz.count+' lines)</span></div></div>';
+  h+='<div><div style="font-size:9px;color:var(--muted);font-weight:700">Z total C&amp;CE (incl. Contra Z-to-Z)</div><div style="font-weight:800">'+cr(V.cfzL1,'₹0')+' <span style="font-size:9px;color:var(--muted)">('+V.cfz.count+' lines)</span></div></div>';
   h+='<div><label class="fld-lbl">Balance Sheet Cash &amp; Bank (₹)</label>';
   h+='<input type="number" step="0.01" data-action="upd-cfg" data-key="bsCashBankBalance" class="cap-inp" style="width:100%;max-width:220px" value="'+(V.bsEntered?escAttr(String(V.bsCashBankBalance)):'')+'" placeholder="Enter BS closing"/></div>';
   h+='</div>';
@@ -7412,8 +7768,8 @@ function htmlCashflowValidationPanel(cfg){
   h+='<div style="font-size:10px;color:var(--muted);line-height:1.4">BS − CF Z L1 = '+(V.rule1Ready?cr(V.rule1Diff,'+0'):'—')+'</div>';
   h+='</div>';
   h+='<div style="padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:#fff">';
-  h+='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px"><strong style="font-size:11px;color:var(--blue-b)">Rule 2 — In − Out + CF Z = 0</strong>'+badge(V.rule2Pass,true,'PASSED / BALANCED','FAILED / NOT BALANCED')+'</div>';
-  h+='<div style="font-size:10px;color:var(--muted);line-height:1.4">Difference = '+cr(V.rule2Diff,'+0')+'</div>';
+  h+='<div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px"><strong style="font-size:11px;color:var(--blue-b)">Tally — In − Out = Z</strong>'+badge(V.rule2Pass,true,'TALLIED','NOT TALLIED')+'</div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.4">Net cashflow '+cr(V.netCf,'+0')+' vs Z '+cr(V.cfzL1,'+0')+' · difference '+cr(V.rule2Diff,'+0')+'</div>';
   h+='</div></div>';
   if(V.mov.exclBal||V.mov.exclCfz||V.mov.exclAuto){
     h+='<div style="font-size:9px;color:var(--muted);margin-top:4px">Excluded from movements (kept in ledger): BAL residuary '+cr(V.mov.exclBal,'₹0')+' · CF Z '+cr(V.mov.exclCfz,'₹0')+' · other autosweep '+cr(V.mov.exclAuto,'₹0')+'</div>';
@@ -10552,6 +10908,8 @@ function renderExpenses(){
 
   if(_expenseUIPanel==='dashboard'){
     var dashFilt={from:_dashFrom,to:_dashTo,cat1:_dashCat1};
+    try{ annotatePhaseTallySopRules(_curPid); }catch(eSop){}
+    h+=htmlExpenseSopReconcileTable(cfg, dashFilt);
     h+=htmlExpenseDashFilterBar(acts);
     h+=htmlExpenseMetricsDashboard(cfg, dashFilt);
     var actsOut=acts.filter(function(a){ return isExpenseDashboardOutflow(a)&&actualMatchesExpenseDashFilter(a,dashFilt); });
@@ -10578,7 +10936,9 @@ function renderExpenses(){
         party:String(a.party||'').trim()||'—',
         note:note,
         amount:mag,
-        costCentre:cc
+        costCentre:cc,
+        tallyException:a.tallyException||'',
+        tallyPairingVerdict:a.tallyPairingVerdict||''
       });
     });
     var catRows=Object.keys(byCat).sort(function(a,b){return byCat[b]-byCat[a];});
@@ -10670,7 +11030,10 @@ function renderExpenses(){
             var narShort=nar.length>90?nar.slice(0,90)+'…':nar;
             var label=escHtml(String(ln.date||'').slice(0,10))+' · <strong style="color:var(--slate)">'+escHtml(ln.party||'—')+'</strong>';
             if(narShort) label+=' <span style="color:var(--muted)">— '+escHtml(narShort)+'</span>';
-            h+='<tr><td style="padding-left:52px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+'</td><td class="amt" style="font-size:9px">'+cr(ln.amount)+'</td></tr>';
+            var ex=ln.tallyException||'';
+            var trSt=ex?'background:#FEF3C7;':'';
+            var flag=ex?' <span style="color:#B45309;font-weight:800">SOP '+escHtml(ex)+'</span>':'';
+            h+='<tr style="'+trSt+'"><td style="padding-left:52px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+flag+'</td><td class="amt" style="font-size:9px">'+cr(ln.amount)+'</td></tr>';
           });
           if(lines.length>lineCap){
             h+='<tr><td colspan="2" style="padding-left:52px;font-size:9px;color:var(--muted)">Showing '+lineCap+' of '+lines.length+' voucher lines (narrow date/category filters to see more).</td></tr>';
@@ -11894,37 +12257,51 @@ function importTallyXmlBatch(filePayloads){
     gaScheduleIdle(function(){
       try{
         var sync=getTallySyncForPull();
-        var large=allRows.length>=600 || totalChars>800000;
-        var res=mergeTallyLinesIntoActuals(allRows,{
+        var fd=tallyDd(sync.fromDate), td=tallyDd(sync.toDate);
+        if(fd.length===8 && td.length===8){
+          var xmlDateFilt=filterTallyRowsByCashflowDateRange(allRows, fd, td);
+          if(xmlDateFilt.skippedDate) errors.push('Dropped '+xmlDateFilt.skippedDate+' line(s) outside Cashflow From–To '+fd+'–'+td);
+          allRows=xmlDateFilt.rows;
+        }
+        if(!allRows.length){
+          closeModal();
+          alert('No Payment/Receipt lines inside the Cashflow From–To date range.'+(errors.length?'\n\n'+errors.join('\n'):''));
+          return;
+        }
+        var integrity=buildTallyImportIntegrity(allRows,{live:false,fromDate:fd,toDate:td});
+        mergeTallyLinesIntoActualsAsync(allRows,{
           replaceTally:!!sync.replaceTally,
           costCentreSubstr:sync.costCentreSubstr||'',
           onlyPaymentReceipt:false,
           autoAllocate:sync.autoAllocate!==false,
-          skipReroute:!!large,
-          deferMongoFlush:!!large,
-          lightBalance:!!large
+          skipReroute:true,
+          deferMongoFlush:true,
+          lightBalance:true,
+          deferSave:true
+        }, function(msg){ if(msgEl()) msgEl().textContent=msg; }, function(res){
+          res.importIntegrity=integrity;
+          window.__gaLastTallyExportRaw=previewRaw||'';
+          window.__gaLastTallyExportMeta={
+            reportId:'uploaded-xml-batch',
+            fromDate:fd||'',
+            toDate:td||'',
+            sendCompanyToTally:false,
+            currentCompany:'',
+            pulledAt:new Date().toISOString(),
+            files:fileStats,
+            onlyPaymentReceipt:true,
+            errors:errors,
+            largeImport:true
+          };
+          window.__gaLastTallyParsedRows=allRows.slice(0,5000);
+          allRows=null;
+          closeModal();
+          gaScheduleIdle(function(){
+            renderTab(_curTab);
+            refreshProjectCashflowViews();
+            showCfZBalanceAfterSync(res);
+          }, 40);
         });
-        window.__gaLastTallyExportRaw=previewRaw||'';
-        window.__gaLastTallyExportMeta={
-          reportId:'uploaded-xml-batch',
-          fromDate:'',
-          toDate:'',
-          sendCompanyToTally:false,
-          currentCompany:'',
-          pulledAt:new Date().toISOString(),
-          files:fileStats,
-          onlyPaymentReceipt:true,
-          errors:errors,
-          largeImport:!!large
-        };
-        window.__gaLastTallyParsedRows=allRows.slice(0,5000);
-        allRows=null;
-        closeModal();
-        gaScheduleIdle(function(){
-          renderTab(_curTab);
-          refreshProjectCashflowViews();
-          showCfZBalanceAfterSync(res);
-        }, 40);
       }catch(eImp){
         closeModal();
         alert('Tally XML import failed: '+(eImp&&eImp.message||eImp)+'\n\nIf the file is very large, export Payment+Receipt only or split by month.');
@@ -11950,18 +12327,22 @@ function importTallyXmlBatch(filePayloads){
           errors.push((fp.name||'file')+': not Tally XML (expected voucher or Cash Flow statement export)');
           parseNext(); return;
         }
-        var parsed=parseTallyXmlToLedgerLines(text, {onlyPaymentReceipt:true});
-        if(!previewRaw && text) previewRaw=text.length>400000?(text.slice(0,400000)+'\n<!-- truncated -->'):text;
-        text=null;
-        if(parsed.error){ errors.push((fp.name||'file')+': '+parsed.error); parseNext(); return; }
-        var rows=parsed.rows||[];
-        if(!rows.length){ errors.push((fp.name||'file')+': no Payment/Receipt ledger lines'); parseNext(); return; }
-        fileStats.push({name:fp.name||'file', count:rows.length, format:parsed.format||'voucher', parseMode:parsed.parseMode||''});
-        allRows=allRows.concat(rows);
+        if(!previewRaw && text) previewRaw=text.length>200000?(text.slice(0,200000)+'\n<!-- truncated -->'):text;
+        parseTallyXmlToLedgerLinesAsync(text, {onlyPaymentReceipt:true}, function(p){
+          if(msgEl()) msgEl().textContent='Parsing '+nFile+'/'+filePayloads.length+': '+(fp.name||'file')+' · '+p.done+'/'+p.total+' vouchers';
+        }, function(parsed){
+          text=null;
+          if(parsed.error){ errors.push((fp.name||'file')+': '+parsed.error); parseNext(); return; }
+          var rows=parsed.rows||[];
+          if(!rows.length){ errors.push((fp.name||'file')+': no Payment/Receipt ledger lines'); parseNext(); return; }
+          fileStats.push({name:fp.name||'file', count:rows.length, format:parsed.format||'voucher', parseMode:parsed.parseMode||''});
+          allRows=allRows.concat(rows);
+          parseNext();
+        });
       }catch(eOne){
         errors.push((fp.name||'file')+': '+(eOne&&eOne.message||eOne));
+        parseNext();
       }
-      parseNext();
     });
   }
   gaScheduleIdle(parseNext, 20);
@@ -13477,6 +13858,7 @@ document.addEventListener('click',function(e){
   if(a==='tally-dl-parsed-tsv')     { downloadGaTallyParsedTsv(); return; }
   if(a==='tally-dl-missed-xlsx')    { downloadTallyMissedEntriesXlsx(); return; }
   if(a==='tally-dl-cfz-delta-xlsx') { downloadCfZVsRestDeltaXlsx(); return; }
+  if(a==='tally-dl-sop-xlsx') { downloadTallySopExceptionsXlsx(); return; }
   if(a==='dl-capital-template')    { dlCapitalTemplate(); return; }
   if(a==='ul-capital-template')    { document.getElementById('cap-template-input').click(); return; }
   if(a==='dl-expense-template')    { dlExpenseTemplate(); return; }
