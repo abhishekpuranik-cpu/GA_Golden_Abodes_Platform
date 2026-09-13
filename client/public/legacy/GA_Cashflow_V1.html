@@ -268,7 +268,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 89;
+var CF_VERSION = 90;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -1596,17 +1596,18 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   var wrongN=(sop.pairingRows||[]).filter(function(r){ return r.verdict==='Wrong'; }).length;
   var missZ=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'')==='missing_z'; }).length;
   var ok=!!V.rule2Pass;
+  var scopeNote=cfg&&cfg._scopeRollup?('Rollup: '+escHtml(cfg.projName||'')+'. '):'';
   var h='<div class="card" style="margin-bottom:12px;border-left:4px solid '+(ok?'#166534':'#991B1B')+';padding:14px 16px">';
   h+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">';
   h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Accounting reconcile — Cashflow vs Z</div>';
   h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:'+(ok?'#DCFCE7':'#FEE2E2')+';color:'+(ok?'#166534':'#991B1B')+'">'+(ok?'TALLIED':'NOT TALLIED')+'</span></div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">Same date window as the dashboard filter. Inflows − Outflows (L3 nature; refunds netted) vs sum of Z Cash &amp; Cash Equivalents. Contra is in Z only. BAL and SOP exceptions are not in the cashflow sum.</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Inflows − Outflows (L3 nature; refunds netted) vs sum of Z Cash &amp; Cash Equivalents. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only. BAL and SOP exceptions are not in the cashflow sum.</div>';
   h+='<table class="amt-pair-tbl" style="width:100%;font-size:12px"><thead><tr><th>Measure</th><th style="text-align:right">Amount</th></tr></thead><tbody>';
   h+='<tr><td>Sum of cashflow (inflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.inflow)+'</td></tr>';
   h+='<tr><td>Sum of cashflow (outflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.outflow)+'</td></tr>';
   h+='<tr><td><strong>Net cashflow (In − Out)</strong></td><td class="amt"><strong>'+formatRupeesDisplay(V.netCf)+'</strong></td></tr>';
   h+='<tr><td>Sum of Z (Cash &amp; Cash Equivalents)</td><td class="amt">'+formatRupeesDisplay(V.cfzL1)+'</td></tr>';
-  h+='<tr><td>Difference</td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesDisplay(V.rule2Diff)+'</strong></td></tr>';
+  h+='<tr><td><strong>Difference (Net cashflow − Sum of Z)</strong></td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesDisplay(V.rule2Diff)+'</strong></td></tr>';
   h+='</tbody></table>';
   h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged in data (not in cashflow): untagged '+untaggedN+' · missing Z '+missZ+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
   h+='</div>';
@@ -3765,6 +3766,98 @@ function expenseTreeLeafLines(node){
   if(node && Array.isArray(node.lines)) return node.lines;
   return [];
 }
+function expenseTreeChildKeys(node){
+  return Object.keys(node||{}).filter(function(k){ return k!=='total' && k!=='lines' && k!=='_seen'; }).sort();
+}
+function isExpenseTreeLeaf(node){
+  return !!(node && (Object.prototype.hasOwnProperty.call(node,'total') || Array.isArray(node.lines)) && !expenseTreeChildKeys(node).length);
+}
+function expenseTreeNodeTotal(node){
+  if(!node) return 0;
+  if(isExpenseTreeLeaf(node)) return coerceMoney(node.total);
+  var s=0;
+  expenseTreeChildKeys(node).forEach(function(k){ s+=expenseTreeNodeTotal(node[k]); });
+  return s;
+}
+function expenseTreePushPath(treeOut, path, mag, line){
+  if(mag<=0 || !path || !path.length) return;
+  var cur=treeOut;
+  for(var i=0;i<path.length-1;i++){
+    var k=path[i];
+    if(!cur[k]) cur[k]={};
+    cur=cur[k];
+  }
+  var l3k=path[path.length-1];
+  if(!cur[l3k] || typeof cur[l3k]==='number'){
+    var prev=typeof cur[l3k]==='number'?cur[l3k]:0;
+    cur[l3k]={total:prev, lines:[], _seen:{}};
+  }
+  var leaf=cur[l3k];
+  if(!leaf._seen) leaf._seen={};
+  if(line){
+    var sid=String(line.id||line.tallyKey||'');
+    var soft=tallyActualSoftFingerprint(line);
+    if((sid && leaf._seen[sid]) || (soft && leaf._seen['s:'+soft])) return;
+    if(sid) leaf._seen[sid]=1;
+    if(soft) leaf._seen['s:'+soft]=1;
+    leaf.lines.push(line);
+  }
+  leaf.total+=mag;
+}
+function htmlExpenseChartTreeBody(treeOut){
+  var h='';
+  function slugPart(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'_'); }
+  function walk(node, prefix, depth, indent){
+    expenseTreeChildKeys(node).forEach(function(name){
+      var child=node[name];
+      var key=(prefix?prefix+'|':'')+slugPart(name);
+      if(isExpenseTreeLeaf(child)){
+        var amt=expenseTreeLeafTotal(child);
+        var lines=expenseTreeLeafLines(child).slice().sort(function(a,b){
+          return String(b.date||'').localeCompare(String(a.date||''))||String(a.party||'').localeCompare(String(b.party||''));
+        });
+        var l3Open=_expenseTreeCollapsedL3[key]===false;
+        var l3Label=escHtml(name)+(lines.length?' <span style="color:var(--muted)">('+lines.length+')</span>':'');
+        h+='<tr><td style="padding-left:'+indent+'px;font-size:9px;color:var(--muted)"><button type="button" data-action="expense-tree-l3" data-k="'+escAttr(key)+'" style="border:none;background:transparent;cursor:pointer;color:var(--muted);font-weight:700;padding:0;margin-right:4px">'+(l3Open?'▼':'▶')+'</button>'+l3Label+'</td><td class="amt" style="font-size:9px">'+cr(amt)+'</td></tr>';
+        if(!l3Open) return;
+        if(!lines.length){
+          h+='<tr><td colspan="2" style="padding-left:'+(indent+16)+'px;font-size:9px;color:var(--muted)">No voucher lines stored for this L3 (re-import Tally if needed).</td></tr>';
+          return;
+        }
+        var lineCap=40;
+        lines.slice(0,lineCap).forEach(function(ln){
+          var nar=String(ln.note||'');
+          var narShort=nar.length>90?nar.slice(0,90)+'…':nar;
+          var label=escHtml(String(ln.date||'').slice(0,10))+' · <strong style="color:var(--slate)">'+escHtml(ln.party||'—')+'</strong>';
+          if(narShort) label+=' <span style="color:var(--muted)">— '+escHtml(narShort)+'</span>';
+          var ex=ln.tallyException||'';
+          var trSt=ex?'background:#FEF3C7;':'';
+          var flag=ex?' <span style="color:#B45309;font-weight:800">SOP '+escHtml(ex)+'</span>':'';
+          h+='<tr style="'+trSt+'"><td style="padding-left:'+(indent+16)+'px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+flag+'</td><td class="amt" style="font-size:9px">'+cr(ln.amount)+'</td></tr>';
+        });
+        if(lines.length>lineCap){
+          h+='<tr><td colspan="2" style="padding-left:'+(indent+16)+'px;font-size:9px;color:var(--muted)">Showing '+lineCap+' of '+lines.length+' voucher lines (narrow date/category filters to see more).</td></tr>';
+        }
+        return;
+      }
+      var tot=expenseTreeNodeTotal(child);
+      var kids=expenseTreeChildKeys(child);
+      var vchN=0;
+      kids.forEach(function(k){
+        if(isExpenseTreeLeaf(child[k])) vchN+=expenseTreeLeafLines(child[k]).length;
+      });
+      var collapsed=depth<=0?!!_expenseTreeCollapsedL1[key]:!!_expenseTreeCollapsedL2[key];
+      var action=depth<=0?'expense-tree-l1':'expense-tree-l2';
+      var weight=depth<=0?'800':'600';
+      var color=depth<=0?'var(--blue-b)':'var(--slate)';
+      var label=escHtml(name)+(vchN?' <span style="font-weight:500;color:var(--muted)">('+vchN+')</span>':'');
+      h+='<tr'+(depth<=0?' class="amt-l1"':'')+'><td style="padding-left:'+indent+'px;font-weight:'+weight+';color:'+color+'"><button type="button" data-action="'+action+'" data-k="'+escAttr(key)+'" style="border:none;background:transparent;cursor:pointer;color:'+color+';font-weight:'+weight+';padding:0;margin-right:6px">'+(collapsed?'▶':'▼')+'</button>'+label+'</td><td class="amt">'+cr(tot)+'</td></tr>';
+      if(!collapsed) walk(child, key, depth+1, indent+14);
+    });
+  }
+  walk(treeOut, '', 0, 0);
+  return h;
+}
 function expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, line){
   if(mag<=0) return;
   if(!treeOut[l1]) treeOut[l1]={};
@@ -3786,7 +3879,7 @@ function expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, line){
   leaf.total+=mag;
 }
 /** Keys for L1 / L2 / L3 rows in the GA outflow tree (uses same slugs as render). */
-function collectExpenseGATreeKeys(acts){
+function collectExpenseGATreeKeys(acts, rollup){
   var treeOut={}, l1kList=[], l2kList=[], l3kList=[];
   (acts||[]).forEach(function(a){
     if(!a) return;
@@ -3797,19 +3890,19 @@ function collectExpenseGATreeKeys(acts){
     var l2=String(a.gaL2||'').trim()||'—';
     var l3k=(a.gaL3?String(a.gaL3).trim()+' — ':'')+String(a.gaL3Name||'').trim();
     if(!l3k||l3k==='—') l3k='— (see party / note)';
-    expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, null);
+    if(rollup && a._scopeBuilding) expenseTreePushPath(treeOut, [a._scopeBuilding, l1, l2, l3k], mag, null);
+    else expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, null);
   });
-  Object.keys(treeOut).sort().forEach(function(l1){
-    var l1k='l1:'+String(l1).toLowerCase().replace(/[^a-z0-9]+/g,'_');
-    l1kList.push(l1k);
-    Object.keys(treeOut[l1]||{}).sort().forEach(function(l2){
-      var l2k=l1k+'|'+String(l2).toLowerCase().replace(/[^a-z0-9]+/g,'_');
-      l2kList.push(l2k);
-      Object.keys(treeOut[l1][l2]||{}).sort().forEach(function(l3){
-        l3kList.push(l2k+'|'+String(l3).toLowerCase().replace(/[^a-z0-9]+/g,'_'));
-      });
+  function walk(node, prefix, depth){
+    expenseTreeChildKeys(node).forEach(function(name){
+      var child=node[name];
+      var key=(prefix?prefix+'|':'')+String(name).toLowerCase().replace(/[^a-z0-9]+/g,'_');
+      if(isExpenseTreeLeaf(child)){ l3kList.push(key); return; }
+      if(depth<=0) l1kList.push(key); else l2kList.push(key);
+      walk(child, key, depth+1);
     });
-  });
+  }
+  walk(treeOut, '', 0);
   return {l1kList:l1kList, l2kList:l2kList, l3kList:l3kList};
 }
 var _expenseVendorSearch = '';
@@ -5625,6 +5718,89 @@ function projectMatchesHierarchy(p){
 }
 function getVisibleProjects(){
   return PROJS.filter(projectMatchesHierarchy);
+}
+/** Label for the current Project / Phase / Building filter (All = rollup of children). */
+function visibleScopeTitle(vis){
+  vis=vis||getVisibleProjects();
+  var n=vis.length;
+  if(n===1) return (getCF(vis[0].id)||{}).projName||vis[0].name||'Project';
+  var roots=parseMultiFilter(_curProjRoot);
+  var phases=parseMultiFilter(_curPhase);
+  var blds=parseMultiFilter(_curBuilding);
+  var bits=[];
+  bits.push(roots.length?roots.join(', '):'All projects');
+  bits.push(phases.length?phases.join(', '):'All phases');
+  bits.push(blds.length?blds.join(', '):'All buildings');
+  return bits.join(' · ')+' ('+n+' buildings)';
+}
+/**
+ * Config + actuals for whatever the hierarchy filters currently show.
+ * All projects / All phases / All buildings concatenates children (tree rollup).
+ */
+function buildVisibleScopeCfg(){
+  var vis=getVisibleProjects();
+  if(!vis.length) return {projName:'', actuals:[], _scopeRollup:false, _scopeVis:[]};
+  if(vis.length===1){
+    var src=getCF(vis[0].id)||{actuals:[]};
+    return Object.assign({}, src, {_scopeRollup:false, _scopeVis:vis});
+  }
+  var actuals=[];
+  var cfgOut={
+    projName:visibleScopeTitle(vis),
+    actuals:actuals,
+    landSchedule:[], nocSchedule:[], consultantSchedule:[],
+    regulatoryConsultingSchedule:[], constructionSchedule:[], marketingSchedule:[],
+    gaGAAnnual:0, gaMonthly:0, startDate:'',
+    _scopeRollup:true, _scopeVis:vis
+  };
+  vis.forEach(function(p){
+    try{ ensureTallyActualsDeduped(p.id); }catch(eSc){}
+    var c=getCF(p.id)||{};
+    var h=getProjectHierarchy(p.id)||{};
+    var bld=h.building||p.building||p.name||'Building';
+    (c.actuals||[]).forEach(function(a){
+      if(!a) return;
+      actuals.push(Object.assign({}, a, {
+        _scopePid:p.id,
+        _scopeBuilding:bld,
+        _scopePhase:h.phase||'',
+        _scopeProject:h.projectGroup||''
+      }));
+    });
+    ['landSchedule','nocSchedule','consultantSchedule','regulatoryConsultingSchedule','constructionSchedule','marketingSchedule'].forEach(function(k){
+      (c[k]||[]).forEach(function(row){ if(row) cfgOut[k].push(row); });
+    });
+    cfgOut.gaGAAnnual+=(parseFloat(c.gaGAAnnual)||0);
+    cfgOut.gaMonthly+=(parseFloat(c.gaMonthly)||0);
+    if(c.startDate && (!cfgOut.startDate || String(c.startDate)<String(cfgOut.startDate))) cfgOut.startDate=c.startDate;
+  });
+  return cfgOut;
+}
+/** SOP annotate every visible phase once, then merge exception lists. */
+function annotateVisibleTallySopRules(){
+  var vis=getVisibleProjects();
+  var pairingRows=[], untagged=[], missingZ=[], mixed=[], seenV={}, seenPhase={};
+  vis.forEach(function(p){
+    var h=getProjectHierarchy(p.id)||{};
+    var pk=String(h.projectGroup||'')+'|'+String(h.phase||'');
+    if(seenPhase[pk]) return;
+    seenPhase[pk]=1;
+    var a=null;
+    try{ a=annotatePhaseTallySopRules(p.id); }catch(eAn){ a=null; }
+    if(!a) return;
+    (a.pairingRows||[]).forEach(function(r){
+      var key=r&&r.key?r.key:'';
+      if(key && seenV[key]) return;
+      if(key) seenV[key]=1;
+      pairingRows.push(r);
+    });
+    (a.untagged||[]).forEach(function(x){ untagged.push(x); });
+    (a.missingZ||[]).forEach(function(x){ missingZ.push(x); });
+    (a.mixed||[]).forEach(function(x){ mixed.push(x); });
+  });
+  var audit={pairingRows:pairingRows, untagged:untagged, missingZ:missingZ, mixed:mixed, at:Date.now()};
+  window.__gaLastSopAudit=audit;
+  return audit;
 }
 /** Keep portfolio root sensible when V3 pushes many rows. */
 function ensureProjRootCoherent(){
@@ -8819,8 +8995,13 @@ function renderCashflow(){
     h+='</div>';
   }
 
-  // ── CA validation: Rule 1 (BS vs CF Z) + Rule 2 (In − Out + CF Z = 0) ──
-  if(!useRollup) h+=htmlCashflowValidationPanel(cfg);
+  // ── CA validation: In − Out vs Z (single building or hierarchy rollup) ──
+  if(useRollup){
+    try{ annotateVisibleTallySopRules(); }catch(eRollSop){}
+    h+=htmlExpenseSopReconcileTable(buildVisibleScopeCfg(), {});
+  } else {
+    h+=htmlCashflowValidationPanel(cfg);
+  }
 
   // ── KPI strip ──
   h+='<div class="kpi-row">';
@@ -8832,7 +9013,10 @@ function renderCashflow(){
     {l:'Peak Funding Need',v:peakNeg<0?cr(Math.abs(peakNeg)):'—',c:'var(--orange)'},
     {l:'Project Months',v:(useRollup?rows.length:(cfg.totalMonths||60))+' mo',c:'var(--slate)'},
   ];
-  if(!useRollup){
+  if(useRollup){
+    var _cfzR=sumCfZCashEquivalentsL1(buildVisibleScopeCfg().actuals||[]);
+    kpis.splice(4,0,{l:'CF Z Closing (C&CE)',v:cr(_cfzR.total,'₹0'),c:'#0D4D30'});
+  } else {
     var _cfzK=sumCfZCashEquivalentsL1(cfg.actuals||[]);
     kpis.splice(4,0,{l:'CF Z Closing (C&CE)',v:cr(_cfzK.total,'₹0'),c:'#0D4D30'});
   }
@@ -10861,10 +11045,10 @@ function exportVendorGstExcel(report){
 function renderExpenses(){
   var el=document.getElementById('page-expenses'); if(!el) return;
   if(!PROJS.length){el.innerHTML=noProjectMsg();return;}
-  if(_curPid){
-    try{ ensureTallyActualsDeduped(_curPid); }catch(eDd){}
-  }
-  var cfg=getCF(_curPid);
+  var vis=getVisibleProjects();
+  if(!vis.length){el.innerHTML=noProjectMsg();return;}
+  vis.forEach(function(p){ try{ ensureTallyActualsDeduped(p.id); }catch(eDd){} });
+  var cfg=buildVisibleScopeCfg();
   var actsAll=cfg.actuals||[];
   var acts=actsAll.filter(function(a){ return includeActualInCashflowSums(a); });
   function sumSched(skey){ return (cfg[skey]||[]).reduce(function(s,e){return s+(parseFloat(e.amount)||0);},0); }
@@ -10873,7 +11057,7 @@ function renderExpenses(){
   var h='';
   h+='<div class="exp-hero">';
   h+='<h2>Expenses — '+escHtml(cfg.projName||'Project')+'</h2>';
-  h+='<p>Cashflow-coded outflows and schedules. Tally is only a feed — categories stay until you Replace or import again.'+(tallyN?' · <strong>'+tallyN+'</strong> Tally lines on file.':'')+'</p>';
+  h+='<p>'+(cfg._scopeRollup?'<strong>Hierarchy rollup</strong> of every building in the Project / Phase / Building filter. ':'')+'Cashflow-coded outflows and schedules. Tally is only a feed — categories stay until you Replace or import again.'+(tallyN?' · <strong>'+tallyN+'</strong> Tally lines on file.':'')+'</p>';
   h+='</div>';
   h+='<div class="exp-toolbar">';
   h+='<button class="btn btn-outline" data-action="import-tally" style="font-size:11px" title="Payment/Receipt XML or CSV">⬆ Import feed</button>';
@@ -10908,7 +11092,7 @@ function renderExpenses(){
 
   if(_expenseUIPanel==='dashboard'){
     var dashFilt={from:_dashFrom,to:_dashTo,cat1:_dashCat1};
-    try{ annotatePhaseTallySopRules(_curPid); }catch(eSop){}
+    try{ annotateVisibleTallySopRules(); }catch(eSop){}
     h+=htmlExpenseSopReconcileTable(cfg, dashFilt);
     h+=htmlExpenseDashFilterBar(acts);
     h+=htmlExpenseMetricsDashboard(cfg, dashFilt);
@@ -10930,7 +11114,7 @@ function renderExpenses(){
       if(!l3k||l3k==='—') l3k='— (see party / note)';
       var dt=normalizeToISODate(a.date)||String(a.date||'').slice(0,10)||'';
       var note=String(a.note||a.narration||'').replace(/\s+/g,' ').trim();
-      expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, {
+      var lineObj={
         id:a.id||a.tallyKey||'',
         date:dt,
         party:String(a.party||'').trim()||'—',
@@ -10939,11 +11123,12 @@ function renderExpenses(){
         costCentre:cc,
         tallyException:a.tallyException||'',
         tallyPairingVerdict:a.tallyPairingVerdict||''
-      });
+      };
+      if(cfg._scopeRollup) expenseTreePushPath(treeOut, [String(a._scopeBuilding||'Building'), l1, l2, l3k], mag, lineObj);
+      else expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, lineObj);
     });
     var catRows=Object.keys(byCat).sort(function(a,b){return byCat[b]-byCat[a];});
     var ccRows=Object.keys(byCC).sort(function(a,b){return byCC[b]-byCC[a];}).slice(0,12);
-    var l1Keys=Object.keys(treeOut).sort();
     h+='<div style="display:grid;grid-template-columns:minmax(0,1.4fr) minmax(220px,0.6fr);gap:12px;margin-bottom:12px">';
     h+='<div class="card" style="margin:0;border-radius:12px;border:1px solid var(--border)">';
     h+='<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px">';
@@ -10975,7 +11160,7 @@ function renderExpenses(){
     h+='</div></div>';
     h+='<div class="card" style="border-radius:12px;border:1px solid var(--border)">';
     h+='<div style="display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px">';
-    h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b)">GA chart — L1 → L2 → L3 → voucher</div>';
+    h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b)">'+(cfg._scopeRollup?'GA chart — Building → L1 → L2 → L3 → voucher':'GA chart — L1 → L2 → L3 → voucher')+'</div>';
     h+='<div style="display:flex;gap:6px;flex-wrap:wrap">';
     h+='<button type="button" class="btn btn-outline" data-action="expense-tree-expand-all" style="font-size:10px;padding:4px 10px">Expand all</button>';
     h+='<button type="button" class="btn btn-outline" data-action="expense-tree-collapse-all" style="font-size:10px;padding:4px 10px">Collapse all</button>';
@@ -10983,64 +11168,8 @@ function renderExpenses(){
     h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">V3 master coding · expand L3 for date · party · narration.</div>';
     h+='<div class="amt-pair-wrap"><table class="amt-pair-tbl amt-pair-tbl--tree">';
     h+='<thead><tr><th>Category</th><th>Amount (₹)</th></tr></thead><tbody>';
-    if(!l1Keys.length) h+='<tr><td colspan="2" style="padding:12px;color:var(--muted)">No outflow lines in this filter. Widen dates or clear category.</td></tr>';
-    l1Keys.forEach(function(l1){
-      var tL1=0;
-      var l2Keys=Object.keys(treeOut[l1]||{}).sort();
-      l2Keys.forEach(function(l2){
-        var l3Keys=Object.keys(treeOut[l1][l2]||{});
-        l3Keys.forEach(function(x){ tL1+=expenseTreeLeafTotal(treeOut[l1][l2][x]); });
-      });
-      var l1k='l1:'+String(l1).toLowerCase().replace(/[^a-z0-9]+/g,'_');
-      var l1Collapsed=!!_expenseTreeCollapsedL1[l1k];
-      h+='<tr class="amt-l1"><td style="font-weight:800;color:var(--blue-b)"><button type="button" data-action="expense-tree-l1" data-k="'+escAttr(l1k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--blue-b);font-weight:800;padding:0;margin-right:6px">'+(l1Collapsed?'▶':'▼')+'</button>'+escHtml(l1)+'</td><td class="amt">'+cr(tL1)+'</td></tr>';
-      if(l1Collapsed) return;
-      l2Keys.forEach(function(l2){
-        var tL2=0, vchN=0;
-        var l3Keys=Object.keys(treeOut[l1][l2]||{}).sort();
-        l3Keys.forEach(function(x){
-          tL2+=expenseTreeLeafTotal(treeOut[l1][l2][x]);
-          vchN+=expenseTreeLeafLines(treeOut[l1][l2][x]).length;
-        });
-        var l2k=l1k+'|'+String(l2).toLowerCase().replace(/[^a-z0-9]+/g,'_');
-        var l2Collapsed=!!_expenseTreeCollapsedL2[l2k];
-        var l2Label=escHtml(l2)+(vchN?' <span style="font-weight:500;color:var(--muted)">('+vchN+')</span>':'');
-        h+='<tr><td style="padding-left:22px;font-weight:600;color:var(--slate)"><button type="button" data-action="expense-tree-l2" data-k="'+escAttr(l2k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--slate);font-weight:700;padding:0;margin-right:5px">'+(l2Collapsed?'▶':'▼')+'</button>'+l2Label+'</td><td class="amt">'+cr(tL2)+'</td></tr>';
-        if(l2Collapsed) return;
-        l3Keys.forEach(function(l3){
-          var leaf=treeOut[l1][l2][l3];
-          var amt=expenseTreeLeafTotal(leaf);
-          var lines=expenseTreeLeafLines(leaf).slice().sort(function(a,b){
-            return String(b.date||'').localeCompare(String(a.date||''))||String(a.party||'').localeCompare(String(b.party||''));
-          });
-          var l3k=l2k+'|'+String(l3).toLowerCase().replace(/[^a-z0-9]+/g,'_');
-          // L3 voucher detail defaults collapsed (missing key => collapsed)
-          var l3Open=_expenseTreeCollapsedL3[l3k]===false;
-          var l3Label=escHtml(l3)+(lines.length?' <span style="color:var(--muted)">('+lines.length+')</span>':'');
-          h+='<tr><td style="padding-left:36px;font-size:9px;color:var(--muted)"><button type="button" data-action="expense-tree-l3" data-k="'+escAttr(l3k)+'" style="border:none;background:transparent;cursor:pointer;color:var(--muted);font-weight:700;padding:0;margin-right:4px">'+(l3Open?'▼':'▶')+'</button>'+l3Label+'</td><td class="amt" style="font-size:9px">'+cr(amt)+'</td></tr>';
-          if(!l3Open) return;
-          if(!lines.length){
-            h+='<tr><td colspan="2" style="padding-left:52px;font-size:9px;color:var(--muted)">No voucher lines stored for this L3 (re-import Tally if needed).</td></tr>';
-            return;
-          }
-          var lineCap=40;
-          var shown=lines.slice(0,lineCap);
-          shown.forEach(function(ln){
-            var nar=String(ln.note||'');
-            var narShort=nar.length>90?nar.slice(0,90)+'…':nar;
-            var label=escHtml(String(ln.date||'').slice(0,10))+' · <strong style="color:var(--slate)">'+escHtml(ln.party||'—')+'</strong>';
-            if(narShort) label+=' <span style="color:var(--muted)">— '+escHtml(narShort)+'</span>';
-            var ex=ln.tallyException||'';
-            var trSt=ex?'background:#FEF3C7;':'';
-            var flag=ex?' <span style="color:#B45309;font-weight:800">SOP '+escHtml(ex)+'</span>':'';
-            h+='<tr style="'+trSt+'"><td style="padding-left:52px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+flag+'</td><td class="amt" style="font-size:9px">'+cr(ln.amount)+'</td></tr>';
-          });
-          if(lines.length>lineCap){
-            h+='<tr><td colspan="2" style="padding-left:52px;font-size:9px;color:var(--muted)">Showing '+lineCap+' of '+lines.length+' voucher lines (narrow date/category filters to see more).</td></tr>';
-          }
-        });
-      });
-    });
+    if(!Object.keys(treeOut).length) h+='<tr><td colspan="2" style="padding:12px;color:var(--muted)">No outflow lines in this filter. Widen dates or clear category.</td></tr>';
+    else h+=htmlExpenseChartTreeBody(treeOut);
     h+='</tbody></table></div></div>';
     h+=htmlPayablePaidSection(window.__gaLastTallyExportRaw||'', {maxRows:120});
     h+=htmlExpenseInflowsSection(actsIn);
@@ -13909,26 +14038,24 @@ document.addEventListener('click',function(e){
   if(a==='dash-reset'){ _dashFrom='';_dashTo='';_dashCat1=''; renderExpenses(); return; }
   if(a==='expense-tree-expand-all'){
     _expenseTreeCollapsedL1={}; _expenseTreeCollapsedL2={}; _expenseTreeCollapsedL3={};
-    if(_curPid){
-      var dashF={from:_dashFrom,to:_dashTo,cat1:_dashCat1};
-      var ek=collectExpenseGATreeKeys((getCF(_curPid).actuals||[]).filter(function(a){
-        return includeActualInCashflowSums(a)&&isExpenseDashboardOutflow(a)&&actualMatchesExpenseDashFilter(a,dashF);
-      }));
-      (ek.l3kList||[]).forEach(function(k){ _expenseTreeCollapsedL3[k]=false; });
-    }
+    var dashF={from:_dashFrom,to:_dashTo,cat1:_dashCat1};
+    var sc=buildVisibleScopeCfg();
+    var ek=collectExpenseGATreeKeys((sc.actuals||[]).filter(function(a){
+      return includeActualInCashflowSums(a)&&isExpenseDashboardOutflow(a)&&actualMatchesExpenseDashFilter(a,dashF);
+    }), !!sc._scopeRollup);
+    (ek.l3kList||[]).forEach(function(k){ _expenseTreeCollapsedL3[k]=false; });
     renderExpenses();
     return;
   }
   if(a==='expense-tree-collapse-all'){
-    if(_curPid){
-      var dashFc={from:_dashFrom,to:_dashTo,cat1:_dashCat1};
-      var ck=collectExpenseGATreeKeys((getCF(_curPid).actuals||[]).filter(function(a){
-        return includeActualInCashflowSums(a)&&isExpenseDashboardOutflow(a)&&actualMatchesExpenseDashFilter(a,dashFc);
-      }));
-      (ck.l1kList||[]).forEach(function(k){ _expenseTreeCollapsedL1[k]=true; });
-      (ck.l2kList||[]).forEach(function(k){ _expenseTreeCollapsedL2[k]=true; });
-      _expenseTreeCollapsedL3={};
-    } else { _expenseTreeCollapsedL1={}; _expenseTreeCollapsedL2={}; _expenseTreeCollapsedL3={}; }
+    var dashFc={from:_dashFrom,to:_dashTo,cat1:_dashCat1};
+    var sc2=buildVisibleScopeCfg();
+    var ck=collectExpenseGATreeKeys((sc2.actuals||[]).filter(function(a){
+      return includeActualInCashflowSums(a)&&isExpenseDashboardOutflow(a)&&actualMatchesExpenseDashFilter(a,dashFc);
+    }), !!sc2._scopeRollup);
+    _expenseTreeCollapsedL1={}; _expenseTreeCollapsedL2={}; _expenseTreeCollapsedL3={};
+    (ck.l1kList||[]).forEach(function(k){ _expenseTreeCollapsedL1[k]=true; });
+    (ck.l2kList||[]).forEach(function(k){ _expenseTreeCollapsedL2[k]=true; });
     renderExpenses();
     return;
   }
