@@ -216,6 +216,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
     <span style="font-weight:700;color:var(--blue-b)">Tally feed</span>
     <button type="button" class="btn btn-primary" data-action="tally-sync-modal" style="font-size:10px;padding:4px 10px">Live sync</button>
     <button type="button" class="btn btn-outline" data-action="import-tally" style="font-size:10px;padding:4px 8px" title="Import Payment/Receipt XML or CSV">Import XML/CSV</button>
+    <button type="button" class="btn btn-outline" data-action="reset-imported-modal" style="font-size:10px;padding:4px 8px;color:#991B1B;border-color:#fca5a5" title="Clear Tally/imported actuals for a building, phase, or project. Hierarchy and sales stay.">Reset imported data</button>
   </span>
   <span class="sync-group" title="MongoDB is the shared workbook store for the team.">
     <span style="font-weight:700;color:var(--blue-b)">Server</span>
@@ -268,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 90;
+var CF_VERSION = 92;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -1584,8 +1585,14 @@ function htmlExpenseDashFilterBar(actsBase){
   h+='</select></div>';
   h+='<div style="display:flex;gap:6px;align-items:center;padding-bottom:2px">';
   h+='<button type="button" class="btn btn-primary" data-action="dash-apply" style="font-size:10px;padding:7px 12px">Apply</button>';
-  h+='<button type="button" class="btn btn-outline" data-action="dash-reset" style="font-size:10px;padding:7px 12px">Reset</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="dash-reset" style="font-size:10px;padding:7px 12px" title="Clear month and category filters">Reset filters</button>';
   h+='</div></div>';
+  var tallyCnt=countVisibleTallyFeedLines();
+  h+='<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:-4px 0 12px;padding:8px 12px;border:1px dashed #fca5a5;border-radius:10px;background:#FFF8F8">';
+  h+='<div style="font-size:10px;color:#991B1B;line-height:1.4;flex:1;min-width:200px"><strong>Tally feed</strong> on this dashboard (current Project / Phase / Building filter): <strong>'+tallyCnt.tally+'</strong> uploaded/synced lines. Manual entries, schedules, sales, and other tabs are not touched.</div>';
+  h+='<button type="button" class="btn btn-outline" data-action="dash-clear-tally" style="font-size:10px;padding:6px 10px;color:#991B1B;border-color:#fca5a5">Clear Tally feed</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="dash-restore-tally" style="font-size:10px;padding:6px 10px">Restore Tally backup</button>';
+  h+='</div>';
   return h;
 }
 function htmlExpenseSopReconcileTable(cfg, filt){
@@ -4374,15 +4381,387 @@ function showRestoreWorkbookSnapshotModal(){
       alert('Restore failed: '+(e&&e.message?e.message:String(e)));
     });
 }
-function verifyRemoveProjectPassword(projectName){
-  var msg='Enter admin password to remove "'+projectName+'".';
+function verifyAdminActionPassword(actionLabel, failMsg){
+  var msg='Enter admin password to '+String(actionLabel||'continue')+'.';
   var entered=window.prompt(msg,'');
   if(entered===null) return false;
   if(String(entered)!==String(getRemoveProjectPassword())){
-    alert('Incorrect password. Project was not removed.');
+    alert(failMsg||'Incorrect password. Action cancelled.');
     return false;
   }
   return true;
+}
+function verifyRemoveProjectPassword(projectName){
+  return verifyAdminActionPassword('remove "'+projectName+'"', 'Incorrect password. Project was not removed.');
+}
+/** Buildings (workbook rows) whose imported actuals will be wiped for a hierarchy scope. */
+function pidsForImportedDataReset(scope){
+  scope=String(scope||'building');
+  var list=PROJS||[];
+  if(scope==='building'){
+    return getVisibleProjects();
+  }
+  if(scope==='phase'){
+    return list.filter(function(p){
+      if(!p) return false;
+      if(!multiFilterHas(_curProjRoot, inferProjectGroupFromProject(p))) return false;
+      return multiFilterHas(_curPhase, inferPhaseFromProject(p));
+    });
+  }
+  return list.filter(function(p){
+    if(!p) return false;
+    return multiFilterHas(_curProjRoot, inferProjectGroupFromProject(p));
+  });
+}
+function importedResetScopeLabel(scope){
+  var roots=parseMultiFilter(_curProjRoot);
+  var phases=parseMultiFilter(_curPhase);
+  var blds=parseMultiFilter(_curBuilding);
+  if(scope==='building'){
+    if(!blds.length) return 'All buildings in the current Project / Phase filter';
+    return 'Building: '+blds.join(', ');
+  }
+  if(scope==='phase'){
+    if(!phases.length) return 'All phases in the current Project filter (every building in those phases)';
+    return 'Phase: '+phases.join(', ')+' (every building in the phase)';
+  }
+  if(!roots.length) return 'All projects in this workbook (every phase and building)';
+  return 'Project: '+roots.join(', ')+' (every phase and building under it)';
+}
+function summarizeImportedResetTargets(scope){
+  var projs=pidsForImportedDataReset(scope);
+  var nLines=0, nTally=0;
+  projs.forEach(function(p){
+    var acts=(getCF(p.id).actuals)||[];
+    nLines+=acts.length;
+    acts.forEach(function(a){ if(a&&a.source==='tally') nTally++; });
+  });
+  return {projs:projs, nBuildings:projs.length, nLines:nLines, nTally:nTally};
+}
+function clearImportedActualsOnCfg(cfg){
+  if(!cfg) return 0;
+  var n=(cfg.actuals||[]).length;
+  cfg.actuals=[];
+  cfg.bsCashBankBalance=null;
+  cfg.tallyFeedLines=0;
+  cfg.tallyFeedAt=null;
+  cfg._cfReplaceActuals=true;
+  return n;
+}
+function showResetImportedDataModal(){
+  if(!PROJS.length){ alert('No projects in the workbook.'); return; }
+  var vis=getVisibleProjects();
+  if(!vis.length){ alert('Nothing matches the current Project / Phase / Building filter.'); return; }
+  var def='building';
+  if(!parseMultiFilter(_curBuilding).length && parseMultiFilter(_curPhase).length) def='phase';
+  if(!parseMultiFilter(_curBuilding).length && !parseMultiFilter(_curPhase).length) def='project';
+  function card(scope){
+    var s=summarizeImportedResetTargets(scope);
+    var on=scope===def;
+    return '<label style="display:block;border:1.5px solid '+(on?'var(--blue)':'var(--border)')+';border-radius:10px;padding:10px 12px;cursor:pointer;background:'+(on?'#F8FAFF':'#fff')+'">'
+      +'<div style="display:flex;gap:8px;align-items:flex-start">'
+      +'<input type="radio" name="reset-imported-scope" value="'+scope+'" data-action="reset-imported-scope"'+(on?' checked':'')+' style="margin-top:3px"/>'
+      +'<div><div style="font-size:12px;font-weight:800;color:var(--blue-b)">'+escHtml(scope==='building'?'Building':(scope==='phase'?'Phase':'Project'))+'</div>'
+      +'<div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:2px">'+escHtml(importedResetScopeLabel(scope))+'</div>'
+      +'<div style="font-size:10px;margin-top:4px"><strong>'+s.nBuildings+'</strong> building workbook'+(s.nBuildings===1?'':'s')+' · <strong>'+s.nLines+'</strong> actual lines ('+s.nTally+' Tally)</div>'
+      +'</div></div></label>';
+  }
+  var html='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">'
+    +'<div style="font-size:16px;font-weight:800;color:#991B1B">Reset imported data</div>'
+    +'<button type="button" class="btn btn-outline" data-action="close-modal">Close</button></div>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin:0 0 12px">Clears <strong>all actuals</strong> (Tally import/sync and manual transactions) and the BS cash recon field on the selected scope. Hierarchy, sales units, and planned schedules stay. After reset, Expense / Cashflow vs Z is blank until you import or live-sync again.</p>'
+    +'<div id="reset-imported-cards" style="display:grid;gap:8px;margin-bottom:12px">'+card('building')+card('phase')+card('project')+'</div>'
+    +'<label style="font-size:10px;color:var(--muted);font-weight:700">Type RESET to confirm</label>'
+    +'<input id="reset-imported-typed" type="text" class="cap-inp" placeholder="RESET" autocomplete="off" style="width:100%;margin:4px 0 12px;text-transform:uppercase"/>'
+    +'<div style="display:flex;justify-content:flex-end;gap:8px">'
+    +'<button type="button" class="btn btn-outline" data-action="close-modal">Cancel</button>'
+    +'<button type="button" class="btn" data-action="reset-imported-run" style="background:#991B1B;color:#fff;border-color:#991B1B">Clear actuals</button>'
+    +'</div></div></div>';
+  openModal(html);
+}
+function refreshResetImportedScopeCards(){
+  var wrap=document.getElementById('reset-imported-cards');
+  if(!wrap) return;
+  var sel=(document.querySelector('input[name="reset-imported-scope"]:checked')||{}).value||'building';
+  function card(scope){
+    var s=summarizeImportedResetTargets(scope);
+    var on=scope===sel;
+    return '<label style="display:block;border:1.5px solid '+(on?'var(--blue)':'var(--border)')+';border-radius:10px;padding:10px 12px;cursor:pointer;background:'+(on?'#F8FAFF':'#fff')+'">'
+      +'<div style="display:flex;gap:8px;align-items:flex-start">'
+      +'<input type="radio" name="reset-imported-scope" value="'+scope+'" data-action="reset-imported-scope"'+(on?' checked':'')+' style="margin-top:3px"/>'
+      +'<div><div style="font-size:12px;font-weight:800;color:var(--blue-b)">'+escHtml(scope==='building'?'Building':(scope==='phase'?'Phase':'Project'))+'</div>'
+      +'<div style="font-size:10px;color:var(--muted);line-height:1.4;margin-top:2px">'+escHtml(importedResetScopeLabel(scope))+'</div>'
+      +'<div style="font-size:10px;margin-top:4px"><strong>'+s.nBuildings+'</strong> building workbook'+(s.nBuildings===1?'':'s')+' · <strong>'+s.nLines+'</strong> actual lines ('+s.nTally+' Tally)</div>'
+      +'</div></div></label>';
+  }
+  wrap.innerHTML=card('building')+card('phase')+card('project');
+}
+function runResetImportedData(){
+  var scope=(document.querySelector('input[name="reset-imported-scope"]:checked')||{}).value||'building';
+  var typed=String((document.getElementById('reset-imported-typed')||{}).value||'').trim().toUpperCase();
+  if(typed!=='RESET'){
+    alert('Type RESET in the box to confirm.');
+    return;
+  }
+  var sum=summarizeImportedResetTargets(scope);
+  if(!sum.nBuildings){
+    alert('No buildings in that scope.');
+    return;
+  }
+  var label=importedResetScopeLabel(scope);
+  if(!verifyAdminActionPassword('reset imported data on '+label, 'Incorrect password. Imported data was not reset.')) return;
+  var extra=scope==='project'&&!parseMultiFilter(_curProjRoot).length
+    ?'\n\nThis is ALL projects in the workbook.'
+    :'';
+  if(!window.confirm('Clear all actuals on:\n'+label+'\n\n'+sum.nBuildings+' building workbook(s), '+sum.nLines+' lines ('+sum.nTally+' Tally).'+extra+'\n\nSales units and planned schedules are kept. This cannot be undone except by Load / Snapshot / re-import.')) return;
+  var n=0;
+  var perPidSections={};
+  sum.projs.forEach(function(p){
+    n+=clearImportedActualsOnCfg(getCF(p.id));
+    perPidSections[p.id]=['actuals'];
+  });
+  try{
+    window.__gaLastTallyExportRaw='';
+    window.__gaLastTallyParsedRows=[];
+    window.__gaLastTallyMissedAudit=null;
+    window.__gaLastSopAudit=null;
+    window.__gaLastTallyExportMeta=null;
+  }catch(eClr){}
+  closeModal();
+  saveAll({full:true, perPidSections:perPidSections});
+  renderAll();
+  setSS('Imported actuals cleared ('+n+' lines · '+sum.nBuildings+' buildings)','gold');
+  alert('Reset complete.\n\nCleared '+n+' actual lines on '+sum.nBuildings+' building workbook(s).\nImport XML/CSV or Live sync to load Tally again.');
+}
+function isTallyFeedActual(a){
+  return !!(a && String(a.source||'')==='tally');
+}
+function countVisibleTallyFeedLines(){
+  var tally=0, manual=0;
+  (getVisibleProjects()||[]).forEach(function(p){
+    ((getCF(p.id).actuals)||[]).forEach(function(a){
+      if(!a) return;
+      if(isTallyFeedActual(a)) tally++; else manual++;
+    });
+  });
+  return {tally:tally, manual:manual};
+}
+function collectTallyFeedWipePack(projs){
+  var pids={};
+  var nTally=0, nManual=0;
+  (projs||[]).forEach(function(p){
+    if(!p||p.id==null) return;
+    var cfg=getCF(p.id)||{};
+    var tally=[], manual=0;
+    (cfg.actuals||[]).forEach(function(a){
+      if(!a) return;
+      if(isTallyFeedActual(a)){ tally.push(a); nTally++; }
+      else manual++;
+    });
+    nManual+=manual;
+    pids[String(p.id)]={
+      projName:cfg.projName||p.name||'',
+      tallyActuals:tally
+    };
+  });
+  return {
+    id:Date.now(),
+    at:new Date().toISOString(),
+    cfVersion:CF_VERSION,
+    label:visibleScopeTitle(projs),
+    nTally:nTally,
+    nManualKept:nManual,
+    nBuildings:(projs||[]).length,
+    pids:pids
+  };
+}
+function stripTallyFeedActualsOnCfg(cfg){
+  if(!cfg) return 0;
+  var before=(cfg.actuals||[]).length;
+  cfg.actuals=(cfg.actuals||[]).filter(function(a){ return !isTallyFeedActual(a); });
+  var n=before-cfg.actuals.length;
+  cfg.tallyFeedLines=0;
+  cfg.tallyFeedAt=null;
+  cfg._cfReplaceActuals=true;
+  return n;
+}
+var GA_TALLY_WIPE_IDB='ga_cf_v1_tally_wipe_backups';
+var GA_TALLY_WIPE_STORE='wipes';
+var GA_TALLY_WIPE_KEEP=8;
+function gaTallyWipeIdbOpen(){
+  return new Promise(function(resolve,reject){
+    if(!window.indexedDB){ reject(new Error('IndexedDB unavailable')); return; }
+    var req=indexedDB.open(GA_TALLY_WIPE_IDB,1);
+    req.onupgradeneeded=function(){
+      var db=req.result;
+      if(!db.objectStoreNames.contains(GA_TALLY_WIPE_STORE)) db.createObjectStore(GA_TALLY_WIPE_STORE,{keyPath:'id'});
+    };
+    req.onsuccess=function(){ resolve(req.result); };
+    req.onerror=function(){ reject(req.error||new Error('IndexedDB open failed')); };
+  });
+}
+function gaTallyWipeBackupPrune(db){
+  return new Promise(function(resolve){
+    var tx=db.transaction(GA_TALLY_WIPE_STORE,'readwrite');
+    var store=tx.objectStore(GA_TALLY_WIPE_STORE);
+    var req=store.getAllKeys();
+    req.onsuccess=function(){
+      var keys=(req.result||[]).slice().sort(function(a,b){ return Number(a)-Number(b); });
+      var drop=keys.length>GA_TALLY_WIPE_KEEP?keys.slice(0,keys.length-GA_TALLY_WIPE_KEEP):[];
+      drop.forEach(function(k){ store.delete(k); });
+    };
+    tx.oncomplete=function(){ resolve(); };
+    tx.onerror=function(){ resolve(); };
+  });
+}
+function gaTallyWipeBackupSave(pack){
+  window.__gaLastTallyWipeBackup=pack;
+  return gaTallyWipeIdbOpen().then(function(db){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction(GA_TALLY_WIPE_STORE,'readwrite');
+      tx.oncomplete=function(){ gaTallyWipeBackupPrune(db).then(function(){ resolve(pack); }).catch(function(){ resolve(pack); }); };
+      tx.onerror=function(){ reject(tx.error||new Error('Backup write failed')); };
+      tx.objectStore(GA_TALLY_WIPE_STORE).put(pack);
+    });
+  }).catch(function(err){
+    pack._idbError=String(err&&err.message||err);
+    return pack;
+  });
+}
+function gaTallyWipeBackupList(){
+  return gaTallyWipeIdbOpen().then(function(db){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction(GA_TALLY_WIPE_STORE,'readonly');
+      var req=tx.objectStore(GA_TALLY_WIPE_STORE).getAll();
+      req.onsuccess=function(){
+        var rows=(req.result||[]).slice().sort(function(a,b){ return Number(b.id)-Number(a.id); });
+        resolve(rows);
+      };
+      req.onerror=function(){ reject(req.error); };
+    });
+  }).catch(function(){
+    var mem=window.__gaLastTallyWipeBackup;
+    return mem?[mem]:[];
+  });
+}
+function gaTallyWipeBackupGet(id){
+  id=Number(id);
+  return gaTallyWipeIdbOpen().then(function(db){
+    return new Promise(function(resolve,reject){
+      var tx=db.transaction(GA_TALLY_WIPE_STORE,'readonly');
+      var req=tx.objectStore(GA_TALLY_WIPE_STORE).get(id);
+      req.onsuccess=function(){ resolve(req.result||null); };
+      req.onerror=function(){ reject(req.error); };
+    });
+  }).catch(function(){
+    var mem=window.__gaLastTallyWipeBackup;
+    return (mem&&Number(mem.id)===id)?mem:null;
+  });
+}
+function showDashClearTallyModal(){
+  if(!PROJS.length){ alert('No projects in the workbook.'); return; }
+  var vis=getVisibleProjects();
+  if(!vis.length){ alert('Nothing matches the current Project / Phase / Building filter.'); return; }
+  var pack=collectTallyFeedWipePack(vis);
+  if(!pack.nTally){ alert('No Tally feed lines on this dashboard scope. Manual entries are left as-is.'); return; }
+  var html='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:540px;max-width:96vw">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">'
+    +'<div style="font-size:16px;font-weight:800;color:#991B1B">Clear Tally feed</div>'
+    +'<button type="button" class="btn btn-outline" data-action="close-modal">Close</button></div>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin:0 0 12px">Removes <strong>only uploaded/synced Tally transactions</strong> for what this Dashboard is showing. Manual actuals, planned schedules, sales units, capital, and other tabs stay. A backup is saved in this browser in the background before erase (Restore Tally backup).</p>'
+    +'<div style="font-size:12px;border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:12px;background:#F8FAFF">'
+    +'<div style="font-weight:800;color:var(--blue-b);margin-bottom:4px">'+escHtml(pack.label)+'</div>'
+    +'<div style="font-size:11px"><strong>'+pack.nTally+'</strong> Tally lines will be removed · <strong>'+pack.nManualKept+'</strong> manual lines kept · <strong>'+pack.nBuildings+'</strong> building workbook'+(pack.nBuildings===1?'':'s')+'</div></div>'
+    +'<label style="font-size:10px;color:var(--muted);font-weight:700">Type RESET to confirm</label>'
+    +'<input id="dash-clear-tally-typed" type="text" class="cap-inp" placeholder="RESET" autocomplete="off" style="width:100%;margin:4px 0 12px;text-transform:uppercase"/>'
+    +'<div style="display:flex;justify-content:flex-end;gap:8px">'
+    +'<button type="button" class="btn btn-outline" data-action="close-modal">Cancel</button>'
+    +'<button type="button" class="btn" data-action="dash-clear-tally-run" style="background:#991B1B;color:#fff;border-color:#991B1B">Clear Tally feed</button>'
+    +'</div></div></div>';
+  openModal(html);
+}
+function runDashClearTallyFeed(){
+  var typed=String((document.getElementById('dash-clear-tally-typed')||{}).value||'').trim().toUpperCase();
+  if(typed!=='RESET'){ alert('Type RESET in the box to confirm.'); return; }
+  var vis=getVisibleProjects();
+  if(!vis.length){ alert('Nothing matches the current filter.'); return; }
+  var pack=collectTallyFeedWipePack(vis);
+  if(!pack.nTally){ alert('No Tally feed lines to clear.'); return; }
+  if(!verifyAdminActionPassword('clear Tally feed on '+pack.label, 'Incorrect password. Tally feed was not cleared.')) return;
+  if(!window.confirm('Clear '+pack.nTally+' Tally lines on:\n'+pack.label+'\n\nManual entries and all other app data stay.\nA backup is saved in this browser first.')) return;
+  var runBtn=document.querySelector('[data-action="dash-clear-tally-run"]');
+  if(runBtn){ runBtn.disabled=true; runBtn.textContent='Saving backup…'; }
+  setSS('Saving Tally backup…','gold');
+  gaTallyWipeBackupSave(pack).then(function(saved){
+    var n=0;
+    vis.forEach(function(p){ n+=stripTallyFeedActualsOnCfg(getCF(p.id)); });
+    try{
+      window.__gaLastTallyExportRaw='';
+      window.__gaLastTallyParsedRows=[];
+      window.__gaLastTallyMissedAudit=null;
+      window.__gaLastSopAudit=null;
+      window.__gaLastTallyExportMeta=null;
+    }catch(eClr){}
+    closeModal();
+    saveAll({full:true});
+    renderAll();
+    var note=saved&&saved._idbError?' Backup stayed in this session only (browser storage full).':' Backup saved in this browser.';
+    setSS('Tally feed cleared ('+n+' lines)'+note,'gold');
+    alert('Tally feed cleared.\n\nRemoved '+n+' uploaded/synced lines.\n'+pack.nManualKept+' manual actuals kept.'+note+'\nImport XML/CSV or Live sync to load Tally again.');
+  }).catch(function(err){
+    if(runBtn){ runBtn.disabled=false; runBtn.textContent='Clear Tally feed'; }
+    alert('Backup failed — Tally feed was not cleared.\n'+String(err&&err.message||err));
+  });
+}
+function showDashRestoreTallyModal(){
+  var html='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">'
+    +'<div style="font-size:16px;font-weight:800;color:var(--blue-b)">Restore Tally backup</div>'
+    +'<button type="button" class="btn btn-outline" data-action="close-modal">Close</button></div>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin:0 0 12px">Background backups from <strong>Clear Tally feed</strong> (this browser only). Restore puts Tally lines back; it does not change schedules, sales, or manual actuals.</p>'
+    +'<div id="dash-tally-backup-list" style="font-size:12px;color:var(--muted)">Loading backups…</div>'
+    +'</div></div>';
+  openModal(html);
+  gaTallyWipeBackupList().then(function(rows){
+    var wrap=document.getElementById('dash-tally-backup-list');
+    if(!wrap) return;
+    if(!rows||!rows.length){
+      wrap.innerHTML='No Tally backups in this browser yet. Clearing the feed creates one automatically.';
+      return;
+    }
+    wrap.innerHTML=rows.map(function(r){
+      var when=r.at?String(r.at).replace('T',' ').replace(/\.\d+Z$/,' UTC'):('#'+r.id);
+      return '<div style="border:1px solid var(--border);border-radius:10px;padding:10px 12px;margin-bottom:8px;display:flex;gap:8px;justify-content:space-between;align-items:center;flex-wrap:wrap">'
+        +'<div><div style="font-weight:800;color:var(--blue-b)">'+escHtml(r.label||'Dashboard scope')+'</div>'
+        +'<div style="font-size:10px;color:var(--muted);margin-top:2px">'+escHtml(when)+' · '+(r.nTally||0)+' Tally lines · '+(r.nBuildings||0)+' buildings</div></div>'
+        +'<button type="button" class="btn btn-primary" data-action="dash-restore-tally-run" data-id="'+escAttr(String(r.id))+'" style="font-size:10px;padding:6px 10px">Restore</button></div>';
+    }).join('');
+  });
+}
+function runDashRestoreTallyBackup(id){
+  if(!verifyAdminActionPassword('restore a Tally backup', 'Incorrect password. Backup was not restored.')) return;
+  gaTallyWipeBackupGet(id).then(function(rec){
+    if(!rec||!rec.pids){ alert('Backup not found.'); return; }
+    if(!window.confirm('Restore '+ (rec.nTally||0) +' Tally lines from:\n'+(rec.label||'')+'\n\nExisting Tally lines on those buildings are replaced. Manual actuals stay.')) return;
+    Object.keys(rec.pids).forEach(function(pid){
+      var slice=rec.pids[pid]||{};
+      var cfg=getCF(pid);
+      var keep=(cfg.actuals||[]).filter(function(a){ return !isTallyFeedActual(a); });
+      var tally=Array.isArray(slice.tallyActuals)?slice.tallyActuals:[];
+      cfg.actuals=keep.concat(tally);
+      cfg.tallyFeedLines=tally.length;
+      cfg.tallyFeedAt=Date.now();
+      cfg._cfReplaceActuals=true;
+    });
+    closeModal();
+    saveAll({full:true});
+    renderAll();
+    setSS('Tally backup restored ('+(rec.nTally||0)+' lines)','green');
+    alert('Tally backup restored.\n\n'+(rec.nTally||0)+' lines put back on '+(rec.nBuildings||0)+' building workbook(s).');
+  }).catch(function(err){
+    alert('Restore failed.\n'+String(err&&err.message||err));
+  });
 }
 /** Session flag: once set, Cashflow / Debt / GA tabs work until the browser session ends. Not server-grade security. */
 var GA_CF_FINANCE_TAB_UNLOCK_SESSION_KEY = 'ga_cf_finance_tabs_ok';
@@ -5093,6 +5472,11 @@ function mongoStatePutNow(){
       _mongoDirtyPidSections={};
     }
     _mongoForceFullSave=false;
+    try{
+      Object.keys(_cfData||{}).forEach(function(pid){
+        if(_cfData[pid] && _cfData[pid]._cfReplaceActuals) delete _cfData[pid]._cfReplaceActuals;
+      });
+    }catch(eFlag){}
     mongoStateStatus('MongoDB save OK · v'+_mongoStateVersion,'green');
     updateMongoStatusLabel();
     return true;
@@ -13980,6 +14364,13 @@ document.addEventListener('click',function(e){
   if(a==='save-manual-proj')       { saveManualProj(); return; }
   if(a==='sync-v3')                { syncFromV3(); return; }
   if(a==='import-tally')           { document.getElementById('tally-file-input').click(); return; }
+  if(a==='reset-imported-modal')   { showResetImportedDataModal(); return; }
+  if(a==='reset-imported-scope')   { refreshResetImportedScopeCards(); return; }
+  if(a==='reset-imported-run')     { runResetImportedData(); return; }
+  if(a==='dash-clear-tally')       { showDashClearTallyModal(); return; }
+  if(a==='dash-clear-tally-run')   { runDashClearTallyFeed(); return; }
+  if(a==='dash-restore-tally')     { showDashRestoreTallyModal(); return; }
+  if(a==='dash-restore-tally-run') { runDashRestoreTallyBackup(el.dataset.id); return; }
   if(a==='tally-sync-modal')       { showTallySyncModal(); return; }
   if(a==='tally-test-bridge')      { runTallyBridgeTest(); return; }
   if(a==='tally-pull-vouchers')    { runTallyPullVouchers(); return; }

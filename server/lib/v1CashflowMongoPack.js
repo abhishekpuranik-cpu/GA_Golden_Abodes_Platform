@@ -175,6 +175,14 @@ export function mergeV1CashflowEnvelopes(existingEnv, incomingEnv) {
     const existingPid = exData[pid];
     if (isPlainObject(existingPid) && isPlainObject(incomingPid)) mergedData[pid] = deepMergeWorkbook(existingPid, incomingPid);
     else mergedData[pid] = incomingPid;
+    // Identity-merge of actuals cannot represent a wipe. Cashflow reset sends this flag.
+    if (isPlainObject(incomingPid) && incomingPid._cfReplaceActuals && isPlainObject(mergedData[pid])) {
+      mergedData[pid] = {
+        ...mergedData[pid],
+        actuals: Array.isArray(incomingPid.actuals) ? incomingPid.actuals.slice() : []
+      };
+      delete mergedData[pid]._cfReplaceActuals;
+    }
   }
   return {
     v: incomingEnv.v,
