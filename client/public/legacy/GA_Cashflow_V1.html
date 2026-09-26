@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 93;
+var CF_VERSION = 94;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -2491,6 +2491,105 @@ function tallyCostCentreFromEntryDom(ent){
   if(bill) return txt(bill,'NAME')||txt(bill,'COSTCENTRENAME')||'';
   return '';
 }
+function tallyRound2(n){
+  return Math.round((Number(n)||0)*100)/100;
+}
+/** C / D / E / CM CF leaves — Tally Cash Flow statement movement rows (not Z, BAL, or PL). */
+function isCfCashflowStatementCostCentre(name){
+  var s=String(name||'').trim();
+  if(!s) return false;
+  if(isCfZCashEquivalentsCostCentreName(s)||isBalResiduaryCostCentreName(s)) return false;
+  if(/^CM[\s\-]*CF\s*Z/i.test(s)) return false;
+  if(/^CM[\s\-]*CF\b/i.test(s)) return true;
+  if(/^[A-Z][\s\-]+CF\b/i.test(s)) return true;
+  return false;
+}
+function tallyAllocAmountFromBlockStr(block){
+  var raw=tallyXmlSimpleTag(block,'AMOUNT');
+  return tallyRound2(parseFloat(String(raw||'').replace(/,/g,''))||0);
+}
+function tallyCostCentreAllocationsFromBlockStr(block){
+  var out=[], cca=tallyXmlListInners(block,'COSTCENTREALLOCATIONS.LIST'), i, nm, amt;
+  for(i=0;i<cca.length;i++){
+    nm=tallyXmlSimpleTag(cca[i],'NAME');
+    amt=tallyAllocAmountFromBlockStr(cca[i]);
+    if(nm && amt) out.push({name:nm, amount:amt});
+  }
+  return out;
+}
+/** Unique CC allocations: CATEGORYALLOCATIONS children only (do not also walk the entry — that doubles Tally XML). */
+function tallyCostCentreAllocationsFromEntryStr(entInner){
+  var cats=tallyXmlListInners(entInner,'CATEGORYALLOCATIONS.LIST');
+  if(cats.length){
+    var out=[], i;
+    for(i=0;i<cats.length;i++) out=out.concat(tallyCostCentreAllocationsFromBlockStr(cats[i]));
+    return out;
+  }
+  return tallyCostCentreAllocationsFromBlockStr(entInner);
+}
+function tallyDomDirectByTag(el, tagU){
+  var out=[], i, c, want=String(tagU||'').toUpperCase();
+  if(!el||!el.children) return out;
+  for(i=0;i<el.children.length;i++){
+    c=el.children[i];
+    if(c && String(c.tagName||'').toUpperCase()===want) out.push(c);
+  }
+  return out;
+}
+function tallyDomDirectAmount(el){
+  var i, c, tn, t, n, best='', bestAbs=0;
+  if(!el||!el.children) return 0;
+  for(i=0;i<el.children.length;i++){
+    c=el.children[i];
+    tn=String(c&&c.tagName||'').toUpperCase();
+    if(tn==='AMOUNT'||tn==='DEBITAMOUNT'||tn==='CREDITAMOUNT'){
+      t=String(c.textContent||'').trim();
+      n=Math.abs(parseFloat(String(t).replace(/,/g,''))||0);
+      if(n>=bestAbs){ bestAbs=n; best=t; }
+    }
+  }
+  return tallyRound2(parseFloat(String(best).replace(/,/g,''))||0);
+}
+function tallyDomTagText(el, tag){
+  if(!el) return '';
+  var n=el.getElementsByTagName(tag)[0];
+  return n?String(n.textContent||'').trim():'';
+}
+function tallyCostCentreAllocationsFromDomBlock(el){
+  var out=[], list=tallyDomDirectByTag(el,'COSTCENTREALLOCATIONS.LIST'), i, nm, amt;
+  for(i=0;i<list.length;i++){
+    nm=tallyDomTagText(list[i],'NAME');
+    amt=tallyDomDirectAmount(list[i]);
+    if(nm && amt) out.push({name:nm, amount:amt});
+  }
+  return out;
+}
+function tallyCostCentreAllocationsFromEntryDom(ent){
+  var cats=tallyDomDirectByTag(ent,'CATEGORYALLOCATIONS.LIST');
+  if(cats.length){
+    var out=[], i;
+    for(i=0;i<cats.length;i++) out=out.concat(tallyCostCentreAllocationsFromDomBlock(cats[i]));
+    return out;
+  }
+  return tallyCostCentreAllocationsFromDomBlock(ent);
+}
+function tallyPushLedgerEntryRows(base, allocs, rows){
+  var i, row0;
+  if(allocs && allocs.length){
+    for(i=0;i<allocs.length;i++){
+      row0={};
+      Object.keys(base).forEach(function(k){ row0[k]=base[k]; });
+      row0.rawAmount=allocs[i].amount;
+      row0.costCentre=allocs[i].name;
+      row0.allocIndex=i;
+      row0.tallyKey=buildTallyLineKey(row0);
+      rows.push(row0);
+    }
+    return;
+  }
+  base.tallyKey=buildTallyLineKey(base);
+  rows.push(base);
+}
 /** XML 1.0 disallows most C0 controls; Tally data sometimes contains them and DOMParser fails. */
 function stripIllegalXmlCharacters(s){
   if(!s||typeof s!=='string') return '';
@@ -2716,11 +2815,11 @@ function tallyAppendLedgerRowsFromVoucher(attrs, vb, vi, opts, rows){
     var cc=tallyCostCentreFromEntryStr(ent)||tallyXmlSimpleTag(vb,'COSTCENTRENAME');
     var amtStr=tallyLedgerPrimaryAmountStr(ent);
     var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
-    if(!amt) continue;
+    var allocs=tallyCostCentreAllocationsFromEntryStr(ent);
+    if(!amt && !allocs.length) continue;
     var narr=tallyXmlSimpleTag(ent,'NARRATION')||tallyXmlSimpleTag(vb,'NARRATION');
-    var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
-    row0.tallyKey=buildTallyLineKey(row0);
-    rows.push(row0);
+    var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,ledgerAmount:amt};
+    tallyPushLedgerEntryRows(row0, allocs, rows);
   }
 }
 /** Linear scan — avoids one giant /[\s\S]*?/ regex over multi-MB Tally XML. */
@@ -2888,12 +2987,12 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
       if(shouldSkipTallyBankLedgerLine(party, ccEarly)) continue;
       var amtStr=tallyLedgerPrimaryAmountDom(ent)||txt(ent,'AMOUNT');
       var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
-      if(!amt) continue;
+      var allocs=tallyCostCentreAllocationsFromEntryDom(ent);
+      if(!amt && !allocs.length) continue;
       var cc=ccEarly;
       var narr=txt(ent,'NARRATION')||txt(vch,'NARRATION');
-      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc};
-      row0.tallyKey=buildTallyLineKey(row0);
-      rows.push(row0);
+      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,ledgerAmount:amt};
+      tallyPushLedgerEntryRows(row0, allocs, rows);
     }
   }
   if(rows.length) return {rows:rows, parseMode:'dom'};
@@ -2928,12 +3027,16 @@ function normalizeTallyNarrKey(note){
 function tallyActualSoftFingerprint(a){
   if(!a) return '';
   var voucherId=String(a.voucherId||'').trim().toLowerCase();
-  if(voucherId) return 'v:'+voucherId+'|l:'+(a.ledgerIndex==null?'':a.ledgerIndex)+'|'+String(a.party||'').trim().toLowerCase()+'|'+normalizeTallyAmtKey(a.rawAmount!=null?a.rawAmount:a.amount);
+  var cc=String(a.costCentre||'').trim().toLowerCase().replace(/\s+/g,' ');
+  var aidx=a.allocIndex==null?'':String(a.allocIndex);
+  if(voucherId) return 'v:'+voucherId+'|l:'+(a.ledgerIndex==null?'':a.ledgerIndex)+'|a:'+aidx+'|'+String(a.party||'').trim().toLowerCase()+'|'+normalizeTallyAmtKey(a.rawAmount!=null?a.rawAmount:a.amount)+'|'+cc;
   return [
     String(a.date||'').slice(0,10),
     String(a.party||'').trim().toLowerCase(),
     normalizeTallyAmtKey(a.rawAmount!=null?a.rawAmount:a.amount),
-    String(a.voucherNo||'').trim().toLowerCase()
+    String(a.voucherNo||'').trim().toLowerCase(),
+    cc,
+    aidx
   ].join('|');
 }
 /** Canonical tallyKey for a parsed ledger row. */
@@ -2944,8 +3047,10 @@ function buildTallyLineKey(row){
   var amt=normalizeTallyAmtKey(row&&(row.rawAmount!=null?row.rawAmount:row.amount));
   var vno=String(row&&row.voucherNo||'').trim().toLowerCase();
   var narr=normalizeTallyNarrKey(row&&(row.note||row.narration)||'');
-  if(voucherId) return 'tally|v:'+voucherId+'|l:'+((row&&row.ledgerIndex!=null)?row.ledgerIndex:'')+'|'+party+'|'+amt;
-  return 'tally|'+date+'|'+(vno||'')+'|'+party+'|'+amt+'|'+narr;
+  var cc=String(row&&row.costCentre||'').trim().toLowerCase().replace(/\s+/g,' ');
+  var aidx=(row&&row.allocIndex!=null)?String(row.allocIndex):'';
+  if(voucherId) return 'tally|v:'+voucherId+'|l:'+((row&&row.ledgerIndex!=null)?row.ledgerIndex:'')+'|a:'+aidx+'|'+party+'|'+amt+'|'+cc;
+  return 'tally|'+date+'|'+(vno||'')+'|'+party+'|'+amt+'|'+cc+'|a:'+aidx+'|'+narr;
 }
 /** Remove duplicate Tally actuals on one project (exact key + soft fingerprint). */
 function dedupeTallyActualsForPid(pid){
@@ -3009,7 +3114,8 @@ function ledgerLineToActual(row, route){
   var amt=isTallyContraType(vt)?raw:(sot.isInflow?mag:-mag);
   return {
     id:uid(),date:row.date,party:party,cat1:sot.cat1,note:note,amount:amt,costCentre:cc,source:'tally',tallyKey:row.tallyKey,
-    tallyRawAmount:raw,voucherNo:row.voucherNo||'',voucherId:row.voucherId||'',ledgerIndex:row.ledgerIndex,
+    tallyRawAmount:raw,tallyLedgerAmount:row.ledgerAmount!=null?row.ledgerAmount:raw,allocIndex:row.allocIndex,
+    voucherNo:row.voucherNo||'',voucherId:row.voucherId||'',ledgerIndex:row.ledgerIndex,
     voucherType:vt||'',
     gaL1:sot.gaL1,gaL2:sot.gaL2,gaL3:sot.gaL3,gaL3Name:sot.gaL3Name,tallyMapSrc:sot.tallyMapSrc,
     masterKey:sot.masterKey||'',gaScope:sot.gaScope||'building',plL1:sot.plL1||'',
@@ -3345,7 +3451,8 @@ function mergeTallyLinesIntoActuals(rows, opts){
   var scopePids=phaseProjects.map(function(p){return String(p.id);});
   if(scopePids.indexOf(String(_curPid))<0) scopePids.push(String(_curPid));
   var replaced=0;
-  if(opts.replaceTally && eligible.length){
+  var incomingAlloc=eligible.some(function(x){ return x.row && x.row.allocIndex!=null; });
+  if((opts.replaceTally || incomingAlloc) && eligible.length){
     scopePids.forEach(function(pid){
       var c=getCF(pid);
       if(!Array.isArray(c.actuals)) c.actuals=[];
@@ -8055,11 +8162,13 @@ function coerceMoney(v){
   return parseCRMNumber(v);
 }
 /**
- * CA / GA cashflow cost-centre rules (CF v76+):
+ * CA / GA cashflow cost-centre rules (CF v94+):
  * 1) BAL Balancing Cashflow Residuary Ledger → BAL1 → BAL1-1 MISC Residuary for Cashflow
  *    — exclude ONLY that line amount from movement calculations (never drop the whole voucher).
  * 2) CF Z Cash & Cash Equivalents (bank / FD / cash) — closing balance & BS recon ONLY;
  *    never include in Total Inflow / Total Outflow / movement grids.
+ * 3) In − Out uses Tally COSTCENTREALLOCATIONS amounts on C / D / E / CM CF leaves
+ *    (not the gross ledger AMOUNT). That is the Cash Flow statement nett.
  * Matching uses full L1/L2/L3 names and codes; bare "BAL" / "BAL1" alone do not match.
  */
 function actualCostCenterMatchBlob(a){
@@ -8140,7 +8249,7 @@ function isAutosweepBankLine(a){
 function tallyCostCentreTagFamily(name){
   var s=String(name||'').trim();
   if(!s) return 'none';
-  if(/^(CF)\s/i.test(s) || /\sCF\s/.test(' '+s+' ') || /^CM\s+CF\b/i.test(s) || /^[A-Z]\s+CF\b/i.test(s) || /^CF\s*Z\b/i.test(s) || /^CF\s*BAL/i.test(s)) return 'CF';
+  if(/^(CF)\s/i.test(s) || /\sCF\s/.test(' '+s+' ') || /^CM\s+CF\b/i.test(s) || /^[A-Z]\s+CF\b/i.test(s) || /^CF\s*Z\d/i.test(s) || /^CF\s*Z\b/i.test(s) || /^CF\s*BAL/i.test(s)) return 'CF';
   if(/^(PL)\s/i.test(s) || /\sPL\s/.test(' '+s+' ') || /^CM\s+PL\b/i.test(s) || /^PL\s/i.test(s)) return 'PL';
   if(/^BAL\b/i.test(s) && /cashflow/i.test(s)) return 'CF';
   if(/^BAL\b/i.test(s) || /payables/i.test(s)) return 'PL';
@@ -8206,7 +8315,8 @@ function annotatePhaseTallySopRules(sourcePid){
     else { pairing='untagged'; verdict='Wrong'; reason='no_cost_centre'; }
     if(isTallyPaymentOrReceiptType(vt) && !hasZ){ reason=reason||'missing_z'; }
     if(isTallyContraType(vt) && pairing==='CF + CF'){ verdict='Correct'; reason=reason==='missing_z'?'':reason; }
-    var includeCf=isTallyPaymentOrReceiptType(vt) && verdict==='Correct' && hasZ && !reason;
+    var includeVoucher=isTallyPaymentOrReceiptType(vt) && hasZ && !isTallyContraType(vt)
+      && ((verdict==='Correct' && !reason) || reason==='mixed_pair');
     g.lines.forEach(function(a){
       a.tallyPairing=pairing;
       a.tallyPairingVerdict=verdict;
@@ -8215,7 +8325,7 @@ function annotatePhaseTallySopRules(sourcePid){
       if(lineUntagged) a.tallyException=a.tallyException||'no_cost_centre';
       var zLine=isCfZCashEquivalentsLine(a)||isCfZCashEquivalentsCostCentreName(a.costCentre);
       var balLine=isBalExcludedLine(a);
-      a.tallyIncludeInCashflow=!!(includeCf && !zLine && !balLine && !lineUntagged && !isTallyContraType(vt));
+      a.tallyIncludeInCashflow=!!(includeVoucher && !zLine && !balLine && !lineUntagged && isCfCashflowStatementCostCentre(a.costCentre));
     });
     pairingRows.push({key:k, voucherType:vt, date:g.date, voucherNo:g.vno, pairing:pairing, verdict:verdict, reason:reason||'', lineCount:g.lines.length, hasZ:hasZ, hasCat:hasCat});
     if(reason==='missing_z' || (isTallyPaymentOrReceiptType(vt) && !hasZ)) missingZ.push(g);
@@ -8228,13 +8338,15 @@ function annotatePhaseTallySopRules(sourcePid){
 /** Why a line is kept out of Total Inflow / Total Outflow (entry still stored). */
 function cashflowMovementExclusionReason(a){
   if(!a) return '';
-  if(a.tallyIncludeInCashflow===false || a.tallyException) return a.tallyException||'exception';
+  if(a.tallyIncludeInCashflow===true) return '';
+  if(a.tallyIncludeInCashflow===false) return a.tallyException||'exception';
   var vt=a.voucherType||extractTallyVoucherType(a.note);
   if(isTallyContraType(vt)) return 'contra';
   if(vt && !isTallyPaymentOrReceiptType(vt)) return 'pl_voucher';
   if(isBalExcludedLine(a)||isBalResiduaryCashflowLine(a)) return 'bal';
   if(isCfZCashEquivalentsLine(a)) return 'cfz';
   if(isAutosweepBankLine(a)) return 'autosweep';
+  if(String(a.costCentre||'').trim() && !isCfCashflowStatementCostCentre(a.costCentre)) return 'not_cf_statement';
   return '';
 }
 /** For monthly cashflow, GA rollups, expense dashboards, collections — movements only. */
@@ -12792,7 +12904,7 @@ function importTallyXmlBatch(filePayloads){
         }
         var integrity=buildTallyImportIntegrity(allRows,{live:false,fromDate:fd,toDate:td});
         mergeTallyLinesIntoActualsAsync(allRows,{
-          replaceTally:!!sync.replaceTally,
+          replaceTally:true,
           costCentreSubstr:sync.costCentreSubstr||'',
           onlyPaymentReceipt:false,
           autoAllocate:sync.autoAllocate!==false,
