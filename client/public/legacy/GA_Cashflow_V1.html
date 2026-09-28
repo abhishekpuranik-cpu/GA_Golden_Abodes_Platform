@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 95;
+var CF_VERSION = 96;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -1602,7 +1602,7 @@ function htmlExpenseDashFilterBar(actsBase){
 }
 function htmlExpenseSopReconcileTable(cfg, filt){
   var vis=(cfg&&cfg._scopeVis)||getVisibleProjects();
-  if(!visibleScopeShowsCompanyZ(vis)) return '';
+  var showZ=visibleScopeShowsCompanyZ(vis);
   filt=filt||{};
   var V=computeCashflowValidation(cfg, {fromMonth:filt.from||'', toMonth:filt.to||''});
   var sop=window.__gaLastSopAudit||{};
@@ -1612,21 +1612,31 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   var missL3=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length;
   var hasBalN=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('has_bal')>=0; }).length;
   var zNeqN=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('z_neq_eligible_l3')>=0; }).length;
-  var ok=!!V.rule2Pass;
+  var ok=showZ?!!V.rule2Pass:true;
   var scopeNote=cfg&&cfg._scopeRollup?('Rollup: '+escHtml(cfg.projName||'')+'. '):'';
-  var h='<div class="card" style="margin-bottom:12px;border-left:4px solid '+(ok?'#166534':'#991B1B')+';padding:14px 16px">';
+  var h='<div class="card" style="margin-bottom:12px;border-left:4px solid '+(showZ?(ok?'#166534':'#991B1B'):'#1558A0')+';padding:14px 16px">';
   h+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">';
-  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">Accounting reconcile — Cashflow vs Z</div>';
-  h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:'+(ok?'#DCFCE7':'#FEE2E2')+';color:'+(ok?'#166534':'#991B1B')+'">'+(ok?'TALLIED':'NOT TALLIED')+'</span></div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Inflows − Outflows (L3 nature; refunds netted) vs sum of Z Cash &amp; Cash Equivalents. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only. BAL and SOP exceptions are not in the cashflow sum.</div>';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">'+(showZ?'Accounting reconcile — Cashflow vs Z':'This building — eligible L3 cashflow')+'</div>';
+  if(showZ) h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:'+(ok?'#DCFCE7':'#FEE2E2')+';color:'+(ok?'#166534':'#991B1B')+'">'+(ok?'TALLIED':'NOT TALLIED')+'</span>';
+  else h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:#E8F1FB;color:#1558A0">BUILDING SCOPE</span>';
+  h+='</div>';
+  if(showZ){
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Inflows − Outflows (L3 nature; refunds netted) vs sum of Z Cash &amp; Cash Equivalents. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only. BAL and SOP exceptions are not in the cashflow sum.</div>';
+  } else {
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Inflows and outflows are this building&apos;s eligible CF L3 only (C/D/E CF). Company <strong>Sum of Z</strong> (banks/cash) lives on <strong>Common Amenities</strong>. Open Common Amenities or All buildings to tally Net = Z.</div>';
+  }
   h+='<table class="amt-pair-tbl" style="width:100%;font-size:12px"><thead><tr><th>Measure</th><th style="text-align:right">Amount</th></tr></thead><tbody>';
   h+='<tr><td>Sum of cashflow (inflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.inflow)+'</td></tr>';
   h+='<tr><td>Sum of cashflow (outflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.outflow)+'</td></tr>';
   h+='<tr><td><strong>Net cashflow (In − Out)</strong></td><td class="amt"><strong>'+formatRupeesDisplay(V.netCf)+'</strong></td></tr>';
-  h+='<tr><td>Sum of Z (Cash &amp; Cash Equivalents)</td><td class="amt">'+formatRupeesDisplay(V.cfzL1)+'</td></tr>';
-  h+='<tr><td><strong>Difference (Net cashflow − Sum of Z)</strong></td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesDisplay(V.rule2Diff)+'</strong></td></tr>';
+  if(showZ){
+    h+='<tr><td>Sum of Z (Cash &amp; Cash Equivalents)</td><td class="amt">'+formatRupeesDisplay(V.cfzL1)+'</td></tr>';
+    h+='<tr><td><strong>Difference (Net cashflow − Sum of Z)</strong></td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesDisplay(V.rule2Diff)+'</strong></td></tr>';
+  }
   h+='</tbody></table>';
-  h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged at entry level: untagged '+untaggedN+' · missing Z '+missZ+' · missing L3 (Z-to-Z) '+missL3+' · BAL extra '+hasBalN+' · Z ≠ L3 '+zNeqN+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
+  if(showZ){
+    h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged at entry level: untagged '+untaggedN+' · missing Z '+missZ+' · missing L3 (Z-to-Z) '+missL3+' · BAL extra '+hasBalN+' · Z ≠ L3 '+zNeqN+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
+  }
   h+='</div>';
   return h;
 }
@@ -4016,7 +4026,7 @@ function collectExpenseGATreeKeys(acts, rollup){
     var l2=String(a.gaL2||'').trim()||'—';
     var l3k=(a.gaL3?String(a.gaL3).trim()+' — ':'')+String(a.gaL3Name||'').trim();
     if(!l3k||l3k==='—') l3k='— (see party / note)';
-    if(rollup && a._scopeBuilding) expenseTreePushPath(treeOut, [a._scopeBuilding, l1, l2, l3k], mag, null);
+    if(rollup) expenseTreePushPath(treeOut, [String(a._scopeBuilding||'Building'), l1, l2, l3k], mag, null);
     else expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, null);
   });
   function walk(node, prefix, depth){
@@ -9548,15 +9558,15 @@ function renderCashflow(){
     h+='</div>';
   }
 
-  // ── CA validation: In − Out vs Z (company / Common Amenities only) ──
+  // ── CA validation: In − Out vs Z (Z is company / Common Amenities). Building scope still shows its own L3 In − Out. ──
   var showZ=visibleScopeShowsCompanyZ(vis);
-  if(showZ){
-    if(useRollup){
-      try{ annotateVisibleTallySopRules(); }catch(eRollSop){}
-      h+=htmlExpenseSopReconcileTable(buildVisibleScopeCfg(), {});
-    } else {
-      h+=htmlCashflowValidationPanel(cfg);
-    }
+  if(useRollup){
+    try{ annotateVisibleTallySopRules(); }catch(eRollSop){}
+    h+=htmlExpenseSopReconcileTable(buildVisibleScopeCfg(), {});
+  } else if(showZ){
+    h+=htmlCashflowValidationPanel(cfg);
+  } else {
+    h+=htmlExpenseSopReconcileTable(cfg, {});
   }
 
   // ── KPI strip ──
