@@ -17,6 +17,7 @@ import {
 } from '../lib/v3OrgPlannerMerge.js';
 import { mergePreconstructionState, repairPreconstructionForRead, repairPreconstructionForWrite } from '../lib/preconstructionMerge.js';
 import { loadPreconProjection, writePreconCompanions } from '../lib/preconStateCache.js';
+import { sendJsonMaybeGzip } from '../lib/sendJsonGzip.js';
 import { resolveSession, userHasPermission } from './auth.js';
 
 export const PRECONSTRUCTION_APP_ID = 'preconstruction';
@@ -128,7 +129,7 @@ appStatesRouter.get(
           if (!proj?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
           res.setHeader('X-GA-Precon-Source', proj.source || 'unknown');
           res.setHeader('Cache-Control', 'private, max-age=5');
-          return res.json({
+          return sendJsonMaybeGzip(req, res, {
             appId,
             data: proj.data,
             version: proj.version || 1,
@@ -140,7 +141,7 @@ appStatesRouter.get(
 
         const row = await states.findOne({ _id: appId });
         if (!row?.data) return res.status(404).json({ error: `No saved state for app "${appId}"` });
-        return res.json({
+        return sendJsonMaybeGzip(req, res, {
           appId,
           data: repairPreconstructionForRead(row.data),
           version: row.version || 1,
@@ -159,7 +160,7 @@ appStatesRouter.get(
       } else if (appId === V1_CASHFLOW_APP_ID) {
         outData = await repairV1CashflowForRead(db, row.data);
       }
-      res.json({
+      sendJsonMaybeGzip(req, res, {
         appId,
         data: outData,
         version: row.version || 1,
@@ -521,7 +522,7 @@ appStatesRouter.get(
       let outData = row.data;
       if (appId === V3_ORG_PLANNER_APP_ID) outData = repairV3OrgPlannerForRead(row.data);
       else if (appId === V1_CASHFLOW_APP_ID) outData = await repairV1CashflowForRead(db, row.data);
-      res.json({
+      sendJsonMaybeGzip(req, res, {
         id: row._id.toString(),
         appId,
         sourceVersion: row.sourceVersion || 1,

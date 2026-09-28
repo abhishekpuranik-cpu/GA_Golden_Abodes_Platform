@@ -280,6 +280,10 @@ function gaScheduleIdle(fn, delayMs){
     requestAnimationFrame(function(){ setTimeout(fn, 0); });
   }else setTimeout(fn, d);
 }
+/** Faster yield for parse/route loops (skip extra rAF when the modal is already up). */
+function gaScheduleWork(fn){
+  setTimeout(fn, 0);
+}
 /** Process array in slices with UI yields. */
 function gaForEachChunk(arr, chunkSize, onChunk, onDone){
   var list=arr||[], i=0, size=Math.max(50, chunkSize||400);
@@ -295,6 +299,8 @@ function gaForEachChunk(arr, chunkSize, onChunk, onDone){
 var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
+var _gaAcctCcIndex = null;
+function invalidateGaAcctCcIndex(){ _gaAcctCcIndex=null; }
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Income','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
@@ -467,6 +473,7 @@ function applyGaAcctMasterPayload(payload, meta){
     uploadedAt: meta.uploadedAt || payload.uploadedAt || Date.now(),
     keyCount: meta.keyCount || payload.keyCount || Object.keys(GA_ACCT_L3_BY_CODE).length
   };
+  invalidateGaAcctCcIndex();
   resetGaL1ColumnCaches();
   ensureGaL1CashflowCols();
   updateCodingMasterStatusLabel();
@@ -964,6 +971,28 @@ function reroutePhaseTallyActuals(sourcePid){
 function normTallyCostCentreLabel(s){
   return tallyDecodeXmlText(String(s||'')).replace(/\s+/g,' ').trim().toLowerCase();
 }
+function ensureGaAcctCcIndex(){
+  if(_gaAcctCcIndex) return _gaAcctCcIndex;
+  var exact={}, list=[];
+  Object.keys(GA_ACCT_L3_BY_CODE||{}).forEach(function(k){
+    var g=GA_ACCT_L3_BY_CODE[k];
+    if(!g) return;
+    ['cfL3','plL3','l3Name','desc'].forEach(function(fld){
+      var v=normTallyCostCentreLabel(g[fld]);
+      if(!v||v.length<4||v==='0') return;
+      if(!exact[v] || v.length>(exact[v].len||0)) exact[v]={g:g,len:v.length};
+      list.push({v:v,g:g,len:v.length});
+    });
+  });
+  list.sort(function(a,b){ return b.len-a.len; });
+  _gaAcctCcIndex={exact:exact, list:list};
+  return _gaAcctCcIndex;
+}
+function wrapGaAcctForCc(g, bPref, scope){
+  if(!g) return null;
+  if(g.scope==='common') return g;
+  return gaAcctCloneForPrefix(g, bPref||(_curPid?getAcctPrefixForPid(_curPid):'A'));
+}
 /** Match Tally COSTCENTREALLOCATIONS name to V3 master (cfL3 / plL3 / description). */
 function lookupGAAccountingByCostCentre(costCentre){
   if(!costCentre||typeof GA_ACCT_L3_BY_CODE==='undefined'||!GA_ACCT_L3_BY_CODE) return null;
@@ -971,21 +1000,27 @@ function lookupGAAccountingByCostCentre(costCentre){
   if(!ccNorm) return null;
   var bPref=parseBuildingPrefixFromTallyCostCentre(costCentre);
   var scope=bPref?'building':(/^cm\s+cf\b/.test(ccNorm)?'common':inferAcctScopeFromText(costCentre,costCentre));
-  var best=null, bestLen=0;
-  Object.keys(GA_ACCT_L3_BY_CODE).forEach(function(k){
-    var g=GA_ACCT_L3_BY_CODE[k];
-    if(!g) return;
-    ['cfL3','plL3','l3Name','desc'].forEach(function(fld){
-      var v=normTallyCostCentreLabel(g[fld]);
-      if(!v||v.length<4) return;
-      var hit=ccNorm===v||ccNorm.indexOf(v)>=0||v.indexOf(ccNorm)>=0;
-      if(hit && v.length>bestLen){ best=g; bestLen=v.length; }
-    });
-  });
-  if(best){
-    if(best.scope==='common') return best;
-    return gaAcctCloneForPrefix(best, bPref||(_curPid?getAcctPrefixForPid(_curPid):'A'));
+  var codes=String(costCentre).match(/\b([A-Za-z]{1,3}\d+(?:-\d+)*)\b/g);
+  if(codes){
+    for(var ci=0;ci<codes.length;ci++){
+      var mk=resolveMasterKeyFromShortCode(codes[ci], scope, bPref);
+      if(mk && GA_ACCT_L3_BY_CODE[mk]) return wrapGaAcctForCc(GA_ACCT_L3_BY_CODE[mk], bPref, scope);
+      if(GA_ACCT_L3_BY_CODE[codes[ci]]) return wrapGaAcctForCc(GA_ACCT_L3_BY_CODE[codes[ci]], bPref, scope);
+    }
   }
+  var idx=ensureGaAcctCcIndex();
+  var best=null, bestLen=0;
+  if(idx.exact[ccNorm]){ best=idx.exact[ccNorm].g; bestLen=idx.exact[ccNorm].len; }
+  else{
+    for(var i=0;i<idx.list.length;i++){
+      var it=idx.list[i];
+      if(it.len<bestLen) break;
+      if(ccNorm===it.v||ccNorm.indexOf(it.v)>=0||it.v.indexOf(ccNorm)>=0){
+        best=it.g; bestLen=it.len; break;
+      }
+    }
+  }
+  if(best) return wrapGaAcctForCc(best, bPref, scope);
   return resolveGAAccountingChartRow(costCentre, costCentre, scope, bPref||(_curPid?getAcctPrefixForPid(_curPid):'A'));
 }
 function hierarchyBreadcrumbHtml(pid){
@@ -2461,18 +2496,9 @@ function tallyCostCentreFromEntryStr(entInner){
   if(!entInner) return '';
   var cc=tallyXmlSimpleTag(entInner,'COSTCENTRENAME');
   if(cc) return cc;
-  var cca=tallyXmlListInners(entInner,'COSTCENTREALLOCATIONS.LIST');
-  for(var i=0;i<cca.length;i++){
-    var nm=tallyXmlSimpleTag(cca[i],'NAME');
-    if(nm && isUsableTallyCostCentreName(nm)) return nm;
-  }
-  var cat=tallyXmlListInners(entInner,'CATEGORYALLOCATIONS.LIST');
-  for(var j=0;j<cat.length;j++){
-    var sub=tallyXmlListInners(cat[j],'COSTCENTREALLOCATIONS.LIST');
-    for(var k=0;k<sub.length;k++){
-      nm=tallyXmlSimpleTag(sub[k],'NAME');
-      if(nm && isUsableTallyCostCentreName(nm)) return nm;
-    }
+  var allocs=tallyCostCentreAllocationsFromEntryStr(entInner);
+  for(var i=0;i<allocs.length;i++){
+    if(allocs[i]&&allocs[i].name&&isUsableTallyCostCentreName(allocs[i].name)) return allocs[i].name;
   }
   var bills=tallyXmlListInners(entInner,'BILLALLOCATIONS.LIST');
   if(bills.length) return tallyXmlSimpleTag(bills[0],'NAME')||tallyXmlSimpleTag(bills[0],'COSTCENTRENAME')||'';
@@ -2606,6 +2632,7 @@ function tallyPushLedgerEntryRows(base, allocs, rows){
 /** XML 1.0 disallows most C0 controls; Tally data sometimes contains them and DOMParser fails. */
 function stripIllegalXmlCharacters(s){
   if(!s||typeof s!=='string') return '';
+  if(!/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFDD0-\uFDEF\uFFFE\uFFFF]/.test(s)) return s;
   return s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFDD0-\uFDEF\uFFFE\uFFFF]/g,'');
 }
 /** Tally often emits raw & in text; strict DOMParser rejects it. Escape only bare ampersands. */
@@ -2689,18 +2716,12 @@ function tallyLedgerPrimaryAmountDom(ent){
   return best;
 }
 function tallyLedgerPrimaryAmountStr(entInner){
-  var strip=['BILLALLOCATIONS.LIST','INTERESTCOLLECTION.LIST','OLDAUDITENTRYIDS.LIST','ACCOUNTINGALLOCATIONS.LIST','GST.LIST','BANKALLOCATIONS.LIST','BRANCHALLOCATIONS.LIST','PAYROLLMODEPAYMENT.LIST','ORIGINALPURCHASE.LIST','SERIALNUMBER.LIST','CATEGORYALLOCATIONS.LIST','INVENTORYALLOCATIONS.LIST'];
-  var stripped=tallyStripListBlocks(entInner,strip);
-  var best='', bestAbs=0, tags=['AMOUNT','DEBITAMOUNT','CREDITAMOUNT'], ti, m, esc, re2;
+  var tags=['AMOUNT','DEBITAMOUNT','CREDITAMOUNT'], ti, tx, nx, best='', bestAbs=0;
   for(ti=0;ti<tags.length;ti++){
-    esc=tallyReEsc(tags[ti]);
-    re2=new RegExp('<'+esc+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+esc+'>','gi');
-    while((m=re2.exec(stripped))!==null){
-      var inner=m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1').replace(/<[^>]+>/g,'').trim();
-      var tx=tallyDecodeXmlText(inner);
-      var nx=Math.abs(parseFloat(tx.replace(/,/g,'')))||0;
-      if(nx>=bestAbs){bestAbs=nx; best=tx;}
-    }
+    tx=tallyXmlDirectChildSimpleText(entInner, tags[ti]);
+    if(!tx) continue;
+    nx=Math.abs(parseFloat(String(tx).replace(/,/g,'')))||0;
+    if(nx>=bestAbs){ bestAbs=nx; best=tx; }
   }
   return best;
 }
@@ -2715,13 +2736,71 @@ function tallyVoucherDateRawFromInner(vb){
 /** First <TAG>…</TAG> in block (optional attrs on open). Nested markup → flatten to text. */
 function tallyXmlSimpleTag(block, tag){
   if(!block||!tag) return '';
-  var esc=tallyReEsc(tag);
-  var re=new RegExp('<'+esc+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+esc+'>','i');
-  var m=re.exec(block);
-  if(!m) return '';
-  var inner=m[1].trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1');
-  if(inner.indexOf('<')<0) return tallyDecodeXmlText(inner);
-  return tallyDecodeXmlText(inner.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
+  var open='<'+tag, close='</'+tag+'>';
+  var start=block.indexOf(open);
+  if(start>=0){
+    var after=block.charAt(start+open.length);
+    if(after!=='>' && after!==' ' && after!=='\t' && after!=='\r' && after!=='\n') start=-1;
+  }
+  if(start<0){
+    var esc=tallyReEsc(tag);
+    var re=new RegExp('<'+esc+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+esc+'>','i');
+    var m=re.exec(block);
+    if(!m) return '';
+    var inner=m[1].trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1');
+    if(inner.indexOf('<')<0) return tallyDecodeXmlText(inner);
+    return tallyDecodeXmlText(inner.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
+  }
+  var gt=block.indexOf('>', start);
+  if(gt<0) return '';
+  var end=block.indexOf(close, gt+1);
+  if(end<0) return '';
+  var inner2=block.slice(gt+1, end).trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1');
+  if(inner2.indexOf('<')<0) return tallyDecodeXmlText(inner2);
+  return tallyDecodeXmlText(inner2.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
+}
+/** Direct-child text for a simple tag (AMOUNT) — never enters nested LIST blocks. */
+function tallyXmlDirectChildSimpleText(parentXml, tag){
+  var s=String(parentXml||''), want=String(tag||'').toUpperCase();
+  if(!s||!want) return '';
+  var i=0;
+  while(i<s.length){
+    var lt=s.indexOf('<', i);
+    if(lt<0) return '';
+    var ch=s.charAt(lt+1);
+    if(ch==='/'||ch==='!'||ch==='?'){ i=lt+1; continue; }
+    var gt=s.indexOf('>', lt);
+    if(gt<0) return '';
+    var nameEnd=lt+1;
+    while(nameEnd<gt && s.charAt(nameEnd)!==' ' && s.charAt(nameEnd)!=='\t' && s.charAt(nameEnd)!=='\r' && s.charAt(nameEnd)!=='\n') nameEnd++;
+    var rawName=s.slice(lt+1, nameEnd);
+    var name=rawName.toUpperCase();
+    if(s.charAt(gt-1)==='/'){ i=gt+1; continue; }
+    var openTok='<'+rawName, closeTok='</'+rawName+'>';
+    var depth=1, search=gt+1, closeAt=-1;
+    while(depth>0 && search<s.length){
+      var nOpen=s.indexOf(openTok, search);
+      var nClose=s.indexOf(closeTok, search);
+      if(nClose<0) return '';
+      if(nOpen>=0 && nOpen<nClose){
+        var och=s.charAt(nOpen+openTok.length);
+        if(och==='>'||och===' '||och==='\t'||och==='\r'||och==='\n') depth++;
+        search=nOpen+openTok.length;
+      }else{
+        depth--;
+        if(depth===0){ closeAt=nClose; break; }
+        search=nClose+closeTok.length;
+      }
+    }
+    if(closeAt<0) return '';
+    if(name===want){
+      var inner=s.slice(gt+1, closeAt).trim().replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1');
+      if(inner.indexOf('<')>=0) inner=inner.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
+      return tallyDecodeXmlText(inner);
+    }
+    i=closeAt+closeTok.length;
+  }
+  return '';
 }
 /** All direct child blocks named tag (siblings), inner XML only. */
 function tallyXmlListInners(parentXml, tag){
@@ -2731,9 +2810,14 @@ function tallyXmlListInners(parentXml, tag){
 function tallyXmlDirectChildInners(parentXml, tag){
   var s=String(parentXml||''), tagU=String(tag||'').toUpperCase();
   if(!s||!tagU) return [];
-  var openU='<'+tagU, closeU='</'+tagU+'>', out=[], i=0, upper=s.toUpperCase();
+  var openU='<'+tagU, closeU='</'+tagU+'>', out=[], i=0;
+  var scan=s;
+  if(s.indexOf(openU)<0){
+    scan=s.toUpperCase();
+    if(scan.indexOf(openU)<0) return out;
+  }
   while(i<s.length){
-    var start=upper.indexOf(openU, i);
+    var start=scan.indexOf(openU, i);
     if(start<0) break;
     var after=start+openU.length;
     var ch=after<s.length?s.charAt(after):'';
@@ -2742,8 +2826,8 @@ function tallyXmlDirectChildInners(parentXml, tag){
     if(gt<0) break;
     var depth=1, search=gt+1, closeAt=-1;
     while(depth>0 && search<s.length){
-      var nOpen=upper.indexOf(openU, search);
-      var nClose=upper.indexOf(closeU, search);
+      var nOpen=scan.indexOf(openU, search);
+      var nClose=scan.indexOf(closeU, search);
       if(nClose<0) break;
       if(nOpen>=0 && nOpen<nClose){
         var och=s.charAt(nOpen+openU.length);
@@ -2821,16 +2905,24 @@ function tallyAppendLedgerRowsFromVoucher(attrs, vb, vi, opts, rows){
   var voucherId=tallyXmlSimpleTag(vb,'GUID')||tallyXmlSimpleTag(vb,'MASTERID')||tallyXmlSimpleTag(vb,'ALTERID')||'';
   if(onlyPR && vtype && !isTallyCfFamilyVoucherType(vtype) && !/^(journal|sales|purchase|debit note|credit note|debit|credit)\b/i.test(String(vtype))) return;
   var ents=tallyXmlListInners(vb,'ALLLEDGERENTRIES.LIST');
+  var vchCc=tallyXmlSimpleTag(vb,'COSTCENTRENAME');
+  var vchNarr=tallyXmlSimpleTag(vb,'NARRATION');
   for(var ei=0;ei<ents.length;ei++){
     var ent=ents[ei];
     var party=tallyXmlSimpleTag(ent,'LEDGERNAME');
     if(!party) continue;
-    var cc=tallyCostCentreFromEntryStr(ent)||tallyXmlSimpleTag(vb,'COSTCENTRENAME');
+    var allocs=tallyCostCentreAllocationsFromEntryStr(ent);
+    var cc=tallyXmlSimpleTag(ent,'COSTCENTRENAME');
+    if(!cc){
+      for(var ai=0;ai<allocs.length;ai++){
+        if(allocs[ai]&&allocs[ai].name&&isUsableTallyCostCentreName(allocs[ai].name)){ cc=allocs[ai].name; break; }
+      }
+    }
+    if(!cc) cc=vchCc;
     var amtStr=tallyLedgerPrimaryAmountStr(ent);
     var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
-    var allocs=tallyCostCentreAllocationsFromEntryStr(ent);
     if(!amt && !allocs.length) continue;
-    var narr=tallyXmlSimpleTag(ent,'NARRATION')||tallyXmlSimpleTag(vb,'NARRATION');
+    var narr=tallyXmlSimpleTag(ent,'NARRATION')||vchNarr;
     var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,ledgerAmount:amt};
     tallyPushLedgerEntryRows(row0, allocs, rows);
   }
@@ -2865,10 +2957,10 @@ function parseTallyXmlToLedgerLinesRegex(safeXml, opts){
 /** Yielding parser so Chrome does not show “Page Unresponsive” on 6–20 MB live pulls. */
 function parseTallyXmlToLedgerLinesAsync(xmlText, opts, onProgress, onDone){
   opts=opts||{};
-  function fail(msg){ gaScheduleIdle(function(){ onDone({error:msg}); }); }
+  function fail(msg){ gaScheduleWork(function(){ onDone({error:msg}); }); }
   if(!xmlText||typeof xmlText!=='string'){ fail('Empty Tally response (no XML text).'); return; }
   var trimmed;
-  try{ trimmed=normalizeTallyUploadText(String(xmlText||'').trim()); }
+  try{ trimmed=opts.alreadyNormalized?String(xmlText||''):normalizeTallyUploadText(String(xmlText||'').trim()); }
   catch(eN){ fail('Could not normalize Tally XML: '+(eN&&eN.message||eN)); return; }
   if(!trimmed){ fail('Empty Tally response after normalize.'); return; }
   if(trimmed.charAt(0)==='{'){
@@ -2897,25 +2989,37 @@ function parseTallyXmlToLedgerLinesAsync(xmlText, opts, onProgress, onDone){
       : 'No importable lines in this XML.');
     return;
   }
-  var rows=[], i=0, CHUNK=6;
-  function step(){
-    var end=Math.min(i+CHUNK, spans.length);
-    for(;i<end;i++){
-      var sp=spans[i];
-      tallyAppendLedgerRowsFromVoucher(xml.slice(sp.attrFrom, sp.attrTo), xml.slice(sp.innerFrom, sp.innerTo), i+1, opts, rows);
-    }
-    if(onProgress) try{ onProgress({done:i, total:spans.length, rows:rows.length}); }catch(eP){}
-    if(i>=spans.length){
-      if(!rows.length){
-        fail('Parsed '+spans.length+' voucher(s) but no Payment/Receipt ledger lines remained after bank/type filters.');
-        return;
-      }
-      onDone({rows:rows, parseMode:'regex-async', xmlChars:xml.length, voucherCount:spans.length});
+  var rows=[], i=0, SLICE_MS=48;
+  function finishOk(){
+    if(!rows.length){
+      fail('Parsed '+spans.length+' voucher(s) but no Payment/Receipt ledger lines remained after bank/type filters.');
       return;
     }
-    gaScheduleIdle(step);
+    onDone({rows:rows, parseMode:'regex-async', xmlChars:xml.length, voucherCount:spans.length});
   }
-  gaScheduleIdle(step);
+  function step(){
+    var t0=Date.now();
+    while(i<spans.length && (Date.now()-t0)<SLICE_MS){
+      var sp=spans[i];
+      tallyAppendLedgerRowsFromVoucher(xml.slice(sp.attrFrom, sp.attrTo), xml.slice(sp.innerFrom, sp.innerTo), i+1, opts, rows);
+      i++;
+    }
+    if(onProgress) try{ onProgress({done:i, total:spans.length, rows:rows.length}); }catch(eP){}
+    if(i>=spans.length){ finishOk(); return; }
+    gaScheduleWork(step);
+  }
+  gaScheduleWork(function(){
+    if(spans.length<=900){
+      for(;i<spans.length;i++){
+        var sp=spans[i];
+        tallyAppendLedgerRowsFromVoucher(xml.slice(sp.attrFrom, sp.attrTo), xml.slice(sp.innerFrom, sp.innerTo), i+1, opts, rows);
+      }
+      if(onProgress) try{ onProgress({done:i, total:spans.length, rows:rows.length}); }catch(eP2){}
+      finishOk();
+      return;
+    }
+    step();
+  });
 }
 /** Parse Tally export XML → ledger lines. Default keeps Payment/Receipt only (like Payment.xml + Receipts.xml). Always returns {rows} or {error}. */
 function parseTallyXmlToLedgerLines(xmlText, opts){
@@ -3323,7 +3427,10 @@ function downloadCfZVsRestDeltaXlsx(audit){
 }
 /** After each sync/import: Net CF vs Z, pairing list, missing Z / untagged exceptions. */
 function showCfZBalanceAfterSync(res){
-  try{ annotatePhaseTallySopRules(_curPid); }catch(eAn){}
+  try{
+    if(res&&res.sopAudit) window.__gaLastSopAudit=res.sopAudit;
+    else annotatePhaseTallySopRules(_curPid);
+  }catch(eAn){}
   var cfg=getCF(_curPid)||{};
   var V=computeCashflowValidation(cfg);
   var sop=window.__gaLastSopAudit||{pairingRows:[],untagged:[],missingZ:[]};
@@ -3546,7 +3653,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
   }catch(eDed){}
   // Persist locally first; defer Mongo PUT so large JSON stringify does not freeze the UI mid-import.
   if(opts.deferSave){
-    saveAll({full:true, skipLocal:true});
+    saveAll({full:true, skipLocal:true, skipCloud:true});
     gaScheduleIdle(function(){ try{ localSnapshotSave(); }catch(eLs){} }, 80);
   }else{
     saveAll({full:true});
@@ -3575,29 +3682,43 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
   opts.deferSave=true;
   opts.skipReroute=true;
   var pending=(rows||[]).slice();
-  var eligible=[], skipped=0, i=0, CHUNK=35;
+  var eligible=[], skipped=0, i=0, SLICE_MS=40;
   var ccSub=(opts.costCentreSubstr||'').trim().toLowerCase();
   ensureCommonAmenitiesProject(_curPid);
-  function routeStep(){
-    if(onProgress) try{ onProgress('Routing '+Math.min(i+CHUNK, pending.length)+'/'+pending.length); }catch(eP){}
-    var end=Math.min(i+CHUNK, pending.length);
-    for(;i<end;i++){
-      var row=pending[i];
-      if(!row) continue;
-      if(shouldSkipTallyBankLedgerLine(row.party, row.costCentre)){ skipped++; continue; }
-      if(ccSub){
-        var c=(row.costCentre||'').toLowerCase();
-        if(!c||c.indexOf(ccSub)<0){ skipped++; continue; }
-      }
-      eligible.push({row:row, route:resolveTallyActualRoute(row,_curPid,opts.autoAllocate!==false)});
+  function routeOne(row){
+    if(!row) return;
+    if(shouldSkipTallyBankLedgerLine(row.party, row.costCentre)){ skipped++; return; }
+    if(ccSub){
+      var c=(row.costCentre||'').toLowerCase();
+      if(!c||c.indexOf(ccSub)<0){ skipped++; return; }
     }
-    if(i<pending.length){ gaScheduleIdle(routeStep); return; }
+    eligible.push({row:row, route:resolveTallyActualRoute(row,_curPid,opts.autoAllocate!==false)});
+  }
+  function finishRoute(){
     opts._prebuiltEligible=eligible;
     opts._preSkipped=skipped;
     var res=mergeTallyLinesIntoActuals(eligible.map(function(x){return x.row;}), opts);
     onDone(res);
   }
-  gaScheduleIdle(routeStep);
+  function routeStep(){
+    var t0=Date.now();
+    while(i<pending.length && (Date.now()-t0)<SLICE_MS){
+      routeOne(pending[i]);
+      i++;
+    }
+    if(onProgress) try{ onProgress('Routing '+Math.min(i, pending.length)+'/'+pending.length); }catch(eP){}
+    if(i<pending.length){ gaScheduleWork(routeStep); return; }
+    finishRoute();
+  }
+  gaScheduleWork(function(){
+    if(pending.length<=4000){
+      for(;i<pending.length;i++) routeOne(pending[i]);
+      if(onProgress) try{ onProgress('Routing '+pending.length+'/'+pending.length); }catch(eP2){}
+      finishRoute();
+      return;
+    }
+    routeStep();
+  });
 }
 function showTallySyncModal(){
   var s, perProjNote='';
@@ -4066,6 +4187,7 @@ var _mongoRestoringSnapshot = false;
 var _mongoDirtyPids = {};
 var _mongoDirtyPidSections = {};
 var _mongoForceFullSave = false;
+var _mongoLoadedSoldUnits = 0;
 var MONGO_APP_ID = 'v1_cashflow';
 var MONGO_V3_APP_ID = 'v3_org_planner';
 var GA_MONGO_ENABLE_KEY = 'ga_mongo_state_enable';
@@ -4080,6 +4202,9 @@ function mongoStateApiUrl(){
   try{ base=String(localStorage.getItem(GA_MONGO_API_BASE_KEY)||'').trim().replace(/\/$/,''); }catch(e){}
   if(base) return base+'/'+path;
   return '/'+path;
+}
+function mongoStateMetaApiUrl(){
+  return mongoStateApiUrl().replace(/\/state$/,'/meta');
 }
 function getRemoveProjectPassword(){
   try{
@@ -5017,13 +5142,24 @@ function markMongoDirtyPidSections(pid, sections){
     if(k) _mongoDirtyPidSections[pid][k]=1;
   });
 }
+function workbookHeavyRowCount(){
+  var n=0;
+  Object.keys(_cfData||{}).forEach(function(pid){
+    var c=_cfData[pid];
+    if(!c) return;
+    n+=(c.actuals&&c.actuals.length)||0;
+    n+=(c.units&&c.units.length)||0;
+  });
+  return n;
+}
 function localSnapshotSave(){
   try{
-    localStorage.setItem('ga_cf_v1',JSON.stringify(cfStatePayload()));
     localStorage.setItem('ga_v1_project_group_filter','__all__');
     localStorage.setItem('ga_v1_proj_root_filter',_curProjRoot||'__all__');
     localStorage.setItem('ga_v1_phase_filter',_curPhase||'__all__');
     localStorage.setItem('ga_v1_building_filter',_curBuilding||'__all__');
+    if(canUseMongoState() && workbookHeavyRowCount()>1200) return;
+    localStorage.setItem('ga_cf_v1',JSON.stringify(cfStatePayload()));
   }catch(e){}
 }
 function mongoPayloadForSave(){
@@ -5543,10 +5679,45 @@ function saveAll(opts){
   }
   if(opts.skipLocal!==true) localSnapshotSave();
   if(canUseMongoState()) scheduleMongoStateSave();
-  scheduleCfCloudPush();
+  if(opts.skipCloud!==true) scheduleCfCloudPush();
 }
 function mongoStateStatus(msg,col){
   setSS(msg, col||'gold');
+}
+function encodeMongoPutBody(obj){
+  var json=JSON.stringify(obj);
+  if(typeof CompressionStream==='undefined'){
+    return Promise.resolve({body:json, headers:{'Content-Type':'application/json'}, gzip:false, json:json});
+  }
+  try{
+    var stream=new Blob([json]).stream().pipeThrough(new CompressionStream('gzip'));
+    return new Response(stream).arrayBuffer().then(function(buf){
+      return {
+        body:buf,
+        headers:{'Content-Type':'application/json','Content-Encoding':'gzip'},
+        gzip:true,
+        json:json
+      };
+    });
+  }catch(eEnc){
+    return Promise.resolve({body:json, headers:{'Content-Type':'application/json'}, gzip:false, json:json});
+  }
+}
+function guardMongoSaveAgainstLoadedUnits(payload){
+  if(_mongoRestoringSnapshot) return true;
+  var serverN=_mongoLoadedSoldUnits||0;
+  var localN=countWorkbookSoldUnits(_cfData);
+  if(payload && payload.data && Object.keys(payload.data).length && !_mongoForceFullSave && Object.keys(_mongoDirtyPids||{}).length){
+    localN=countWorkbookSoldUnits(_cfData);
+  }
+  if(serverN>0&&localN===0){
+    alert('Save blocked: this browser has 0 sold units but the last loaded server workbook had '+serverN+'.\n\nUse **Load from server** or **Restore snapshot** — do not save until your data is back.');
+    return false;
+  }
+  if(serverN>=3&&localN<Math.floor(serverN*0.5)){
+    if(!window.confirm('Warning: you are about to save '+localN+' sold units but the last loaded workbook had '+serverN+'.\n\nOnly continue if you intentionally removed units.\n\nCancel and use Load from server / Restore snapshot to recover.')) return false;
+  }
+  return true;
 }
 function mongoStatePutNow(){
   if(!canUseMongoState()) return Promise.resolve(false);
@@ -5559,18 +5730,37 @@ function mongoStatePutNow(){
   var user='User';
   try{ user=(localStorage.getItem('ga_user_name')||'User').trim()||'User'; }catch(e){}
   function sendPut(data, exp){
-    return fetch(mongoStateApiUrl(),{
-      method:'PUT',
-      credentials:'include',
-      cache:'no-store',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({data:data, expectedVersion:exp, updatedBy:user, forceRestore:!!_mongoRestoringSnapshot})
-    }).then(function(r){ return r.json().then(function(j){ return {ok:r.ok,body:j}; }); });
+    var bodyObj={data:data, expectedVersion:exp, updatedBy:user, forceRestore:!!_mongoRestoringSnapshot};
+    return encodeMongoPutBody(bodyObj).then(function(enc){
+      return fetch(mongoStateApiUrl(),{
+        method:'PUT',
+        credentials:'include',
+        cache:'no-store',
+        headers:enc.headers,
+        body:enc.body
+      }).then(function(r){
+        return r.json().then(function(j){ return {ok:r.ok, body:j, status:r.status}; }).catch(function(){
+          return {ok:false, body:{error:'Non-JSON save response'}, status:r.status};
+        });
+      }).then(function(res){
+        if(!res.ok && enc.gzip && (res.status===400||res.status===415)){
+          return fetch(mongoStateApiUrl(),{
+            method:'PUT',
+            credentials:'include',
+            cache:'no-store',
+            headers:{'Content-Type':'application/json'},
+            body:enc.json
+          }).then(function(r2){ return r2.json().then(function(j2){ return {ok:r2.ok,body:j2}; }); });
+        }
+        return res;
+      });
+    });
   }
-  return fetchMongoEnvelope().then(function(latest){
-    if(latest&&latest.data&&!guardMongoSaveAgainstUnitLoss(latest.data, payload)) return {ok:false, body:{error:'Save blocked to protect sold-unit data'}};
-    return sendPut(payload, expected);
-  })
+  if(!guardMongoSaveAgainstLoadedUnits(payload)){
+    _mongoSaveBusy=false;
+    return Promise.resolve(false);
+  }
+  return sendPut(payload, expected)
   .then(function(res){
     if(res.ok) return res;
     if(res.body && res.body.currentVersion!==undefined && String(res.body.error||'').toLowerCase().indexOf('version conflict')>=0){
@@ -5591,6 +5781,7 @@ function mongoStatePutNow(){
       throw new Error((res.body&&res.body.error)||'Mongo save failed');
     }
     _mongoStateVersion=Number(res.body.version)||_mongoStateVersion;
+    _mongoLoadedSoldUnits=countWorkbookSoldUnits(_cfData);
     if(dirtyKeys.length){
       dirtyKeys.forEach(function(pid){
         delete _mongoDirtyPids[pid];
@@ -5690,6 +5881,7 @@ function removeCurrentProjectFromCashflowWorkbook(){
 }
 function loadAllFromMongo(){
   if(!canUseMongoState()) return Promise.resolve(false);
+  mongoStateStatus('Loading workbook from server…','gold');
   return fetch(mongoStateApiUrl(),{ credentials:'include', cache:'no-store' })
     .then(function(r){
       if(r.status===404) return null;
@@ -5716,6 +5908,7 @@ function loadAllFromMongo(){
       _curPhase=(d.ui&&d.ui.phase)||'__all__';
       _curBuilding=(d.ui&&d.ui.building)||'__all__';
       _mongoStateVersion=Number(res.body.version)||0;
+      _mongoLoadedSoldUnits=countWorkbookSoldUnits(_cfData);
       bootstrapGaAcctMaster(d);
       // Fast path: cheap migrations only. Heavy Tally reclassify runs after first paint.
       if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||tallyProtected){
@@ -5723,10 +5916,9 @@ function loadAllFromMongo(){
         scheduleMongoStateSave(400);
       }
       window.__gaNeedDeferredTallyRecode=true;
-      var loadedUnits=countWorkbookSoldUnits(_cfData);
+      var loadedUnits=_mongoLoadedSoldUnits;
       mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion+' · '+loadedUnits+' sold units','green');
       updateMongoStatusLabel();
-      // Do not block open on localSnapshot / Post Sales sync
       gaScheduleIdle(function(){ try{ localSnapshotSave(); }catch(eLs){} }, 120);
       gaScheduleIdle(function(){ syncCollectionsFromPostSales({quiet:true}).catch(function(){}); }, 600);
       return {ok:true, units:loadedUnits};
@@ -5742,27 +5934,18 @@ function autoPullMongoIfNewer(){
   if(_mongoSaveBusy || _mongoSaveQueued) return;
   if(Object.keys(_mongoDirtyPids||{}).length) return;
   if(_mongoForceFullSave) return;
-  fetchMongoEnvelope().then(function(latest){
-    if(!latest || !latest.data || !isV1EnvelopeLike(latest.data)) return;
-    if((latest.version||0)<=(_mongoStateVersion||0)) return;
-    var d=protectTallyFeedsFromStaleServer(latest.data);
-    _cfData=d.data||{};
-    if(Array.isArray(d.manualProjs)){
-      d.manualProjs.forEach(function(mp){
-        if(!PROJS.find(function(p){return p.id===mp.id;})) PROJS.push(mp);
+  fetch(mongoStateMetaApiUrl(),{ credentials:'include', cache:'no-store' })
+    .then(function(r){ return r.ok?r.json():null; })
+    .then(function(j){
+      if(!j) return;
+      if((Number(j.version)||0)<=(_mongoStateVersion||0)) return;
+      return loadAllFromMongo().then(function(ok){
+        if(!ok||!ok.ok) return;
+        buildProjectGroupSelect(); buildPhaseSelect(); buildBuildingSelect(); buildProjSelect(); ensureCurrentProjectVisible(); renderAll();
+        mongoStateStatus('Auto-refreshed newer Mongo data · v'+_mongoStateVersion,'green');
+        updateMongoStatusLabel();
       });
-    }
-    mergeProjectsFromCfData();
-    _curProjRoot=(d.ui&&d.ui.projRoot)||_curProjRoot||'__all__';
-    _curPhase=(d.ui&&d.ui.phase)||_curPhase||'__all__';
-    _curBuilding=(d.ui&&d.ui.building)||_curBuilding||'__all__';
-    _mongoStateVersion=latest.version||_mongoStateVersion;
-    bootstrapGaAcctMaster(d);
-    localSnapshotSave();
-    buildProjectGroupSelect(); buildPhaseSelect(); buildBuildingSelect(); buildProjSelect(); ensureCurrentProjectVisible(); renderAll();
-    mongoStateStatus('Auto-refreshed newer Mongo data · v'+_mongoStateVersion,'green');
-    updateMongoStatusLabel();
-  }).catch(function(){});
+    }).catch(function(){});
 }
 /** Same key as GA_OrgResourcePlanner_V3.html (GA_CONF_KEY). */
 var CF_CLOUD_CONF_KEY='ga_cloud_url';
@@ -5864,6 +6047,31 @@ function scheduleCfCloudPush(){
     cfCloudPushImmediate();
   },2200);
 }
+function tallyWorkbookNeedsRecode(){
+  var pids=Object.keys(_cfData||{}), i, j, acts, a;
+  for(i=0;i<pids.length;i++){
+    acts=_cfData[pids[i]]&&_cfData[pids[i]].actuals||[];
+    for(j=0;j<acts.length;j++){
+      a=acts[j];
+      if(!a||a.source!=='tally') continue;
+      if(a.codingAuthority!=='cashflow') return true;
+      if(Number(a._cfCodingVer)!==CF_VERSION) return true;
+    }
+  }
+  return false;
+}
+function tallyWorkbookNeedsSopAnnotate(){
+  var pids=Object.keys(_cfData||{}), i, j, acts, a;
+  for(i=0;i<pids.length;i++){
+    acts=_cfData[pids[i]]&&_cfData[pids[i]].actuals||[];
+    for(j=0;j<acts.length;j++){
+      a=acts[j];
+      if(!a||a.source!=='tally') continue;
+      if(a.tallyIncludeInCashflow!==true && a.tallyIncludeInCashflow!==false) return true;
+    }
+  }
+  return false;
+}
 function migrateReclassifyTallyActuals(){
   var touched=false;
   try{
@@ -5916,13 +6124,15 @@ function migrateReclassifyTallyActuals(){
     });
   }catch(e){}
   try{
-    var seenPh={};
-    Object.keys(_cfData||{}).forEach(function(pid){
-      var k=tallyPhaseFingerprintKey(pid);
-      if(seenPh[k]) return;
-      seenPh[k]=1;
-      annotatePhaseTallySopRules(pid);
-    });
+    if(touched || tallyWorkbookNeedsSopAnnotate()){
+      var seenPh={};
+      Object.keys(_cfData||{}).forEach(function(pid){
+        var k=tallyPhaseFingerprintKey(pid);
+        if(seenPh[k]) return;
+        seenPh[k]=1;
+        annotatePhaseTallySopRules(pid);
+      });
+    }
   }catch(eSopM){}
   return touched;
 }
@@ -5945,14 +6155,17 @@ function protectTallyFeedsFromStaleServer(incomingEnv){
   try{
     if(!incomingEnv||!incomingEnv.data) return incomingEnv;
     var donors=[];
-    try{
-      var raw=localStorage.getItem('ga_cf_v1');
-      if(raw){
-        var local=JSON.parse(raw);
-        if(local&&local.data) donors.push(local.data);
-      }
-    }catch(eLs){}
-    if(_cfData && typeof _cfData==='object') donors.push(_cfData);
+    var hasDirty=!!(_mongoSaveBusy||_mongoForceFullSave||Object.keys(_mongoDirtyPids||{}).length);
+    if(hasDirty){
+      try{
+        var raw=localStorage.getItem('ga_cf_v1');
+        if(raw){
+          var local=JSON.parse(raw);
+          if(local&&local.data) donors.push(local.data);
+        }
+      }catch(eLs){}
+    }
+    if(_cfData && typeof _cfData==='object' && Object.keys(_cfData).length) donors.push(_cfData);
     donors.forEach(function(srcData){
       Object.keys(srcData||{}).forEach(function(pid){
         var L=srcData[pid], S=incomingEnv.data[pid];
@@ -13020,8 +13233,8 @@ function importTallyXmlBatch(filePayloads){
           errors.push((fp.name||'file')+': not Tally XML (expected voucher or Cash Flow statement export)');
           parseNext(); return;
         }
-        if(!previewRaw && text) previewRaw=text.length>200000?(text.slice(0,200000)+'\n<!-- truncated -->'):text;
-        parseTallyXmlToLedgerLinesAsync(text, {onlyPaymentReceipt:true}, function(p){
+        if(!previewRaw && text) previewRaw=text.length>8000?(text.slice(0,8000)+'\n<!-- truncated -->'):text;
+        parseTallyXmlToLedgerLinesAsync(text, {onlyPaymentReceipt:true, alreadyNormalized:true}, function(p){
           if(msgEl()) msgEl().textContent='Parsing '+nFile+'/'+filePayloads.length+': '+(fp.name||'file')+' · '+p.done+'/'+p.total+' vouchers';
         }, function(parsed){
           text=null;
@@ -15140,7 +15353,7 @@ loadAll().finally(function(){
       }
       if(window.__gaNeedDeferredTallyRecode){
         window.__gaNeedDeferredTallyRecode=false;
-        if(migrateReclassifyTallyActuals()) touched=true;
+        if(tallyWorkbookNeedsRecode() && migrateReclassifyTallyActuals()) touched=true;
       }
       if(touched){ try{ saveAll({full:true}); }catch(eS){} }
     }catch(eDef){}

@@ -33,6 +33,7 @@ import { maybePurgePostSalesOnStart } from './lib/postsales/purgeUnitData.js';
 import { createRbacMiddleware } from './lib/rbac.js';
 import { ensureMongo } from './lib/mongo.js';
 import { warmPreconStateCache } from './lib/preconStateCache.js';
+import zlib from 'node:zlib';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.join(__dirname, '..');
@@ -41,7 +42,25 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 app.use(cors({ origin: true }));
-app.use(express.json({ limit: '50mb' }));
+const jsonParser = express.json({ limit: '50mb' });
+app.use((req, res, next) => {
+  const enc = String(req.headers['content-encoding'] || '').toLowerCase();
+  if (enc !== 'gzip') return jsonParser(req, res, next);
+  const chunks = [];
+  req.on('data', (c) => chunks.push(c));
+  req.on('error', next);
+  req.on('end', () => {
+    zlib.gunzip(Buffer.concat(chunks), (err, raw) => {
+      if (err) return res.status(400).json({ error: 'Invalid gzip body' });
+      try {
+        req.body = JSON.parse(raw.toString('utf8'));
+        next();
+      } catch {
+        res.status(400).json({ error: 'Invalid gzip JSON body' });
+      }
+    });
+  });
+});
 
 const ACCESS_COOKIE = 'ga_v2v3_access';
 
