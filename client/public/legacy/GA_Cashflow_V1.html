@@ -273,6 +273,10 @@ var CF_VERSION = 97;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
+/** Max lines per coding/route turn — time-only slices still freeze Chrome on classify. */
+var TALLY_IMPORT_SLICE_LINES = 8;
+var _gaEnsuredCommonByPhase = {};
+var _gaClassifyByCc = {};
 /** Yield to the browser so large imports/renders do not freeze the tab. */
 function gaScheduleIdle(fn, delayMs){
   var d=delayMs==null?0:delayMs;
@@ -310,7 +314,7 @@ var TALLY_PULL_FINGERPRINT_KEY = 'ga_cf_tally_pull_fp';
 var GA_ACCT_OVERRIDE_LS_KEY = 'ga_acct_master_override';
 var _gaAcctMasterMeta = { source: 'shipped', fileName: '', uploadedAt: 0, keyCount: 0 };
 var _gaAcctCcIndex = null;
-function invalidateGaAcctCcIndex(){ _gaAcctCcIndex=null; }
+function invalidateGaAcctCcIndex(){ _gaAcctCcIndex=null; _gaClassifyByCc={}; }
 /** Master uses "Other Income"; keep "Other Inflow" as synonym for older saved rows. */
 var INFLOW_CATS  = ['Sales Revenue','Equity Infusion','Investor Funding','Unsecured Loan','Customer Collections','Customer UL','Other Income','Other Inflow'];
 var OUTFLOW_CATS = ['Land','NOC','Consultant','Regulatory & Consulting','Construction','Marketing','GA DM Fee','Contingency','Interest Paid','Principal Repaid'];
@@ -816,6 +820,12 @@ function visibleScopeShowsCompanyZ(vis){
  */
 function ensureCommonAmenitiesProject(sourcePid){
   var sh=getProjectHierarchy(sourcePid);
+  var cacheK=String(sh.projectGroup||'')+'|'+String(sh.phase||'');
+  var cachedId=_gaEnsuredCommonByPhase[cacheK];
+  if(cachedId){
+    var cached=(PROJS||[]).find(function(p){ return p&&String(p.id)===String(cachedId); });
+    if(cached) return cached;
+  }
   var phaseProjects=tallyPhaseProjects(sourcePid);
   var existing=(phaseProjects||[]).find(function(p){
     return isCommonAmenitiesProject(p)
@@ -832,6 +842,7 @@ function ensureCommonAmenitiesProject(sourcePid){
     cfgE.acctPrefix='CM';
     cfgE.projectGroup=cfgE.projectGroup||sh.projectGroup;
     cfgE.phase=cfgE.phase||sh.phase;
+    _gaEnsuredCommonByPhase[cacheK]=existing.id;
     return existing;
   }
   var src=(PROJS||[]).find(function(p){return p&&String(p.id)===String(sourcePid);})||null;
@@ -847,6 +858,7 @@ function ensureCommonAmenitiesProject(sourcePid){
     cfgF.building=COMMON_AMENITIES_BUILDING_NAME;
     cfgF.tallyCommonCostOwner=true;
     cfgF.acctPrefix='CM';
+    _gaEnsuredCommonByPhase[cacheK]=found.id;
     return found;
   }
   var neo={
@@ -870,6 +882,7 @@ function ensureCommonAmenitiesProject(sourcePid){
   cfg.building=COMMON_AMENITIES_BUILDING_NAME;
   cfg.acctPrefix='CM';
   cfg.tallyCommonCostOwner=true;
+  _gaEnsuredCommonByPhase[cacheK]=id;
   return neo;
 }
 /** Match free-text building / tower name in cost centre or party to a phase project. */
@@ -2285,6 +2298,24 @@ function resolveGAAccountingChartRow(fullText, party, scopeHint, buildingPrefix)
   }
   return null;
 }
+function classifyTallyLineFromMasterRow(g, scope){
+  var gaL1=g.cfApplicable ? String(g.cfL1Label||g.l1Name||'') : String(g.plL1Label||g.l1Name||'');
+  var leg=g.legacyCat1;
+  if((g.l1==='R'||g.l1==='W'||g.l1==='BAL'||String(g.l1Name||'').toLowerCase().indexOf('payable')>=0) && leg==='Construction') leg='Payables';
+  return {
+    cat1:leg,
+    gaL1:gaL1,
+    gaL2:(g.l2Name||'')+' ('+(g.l2||'')+')',
+    gaL3:g.shortCode||g.l3||'',
+    gaL3Name:g.l3Name||'',
+    flow:g.flow,
+    tallyMapSrc:'l3-book',
+    masterKey:g.masterKey||'',
+    gaScope:g.scope||scope,
+    plL1:String(g.plL1Label||g.l1Name||''),
+    codingUnmapped:false
+  };
+}
 /**
  * @returns {{cat1:string,gaL1:string,gaL2:string,gaL3:string,gaL3Name:string,flow?:string,tallyMapSrc:string,masterKey?:string,gaScope?:string,plL1?:string}}
  */
@@ -2294,27 +2325,19 @@ function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildi
   var scope=scopeHint||inferAcctScopeFromText(String(fullText||'')+' '+cc, cc);
   var bPref=buildingPrefix||parseBuildingPrefixFromTallyCostCentre(cc)||(_curPid?getAcctPrefixForPid(_curPid):'A');
   var g=null;
-  if(cc) g=lookupGAAccountingByCostCentre(cc);
+  if(cc){
+    var ccKey=cc+'|'+String(bPref||'')+'|'+String(scope||'');
+    if(_gaClassifyByCc[ccKey]) return _gaClassifyByCc[ccKey];
+    g=lookupGAAccountingByCostCentre(cc);
+    if(g){
+      var hit=classifyTallyLineFromMasterRow(g, scope);
+      _gaClassifyByCc[ccKey]=hit;
+      return hit;
+    }
+  }
   if(!g) g=lookupCommonMasterByKeywords(text+' '+String(party||''));
   if(!g) g=resolveGAAccountingChartRow(String(fullText||'')+' '+cc, String(party||'')+(cc?(' '+cc):''), scope, bPref);
-  if(g){
-    var gaL1=g.cfApplicable ? String(g.cfL1Label||g.l1Name||'') : String(g.plL1Label||g.l1Name||'');
-    var leg=g.legacyCat1;
-    if((g.l1==='R'||g.l1==='W'||g.l1==='BAL'||String(g.l1Name||'').toLowerCase().indexOf('payable')>=0) && leg==='Construction') leg='Payables';
-    return {
-      cat1:leg,
-      gaL1:gaL1,
-      gaL2:(g.l2Name||'')+' ('+(g.l2||'')+')',
-      gaL3:g.shortCode||g.l3||'',
-      gaL3Name:g.l3Name||'',
-      flow:g.flow,
-      tallyMapSrc:'l3-book',
-      masterKey:g.masterKey||'',
-      gaScope:g.scope||scope,
-      plL1:String(g.plL1Label||g.l1Name||''),
-      codingUnmapped:false
-    };
-  }
+  if(g) return classifyTallyLineFromMasterRow(g, scope);
   // Keyword / heuristic may SUGGEST a bucket but must NOT invent an L1 — highlight as Unmapped for audit.
   var kw=guessTallyCategoryKey(fullText);
   if(!kw) kw=guessTallyCategoryKey(String(party||''));
@@ -3290,31 +3313,18 @@ function uniqueActualsForCashflowSums(actuals){
 function collapseDuplicateTallyAcrossProjectGroup(sourcePid){
   var list=tallyLatestUploadScopeProjects(sourcePid);
   if(!list||!list.length) return 0;
-  var keepers={}, removed=0;
-  list.forEach(function(p){
-    (getCF(p.id).actuals||[]).forEach(function(a){
-      if(!a||a.source!=='tally') return;
-      var biz=tallyLineLooseId(a)||a.tallyKey;
-      if(!biz) return;
-      var route=resolveTallyActualRoute({costCentre:a.costCentre,party:a.party,note:a.note||a.narration||'',voucherId:a.voucherId}, sourcePid, true);
-      var prefer=String(route.pid)===String(p.id);
-      if(!keepers[biz] || (prefer && !keepers[biz].prefer)) keepers[biz]={pid:String(p.id), prefer:prefer};
-    });
-  });
+  var seen={}, removed=0;
   list.forEach(function(p){
     var c=getCF(p.id);
     if(!Array.isArray(c.actuals)) return;
-    var out=[], seenLocal={};
+    var out=[];
     c.actuals.forEach(function(a){
       if(!a||a.source!=='tally'){ out.push(a); return; }
       var k=String(a.tallyKey||'');
       var biz=tallyLineLooseId(a);
-      if(k && seenLocal[k]){ removed++; return; }
-      if(biz && seenLocal['b:'+biz]){ removed++; return; }
-      if(k) seenLocal[k]=1;
-      if(biz) seenLocal['b:'+biz]=1;
-      var keeper=keepers[biz||k];
-      if(keeper && String(keeper.pid)!==String(p.id)){ removed++; return; }
+      if((k && seen[k]) || (biz && seen['b:'+biz])){ removed++; return; }
+      if(k) seen[k]=1;
+      if(biz) seen['b:'+biz]=1;
       out.push(a);
     });
     c.actuals=out;
@@ -3849,6 +3859,12 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
   opts.deferSave=true;
   opts.skipReroute=true;
   opts.skipSop=true;
+  _gaSkipUnitEnsure=(_gaSkipUnitEnsure||0)+1;
+  var userDone=onDone;
+  onDone=function(res){
+    _gaSkipUnitEnsure=Math.max(0,(_gaSkipUnitEnsure||1)-1);
+    if(userDone) userDone(res);
+  };
   var pending=(rows||[]).slice();
   var eligible=[], skipped=0, i=0, SLICE_MS=8;
   var ccSub=(opts.costCentreSubstr||'').trim().toLowerCase();
@@ -3898,13 +3914,13 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
     var added=0, routedBuildings=0, routedCommon=0, unmapped=0, codingUnmapped=0, perProject={}, touched={};
     var xi=0;
     function addStep(){
-      var t0=Date.now();
-      while(xi<eligible.length && (Date.now()-t0)<SLICE_MS){
+      var t0=Date.now(), n=0, cap=TALLY_IMPORT_SLICE_LINES||8;
+      while(xi<eligible.length && n<cap && (Date.now()-t0)<SLICE_MS){
         var x=eligible[xi++];
         var route=x.route, row=x.row||{};
         if(!row.tallyKey) row.tallyKey=buildTallyLineKey(row);
         var soft=tallyActualSoftFingerprint(row);
-        if(existing[row.tallyKey] || (soft && existingSoft[soft])){ skipped++; continue; }
+        if(existing[row.tallyKey] || (soft && existingSoft[soft])){ skipped++; n++; continue; }
         var cfg=getCF(route.pid);
         if(!Array.isArray(cfg.actuals)) cfg.actuals=[];
         var act=ledgerLineToActual(row,route);
@@ -3918,52 +3934,66 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
         else if(route.matched===false) unmapped++;
         if(act.codingUnmapped) codingUnmapped++;
         added++;
+        n++;
       }
       if(onProgress) try{ onProgress('Coding '+Math.min(xi, eligible.length)+'/'+eligible.length); }catch(eP3){}
       if(xi<eligible.length){ gaYieldToBrowser(addStep); return; }
+      gaYieldToBrowser(finishAfterCoding);
+    }
+    function finishAfterCoding(){
+      if(onProgress) try{ onProgress('Finishing import…'); }catch(eP4){}
       touched[String(_curPid)]=1;
       Object.keys(touched).forEach(function(pid){
         var cfg=getCF(pid);
         cfg.tallyFeedAt=Date.now();
         cfg.tallyFeedLines=(cfg.actuals||[]).filter(function(a){return a&&a.source==='tally';}).length;
       });
-      try{
-        if(window.__gaTallyDedupePhases){
-          var shd=getProjectHierarchy(_curPid)||{};
-          delete window.__gaTallyDedupePhases['g:'+String(shd.projectGroup||'')+'|v'+CF_VERSION];
-          var pk=tallyPhaseFingerprintKey(_curPid);
-          if(pk) delete window.__gaTallyDedupePhases[pk];
-        }
-        dedupeTallyActualsPhase(_curPid);
-        collapseDuplicateTallyAcrossProjectGroup(_curPid);
-      }catch(eDed){}
-      try{ compareAndStoreTallyPullFingerprint(eligible, _curPid); }catch(eFp){}
-      var perPid={};
-      Object.keys(touched).forEach(function(pid){ perPid[pid]=['actuals','tallyFeedAt','tallyFeedLines']; });
-      saveAll({skipLocal:true, skipCloud:true, skipMongo:true, perPidSections:perPid});
       gaYieldToBrowser(function(){
-        var sop=null;
-        try{ sop=annotatePhaseTallySopRules(_curPid); }catch(eS){}
-        var res={
-          added:added,skipped:skipped,replaced:replaced,
-          routedBuildings:routedBuildings,routedCommon:routedCommon,unmapped:unmapped,
-          codingUnmapped:codingUnmapped, rerouted:0,
-          missedVsPrior:0, newVsPrior:0, hadPrior:false,
-          perProject:perProject, sopAudit:sop
-        };
-        if(canUseMongoState() && opts.skipMongoFlush!==true){
-          gaYieldToBrowser(function(){ try{ mongoStatePutNow(); }catch(eFlush){} });
-        }
-        onDone(res);
+        try{
+          if(window.__gaTallyDedupePhases){
+            var shd=getProjectHierarchy(_curPid)||{};
+            delete window.__gaTallyDedupePhases['g:'+String(shd.projectGroup||'')+'|v'+CF_VERSION];
+            var pk=tallyPhaseFingerprintKey(_curPid);
+            if(pk) delete window.__gaTallyDedupePhases[pk];
+          }
+          dedupeTallyActualsPhase(_curPid);
+          if(opts.skipCollapse!==true) collapseDuplicateTallyAcrossProjectGroup(_curPid);
+        }catch(eDed){}
+        gaYieldToBrowser(function(){
+          try{ compareAndStoreTallyPullFingerprint(eligible, _curPid); }catch(eFp){}
+          var perPid={};
+          Object.keys(touched).forEach(function(pid){ perPid[pid]=['actuals','tallyFeedAt','tallyFeedLines']; });
+          saveAll({skipLocal:true, skipCloud:true, skipMongo:true, perPidSections:perPid});
+          gaYieldToBrowser(function(){
+            if(onProgress) try{ onProgress('Checking Cashflow vs Z…'); }catch(eP5){}
+            var sop=null;
+            try{ sop=annotatePhaseTallySopRules(_curPid); }catch(eS){}
+            var res={
+              added:added,skipped:skipped,replaced:replaced,
+              routedBuildings:routedBuildings,routedCommon:routedCommon,unmapped:unmapped,
+              codingUnmapped:codingUnmapped, rerouted:0,
+              missedVsPrior:0, newVsPrior:0, hadPrior:false,
+              perProject:perProject, sopAudit:sop
+            };
+            var flushMongo=canUseMongoState() && opts.skipMongoFlush!==true;
+            if(flushMongo && opts.deferMongoFlush){
+              gaScheduleIdle(function(){ try{ mongoStatePutNow(); }catch(eFlush){} }, 400);
+            }else if(flushMongo){
+              gaYieldToBrowser(function(){ try{ mongoStatePutNow(); }catch(eFlush){} });
+            }
+            onDone(res);
+          });
+        });
       });
     }
     gaYieldToBrowser(addStep);
   }
   function routeStep(){
-    var t0=Date.now();
-    while(i<pending.length && (Date.now()-t0)<SLICE_MS){
+    var t0=Date.now(), n=0, cap=TALLY_IMPORT_SLICE_LINES||8;
+    while(i<pending.length && n<cap && (Date.now()-t0)<SLICE_MS){
       routeOne(pending[i]);
       i++;
+      n++;
     }
     if(onProgress) try{ onProgress('Routing '+Math.min(i, pending.length)+'/'+pending.length); }catch(eP){}
     if(i<pending.length){ gaYieldToBrowser(routeStep); return; }
@@ -5863,12 +5893,15 @@ function aggregateSoldUnitPaymentRisk(cfg, units, gridCachesAll){
   });
   return {nAgreement:nA,nPayIssue:nPI,pendAgreement:pA,pendPayIssue:pPI};
 }
+var _gaSkipUnitEnsure = 0;
 function getCF(pid){
-  pid=resolveParadiseDataPid(pid);
+  pid=_gaSkipUnitEnsure?pid:resolveParadiseDataPid(pid);
   if(!_cfData[pid]) _cfData[pid]=emptyProjData(pid);
-  ensureUnsoldPaceCfg(_cfData[pid]);
-  (_cfData[pid].units||[]).forEach(ensureUnitPaymentFields);
-  (_cfData[pid].unsoldUnits||[]).forEach(ensureUnitSalesMeta);
+  if(!_gaSkipUnitEnsure){
+    ensureUnsoldPaceCfg(_cfData[pid]);
+    (_cfData[pid].units||[]).forEach(ensureUnitPaymentFields);
+    (_cfData[pid].unsoldUnits||[]).forEach(ensureUnitSalesMeta);
+  }
   return _cfData[pid];
 }
 /** Paradise rows often sit on MP_* keys while V3 header uses P009 — merge before read/render. */
@@ -9664,8 +9697,8 @@ function renderAll(){
 /** Rebuild Monthly Cashflow; GA consolidated only when that tab is visible (both are heavy). */
 function refreshProjectCashflowViews(){
   if(!PROJS.length) return;
-  renderCashflow();
-  if(_curTab==='ga') renderGA();
+  if(_curTab==='cashflow') renderCashflow();
+  else if(_curTab==='ga') renderGA();
 }
 
 function selectProj(pid){
@@ -13453,6 +13486,7 @@ function importTallyXmlBatch(filePayloads){
           onlyPaymentReceipt:false,
           autoAllocate:sync.autoAllocate!==false,
           skipReroute:true,
+          skipCollapse:true,
           deferMongoFlush:true,
           lightBalance:true,
           deferSave:true
@@ -13475,11 +13509,13 @@ function importTallyXmlBatch(filePayloads){
           allRows=null;
           if(msgEl()) msgEl().textContent='Updating Cashflow screens…';
           gaYieldToBrowser(function(){
-            try{ renderTab(_curTab); }catch(eR){}
+            closeModal();
             gaYieldToBrowser(function(){
-              try{ refreshProjectCashflowViews(); }catch(eC){}
-              closeModal();
-              gaYieldToBrowser(function(){ try{ showCfZBalanceAfterSync(res); }catch(eZ){} });
+              try{ renderTab(_curTab); }catch(eR){}
+              gaScheduleIdle(function(){
+                try{ refreshProjectCashflowViews(); }catch(eC){}
+                gaScheduleIdle(function(){ try{ showCfZBalanceAfterSync(res); }catch(eZ){} }, 80);
+              }, 80);
             });
           });
         });
