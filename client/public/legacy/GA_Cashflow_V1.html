@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 97;
+var CF_VERSION = 98;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -385,16 +385,17 @@ function applyCashflowSourceOfTruth(cl, voucherType, partyHint){
     flow:flowOut
   };
 }
-/** Expense dashboard: collections & other inflows stay out of outflow rollups. */
+/** Expense dashboard: split by L3 primary nature, not voucher sign. Refunds stay in the same group and net. */
 function isExpenseDashboardInflow(a){
   if(!a) return false;
-  if(isCashflowInflowCat(a.cat1)) return true;
-  return coerceMoney(a.amount)>0;
+  if(isCfZCashEquivalentsLine(a)||isBalExcludedLine(a)) return false;
+  return isL3InflowNature(a);
 }
 function isExpenseDashboardOutflow(a){
   if(!a) return false;
-  if(isExpenseDashboardInflow(a)) return false;
-  return coerceMoney(a.amount)<0;
+  if(isCfZCashEquivalentsLine(a)||isBalExcludedLine(a)) return false;
+  if(isL3InflowNature(a)) return false;
+  return true;
 }
 /**
  * Display column names from GA Accounting Categories (L1 inflow A–G, outflow H–O).
@@ -1019,21 +1020,73 @@ function reroutePhaseTallyActuals(sourcePid){
 function normTallyCostCentreLabel(s){
   return tallyDecodeXmlText(String(s||'')).replace(/\s+/g,' ').trim().toLowerCase();
 }
+function tallyCcLeafName(costCentre){
+  var s=String(costCentre||'').replace(/\s+/g,' ').trim();
+  s=s.replace(/^CM\s+(CF|PL)\s+/i,'').replace(/^[A-Z]\s+(CF|PL)\s+/i,'').replace(/^(CF|PL)\s+/i,'');
+  s=s.replace(/^[A-Za-z]{1,3}\d+(?:-\d+)*\s+/,'');
+  return s.trim();
+}
+function tallyShortCodesFromCostCentre(costCentre){
+  var s=String(costCentre||''), out=[], m;
+  var re=/(?:^|[\s])(?:CM\s+)?(?:CF|PL)\s+([A-Za-z]{1,3}\d+(?:-\d+)*)/gi;
+  while((m=re.exec(s))) out.push(String(m[1]).toUpperCase());
+  if(out.length) return out;
+  var loose=s.match(/\b([A-Za-z]{1,3}\d+(?:-\d+)*)\b/g);
+  return loose?loose.map(function(x){ return String(x).toUpperCase(); }):[];
+}
+function gaL2LabelFromMaster(g){
+  if(!g) return '';
+  var cf2=String(g.cfL2||'').trim();
+  if(cf2 && cf2!=='0'){
+    return cf2.replace(/^CM\s+CF\s+/i,'').replace(/^[A-Z]\s+CF\s+/i,'').replace(/^CF\s+/i,'');
+  }
+  return String(g.l2Name||'')+(g.l2?(' ('+g.l2+')'):'');
+}
+function gaAcctIsCfRow(g){
+  return !!(g && g.cfApplicable!==false);
+}
+function pickGaAcctByL3Name(tail, scope, codes){
+  var idx=ensureGaAcctCcIndex();
+  var n=normTallyCostCentreLabel(tail);
+  if(!n||n.length<3) return null;
+  var list=(scope==='common'?idx.byL3NameCommon:idx.byL3NameBldg)[n]||[];
+  if(!list.length) list=(scope==='common'?idx.byL3NameBldg:idx.byL3NameCommon)[n]||[];
+  if(!list.length) return null;
+  var cf=list.filter(gaAcctIsCfRow);
+  if(cf.length) list=cf;
+  if(codes && codes.length){
+    var hit=null;
+    for(var i=0;i<list.length;i++){
+      if(codes.indexOf(String(list[i].shortCode||'').toUpperCase())>=0){ hit=list[i]; break; }
+    }
+    if(hit) return hit;
+  }
+  if(list.length===1) return list[0];
+  var cfOnly=list.filter(gaAcctIsCfRow);
+  if(cfOnly.length===1) return cfOnly[0];
+  return null;
+}
 function ensureGaAcctCcIndex(){
   if(_gaAcctCcIndex) return _gaAcctCcIndex;
-  var exact={}, list=[];
+  var exact={}, list=[], byL3NameCommon={}, byL3NameBldg={};
   Object.keys(GA_ACCT_L3_BY_CODE||{}).forEach(function(k){
     var g=GA_ACCT_L3_BY_CODE[k];
     if(!g) return;
-    ['cfL3','plL3','l3Name','desc'].forEach(function(fld){
+    ['cfL3','plL3'].forEach(function(fld){
       var v=normTallyCostCentreLabel(g[fld]);
       if(!v||v.length<4||v==='0') return;
       if(!exact[v] || v.length>(exact[v].len||0)) exact[v]={g:g,len:v.length};
       list.push({v:v,g:g,len:v.length});
     });
+    var nm=normTallyCostCentreLabel(g.l3Name);
+    if(nm && nm.length>=3){
+      var bucket=g.scope==='common'?byL3NameCommon:byL3NameBldg;
+      if(!bucket[nm]) bucket[nm]=[];
+      bucket[nm].push(g);
+    }
   });
   list.sort(function(a,b){ return b.len-a.len; });
-  _gaAcctCcIndex={exact:exact, list:list};
+  _gaAcctCcIndex={exact:exact, list:list, byL3NameCommon:byL3NameCommon, byL3NameBldg:byL3NameBldg};
   return _gaAcctCcIndex;
 }
 function wrapGaAcctForCc(g, bPref, scope){
@@ -1041,31 +1094,35 @@ function wrapGaAcctForCc(g, bPref, scope){
   if(g.scope==='common') return g;
   return gaAcctCloneForPrefix(g, bPref||(_curPid?getAcctPrefixForPid(_curPid):'A'));
 }
-/** Match Tally COSTCENTREALLOCATIONS name to V3 master (cfL3 / plL3 / description). */
+/** Match Tally COSTCENTREALLOCATIONS name to V3 master. Prefer exact cfL3, then leaf name (Tally letter codes drift), then short code. */
 function lookupGAAccountingByCostCentre(costCentre){
   if(!costCentre||typeof GA_ACCT_L3_BY_CODE==='undefined'||!GA_ACCT_L3_BY_CODE) return null;
   var ccNorm=normTallyCostCentreLabel(costCentre);
   if(!ccNorm) return null;
   var bPref=parseBuildingPrefixFromTallyCostCentre(costCentre);
   var scope=bPref?'building':(/^cm\s+cf\b/.test(ccNorm)?'common':inferAcctScopeFromText(costCentre,costCentre));
-  var codes=String(costCentre).match(/\b([A-Za-z]{1,3}\d+(?:-\d+)*)\b/g);
-  if(codes){
-    for(var ci=0;ci<codes.length;ci++){
-      var mk=resolveMasterKeyFromShortCode(codes[ci], scope, bPref);
-      if(mk && GA_ACCT_L3_BY_CODE[mk]) return wrapGaAcctForCc(GA_ACCT_L3_BY_CODE[mk], bPref, scope);
-      if(GA_ACCT_L3_BY_CODE[codes[ci]]) return wrapGaAcctForCc(GA_ACCT_L3_BY_CODE[codes[ci]], bPref, scope);
-    }
-  }
   var idx=ensureGaAcctCcIndex();
-  var best=null, bestLen=0;
-  if(idx.exact[ccNorm]){ best=idx.exact[ccNorm].g; bestLen=idx.exact[ccNorm].len; }
-  else{
-    for(var i=0;i<idx.list.length;i++){
-      var it=idx.list[i];
-      if(it.len<bestLen) break;
-      if(ccNorm===it.v||ccNorm.indexOf(it.v)>=0||it.v.indexOf(ccNorm)>=0){
-        best=it.g; bestLen=it.len; break;
-      }
+  if(idx.exact[ccNorm] && gaAcctIsCfRow(idx.exact[ccNorm].g)){
+    return wrapGaAcctForCc(idx.exact[ccNorm].g, bPref, scope);
+  }
+  var codes=tallyShortCodesFromCostCentre(costCentre);
+  var byName=pickGaAcctByL3Name(tallyCcLeafName(costCentre), scope, codes);
+  if(byName) return wrapGaAcctForCc(byName, bPref, scope);
+  var ci, mk, g;
+  for(ci=0;ci<codes.length;ci++){
+    mk=resolveMasterKeyFromShortCode(codes[ci], scope, bPref);
+    g=mk && GA_ACCT_L3_BY_CODE[mk];
+    if(g && gaAcctIsCfRow(g)) return wrapGaAcctForCc(g, bPref, scope);
+    g=GA_ACCT_L3_BY_CODE[codes[ci]];
+    if(g && gaAcctIsCfRow(g)) return wrapGaAcctForCc(g, bPref, scope);
+  }
+  var best=null, bestLen=12;
+  for(var i=0;i<idx.list.length;i++){
+    var it=idx.list[i];
+    if(it.len<bestLen) break;
+    if(!gaAcctIsCfRow(it.g)) continue;
+    if(ccNorm===it.v||(it.len>=16 && (ccNorm.indexOf(it.v)>=0||it.v.indexOf(ccNorm)>=0))){
+      best=it.g; break;
     }
   }
   if(best) return wrapGaAcctForCc(best, bPref, scope);
@@ -1509,10 +1566,10 @@ function actualOutflowSumByGaL1(cfg){
   ensureGaL1CashflowCols();
   var cols=CF_OUTFLOW_L1_COLS, sums=l1MapEmpty(cols);
   (cfg.actuals||[]).forEach(function(a){
-    if(!a||coerceMoney(a.amount)>=0) return;
-    if(!includeActualInCashflowSums(a)) return;
-    var mag=Math.abs(coerceMoney(a.amount));
-    if(mag<=0) return;
+    if(!a||!includeActualInCashflowSums(a)) return;
+    if(!isExpenseDashboardOutflow(a)) return;
+    var mag=-coerceMoney(a.amount);
+    if(!mag) return;
     var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1);
     if(l1&&sums.hasOwnProperty(l1)) sums[l1]+=mag;
   });
@@ -1526,7 +1583,7 @@ var EXPENSE_METRIC_PHASES=[
   {key:'overhead',label:'G&A / corporate',buckets:['GA DM Fee']}
 ];
 function actualMatchesExpenseMetricBucket(a,bucket){
-  if(!a||coerceMoney(a.amount)>=0) return false;
+  if(!a||!isExpenseDashboardOutflow(a)) return false;
   var c1=String(a.cat1||'').trim(), ga=String(a.gaL1||'').trim(), disp=effectiveGaL1ForActualLine(c1,ga);
   if(!disp&&!c1) return false;
   if(bucket==='GA DM Fee') return c1==='GA DM Fee'||disp==='G&A Cost'||ga==='G&A Cost'||disp==='G&A'||ga==='G&A DM Fee';
@@ -1542,7 +1599,7 @@ function sumActualExpenseMetricBucket(cfg,bucket){
   return (cfg.actuals||[]).reduce(function(s,a){
     if(!a||!includeActualInCashflowSums(a)) return s;
     if(!actualMatchesExpenseMetricBucket(a,bucket)) return s;
-    return s+Math.abs(coerceMoney(a.amount));
+    return s+(-coerceMoney(a.amount));
   },0);
 }
 function plannedExpenseMetricBuckets(cfg){
@@ -1774,15 +1831,15 @@ function htmlScheduleCashflowExplainer(){
     +'</ul></div>';
 }
 function htmlBusinessKpiChartsFromActs(cfg, acts){
-  var allOut=(acts||[]).filter(function(a){ return a&&coerceMoney(a.amount)<0; });
-  var allIn=(acts||[]).filter(function(a){ return a&&coerceMoney(a.amount)>0; });
-  var totOut=allOut.reduce(function(s,a){return s+Math.abs(coerceMoney(a.amount));},0);
+  var allOut=(acts||[]).filter(isExpenseDashboardOutflow);
+  var allIn=(acts||[]).filter(isExpenseDashboardInflow);
+  var totOut=allOut.reduce(function(s,a){return s+(-coerceMoney(a.amount));},0);
   var totIn=allIn.reduce(function(s,a){return s+coerceMoney(a.amount);},0);
   var byMo={}, moList=[];
   allOut.forEach(function(a){
     var mo=(normalizeToISODate(a.date)||'').slice(0,7);
     if(!/^\d{4}-\d{2}$/.test(mo)) return;
-    byMo[mo]=(byMo[mo]||0)+Math.abs(coerceMoney(a.amount));
+    byMo[mo]=(byMo[mo]||0)+(-coerceMoney(a.amount));
   });
   moList=Object.keys(byMo).sort();
   var maxMo=0; moList.forEach(function(k){ if(byMo[k]>maxMo) maxMo=byMo[k]; });
@@ -2305,7 +2362,7 @@ function classifyTallyLineFromMasterRow(g, scope){
   return {
     cat1:leg,
     gaL1:gaL1,
-    gaL2:(g.l2Name||'')+' ('+(g.l2||'')+')',
+    gaL2:gaL2LabelFromMaster(g),
     gaL3:g.shortCode||g.l3||'',
     gaL3Name:g.l3Name||'',
     flow:g.flow,
@@ -2346,7 +2403,7 @@ function classifyTallyLineFromText(fullText, party, rawAmount, scopeHint, buildi
     if(pg) return {
       cat1:'Payables',
       gaL1:pg.cfL1Label||'Common · Payables',
-      gaL2:(pg.l2Name||'')+' ('+(pg.l2||'')+')',
+      gaL2:gaL2LabelFromMaster(pg),
       gaL3:pg.shortCode||'',
       gaL3Name:pg.l3Name||'',
       flow:pg.flow,
@@ -4317,8 +4374,10 @@ function expenseTreeNodeTotal(node){
   expenseTreeChildKeys(node).forEach(function(k){ s+=expenseTreeNodeTotal(node[k]); });
   return s;
 }
-function expenseTreePushPath(treeOut, path, mag, line){
-  if(mag<=0 || !path || !path.length) return;
+function expenseTreePushPath(treeOut, path, signed, line){
+  if(!path || !path.length) return;
+  var mag=coerceMoney(signed);
+  if(!mag && !line) return;
   var cur=treeOut;
   for(var i=0;i<path.length-1;i++){
     var k=path[i];
@@ -4371,7 +4430,7 @@ function htmlExpenseChartTreeBody(treeOut){
           var ex=ln.tallyException||'';
           var trSt=ex?'background:#FEF3C7;':'';
           var flag=ex?' <span style="color:#B45309;font-weight:800">SOP '+escHtml(ex)+'</span>':'';
-          h+='<tr style="'+trSt+'"><td style="padding-left:'+(indent+16)+'px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+flag+'</td><td class="amt" style="font-size:9px">'+cr(ln.amount)+'</td></tr>';
+          h+='<tr style="'+trSt+'"><td style="padding-left:'+(indent+16)+'px;font-size:9px;line-height:1.35" title="'+escAttr(nar)+'">'+label+flag+'</td><td class="amt" style="font-size:9px">'+(typeof formatRupeesDisplay==='function'?formatRupeesDisplay(ln.amount):cr(ln.amount))+'</td></tr>';
         });
         if(lines.length>lineCap){
           h+='<tr><td colspan="2" style="padding-left:'+(indent+16)+'px;font-size:9px;color:var(--muted)">Showing '+lineCap+' of '+lines.length+' voucher lines (narrow date/category filters to see more).</td></tr>';
@@ -4396,34 +4455,16 @@ function htmlExpenseChartTreeBody(treeOut){
   walk(treeOut, '', 0, 0);
   return h;
 }
-function expenseTreePushLeaf(treeOut, l1, l2, l3k, mag, line){
-  if(mag<=0) return;
-  if(!treeOut[l1]) treeOut[l1]={};
-  if(!treeOut[l1][l2]) treeOut[l1][l2]={};
-  if(!treeOut[l1][l2][l3k] || typeof treeOut[l1][l2][l3k]==='number'){
-    var prev=typeof treeOut[l1][l2][l3k]==='number'?treeOut[l1][l2][l3k]:0;
-    treeOut[l1][l2][l3k]={total:prev, lines:[], _seen:{}};
-  }
-  var leaf=treeOut[l1][l2][l3k];
-  if(!leaf._seen) leaf._seen={};
-  if(line){
-    var sid=String(line.id||line.tallyKey||'');
-    var soft=tallyActualSoftFingerprint(line);
-    if((sid && leaf._seen[sid]) || (soft && leaf._seen['s:'+soft])) return;
-    if(sid) leaf._seen[sid]=1;
-    if(soft) leaf._seen['s:'+soft]=1;
-    leaf.lines.push(line);
-  }
-  leaf.total+=mag;
+function expenseTreePushLeaf(treeOut, l1, l2, l3k, signed, line){
+  expenseTreePushPath(treeOut, [l1, l2, l3k], signed, line);
 }
 /** Keys for L1 / L2 / L3 rows in the GA outflow tree (uses same slugs as render). */
 function collectExpenseGATreeKeys(acts, rollup){
   var treeOut={}, l1kList=[], l2kList=[], l3kList=[];
   (acts||[]).forEach(function(a){
     if(!a) return;
-    var mag=Math.abs(coerceMoney(a.amount));
-    if(mag<=0) return;
-    if(coerceMoney(a.amount)>=0) return;
+    var mag=-coerceMoney(a.amount);
+    if(!mag) return;
     var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1)||String(a.cat1||'').trim()||'—';
     var l2=String(a.gaL2||'').trim()||'—';
     var l3k=(a.gaL3?String(a.gaL3).trim()+' — ':'')+String(a.gaL3Name||'').trim();
@@ -6371,6 +6412,8 @@ function tallyWorkbookNeedsSopAnnotate(){
 function migrateReclassifyTallyActuals(){
   var touched=false;
   try{
+    _gaClassifyByCc={};
+    _gaAcctCcIndex=null;
     Object.keys(_cfData||{}).forEach(function(pid){
       var cfg=_cfData[pid];
       if(!cfg||!cfg.actuals) return;
@@ -7015,15 +7058,20 @@ function buildCashflow(pid){
   var startKey=startDate.length>=7?startDate.slice(0,7):'';
   if(!/^\d{4}-\d{2}$/.test(startKey)) startKey=new Date().toISOString().slice(0,7);
 
-  // Build actuals index by month+cat
+  // Build actuals index by month+cat (signed). Outflow columns flip sign at display so net L3 refunds reduce spend.
   var actMap={};
-  (cfg.actuals||[]).forEach(function(a){
+  uniqueActualsForCashflowSums(cfg.actuals||[]).forEach(function(a){
     if(!includeActualInCashflowSums(a)) return;
     var mo=a.date?a.date.slice(0,7):'';
     if(!mo) return;
     if(!actMap[mo]) actMap[mo]={};
     actMap[mo][a.cat1]=(actMap[mo][a.cat1]||0)+coerceMoney(a.amount);
   });
+  function cfGridOutflowActual(actVal, planVal, actualMo){
+    if(!actualMo) return planVal||0;
+    if(actVal!==undefined && actVal!==null && actVal!=='') return -coerceMoney(actVal);
+    return planVal||0;
+  }
 
   // Build capital inflow schedules — equity vs investor columns
   var equityInfMap={}, invFlowMap={};
@@ -7196,22 +7244,22 @@ function buildCashflow(pid){
     var otherIn     = ov.otherIn     !== undefined ? ov.otherIn     : ((act['Other Income']||0)+(act['Other Inflow']||0) || otherFlowMap[mo] || 0);
 
     // ── OUTFLOWS ──
-    var land        = ov.land        !== undefined ? ov.land        : (act['Land']         || landMap[mo]    || 0);
-    var noc         = ov.noc         !== undefined ? ov.noc         : (act['NOC']           || nocMap[mo]     || 0);
-    var consultant  = ov.consultant  !== undefined ? ov.consultant  : (act['Consultant']   || consultMap[mo] || 0);
-    var regulatoryConsulting= ov.regulatoryConsulting!==undefined ? ov.regulatoryConsulting : (act['Regulatory & Consulting']||regConsultMap[mo]||0);
-    var construction= ov.construction!== undefined ? ov.construction: (isActual ? (act['Construction']||0) : (consMap[mo]||0));
+    var land        = ov.land        !== undefined ? ov.land        : cfGridOutflowActual(act['Land'], landMap[mo]||0, isActual);
+    var noc         = ov.noc         !== undefined ? ov.noc         : cfGridOutflowActual(act['NOC'], nocMap[mo]||0, isActual);
+    var consultant  = ov.consultant  !== undefined ? ov.consultant  : cfGridOutflowActual(act['Consultant'], consultMap[mo]||0, isActual);
+    var regulatoryConsulting= ov.regulatoryConsulting!==undefined ? ov.regulatoryConsulting : cfGridOutflowActual(act['Regulatory & Consulting'], regConsultMap[mo]||0, isActual);
+    var construction= ov.construction!== undefined ? ov.construction: cfGridOutflowActual(act['Construction'], consMap[mo]||0, isActual);
     // G&A from V2 push or manual monthly
     var gaMonthly   = cfg.gaGAAnnual>0 ? cfg.gaGAAnnual/12 : (parseFloat(cfg.gaMonthly)||0);
     var gaDmAct     = act['GA DM Fee'];
     if(gaDmAct===undefined||gaDmAct===null) gaDmAct=act['GA-DM'];
     if(gaDmAct===undefined||gaDmAct===null) gaDmAct=act['G&A'];
-    var ga          = ov.ga          !== undefined ? ov.ga          : (gaDmAct          || gaMonthly);
+    var ga          = ov.ga          !== undefined ? ov.ga          : cfGridOutflowActual(gaDmAct, gaMonthly, isActual);
     // Marketing from V2 push or schedule
     var mktgMonthly = cfg.gaMktgAnnual>0 ? cfg.gaMktgAnnual/12 : 0;
-    var marketing   = ov.marketing   !== undefined ? ov.marketing   : (act['Marketing']     || mktgSchedMap[mo] || (isActual?0:mktgMonthly));
+    var marketing   = ov.marketing   !== undefined ? ov.marketing   : (isActual ? cfGridOutflowActual(act['Marketing'], 0, true) : (mktgSchedMap[mo] || mktgMonthly || 0));
     // Contingency = % of construction (projected only)
-    var contingency = ov.contingency !== undefined ? ov.contingency : (act['Contingency']   || (isActual?0:construction*(cfg.contingencyPct||2)/100));
+    var contingency = ov.contingency !== undefined ? ov.contingency : (isActual ? cfGridOutflowActual(act['Contingency'], 0, true) : (construction*(cfg.contingencyPct||2)/100));
 
     if(!isActual && period>0){
       salesRev*=fz.salesFactor;
@@ -11894,18 +11942,18 @@ function htmlExpenseInflowsSection(actsIn){
   (actsIn||[]).forEach(function(a){
     if(!a) return;
     var c=String(a.cat1||'Other Income').trim()||'Other Income';
-    var mag=Math.abs(coerceMoney(a.amount));
-    if(mag<=0) return;
-    tot+=mag;
-    byCat[c]=(byCat[c]||0)+mag;
+    var signed=coerceMoney(a.amount);
+    if(!signed) return;
+    tot+=signed;
+    byCat[c]=(byCat[c]||0)+signed;
     var p=String(a.party||'—').trim()||'—';
-    byParty[p]=(byParty[p]||0)+mag;
+    byParty[p]=(byParty[p]||0)+signed;
   });
   var catRows=Object.keys(byCat).sort(function(a,b){ return byCat[b]-byCat[a]; });
   var partyRows=Object.keys(byParty).sort(function(a,b){ return byParty[b]-byParty[a]; }).slice(0,15);
   var h='<div class="card" style="border-top:3px solid var(--green-b);margin-top:12px">';
   h+='<div style="font-size:12px;font-weight:700;color:var(--green-b);margin-bottom:4px">Inflows (separate from expenses)</div>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Customer collections, sales receipts, equity, loans received, and other positive cash lines. These are <strong>not</strong> included in expense metrics or outflow trees above.</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">Net at L3 by primary nature. Customer collections (and other inflow L3s) stay here even when a line is a payment — it reduces the same L3, and can go negative. These are <strong>not</strong> moved into the outflow tree.</div>';
   h+='<div class="kpi" style="border-top:3px solid var(--green-b);max-width:200px;margin-bottom:10px"><div style="font-size:14px;font-weight:800">'+cr(tot)+'</div><div style="font-size:9px;color:var(--muted)">Total inflows</div></div>';
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px">';
   h+='<div><div style="font-size:11px;font-weight:700;color:var(--blue-b);margin-bottom:6px">By cashflow category</div>';
@@ -12132,9 +12180,14 @@ function renderExpenses(){
   vis.forEach(function(p){ try{ ensureTallyActualsDeduped(p.id); }catch(eDd){} });
   var cfg=buildVisibleScopeCfg();
   var actsAll=cfg.actuals||[];
-  var acts=actsAll.filter(function(a){ return includeActualInCashflowSums(a); });
+  var acts=uniqueActualsForCashflowSums(actsAll.filter(function(a){ return includeActualInCashflowSums(a); }));
   function sumSched(skey){ return (cfg[skey]||[]).reduce(function(s,e){return s+(parseFloat(e.amount)||0);},0); }
-  function sumActual(cat){ return acts.filter(function(a){return a.cat1===cat;}).reduce(function(s,a){return s+Math.abs(parseFloat(a.amount)||0);},0); }
+  function sumActual(cat){
+    return acts.filter(function(a){ return a.cat1===cat; }).reduce(function(s,a){
+      var n=coerceMoney(a.amount);
+      return s+(isCashflowInflowCat(cat)?n:(-n));
+    },0);
+  }
   var tallyN=actsAll.filter(function(a){return a&&a.source==='tally';}).length;
   var h='';
   h+='<div class="exp-hero">';
@@ -12179,15 +12232,16 @@ function renderExpenses(){
     h+=htmlExpenseDashFilterBar(acts);
     h+=htmlExpenseMetricsDashboard(cfg, dashFilt);
     var actsOut=acts.filter(function(a){ return isExpenseDashboardOutflow(a)&&actualMatchesExpenseDashFilter(a,dashFilt); });
-    var actsIn=acts.filter(isExpenseDashboardInflow);
-    h+='<p style="font-size:10px;color:var(--muted);margin:0 0 10px">Tree shows <strong>outflows</strong> in the filter window. Expand L3 for voucher lines.</p>';
+    var actsIn=acts.filter(function(a){ return isExpenseDashboardInflow(a)&&actualMatchesExpenseDashFilter(a,dashFilt); });
+    h+='<p style="font-size:10px;color:var(--muted);margin:0 0 10px">Tree shows <strong>outflow-nature L3s</strong>, net (payments minus refunds on the same L3). Refunds stay here and can make an L3 negative — they are not moved to inflows. Expand L3 for voucher lines.</p>';
     var byCat={}, byCC={}, treeOut={};
     actsOut.forEach(function(a){
       if(!a) return;
       var c=String(a.cat1||'Unmapped').trim()||'Unmapped';
       var cc=String(a.costCentre||'Unassigned').trim()||'Unassigned';
-      var mag=Math.abs(coerceMoney(a.amount));
-      if(mag<=0) return;
+      var signed=coerceMoney(a.amount);
+      var mag=-signed;
+      if(!signed) return;
       byCat[c]=(byCat[c]||0)+mag;
       byCC[cc]=(byCC[cc]||0)+mag;
       var l1=effectiveGaL1ForActualLine(a.cat1, a.gaL1)||String(a.cat1||'').trim()||'—';
@@ -12201,7 +12255,7 @@ function renderExpenses(){
         date:dt,
         party:String(a.party||'').trim()||'—',
         note:note,
-        amount:mag,
+        amount:signed,
         costCentre:cc,
         tallyException:a.tallyException||'',
         tallyPairingVerdict:a.tallyPairingVerdict||''
@@ -12218,10 +12272,10 @@ function renderExpenses(){
     h+='<div style="font-size:10px;color:var(--muted)">'+actsOut.length+' lines</div></div>';
     if(!catRows.length) h+='<div style="font-size:10px;color:var(--muted)">No outflows in this filter.</div>';
     else{
-      var maxC=1; catRows.forEach(function(c){ if(byCat[c]>maxC) maxC=byCat[c]; });
+      var maxC=1; catRows.forEach(function(c){ var av=Math.abs(byCat[c]||0); if(av>maxC) maxC=av; });
       h+='<div class="amt-bar-stack">';
       catRows.slice(0,10).forEach(function(c){
-        var v=byCat[c], w=Math.max(3,Math.round((v/maxC)*100));
+        var v=byCat[c], w=Math.max(3,Math.round((Math.abs(v)/maxC)*100));
         h+='<div class="amt-bar-row"><div class="lbl">'+escHtml(c)+'</div>';
         h+='<div class="bar"><i style="width:'+w+'%"></i></div>';
         h+='<div class="amt">'+cr(v)+'</div></div>';
@@ -12247,7 +12301,7 @@ function renderExpenses(){
     h+='<button type="button" class="btn btn-outline" data-action="expense-tree-expand-all" style="font-size:10px;padding:4px 10px">Expand all</button>';
     h+='<button type="button" class="btn btn-outline" data-action="expense-tree-collapse-all" style="font-size:10px;padding:4px 10px">Collapse all</button>';
     h+='</div></div>';
-    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">V3 master coding · expand L3 for date · party · narration.</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px">V3 master coding · net at L3 · expand L3 for date · party · narration (signed voucher).</div>';
     h+='<div class="amt-pair-wrap"><table class="amt-pair-tbl amt-pair-tbl--tree">';
     h+='<thead><tr><th>Category</th><th>Amount (₹)</th></tr></thead><tbody>';
     if(!Object.keys(treeOut).length) h+='<tr><td colspan="2" style="padding:12px;color:var(--muted)">No outflow lines in this filter. Widen dates or clear category.</td></tr>';
@@ -12260,7 +12314,7 @@ function renderExpenses(){
   }
   if(_expenseUIPanel==='insights'){
     h+=htmlBusinessKpiChartsFromActs(cfg, acts);
-    var allOut=acts.filter(function(a){ return a && coerceMoney(a.amount)<0; });
+    var allOut=acts.filter(isExpenseDashboardOutflow);
     var moList=allOut.map(function(a){ return (normalizeToISODate(a.date)||'').slice(0,7); }).filter(function(m){ return /^\d{4}-\d{2}$/.test(m); });
     var minMo=moList.length?moList.slice().sort()[0]:'';
     var maxM=moList.length?moList.slice().sort().slice(-1)[0]:'';
@@ -12295,14 +12349,14 @@ function renderExpenses(){
     var byMo={}, byCat2={};
     outActs.forEach(function(a){
       var mo=(normalizeToISODate(a.date)||'').slice(0,7)||'Unknown';
-      var v=Math.abs(coerceMoney(a.amount));
+      var v=-coerceMoney(a.amount);
       byMo[mo]=(byMo[mo]||0)+v;
       var c=String(a.cat1||'Unmapped').trim()||'Unmapped';
       byCat2[c]=(byCat2[c]||0)+v;
     });
     var moKeys=Object.keys(byMo).sort();
     var maxMo=0;
-    moKeys.forEach(function(k){ if(byMo[k]>maxMo) maxMo=byMo[k]; });
+    moKeys.forEach(function(k){ var av=Math.abs(byMo[k]||0); if(av>maxMo) maxMo=av; });
     var runRate=0;
     if(moKeys.length){
       var lastN=moKeys.slice(-3);
@@ -12317,7 +12371,7 @@ function renderExpenses(){
       h+='<div class="amt-bar-stack">';
       moKeys.slice(-12).forEach(function(k){
         var v=byMo[k]||0;
-        var w=maxMo>0?Math.max(2,Math.round((v/maxMo)*100)):2;
+        var w=maxMo>0?Math.max(2,Math.round((Math.abs(v)/maxMo)*100)):2;
         h+='<div class="amt-bar-row"><div class="lbl" style="color:var(--muted);font-weight:500">'+escHtml(formatMonthKey(k))+'</div>';
         h+='<div class="bar" style="background:#EDE9FE"><i style="width:'+w+'%;background:linear-gradient(90deg,var(--purple),#9F7AEA)"></i></div>';
         h+='<div class="amt">'+cr(v)+'</div></div>';
@@ -12326,7 +12380,7 @@ function renderExpenses(){
     }
     h+='</div>';
     h+='<div class="card"><div style="font-size:12px;font-weight:700;color:var(--blue-b);margin-bottom:8px">Cashflow category mix (filtered outflows — chart)</div>';
-    var totOutAct=outActs.reduce(function(s,a){return s+Math.abs(coerceMoney(a.amount));},0);
+    var totOutAct=outActs.reduce(function(s,a){return s+(-coerceMoney(a.amount));},0);
     var maxCat=1;
     catRows2.slice(0,12).forEach(function(c){ var v=byCat2[c]||0; if(v>maxCat) maxCat=v; });
     if(!catRows2.length) h+='<div style="font-size:10px;color:var(--muted)">No data in this filter.</div>';
