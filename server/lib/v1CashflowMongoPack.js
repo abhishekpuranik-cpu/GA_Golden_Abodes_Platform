@@ -63,12 +63,18 @@ export async function unpackV1CashflowRowData(db, rowData) {
   if (!gz?.length) throw new Error('Cashflow cloud state payload missing compressed body');
 
   const inner = JSON.parse(zlib.gunzipSync(gz).toString('utf8'));
+  let acctMaster = rowData.acctMaster;
+  if (!acctMaster && rowData.acctMasterGzip) {
+    const amBuf = bufferFromMongoBinary(rowData.acctMasterGzip);
+    if (amBuf?.length) acctMaster = JSON.parse(zlib.gunzipSync(amBuf).toString('utf8'));
+  }
   return {
     v: rowData.v,
     ts: rowData.ts,
     manualProjs: rowData.manualProjs,
     ui: rowData.ui,
-    data: inner
+    data: inner,
+    acctMaster
   };
 }
 
@@ -192,7 +198,13 @@ export function mergeV1CashflowEnvelopes(existingEnv, incomingEnv) {
     ui: {
       ...(ex?.ui && typeof ex.ui === 'object' && !Array.isArray(ex.ui) ? ex.ui : {}),
       ...(incomingEnv.ui && typeof incomingEnv.ui === 'object' && !Array.isArray(incomingEnv.ui) ? incomingEnv.ui : {})
-    }
+    },
+    acctMaster:
+      incomingEnv.acctMaster && incomingEnv.acctMaster.GA_ACCT_L3_BY_CODE
+        ? incomingEnv.acctMaster
+        : ex?.acctMaster && ex.acctMaster.GA_ACCT_L3_BY_CODE
+          ? ex.acctMaster
+          : undefined
   };
 }
 
@@ -399,6 +411,11 @@ export async function packV1CashflowRowData(db, envelope, probeCtx = {}) {
     manualProjs: envelope.manualProjs,
     ui: envelope.ui
   };
+  if (envelope.acctMaster && envelope.acctMaster.GA_ACCT_L3_BY_CODE) {
+    meta.acctMasterGzip = new Binary(
+      zlib.gzipSync(JSON.stringify(envelope.acctMaster), { level: zlib.constants.Z_BEST_SPEED })
+    );
+  }
 
   const gz = zlib.gzipSync(JSON.stringify(inner), { level: zlib.constants.Z_BEST_SPEED });
   const now = new Date();

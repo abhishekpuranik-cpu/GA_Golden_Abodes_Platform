@@ -16,17 +16,20 @@
   function extractShortCode(fullStr) {
     var t = clean(fullStr);
     if (!t || t === '0') return '';
+    var mBal = t.match(/\b(BAL\d+-\d+)\b/i);
+    if (mBal) return mBal[1].toUpperCase();
     var m = t.match(/\b([A-Z]\d+-\d+)\b/);
     return m ? m[1] : '';
   }
   function inferFlow(l1Letter, l1Name, scope) {
     var lc = clean(l1Letter).toUpperCase();
     var name = clean(l1Name).toLowerCase();
-    if (scope === 'common' && lc === 'Z') return 'cash';
+    if (/balancing\s*cashflow\s*residuary|misc\s*residuary\s*for\s*cashflow/i.test(name)) return 'exclude';
+    if (/balancing\s*p\s*&\s*l\s*residuary|residuary\s*for\s*pl/i.test(name)) return 'pl_only';
+    if (lc === 'BAL' && /payable/i.test(name)) return 'pl_only';
+    if (scope === 'common' && (lc === 'Z' || /cash\s*&\s*cash\s*equivalents|cash\s+and\s+cash\s*equivalents/i.test(name))) return 'cash';
     if (/loans?\s*and\s*advance|advances?\s+given|advance\s+receivable/i.test(name)) return 'out';
-    if (/deposit|fixed asset|payable|suspense|other current|retention|creditor|depreciation/i.test(name)) {
-      return 'out';
-    }
+    if (/deposit|fixed asset|payable|suspense|other current|retention|creditor|depreciation|club\s*house/i.test(name)) return 'out';
     if (/^other income$/i.test(name) || /\bother income\b/i.test(name)) return 'in';
     if (/customer collection/i.test(name)) return 'in';
     if (/sales revenue/i.test(name)) return 'in';
@@ -37,12 +40,25 @@
       if (lc === 'B' && /collection/i.test(name)) return 'in';
       return 'out';
     }
-    if (/^[LMNOP]$/.test(lc)) return 'in';
+    if (/^[MNOPQ]$/.test(lc)) return 'in';
     return 'out';
+  }
+  function buildShortCode(curL1, curL2, l3CodeNum, cfL3, plL3, curL1Name) {
+    var l1 = clean(curL1).toUpperCase();
+    var name = clean(curL1Name);
+    if (l1 === 'BAL') {
+      if (/cashflow\s*residuary/i.test(name)) return extractShortCode(cfL3) || 'BAL1-1';
+      if (/p\s*&\s*l\s*residuary/i.test(name)) return extractShortCode(plL3) || ('BALPL' + clean(curL2) + '-' + clean(l3CodeNum));
+      if (/payable/i.test(name)) return 'BALP' + clean(curL2) + '-' + clean(l3CodeNum);
+    }
+    return extractShortCode(cfL3) || extractShortCode(plL3) || (l1 && l3CodeNum ? l1 + clean(curL2) + '-' + clean(l3CodeNum) : '');
   }
   function inferLegacyCat1(opts) {
     var n = clean(opts.l1Name);
     var nl = n.toLowerCase();
+    if (opts.flow === 'cash') return 'Cash Equivalents';
+    if (opts.flow === 'exclude') return 'BAL Residuary';
+    if (opts.flow === 'pl_only') return 'Payables';
     if (opts.flow === 'in') {
       if (nl.indexOf('customer collection') >= 0) return 'Customer Collections';
       if (nl.indexOf('sales revenue') >= 0) return 'Sales Revenue';
@@ -73,7 +89,8 @@
       nl.indexOf('loans and advance') >= 0 ||
       nl.indexOf('fixed asset') >= 0 ||
       nl.indexOf('deposit') >= 0 ||
-      nl.indexOf('common expenses') >= 0
+      nl.indexOf('common expenses') >= 0 ||
+      nl.indexOf('club house') >= 0
     ) {
       return 'Construction';
     }
@@ -111,6 +128,7 @@
       var l3CodeNum = clean(row[6]);
       var l3Name = clean(row[7]);
       if (!l3Name) continue;
+      if (!curL1 || !curL1Name) continue;
       var desc = clean(row[8]);
       var cfL1 = clean(row[9]);
       var cfL2 = clean(row[10]);
@@ -118,10 +136,7 @@
       var plL1 = clean(row[12]);
       var plL2 = clean(row[13]);
       var plL3 = clean(row[14]);
-      var shortCode =
-        extractShortCode(cfL3) ||
-        extractShortCode(plL3) ||
-        (curL1 && l3CodeNum ? curL1 + curL2 + '-' + l3CodeNum : '');
+      var shortCode = buildShortCode(curL1, curL2, l3CodeNum, cfL3, plL3, curL1Name);
       if (!shortCode) continue;
       var masterKey = prefix + '|' + shortCode;
       var flow = inferFlow(curL1, curL1Name, scope);
@@ -153,14 +168,14 @@
         legacyCat1: legacyCat1,
       };
       entries[masterKey] = entry;
-      if (cfApplicable && curL1Name) {
+      if (cfApplicable && curL1Name && (flow === 'in' || flow === 'out')) {
         var col = entry.cfL1Label;
         if (!cfL1Seen[col]) {
           cfL1Seen[col] = 1;
           cfL1Order.push({ scope: scope, l1: curL1, l1Name: curL1Name, label: col, flow: flow });
         }
       }
-      if (plApplicable && curL1Name) {
+      if (plApplicable && curL1Name && flow !== 'exclude' && flow !== 'cash') {
         var plCol = entry.plL1Label;
         if (!plL1Seen[plCol]) {
           plL1Seen[plCol] = 1;

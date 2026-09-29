@@ -6,8 +6,8 @@
 <title>GA Cashflow Tracker V2</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundled.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-<script src="ga_accounting_categories_parser.js"></script>
-<script src="ga_accounting_categories.js"></script>
+<script src="ga_accounting_categories_parser.js?v=99"></script>
+<script src="ga_accounting_categories.js?v=99"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 98;
+var CF_VERSION = 99;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -5444,9 +5444,13 @@ function cfStatePayload(){
       projectGroup:'__all__'
     }
   };
-  if(_gaAcctMasterMeta.source==='upload'||_gaAcctMasterMeta.source==='server'){
-    var ap=gaAcctMasterPayloadFromGlobals();
-    if(ap) payload.acctMaster=ap;
+  var ap=gaAcctMasterPayloadFromGlobals();
+  if(ap){
+    if(!_gaAcctMasterMeta.source || _gaAcctMasterMeta.source==='shipped'){
+      ap.source='server';
+      ap.fileName=ap.fileName||'GA Accounting Categories V3 Master 8.8.2026.xlsx';
+    }
+    payload.acctMaster=ap;
   }
   return payload;
 }
