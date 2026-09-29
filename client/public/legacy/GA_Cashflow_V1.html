@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 96;
+var CF_VERSION = 97;
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -782,6 +782,24 @@ function tallyPhaseProjects(sourcePid){
     return sameHierarchyRouteValue(h.projectGroup,sh.projectGroup)&&sameHierarchyRouteValue(h.phase,sh.phase);
   });
 }
+/** Company Tally (Payment/Receipt XML) is one feed for the whole project — not per phase. */
+function tallyProjectGroupProjects(sourcePid){
+  var source=(PROJS||[]).find(function(p){return p&&String(p.id)===String(sourcePid);});
+  var sh=getProjectHierarchy(sourcePid);
+  if(!source) return [];
+  if(!sh.projectGroup || sh.projectGroup==='Unassigned') return tallyPhaseProjects(sourcePid);
+  return (PROJS||[]).filter(function(p){
+    if(!p||!p.id) return false;
+    var h=getProjectHierarchy(p.id);
+    return sameHierarchyRouteValue(h.projectGroup, sh.projectGroup);
+  });
+}
+/** Latest XML / Replace: wipe Tally on every building in the project group so All-phases cannot stack two copies. */
+function tallyLatestUploadScopeProjects(sourcePid){
+  var list=tallyProjectGroupProjects(sourcePid);
+  if(list&&list.length) return list;
+  return tallyPhaseProjects(sourcePid);
+}
 function isConfiguredTallyCommonOwner(p){
   if(!p||!p.id) return false;
   var cfg=getCF(p.id)||{};
@@ -899,6 +917,7 @@ function resolveTallyActualRoute(row, sourcePid, autoAllocate){
   var source=(PROJS||[]).find(function(p){return p&&String(p.id)===String(sourcePid);})||null;
   var sh=getProjectHierarchy(sourcePid);
   var phaseProjects=tallyPhaseProjects(sourcePid);
+  var groupProjects=tallyProjectGroupProjects(sourcePid);
   var cc=String((row&&row.costCentre)||'').trim();
   var party=String((row&&row.party)||'');
   var note=String((row&&row.note)||'');
@@ -909,13 +928,19 @@ function resolveTallyActualRoute(row, sourcePid, autoAllocate){
   var kind='selected_project';
   var matched=true;
   if(autoAllocate!==false && isCommon){
-    dest=tallyCommonOwnerProject(sourcePid,phaseProjects)||source;
+    dest=tallyCommonOwnerProject(sourcePid,phaseProjects)||tallyCommonOwnerProject(sourcePid,groupProjects)||source;
     kind='phase_common';
   }else if(autoAllocate!==false && prefix){
     var matches=phaseProjects.filter(function(p){
       if(isCommonAmenitiesProject(p)) return false;
       return getAcctPrefixForPid(p.id)===prefix;
     });
+    if(!matches.length && groupProjects&&groupProjects.length){
+      matches=groupProjects.filter(function(p){
+        if(isCommonAmenitiesProject(p)) return false;
+        return getAcctPrefixForPid(p.id)===prefix;
+      });
+    }
     matches.sort(function(a,b){return String(a.id||'').localeCompare(String(b.id||''));});
     if(matches.length){
       var prefer=matchPhaseProjectByBuildingName(matches, cc+' '+party+' '+note+' Building '+prefix);
@@ -1666,7 +1691,7 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   else h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:#E8F1FB;color:#1558A0">BUILDING SCOPE</span>';
   h+='</div>';
   if(showZ){
-    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Inflows − Outflows (L3 nature; refunds netted) vs sum of Z Cash &amp; Cash Equivalents. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only. BAL and SOP exceptions are not in the cashflow sum.</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Company Tally is counted <strong>once</strong> (All phases / All buildings does not add the same voucher twice). Inflows − Outflows (L3 nature; refunds netted) vs sum of Z Cash &amp; Cash Equivalents. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only. BAL and SOP exceptions are not in the cashflow sum.</div>';
   } else {
     h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Inflows and outflows are this building&apos;s eligible CF L3 only (C/D/E CF). Company <strong>Sum of Z</strong> (banks/cash) lives on <strong>Common Amenities</strong>. Open Common Amenities or All buildings to tally Net = Z.</div>';
   }
@@ -3230,6 +3255,72 @@ function buildTallyLineKey(row){
   if(voucherId) return 'tally|v:'+voucherId+'|l:'+((row&&row.ledgerIndex!=null)?row.ledgerIndex:'')+'|a:'+aidx+'|'+party+'|'+amt+'|'+cc;
   return 'tally|'+date+'|'+(vno||'')+'|'+party+'|'+amt+'|'+cc+'|a:'+aidx+'|'+narr;
 }
+/** Company identity of one Tally CC leg — same voucher+CC+amount on two buildings is one line, not two. */
+function tallyLineLooseId(a){
+  if(!a) return '';
+  var vid=String(a.voucherId||'').trim().toLowerCase();
+  var cc=String(a.costCentre||'').trim().toLowerCase().replace(/\s+/g,' ');
+  var amt=normalizeTallyAmtKey(a.tallyRawAmount!=null?a.tallyRawAmount:(a.rawAmount!=null?a.rawAmount:a.amount));
+  if(vid) return 'v:'+vid+'|'+cc+'|'+amt;
+  var date=String(a.date||'').slice(0,10);
+  var vno=String(a.voucherNo||'').trim().toLowerCase();
+  var party=String(a.party||'').trim().toLowerCase();
+  if(!date && !vno && !party && !cc) return '';
+  return 'd:'+date+'|n:'+vno+'|p:'+party+'|'+cc+'|'+amt;
+}
+/** All-phases rollup and re-imports must not add the same Payment/Receipt CC leg twice. */
+function uniqueActualsForCashflowSums(actuals){
+  var seenKey={}, seenLoose={}, out=[], i, a, k, loose;
+  for(i=0;i<(actuals||[]).length;i++){
+    a=actuals[i];
+    if(!a) continue;
+    if(a.source==='tally'){
+      k=String(a.tallyKey||'');
+      loose=tallyLineLooseId(a);
+      if(k && seenKey[k]) continue;
+      if(loose && seenLoose[loose]) continue;
+      if(k) seenKey[k]=1;
+      if(loose) seenLoose[loose]=1;
+    }
+    out.push(a);
+  }
+  return out;
+}
+/** Keep one routed copy of each Tally CC leg across the project group (heals a doubled All-phases feed). */
+function collapseDuplicateTallyAcrossProjectGroup(sourcePid){
+  var list=tallyLatestUploadScopeProjects(sourcePid);
+  if(!list||!list.length) return 0;
+  var keepers={}, removed=0;
+  list.forEach(function(p){
+    (getCF(p.id).actuals||[]).forEach(function(a){
+      if(!a||a.source!=='tally') return;
+      var biz=tallyLineLooseId(a)||a.tallyKey;
+      if(!biz) return;
+      var route=resolveTallyActualRoute({costCentre:a.costCentre,party:a.party,note:a.note||a.narration||'',voucherId:a.voucherId}, sourcePid, true);
+      var prefer=String(route.pid)===String(p.id);
+      if(!keepers[biz] || (prefer && !keepers[biz].prefer)) keepers[biz]={pid:String(p.id), prefer:prefer};
+    });
+  });
+  list.forEach(function(p){
+    var c=getCF(p.id);
+    if(!Array.isArray(c.actuals)) return;
+    var out=[], seenLocal={};
+    c.actuals.forEach(function(a){
+      if(!a||a.source!=='tally'){ out.push(a); return; }
+      var k=String(a.tallyKey||'');
+      var biz=tallyLineLooseId(a);
+      if(k && seenLocal[k]){ removed++; return; }
+      if(biz && seenLocal['b:'+biz]){ removed++; return; }
+      if(k) seenLocal[k]=1;
+      if(biz) seenLocal['b:'+biz]=1;
+      var keeper=keepers[biz||k];
+      if(keeper && String(keeper.pid)!==String(p.id)){ removed++; return; }
+      out.push(a);
+    });
+    c.actuals=out;
+  });
+  return removed;
+}
 /** Remove duplicate Tally actuals on one project (exact key + soft fingerprint). */
 function dedupeTallyActualsForPid(pid){
   var cfg=getCF(pid);
@@ -3262,17 +3353,26 @@ function dedupeTallyActualsPhase(sourcePid){
   (list||[]).forEach(function(p){ if(p&&p.id) n+=dedupeTallyActualsForPid(p.id); });
   return n;
 }
-/** Run once per phase per session (also after merge). Fixes already-stored triples. */
+/** Run once per project group per session (also after merge). Fixes already-stored triples. */
 function ensureTallyActualsDeduped(sourcePid){
   if(!sourcePid) return 0;
-  var key=tallyPhaseFingerprintKey(sourcePid)||String(sourcePid);
+  var sh=getProjectHierarchy(sourcePid)||{};
+  var key='g:'+String(sh.projectGroup||'')+'|v'+CF_VERSION;
   if(!window.__gaTallyDedupePhases) window.__gaTallyDedupePhases={};
   if(window.__gaTallyDedupePhases[key]) return 0;
   window.__gaTallyDedupePhases[key]=1;
   var rm=0;
   try{ rm=dedupeTallyActualsPhase(sourcePid)||0; }catch(e){ rm=0; }
+  try{ rm+=(collapseDuplicateTallyAcrossProjectGroup(sourcePid)||0); }catch(eG){}
   if(rm>0){
-    try{ saveAll({full:true}); }catch(eSv){}
+    try{
+      var perPid={};
+      (tallyLatestUploadScopeProjects(sourcePid)||[]).forEach(function(p){
+        if(p&&p.id) perPid[String(p.id)]=['actuals'];
+      });
+      saveAll({skipLocal:true, skipCloud:true, skipMongo:true, perPidSections:perPid});
+      gaScheduleIdle(function(){ try{ mongoStatePutNow(); }catch(eFlush){} }, 120);
+    }catch(eSv){}
     try{ setSS('Removed '+rm+' duplicate Tally line(s)','green'); }catch(eSs){}
   }
   return rm;
@@ -3630,12 +3730,13 @@ function mergeTallyLinesIntoActuals(rows, opts){
 
   var audit=compareAndStoreTallyPullFingerprint(eligible, _curPid);
 
-  var phaseProjects=opts.autoAllocate!==false?tallyPhaseProjects(_curPid):[];
+  var incomingAlloc=eligible.some(function(x){ return x.row && x.row.allocIndex!=null; });
+  var wipeLatest=!!opts.replaceTally;
+  var phaseProjects=opts.autoAllocate!==false?(wipeLatest?tallyLatestUploadScopeProjects(_curPid):tallyPhaseProjects(_curPid)):[];
   var scopePids=phaseProjects.map(function(p){return String(p.id);});
   if(scopePids.indexOf(String(_curPid))<0) scopePids.push(String(_curPid));
   var replaced=0;
-  var incomingAlloc=eligible.some(function(x){ return x.row && x.row.allocIndex!=null; });
-  if((opts.replaceTally || incomingAlloc) && eligible.length){
+  if((wipeLatest || incomingAlloc) && eligible.length){
     scopePids.forEach(function(pid){
       var c=getCF(pid);
       if(!Array.isArray(c.actuals)) c.actuals=[];
@@ -3707,10 +3808,13 @@ function mergeTallyLinesIntoActuals(rows, opts){
   });
   try{
     if(window.__gaTallyDedupePhases){
+      var shd=getProjectHierarchy(_curPid)||{};
+      delete window.__gaTallyDedupePhases['g:'+String(shd.projectGroup||'')+'|v'+CF_VERSION];
       var pk=tallyPhaseFingerprintKey(_curPid);
       if(pk) delete window.__gaTallyDedupePhases[pk];
     }
     dedupeTallyActualsPhase(_curPid);
+    collapseDuplicateTallyAcrossProjectGroup(_curPid);
   }catch(eDed){}
   // Persist locally first; defer Mongo PUT so large JSON stringify does not freeze the UI mid-import.
   var perPid={};
@@ -3761,15 +3865,16 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
   function pushActualsThenFinish(){
     opts._prebuiltEligible=eligible;
     opts._preSkipped=skipped;
-    var phaseProjects=opts.autoAllocate!==false?tallyPhaseProjects(_curPid):[];
-    var scopePids=phaseProjects.map(function(p){return String(p.id);});
-    if(scopePids.indexOf(String(_curPid))<0) scopePids.push(String(_curPid));
     var incomingAlloc=false, ai;
     for(ai=0;ai<eligible.length;ai++){
       if(eligible[ai].row && eligible[ai].row.allocIndex!=null){ incomingAlloc=true; break; }
     }
+    var wipeLatest=!!opts.replaceTally;
+    var phaseProjects=opts.autoAllocate!==false?(wipeLatest?tallyLatestUploadScopeProjects(_curPid):tallyPhaseProjects(_curPid)):[];
+    var scopePids=phaseProjects.map(function(p){return String(p.id);});
+    if(scopePids.indexOf(String(_curPid))<0) scopePids.push(String(_curPid));
     var replaced=0;
-    if((opts.replaceTally || incomingAlloc) && eligible.length){
+    if((wipeLatest || incomingAlloc) && eligible.length){
       scopePids.forEach(function(pid){
         var c=getCF(pid);
         if(!Array.isArray(c.actuals)) c.actuals=[];
@@ -3824,10 +3929,13 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
       });
       try{
         if(window.__gaTallyDedupePhases){
+          var shd=getProjectHierarchy(_curPid)||{};
+          delete window.__gaTallyDedupePhases['g:'+String(shd.projectGroup||'')+'|v'+CF_VERSION];
           var pk=tallyPhaseFingerprintKey(_curPid);
           if(pk) delete window.__gaTallyDedupePhases[pk];
         }
         dedupeTallyActualsPhase(_curPid);
+        collapseDuplicateTallyAcrossProjectGroup(_curPid);
       }catch(eDed){}
       try{ compareAndStoreTallyPullFingerprint(eligible, _curPid); }catch(eFp){}
       var perPid={};
@@ -3879,7 +3987,7 @@ function showTallySyncModal(){
   openModal('<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:560px;max-width:96vw">'
     +'<h3>Tally Prime — live sync (local)</h3>'
     +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin-bottom:10px">Requires <strong>Tally Prime</strong> HTTP :9000 and <strong>bridge v3.6</strong> (run <code>scripts\\start-tally-bridge.bat</code>). Payment+Receipt are pulled in parallel and Cashflow owns From–To. Runtime depends on Tally response size; incomplete ranges are rejected without changing stored data.</p>'
-    +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Replace</strong> clears old Tally lines across the selected building’s Project Group + Phase before re-routing the fresh pull. Bank/cash sides are skipped except <strong>CF Z / BAL</strong> control cost centres.</p>'
+    +'<p style="font-size:10px;color:var(--blue-b);line-height:1.45;margin-bottom:10px"><strong>Replace</strong> clears old Tally lines across the selected building’s <strong>whole Project Group</strong> (every phase) before re-routing the latest Payment/Receipt feed. Bank/cash sides are skipped except <strong>CF Z / BAL</strong> control cost centres.</p>'
     +perProjNote
     +'<div class="field"><label>Bridge URL (shared)</label><input id="tset-bridge" type="text" value="'+escAttr(s.bridgeUrl)+'" placeholder="http://127.0.0.1:34876"/></div>'
     +'<div class="field"><label>Pull mode</label><select id="tset-preset">'
@@ -4935,11 +5043,16 @@ function isTallyFeedActual(a){
   return !!(a && String(a.source||'')==='tally');
 }
 function countVisibleTallyFeedLines(){
-  var tally=0, manual=0;
+  var tally=0, manual=0, seen={};
   (getVisibleProjects()||[]).forEach(function(p){
     ((getCF(p.id).actuals)||[]).forEach(function(a){
       if(!a) return;
-      if(isTallyFeedActual(a)) tally++; else manual++;
+      if(isTallyFeedActual(a)){
+        var id=tallyLineLooseId(a)||a.tallyKey||('id:'+a.id);
+        if(seen[id]) return;
+        seen[id]=1;
+        tally++;
+      } else manual++;
     });
   });
   return {tally:tally, manual:manual};
@@ -6624,8 +6737,9 @@ function buildVisibleScopeCfg(){
   var vis=getVisibleProjects();
   if(!vis.length) return {projName:'', actuals:[], _scopeRollup:false, _scopeVis:[]};
   if(vis.length===1){
+    try{ ensureTallyActualsDeduped(vis[0].id); }catch(eSc){}
     var src=getCF(vis[0].id)||{actuals:[]};
-    return Object.assign({}, src, {_scopeRollup:false, _scopeVis:vis});
+    return Object.assign({}, src, {actuals:uniqueActualsForCashflowSums(src.actuals||[]), _scopeRollup:false, _scopeVis:vis});
   }
   var actuals=[];
   var cfgOut={
@@ -6636,6 +6750,7 @@ function buildVisibleScopeCfg(){
     gaGAAnnual:0, gaMonthly:0, startDate:'',
     _scopeRollup:true, _scopeVis:vis
   };
+  var seenTally={};
   vis.forEach(function(p){
     try{ ensureTallyActualsDeduped(p.id); }catch(eSc){}
     var c=getCF(p.id)||{};
@@ -6643,6 +6758,11 @@ function buildVisibleScopeCfg(){
     var bld=h.building||p.building||p.name||'Building';
     (c.actuals||[]).forEach(function(a){
       if(!a) return;
+      if(a.source==='tally'){
+        var tid=tallyLineLooseId(a)||a.tallyKey;
+        if(tid && seenTally[tid]) return;
+        if(tid) seenTally[tid]=1;
+      }
       actuals.push(Object.assign({}, a, {
         _scopePid:p.id,
         _scopeBuilding:bld,
@@ -8777,6 +8897,7 @@ function tallyCcLegKind(a){
 }
 function sumCfZCashEquivalentsL1(actuals, opts){
   opts=opts||{};
+  actuals=uniqueActualsForCashflowSums(actuals);
   var fromMo=opts.fromMonth||'', toMo=opts.toMonth||'';
   var total=0, n=0, byL3={};
   (actuals||[]).forEach(function(a){
@@ -8796,6 +8917,7 @@ function sumCfZCashEquivalentsL1(actuals, opts){
 }
 function sumCashflowMovementInOut(actuals, opts){
   opts=opts||{};
+  actuals=uniqueActualsForCashflowSums(actuals);
   var fromMo=opts.fromMonth||'', toMo=opts.toMonth||'';
   var inflow=0, outflow=0, nIn=0, nOut=0, exclBal=0, exclCfz=0, exclAuto=0;
   (actuals||[]).forEach(function(a){
