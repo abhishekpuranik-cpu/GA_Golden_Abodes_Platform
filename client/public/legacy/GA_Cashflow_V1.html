@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 101;
+var CF_VERSION = 102;
 /** In − Out = unique Payment/Receipt CF L3. SOP flags never remove rupees. Tally costCentre stays the XML name. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
@@ -1195,6 +1195,144 @@ function reclaimOrphanTallyLinesForGroup(sourcePid){
     take.forEach(function(row){ dest.actuals.push(row); moved++; });
   });
   return moved;
+}
+/** Restore XML cost-centre names only — no classify. Safe to run across leftover pids. */
+function restoreTallyIdentityOnPid(pid){
+  var cfg=getCF(pid);
+  if(!cfg||!Array.isArray(cfg.actuals)) return 0;
+  var n=0, i, a, raw;
+  for(i=0;i<cfg.actuals.length;i++){
+    a=cfg.actuals[i];
+    if(!a||a.source!=='tally') continue;
+    raw=a.tallyCostCentreRaw||a.costCentre||'';
+    if(!a.tallyCostCentreRaw && raw){ a.tallyCostCentreRaw=raw; n++; }
+    if(a.tallyCostCentreRaw && a.costCentre!==a.tallyCostCentreRaw){
+      if(!a.cfL3Display) a.cfL3Display=a.costCentre;
+      a.costCentre=a.tallyCostCentreRaw;
+      n++;
+    }
+  }
+  return n;
+}
+/**
+ * Open-path heal: restore Tally identity, then reclaim+reroute only the selected project group.
+ * Yields so Chrome never shows Page Unresponsive. Does not classify the leftover ABC/Avisa dumps.
+ */
+function runTallyOpenHealYielding(onDone){
+  if(window.__gaHealBusy){ if(onDone) onDone(false); return; }
+  window.__gaHealBusy=true;
+  var pids=Object.keys(_cfData||{});
+  var i=0, touched=false, SLICE_MS=8;
+  function finish(flag){
+    window.__gaHealBusy=false;
+    if(onDone) onDone(!!flag);
+  }
+  function identityStep(){
+    var t0=Date.now();
+    while(i<pids.length && (Date.now()-t0)<SLICE_MS){
+      if(restoreTallyIdentityOnPid(pids[i++])) touched=true;
+    }
+    if(i<pids.length){ gaYieldToBrowser(identityStep); return; }
+    gaYieldToBrowser(reclaimStep);
+  }
+  function reclaimStep(){
+    if(!_curPid){ finish(touched); return; }
+    var group=tallyLatestUploadScopeProjects(_curPid)||[];
+    var gids={}, vouchers={};
+    group.forEach(function(p){
+      if(!p||!p.id) return;
+      gids[String(p.id)]=1;
+      (getCF(p.id).actuals||[]).forEach(function(a){
+        if(!a||a.source!=='tally') return;
+        var vid=String(a.voucherId||'').trim().toLowerCase();
+        if(vid) vouchers[vid]=1;
+      });
+    });
+    var others=Object.keys(_cfData||{}).filter(function(pid){ return !gids[String(pid)]; });
+    var dest=getCF(_curPid);
+    if(!Array.isArray(dest.actuals)) dest.actuals=[];
+    var oi=0;
+    function reclaimOne(){
+      if(oi>=others.length || !Object.keys(vouchers).length){
+        try{ collapseDuplicateTallyAcrossProjectGroup(_curPid); }catch(eC){}
+        gaYieldToBrowser(rerouteStep);
+        return;
+      }
+      var pid=others[oi++], cfg=getCF(pid);
+      if(cfg&&Array.isArray(cfg.actuals)){
+        var keep=[], take=[], ai, a, vid;
+        for(ai=0;ai<cfg.actuals.length;ai++){
+          a=cfg.actuals[ai];
+          if(!a||a.source!=='tally'){ keep.push(a); continue; }
+          vid=String(a.voucherId||'').trim().toLowerCase();
+          if(vid && vouchers[vid]){ take.push(a); continue; }
+          keep.push(a);
+        }
+        if(take.length){
+          cfg.actuals=keep;
+          take.forEach(function(row){ dest.actuals.push(row); });
+          touched=true;
+        }
+      }
+      gaYieldToBrowser(reclaimOne);
+    }
+    gaYieldToBrowser(reclaimOne);
+  }
+  function rerouteStep(){
+    try{
+      ensureCommonAmenitiesProject(_curPid);
+      ensureUniqueChartPrefixesInGroup(_curPid);
+    }catch(eEn){}
+    var phase=tallyLatestUploadScopeProjects(_curPid)||[];
+    var buckets={}, pi=0, ai=0, keep=[], p=null, cfg=null;
+    function rerouteOne(){
+      var t0=Date.now();
+      while((Date.now()-t0)<8){
+        if(!p){
+          if(pi>=phase.length){
+            Object.keys(buckets).forEach(function(pid){
+              var c=getCF(pid);
+              if(!Array.isArray(c.actuals)) c.actuals=[];
+              buckets[pid].forEach(function(row){ c.actuals.push(row); touched=true; });
+            });
+            finish(touched);
+            return;
+          }
+          p=phase[pi++];
+          cfg=getCF(p.id);
+          keep=[];
+          ai=0;
+          if(!Array.isArray(cfg.actuals)){ p=null; continue; }
+        }
+        if(ai>=cfg.actuals.length){
+          cfg.actuals=keep;
+          p=null;
+          continue;
+        }
+        var a=cfg.actuals[ai++];
+        if(!a||a.source!=='tally'){ keep.push(a); continue; }
+        var rawCc=tallyIdentityCostCentre(a);
+        if(a.tallyCostCentreRaw && a.costCentre!==a.tallyCostCentreRaw) a.costCentre=a.tallyCostCentreRaw;
+        var route=resolveTallyActualRoute({costCentre:rawCc,party:a.party,note:a.note||a.narration||'',tallyCostCentreRaw:rawCc}, _curPid, true);
+        var destPid=String(route.pid||p.id);
+        a.routeKind=route.kind;
+        a.routeBuilding=route.building;
+        a.tallyRouteKind=route.kind;
+        a.tallyRouteBuilding=route.building;
+        a.tallyRoutePrefix=route.prefix||'';
+        a.tallyRoutePid=destPid;
+        if(destPid===String(p.id)) keep.push(a);
+        else {
+          if(!buckets[destPid]) buckets[destPid]=[];
+          buckets[destPid].push(a);
+          touched=true;
+        }
+      }
+      gaYieldToBrowser(rerouteOne);
+    }
+    gaYieldToBrowser(rerouteOne);
+  }
+  gaYieldToBrowser(identityStep);
 }
 function normTallyCostCentreLabel(s){
   return tallyDecodeXmlText(String(s||'')).replace(/\s+/g,' ').trim().toLowerCase();
@@ -6477,8 +6615,7 @@ function loadAllFromMongo(){
         if(tallyProtected){ _mongoForceFullSave=true; _mongoDirtyPids={}; _mongoDirtyPidSections={}; }
         scheduleMongoStateSave(400);
       }
-      window.__gaNeedDeferredTallyRecode=true;
-      window.__gaNeedDeferredTallyReroute=true;
+      window.__gaNeedTallyOpenHeal=true;
       var loadedUnits=_mongoLoadedSoldUnits;
       mongoStateStatus('Loaded from MongoDB · v'+_mongoStateVersion+' · '+loadedUnits+' sold units','green');
       updateMongoStatusLabel();
@@ -6702,24 +6839,10 @@ function migrateReclassifyTallyActuals(){
         var gk=String(sh.projectGroup||pid);
         if(seenGrp[gk]) return;
         seenGrp[gk]=1;
-        try{ reclaimOrphanTallyLinesForGroup(pid); }catch(eRc){}
         collapseDuplicateTallyAcrossProjectGroup(pid);
       });
     }
   }catch(eCol){}
-  try{
-    if(touched){
-      _gaPrefixLock={};
-      var seenRt={};
-      Object.keys(_cfData||{}).forEach(function(pid){
-        var sh=getProjectHierarchy(pid)||{};
-        var rk=String(sh.projectGroup||pid)+'|'+String(sh.phase||'');
-        if(seenRt[rk]) return;
-        seenRt[rk]=1;
-        reroutePhaseTallyActuals(pid);
-      });
-    }
-  }catch(eRr){}
   try{
     if(touched || tallyWorkbookNeedsSopAnnotate()){
       var seenPh={};
@@ -6853,9 +6976,7 @@ function loadAll(){
       if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
       bootstrapGaAcctMaster(d);
       var needVersionBump=!d.v||d.v<CF_VERSION;
-      // Defer phase re-route + reclassify until after first paint (was freezing refresh).
-      window.__gaNeedDeferredTallyReroute=true;
-      window.__gaNeedDeferredTallyRecode=true;
+      window.__gaNeedTallyOpenHeal=true;
       if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
     }else bootstrapGaAcctMaster(null);
     _curProjectGroup='__all__';
@@ -15977,31 +16098,19 @@ loadAll().finally(function(){
   }catch(e){}
   try{ updateMongoStatusLabel(); }catch(eM){}
   syncFromV3(true);
-  // Heavy post-open work — keep first paint under ~3s
+  // Open heal: identity restore + current-group reclaim/reroute, always yielding.
   gaScheduleIdle(function(){
-    var touched=false;
-    try{
-      if(window.__gaNeedDeferredTallyRecode){
-        window.__gaNeedDeferredTallyRecode=false;
-        if(tallyWorkbookNeedsRecode() && migrateReclassifyTallyActuals()) touched=true;
-      }
-      if(window.__gaNeedDeferredTallyReroute){
-        window.__gaNeedDeferredTallyReroute=false;
-        var seenPhase={};
-        (PROJS||[]).forEach(function(p){
-          if(!p||!p.id) return;
-          var h=getProjectHierarchy(p.id);
-          var key=normHierarchyRouteValue(h.projectGroup)+'|'+normHierarchyRouteValue(h.phase);
-          if(seenPhase[key]) return;
-          seenPhase[key]=1;
-          try{ if(reclaimOrphanTallyLinesForGroup(p.id)) touched=true; }catch(eO){}
-          try{ if(reroutePhaseTallyActuals(p.id)) touched=true; }catch(eR){}
-        });
-      }
-      if(touched){ try{ saveAll({full:true}); }catch(eS){} }
+    if(!window.__gaNeedTallyOpenHeal) return;
+    window.__gaNeedTallyOpenHeal=false;
+    try{ setSS('Routing Tally to buildings…','gold'); }catch(eSs){}
+    runTallyOpenHealYielding(function(touched){
       try{ renderAll(); }catch(eRn){}
-    }catch(eDef){}
-  }, 50);
+      if(touched){
+        gaScheduleIdle(function(){ try{ saveAll(); }catch(eS){} }, 400);
+      }
+      try{ setSS('Tally routing ready','green'); }catch(eSs2){}
+    });
+  }, 80);
 });
 (function gaApplyProjectFromUrl(){
   try{
