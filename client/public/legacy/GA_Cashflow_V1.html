@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 107;
+var CF_VERSION = 108;
 /** Current project Tally always counts. Leftover dumps stay out of In/Out/Z and are not scanned on open. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
@@ -3787,15 +3787,21 @@ function tallyLineLooseId(a){
   if(!date && !vno && !party && !cc) return '';
   return 'd:'+date+'|n:'+vno+'|p:'+party+'|'+cc+'|'+amt+'|a:'+aidx;
 }
-/** All-phases rollup and re-imports must not add the same Payment/Receipt CC leg twice. */
+/** All-phases rollup and re-imports must not add the same Payment/Receipt CC leg twice.
+ *  Same voucher + same CC leaf with *different* Tally amounts are two unique allocations — keep both. */
 function uniqueActualsForCashflowSums(actuals){
   var seenKey={}, seenLoose={}, seenTok={}, out=[], i, a, k, loose, tok, prev;
   function feedN(x){ return Number(x&&(x._cfFeedGen||x.tallyFeedAt))||0; }
+  function tokAmt(x){
+    var n=x&&x.tallyRawAmount!=null&&x.tallyRawAmount!==''?x.tallyRawAmount:(x&&x.rawAmount!=null?x.rawAmount:x&&x.amount);
+    return (Math.round((Number(n)||0)*100)/100).toFixed(2);
+  }
   function tokOf(x){
     var vid=String(x.voucherId||'').trim().toLowerCase();
     var cc=tallyStableCcToken(tallyIdentityCostCentre(x));
-    if(vid) return 'v:'+vid+'|'+cc;
-    return 'd:'+String(x.date||'').slice(0,10)+'|n:'+String(x.voucherNo||'').toLowerCase()+'|t:'+String(x.voucherType||extractTallyVoucherType(x.note)||'').toLowerCase()+'|'+cc;
+    var amt=tokAmt(x);
+    if(vid) return 'v:'+vid+'|'+cc+'|'+amt;
+    return 'd:'+String(x.date||'').slice(0,10)+'|n:'+String(x.voucherNo||'').toLowerCase()+'|t:'+String(x.voucherType||extractTallyVoucherType(x.note)||'').toLowerCase()+'|'+cc+'|'+amt;
   }
   for(i=0;i<(actuals||[]).length;i++){
     a=actuals[i];
