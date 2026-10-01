@@ -269,8 +269,8 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 102;
-/** In − Out = unique Payment/Receipt CF L3. SOP flags never remove rupees. Tally costCentre stays the XML name. */
+var CF_VERSION = 103;
+/** In − Out = unique Payment/Receipt CF L3 excluding Z and BAL/TDS. Pairing flags never ungate BAL. Tally costCentre stays the XML name. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -751,12 +751,14 @@ function isCfZCashEquivalentsCostCentreName(costCentre){
   if(/autosweep\s*fd/.test(n) && /kotak/.test(n)) return true;
   return false;
 }
-/** BAL1-1 MISC Residuary for Cashflow (TDS / plug — out of CF calcs). */
+/** BAL* chart codes (TDS / residuary / JE Adj) — never cashflow, never Z, never pairing CF. */
 function isBalResiduaryCostCentreName(costCentre){
   var s=String(costCentre||'').trim();
   if(!s) return false;
   var n=s.toLowerCase().replace(/\s+/g,' ');
-  if(/\bbal1-1\b/.test(n)) return true;
+  if(/^bal\d/i.test(s) || /^bal\b/i.test(s)) return true;
+  if(/\bbal1-\d+\b/.test(n) || /\bbal1-1\b/.test(n)) return true;
+  if(/\bcm\s+pl\s+bal\b/.test(n)) return true;
   if(/balancing\s*cashflow\s*residuary/.test(n)) return true;
   if(/^bal\b/.test(n) && /residuary\s*for\s*cashflow|misc\s*residuary|pure\s*tds|\btds\b/.test(n)) return true;
   return false;
@@ -2099,7 +2101,7 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   else h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:#E8F1FB;color:#1558A0">BUILDING SCOPE</span>';
   h+='</div>';
   if(showZ){
-    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Company Tally is counted <strong>once</strong> (All phases / All buildings does not add the same voucher twice). Inflows − Outflows are unique Payment/Receipt CF L3s (refunds netted). SOP flags stay on the extract list — they do <strong>not</strong> remove rupees. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only. BAL is not in the cashflow sum.</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Company Tally is counted <strong>once</strong> (All phases / All buildings does not add the same voucher twice). Inflows − Outflows are unique Payment/Receipt CF L3s (refunds netted). <strong>BAL/TDS codes are never in In, Out, Sum of Z, or Z+L3.</strong> Other SOP flags stay on the extract — they do not drop CF L3 rupees. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only.</div>';
   } else {
     h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Inflows and outflows are this building&apos;s eligible CF L3 only (C/D/E CF). Company <strong>Sum of Z</strong> (banks/cash) lives on <strong>Common Amenities</strong>. Open Common Amenities or All buildings to tally Net = Z.</div>';
   }
@@ -2113,7 +2115,7 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   }
   h+='</tbody></table>';
   if(showZ){
-    h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged at entry level: untagged '+untaggedN+' · missing Z '+missZ+' · missing L3 (Z-to-Z) '+missL3+' · BAL extra '+hasBalN+' · Z ≠ L3 '+zNeqN+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
+    h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged at entry level: untagged '+untaggedN+' · missing Z '+missZ+' · missing L3 (Z-to-Z) '+missL3+' · BAL/TDS excluded '+hasBalN+' · Z ≠ L3 '+zNeqN+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
   }
   h+='</div>';
   return h;
@@ -3022,6 +3024,7 @@ function isCfCashflowStatementCostCentre(name){
   var s=String(name||'').trim();
   if(!s) return false;
   if(isCfZCashEquivalentsCostCentreName(s)||isBalResiduaryCostCentreName(s)) return false;
+  if(/^BAL\d/i.test(s) || /^BAL\b/i.test(s) || /\bCM\s+PL\s+BAL\b/i.test(s)) return false;
   if(/^CM[\s\-]*CF\s*Z/i.test(s)) return false;
   if(/^CM[\s\-]*CF\b/i.test(s)) return true;
   if(/^[A-Z][\s\-]+CF\b/i.test(s)) return true;
@@ -3920,7 +3923,7 @@ function computePhaseCfZVsRestBalance(sourcePid, opts){
         tallyKey:a.tallyKey||''
       }:null;
       if(row && routeRows.length<sampleCap) routeRows.push(row);
-      if(isBalResiduaryCashflowLine(a)||isBalResiduaryCostCentreName(a.costCentre)){
+      if(isBalExcludedLine(a)||isBalResiduaryCostCentreName(tallyIdentityCostCentre(a))){
         balCount++; balSum+=amt;
         if(row && balLines.length<sampleCap) balLines.push(row);
         return;
@@ -4016,13 +4019,13 @@ function showCfZBalanceAfterSync(res){
   var bg=V.rule2Pass?'#F0FDF4':'#FEF2F2';
   var h='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:760px;max-width:96vw;max-height:90vh;overflow:auto;border-top:4px solid '+border+';background:'+bg+'">';
   h+='<h3 style="margin-top:0">Tally SOP check — '+(V.rule2Pass?'Cashflow tallied':'Cashflow not tallied')+'</h3>';
-  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">Each Payment/Receipt has two cost-centre legs: <strong>Z</strong> and <strong>eligible L3</strong>. They must cancel. BAL residuary and PL are not cashflow. Exceptions stay in the file, flagged at voucher level.</p>';
+  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">Each Payment/Receipt has two cashflow legs: <strong>Z</strong> and <strong>eligible L3</strong>. They must cancel. <strong>BAL/TDS codes are excluded from In, Out, Z, and Z+L3</strong>. PL is not cashflow. Exceptions stay in the file, flagged at voucher level.</p>';
   h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
   h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Net cashflow (In − Out)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.netCf)+'</div></div>';
   h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Z total C&amp;CE</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.cfzL1)+'</div></div>';
   h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Difference</div><div style="font-weight:800;font-size:16px;color:'+(V.rule2Pass?'#166534':'#991B1B')+'">'+formatRupeesDisplay(V.rule2Diff)+'</div></div>';
   h+='</div>';
-  h+='<p style="font-size:11px;margin:0 0 8px">Entry flags: <strong>'+untaggedN+'</strong> untagged · <strong>'+missZ+'</strong> missing Z · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length+'</strong> missing L3 · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('has_bal')>=0; }).length+'</strong> extra BAL · <strong>'+wrongN+'</strong> wrong pairing.</p>';
+  h+='<p style="font-size:11px;margin:0 0 8px">Entry flags: <strong>'+untaggedN+'</strong> untagged · <strong>'+missZ+'</strong> missing Z · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length+'</strong> missing L3 · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('has_bal')>=0; }).length+'</strong> BAL/TDS excluded · <strong>'+wrongN+'</strong> wrong pairing.</p>';
   h+='<div style="font-size:11px;font-weight:800;margin:8px 0 4px">Entry-wise: Z leg vs eligible L3 (cost-centre amounts)</div>';
   h+='<div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:10px">';
   h+='<table class="amt-pair-tbl" style="width:100%;font-size:10px"><thead><tr><th>Date</th><th>Type</th><th>Vch</th><th>Pairing</th><th>Z</th><th>L3</th><th>Verdict</th></tr></thead><tbody>';
@@ -6804,6 +6807,14 @@ function migrateReclassifyTallyActuals(){
           if(zDisp && a.cfL3Display!==zDisp){ a.cfL3Display=zDisp; touched=true; }
           return;
         }
+        if(isBalResiduaryCostCentreName(rawCc)||isBalExcludedLine(a)){
+          if(a.cat1!=='BAL Residuary'){ a.cat1='BAL Residuary'; touched=true; }
+          if(a.flow!=='exclude'){ a.flow='exclude'; touched=true; }
+          if((a.gaL1||'')!=='BAL'){ a.gaL1='BAL'; touched=true; }
+          if(a.codingAuthority!=='cashflow'){ a.codingAuthority='cashflow'; touched=true; }
+          if(Number(a._cfCodingVer)!==CF_VERSION){ a._cfCodingVer=CF_VERSION; touched=true; }
+          return;
+        }
         var scope=inferAcctScopeFromText((a.party||'')+' '+(a.note||'')+' '+rawCc, rawCc);
         var cl=classifyTallyLineFromText((a.party||'')+' '+(a.note||'')+' '+rawCc, a.party||'', a.amount||0, scope, bPrefix, rawCc);
         var vt=a.voucherType||extractTallyVoucherType(a.note);
@@ -9136,14 +9147,13 @@ function coerceMoney(v){
   return parseCRMNumber(v);
 }
 /**
- * CA / GA cashflow cost-centre rules (CF v94+):
- * 1) BAL Balancing Cashflow Residuary Ledger → BAL1 → BAL1-1 MISC Residuary for Cashflow
- *    — exclude ONLY that line amount from movement calculations (never drop the whole voucher).
- * 2) CF Z Cash & Cash Equivalents (bank / FD / cash) — closing balance & BS recon ONLY;
+ * CA / GA cashflow cost-centre rules (CF v103+):
+ * 1) Every BAL-coded line (BAL1-1 TDS/residuary, CM PL BAL, L1 BAL) is excluded from
+ *    In, Out, Sum of Z, Eligible L3, and Z+L3. Never treat BAL as a CF pairing tag.
+ * 2) CF Z Cash & Cash Equivalents (bank / FD / cash) — control total only;
  *    never include in Total Inflow / Total Outflow / movement grids.
  * 3) In − Out uses Tally COSTCENTREALLOCATIONS amounts on C / D / E / CM CF leaves
  *    (not the gross ledger AMOUNT). That is the Cash Flow statement nett.
- * Matching uses full L1/L2/L3 names and codes; bare "BAL" / "BAL1" alone do not match.
  */
 function actualCostCenterMatchBlob(a){
   if(!a) return '';
@@ -9170,19 +9180,21 @@ function masterFlowForActual(a){
   }
   return '';
 }
-/** BAL1-1 MISC Residuary for Cashflow — residuary / pure TDS plug; exclude amount from CF movements. */
+/** BAL-coded TDS / residuary — exclude amount from every cashflow calculation. */
 function isBalResiduaryCashflowLine(a){
   if(!a) return false;
   var mf=masterFlowForActual(a);
   if(mf==='exclude') return true;
   if(String(a.cat1||'')==='BAL Residuary') return true;
-  if(isBalResiduaryCostCentreName(a.costCentre)) return true;
+  if(String(a.gaL1||'')==='BAL') return true;
+  if(isBalResiduaryCostCentreName(tallyIdentityCostCentre(a))||isBalResiduaryCostCentreName(a.costCentre)) return true;
   var blob=normCcBlob(actualCostCenterMatchBlob(a));
-  var l3=normCcBlob([a.gaL3,a.gaL3Name,a.costCentre,a.masterKey].join(' '));
+  var l3=normCcBlob([a.gaL3,a.gaL3Name,a.costCentre,a.tallyCostCentreRaw,a.masterKey].join(' '));
   if(/\bbal1\s*-\s*1\b|\bbal1-1\b/.test(l3)) return true;
   if(/\bbal1-1\s*misc\s*residuary\s*for\s*cashflow\b/.test(blob)) return true;
   if(/bal\s*balancing\s*cashflow\s*residuary/.test(blob) && /\bbal1\b/.test(blob)) return true;
   if(/\bbal1-1\b/.test(blob) && (/residuary|pure\s*tds|\btds\b/.test(blob))) return true;
+  if(/\bcm\s+pl\s+bal\b/.test(blob)) return true;
   return false;
 }
 /** CF Z hierarchy — Cash & Cash Equivalents (banks, FD, cash). Balance only; not a movement. */
@@ -9219,14 +9231,14 @@ function isAutosweepBankLine(a){
   if(/sweep.*transfer|transfer.*sweep/i.test(b)) return true;
   return false;
 }
-/** SOP: CF vs PL from the cost-centre name (CF / PL as its own word). */
+/** SOP: CF vs PL from the cost-centre name (CF / PL as its own word). BAL/TDS is never CF or PL. */
 function tallyCostCentreTagFamily(name){
   var s=String(name||'').trim();
   if(!s) return 'none';
-  if(/^(CF)\s/i.test(s) || /\sCF\s/.test(' '+s+' ') || /^CM\s+CF\b/i.test(s) || /^[A-Z]\s+CF\b/i.test(s) || /^CF\s*Z\d/i.test(s) || /^CF\s*Z\b/i.test(s) || /^CF\s*BAL/i.test(s)) return 'CF';
+  if(isBalResiduaryCostCentreName(s)) return 'none';
+  if(/^(CF)\s/i.test(s) || /\sCF\s/.test(' '+s+' ') || /^CM\s+CF\b/i.test(s) || /^[A-Z]\s+CF\b/i.test(s) || /^CF\s*Z\d/i.test(s) || /^CF\s*Z\b/i.test(s)) return 'CF';
   if(/^(PL)\s/i.test(s) || /\sPL\s/.test(' '+s+' ') || /^CM\s+PL\b/i.test(s) || /^PL\s/i.test(s)) return 'PL';
-  if(/^BAL\b/i.test(s) && /cashflow/i.test(s)) return 'CF';
-  if(/^BAL\b/i.test(s) || /payables/i.test(s)) return 'PL';
+  if(/payables/i.test(s)) return 'PL';
   return 'none';
 }
 function tallyVoucherGroupKey(a){
@@ -9237,12 +9249,14 @@ function tallyVoucherGroupKey(a){
 }
 function isBalExcludedLine(a){
   if(!a) return false;
+  var cc=tallyIdentityCostCentre(a);
+  if(isBalResiduaryCostCentreName(cc)||isBalResiduaryCostCentreName(a.costCentre)) return true;
   if(isBalResiduaryCashflowLine(a)) return true;
   var mk=String(a.masterKey||'');
   if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && mk && GA_ACCT_L3_BY_CODE[mk] && String(GA_ACCT_L3_BY_CODE[mk].l1||'')==='BAL') return true;
-  if(/^BAL\b/i.test(String(a.costCentre||'').trim())) return true;
-  if(/\bCM\s+PL\s+BAL\b/i.test(String(a.costCentre||''))) return true;
-  if(/balancing\s*(cashflow|p&l|p and l)|residuary ledger|je adj/i.test(normCcBlob(actualCostCenterMatchBlob(a)))) return true;
+  if(/^BAL\d/i.test(cc) || /^BAL\b/i.test(cc)) return true;
+  if(/\bCM\s+PL\s+BAL\b/i.test(cc)||/\bCM\s+PL\s+BAL\b/i.test(String(a.costCentre||''))) return true;
+  if(/balancing\s*(cashflow|p&l|p and l)|residuary ledger/i.test(normCcBlob(actualCostCenterMatchBlob(a))) && /bal/i.test(cc+' '+String(a.gaL1||'')+' '+String(a.cat1||''))) return true;
   return false;
 }
 function isL3InflowNature(a){
@@ -9253,8 +9267,8 @@ function isL3InflowNature(a){
   return isCashflowInflowCat(a.cat1);
 }
 /**
- * Flag voucher pairing + missing Z / untagged. Lines stay in the dataset.
- * Cashflow rupees ignore these flags — SOP is overlay only.
+ * Flag voucher pairing + missing Z / untagged. BAL/TDS lines never enter pairing CF/PL or rupee legs.
+ * Other SOP flags stay overlay-only for unique CF L3s.
  */
 function annotatePhaseTallySopRules(sourcePid){
   var phase=tallyPhaseProjects(sourcePid||_curPid);
@@ -9276,8 +9290,10 @@ function annotatePhaseTallySopRules(sourcePid){
     var g=groups[k], fam={CF:0,PL:0,none:0}, hasZ=false, hasCat=false;
     g.lines.forEach(function(a){
       var cc=tallyIdentityCostCentre(a);
-      var fam1=tallyCostCentreTagFamily(cc);
-      fam[fam1]=(fam[fam1]||0)+1;
+      if(!(isBalExcludedLine(a)||isBalResiduaryCostCentreName(cc))){
+        var fam1=tallyCostCentreTagFamily(cc);
+        fam[fam1]=(fam[fam1]||0)+1;
+      }
       if(isCfZCashEquivalentsLine(a)||isCfZCashEquivalentsCostCentreName(cc)) hasZ=true;
       if(!cc) untagged.push(a);
       if(!isCfZCashEquivalentsLine(a) && !isBalExcludedLine(a) && cc) hasCat=true;
@@ -9336,14 +9352,15 @@ function cashflowMovementExclusionReason(a){
   var vt=a.voucherType||extractTallyVoucherType(a.note);
   if(isTallyContraType(vt)) return 'contra';
   if(vt && !isTallyPaymentOrReceiptType(vt)) return 'pl_voucher';
-  if(isBalExcludedLine(a)||isBalResiduaryCashflowLine(a)) return 'bal';
+  if(isBalExcludedLine(a)||isBalResiduaryCashflowLine(a)||isBalResiduaryCostCentreName(cc)) return 'bal';
   if(isCfZCashEquivalentsLine(a)) return 'cfz';
   if(isAutosweepBankLine(a)) return 'autosweep';
   if(String(cc).trim() && !isCfCashflowStatementCostCentre(cc)) return 'not_cf_statement';
   return '';
 }
-/** For monthly cashflow, GA rollups, expense dashboards, collections — movements only. */
+/** For monthly cashflow, GA rollups, expense dashboards, collections — movements only. BAL/TDS never counts. */
 function includeActualInCashflowSums(a){
+  if(isBalExcludedLine(a)||isBalResiduaryCashflowLine(a)) return false;
   return !cashflowMovementExclusionReason(a);
 }
 /** Tally cost-centre allocation sign (XML AMOUNT), not voucher-type abs. */
@@ -9353,14 +9370,14 @@ function tallySignedCcAmount(a){
     return coerceMoney(a.tallyRawAmount);
   return coerceMoney(a.amount);
 }
-/** One voucher, two cashflow legs: Z vs eligible CF L3. BAL and PL are excluded from cashflow. */
+/** One voucher: Z vs eligible CF L3. BAL/TDS and PL are never cashflow legs. */
 function tallyCcLegKind(a){
   var cc=tallyIdentityCostCentre(a);
   if(!cc) return 'untagged';
+  if(isBalExcludedLine(a)||isBalResiduaryCostCentreName(cc)||isBalResiduaryCashflowLine(a)) return 'bal';
   if(isCfZCashEquivalentsLine(a)||isCfZCashEquivalentsCostCentreName(cc)) return 'z';
   var fam=tallyCostCentreTagFamily(cc);
   if(fam==='PL') return 'pl';
-  if(isBalResiduaryCashflowLine(a)||isBalResiduaryCostCentreName(cc)) return 'bal';
   if(isCfCashflowStatementCostCentre(cc)) return 'elig';
   return 'other';
 }
@@ -9370,6 +9387,7 @@ function sumCfZCashEquivalentsL1(actuals, opts){
   var fromMo=opts.fromMonth||'', toMo=opts.toMonth||'';
   var total=0, n=0, byL3={};
   (actuals||[]).forEach(function(a){
+    if(isBalExcludedLine(a)||isBalResiduaryCashflowLine(a)) return;
     if(!isCfZCashEquivalentsLine(a)) return;
     if(a.date){
       var mo=String(a.date).slice(0,7);
@@ -9465,13 +9483,13 @@ function htmlCashflowValidationPanel(cfg){
   h+='<div style="font-size:10px;color:var(--muted);line-height:1.4">Net cashflow '+cr(V.netCf,'+0')+' vs Z '+cr(V.cfzL1,'+0')+' · difference '+cr(V.rule2Diff,'+0')+'</div>';
   h+='</div></div>';
   if(V.mov.exclBal||V.mov.exclCfz||V.mov.exclAuto){
-    h+='<div style="font-size:9px;color:var(--muted);margin-top:4px">Excluded from movements (kept in ledger): BAL residuary '+cr(V.mov.exclBal,'₹0')+' · CF Z '+cr(V.mov.exclCfz,'₹0')+' · other autosweep '+cr(V.mov.exclAuto,'₹0')+'</div>';
+    h+='<div style="font-size:9px;color:var(--muted);margin-top:4px">Excluded from movements (kept in ledger): BAL/TDS '+cr(V.mov.exclBal,'₹0')+' · CF Z '+cr(V.mov.exclCfz,'₹0')+' · other autosweep '+cr(V.mov.exclAuto,'₹0')+'</div>';
   }
   h+='</div>';
   return h;
 }
 function narrationCategoryForLine(a){
-  if(isBalResiduaryCashflowLine(a)) return {id:'bal',label:'BAL1-1 residuary (excl. from cashflow movements)'};
+  if(isBalResiduaryCashflowLine(a)||isBalExcludedLine(a)) return {id:'bal',label:'BAL/TDS (excluded from all cashflow calculations)'};
   if(isCfZCashEquivalentsLine(a)) return {id:'cfz',label:'CF Z Cash & Equivalents (closing bal. only)'};
   if(isAutosweepBankLine(a)) return {id:'autosweep',label:'Bank autosweep (excl. from cashflow)'};
   var t=(String(a.party||'')+' '+(a.note||a.narration||'')+' '+(a.cat1||'')+' '+(a.gaL1||'')).toLowerCase();
