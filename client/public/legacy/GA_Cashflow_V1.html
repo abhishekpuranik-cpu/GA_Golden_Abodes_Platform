@@ -269,8 +269,8 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 103;
-/** In − Out = unique Payment/Receipt CF L3 excluding Z and BAL/TDS. Pairing flags never ungate BAL. Tally costCentre stays the XML name. */
+var CF_VERSION = 104;
+/** In − Out = unique Payment/Receipt CF L3 excluding Z and BAL/TDS. Extract Pairing sheet never includes BAL amounts. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -2090,7 +2090,7 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   var wrongN=(sop.pairingRows||[]).filter(function(r){ return r.verdict==='Wrong'; }).length;
   var missZ=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_z')>=0; }).length;
   var missL3=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length;
-  var hasBalN=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('has_bal')>=0; }).length;
+  var hasBalN=(sop.pairingRows||[]).filter(function(r){ return r.hasBal || Math.abs(r.balSum||0)>=0.05; }).length;
   var zNeqN=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('z_neq_eligible_l3')>=0; }).length;
   var ok=showZ?!!V.rule2Pass:true;
   var scopeNote=cfg&&cfg._scopeRollup?('Rollup: '+escHtml(cfg.projName||'')+'. '):'';
@@ -4025,7 +4025,7 @@ function showCfZBalanceAfterSync(res){
   h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Z total C&amp;CE</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.cfzL1)+'</div></div>';
   h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Difference</div><div style="font-weight:800;font-size:16px;color:'+(V.rule2Pass?'#166534':'#991B1B')+'">'+formatRupeesDisplay(V.rule2Diff)+'</div></div>';
   h+='</div>';
-  h+='<p style="font-size:11px;margin:0 0 8px">Entry flags: <strong>'+untaggedN+'</strong> untagged · <strong>'+missZ+'</strong> missing Z · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length+'</strong> missing L3 · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('has_bal')>=0; }).length+'</strong> BAL/TDS excluded · <strong>'+wrongN+'</strong> wrong pairing.</p>';
+  h+='<p style="font-size:11px;margin:0 0 8px">Entry flags: <strong>'+untaggedN+'</strong> untagged · <strong>'+missZ+'</strong> missing Z · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length+'</strong> missing L3 · <strong>'+(sop.pairingRows||[]).filter(function(r){ return r.hasBal || Math.abs(r.balSum||0)>=0.05; }).length+'</strong> BAL/TDS excluded (not in Pairing balance) · <strong>'+wrongN+'</strong> wrong pairing.</p>';
   h+='<div style="font-size:11px;font-weight:800;margin:8px 0 4px">Entry-wise: Z leg vs eligible L3 (cost-centre amounts)</div>';
   h+='<div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:10px">';
   h+='<table class="amt-pair-tbl" style="width:100%;font-size:10px"><thead><tr><th>Date</th><th>Type</th><th>Vch</th><th>Pairing</th><th>Z</th><th>L3</th><th>Verdict</th></tr></thead><tbody>';
@@ -4049,11 +4049,17 @@ function downloadTallySopExceptionsXlsx(){
   if(!sop){ try{ sop=annotatePhaseTallySopRules(_curPid); }catch(e){ sop=null; } }
   if(!sop||!window.XLSX){ alert('Pull or import Tally first, then extract.'); return; }
   var wb=XLSX.utils.book_new();
-  var pair=[['Date','Voucher type','Voucher no','Pairing','Verdict','Reason','Lines','Has Z','Z CC','Eligible L3','BAL','PL','Z+L3']];
+  var pair=[['Date','Voucher type','Voucher no','Pairing','Verdict','Reason','Lines','Has Z','Z CC','Eligible L3','PL','Z+L3 (excl BAL/TDS)']];
   (sop.pairingRows||[]).forEach(function(r){
-    pair.push([r.date,r.voucherType,r.voucherNo,r.pairing,r.verdict,r.reason,r.lineCount,r.hasZ?'Y':'N',r.zSum,r.eligSum,r.balSum,r.plSum,r.zPlusElig]);
+    pair.push([r.date,r.voucherType,r.voucherNo,r.pairing,r.verdict,r.reason,r.lineCount,r.hasZ?'Y':'N',r.zSum,r.eligSum,r.plSum,r.zPlusElig]);
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(pair), 'Pairing');
+  var balSheet=[['Date','Voucher type','Voucher no','BAL/TDS amount (excluded from Pairing and from In/Out/Z)']];
+  (sop.pairingRows||[]).forEach(function(r){
+    if(!r.hasBal && !(Math.abs(r.balSum||0)>=0.05)) return;
+    balSheet.push([r.date,r.voucherType,r.voucherNo,r.balSum]);
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(balSheet), 'BAL_TDS_excluded');
   var un=[['Date','Party','Amount','Cost centre','Voucher type','Note']];
   (sop.untagged||[]).forEach(function(a){
     un.push([a.date,a.party,a.amount,a.costCentre,a.voucherType,String(a.note||'').slice(0,200)]);
@@ -9321,12 +9327,12 @@ function annotatePhaseTallySopRules(sourcePid){
     var flags=[];
     if(reason) flags.push(reason);
     if(isTallyPaymentOrReceiptType(vt) && hasZ && !hasElig) flags.push('missing_l3');
-    if(hasBal) flags.push('has_bal');
     if(hasPl && reason!=='mixed_pair') flags.push('has_pl');
     if(hasOther) flags.push('other_cc');
     if(zNeq) flags.push('z_neq_eligible_l3');
     if((isTallyPaymentOrReceiptType(vt) && hasZ && !hasElig) || zNeq) verdict='Wrong';
     var reasonOut=flags.join(',');
+    var cfLineN=0;
     g.lines.forEach(function(a){
       a.tallyPairing=pairing;
       a.tallyPairingVerdict=verdict;
@@ -9335,9 +9341,10 @@ function annotatePhaseTallySopRules(sourcePid){
       if(lineUntagged) a.tallyException=a.tallyException||'no_cost_centre';
       var zLine=isCfZCashEquivalentsLine(a)||isCfZCashEquivalentsCostCentreName(tallyIdentityCostCentre(a));
       var balLine=isBalExcludedLine(a);
+      if(!balLine) cfLineN++;
       a.tallyIncludeInCashflow=!!(includeVoucher && !zLine && !balLine && !lineUntagged && isCfCashflowStatementCostCentre(tallyIdentityCostCentre(a)));
     });
-    pairingRows.push({key:k, voucherType:vt, date:g.date, voucherNo:g.vno, pairing:pairing, verdict:verdict, reason:reasonOut||'', lineCount:g.lines.length, hasZ:hasZ, hasCat:hasCat, hasElig:hasElig, zSum:zSum, eligSum:eligSum, balSum:balSum, plSum:plSum, zPlusElig:zSum+eligSum});
+    pairingRows.push({key:k, voucherType:vt, date:g.date, voucherNo:g.vno, pairing:pairing, verdict:verdict, reason:reasonOut||'', lineCount:cfLineN, hasZ:hasZ, hasCat:hasCat, hasElig:hasElig, hasBal:hasBal, zSum:zSum, eligSum:eligSum, balSum:balSum, plSum:plSum, zPlusElig:zSum+eligSum});
     if(String(reasonOut).indexOf('missing_z')>=0 || (isTallyPaymentOrReceiptType(vt) && !hasZ)) missingZ.push(g);
     if(verdict==='Wrong' && pairing==='CF + PL') mixed.push(g);
   });
