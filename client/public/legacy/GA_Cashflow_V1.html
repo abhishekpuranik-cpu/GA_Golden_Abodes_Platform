@@ -6,8 +6,8 @@
 <title>GA Cashflow Tracker V2</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundled.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-<script src="ga_accounting_categories_parser.js?v=100"></script>
-<script src="ga_accounting_categories.js?v=100"></script>
+<script src="ga_accounting_categories_parser.js?v=105"></script>
+<script src="ga_accounting_categories.js?v=105"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -269,8 +269,8 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 104;
-/** In − Out = unique Payment/Receipt CF L3 excluding Z and BAL/TDS. Extract Pairing sheet never includes BAL amounts. */
+var CF_VERSION = 105;
+/** Unique CC only. BAL/TDS and blank-CC ledgers never enter In/Out/Z. Upload purges residual voucher copies across the workbook. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -599,7 +599,8 @@ function cfColNameMatches(col, needles){
 function resolveMasterKeyFromShortCode(shortCode, scopeHint, buildingPrefix){
   if(!shortCode) return '';
   var bPref=String(buildingPrefix||'A').trim().toUpperCase();
-  if(scopeHint==='common'){
+  var isBldg=!!(bPref && bPref!=='CM');
+  if(scopeHint==='common' && !isBldg){
     var cmKey='CM|'+shortCode;
     if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[cmKey]) return cmKey;
     if(typeof GA_ACCT_L3_BY_SHORT!=='undefined' && GA_ACCT_L3_BY_SHORT[shortCode]){
@@ -611,12 +612,13 @@ function resolveMasterKeyFromShortCode(shortCode, scopeHint, buildingPrefix){
   if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[bKey]) return bKey;
   if(typeof GA_ACCT_L3_BY_SHORT!=='undefined' && GA_ACCT_L3_BY_SHORT[shortCode]){
     var keys=GA_ACCT_L3_BY_SHORT[shortCode];
+    if(isBldg) keys=keys.filter(function(k){ return String(k).indexOf('CM|')!==0; });
     var scoped=keys.filter(function(k){ return k.indexOf(bPref+'|')===0; });
     if(scoped.length===1) return scoped[0];
     var tmpl=keys.find(function(k){ return k.indexOf('A|')===0; });
     if(tmpl) return tmpl;
     if(keys.length===1) return keys[0];
-    return keys[0];
+    if(keys.length) return keys[0];
   }
   if(typeof GA_ACCT_L3_BY_CODE!=='undefined' && GA_ACCT_L3_BY_CODE[shortCode]) return shortCode;
   return '';
@@ -1158,45 +1160,131 @@ function reroutePhaseTallyActuals(sourcePid){
   });
   return moved;
 }
+function tallyLineMatchKeys(a){
+  var out=[], vid=String((a&&a.voucherId)||'').trim().toLowerCase();
+  if(vid) out.push('id:'+vid);
+  var d=String((a&&a.date)||'').slice(0,10);
+  var vt=String((a&&(a.voucherType||extractTallyVoucherType(a.note||a.narration||'')))||'').trim().toLowerCase();
+  var vn=String((a&&a.voucherNo)||'').trim().toLowerCase();
+  if(d && vn && vt) out.push('dvn:'+d+'|'+vt+'|'+vn);
+  return out;
+}
+function tallyMatchKeySetFromRows(rows){
+  var s={};
+  (rows||[]).forEach(function(r){
+    tallyLineMatchKeys(r||{}).forEach(function(k){ s[k]=1; });
+  });
+  return s;
+}
 /**
- * Same Payment/Receipt voucher living on a leftover pid (ABC dump, old import)
- * must rejoin this project's group so All-buildings In − Out and C/D/E charts see it.
+ * Delete leftover copies of this upload from every other pid. Never move them back in.
+ * Marks those pids replace-on-save so Mongo cannot resurrect the old dump.
+ */
+function purgeResidualTallyCopies(keepPids, matchKeys){
+  keepPids=keepPids||[];
+  matchKeys=matchKeys||{};
+  var keep={}, removed=0, dirty=[];
+  keepPids.forEach(function(id){ keep[String(id)]=1; });
+  if(!Object.keys(matchKeys).length) return {removed:0, dirtyPids:dirty};
+  Object.keys(_cfData||{}).forEach(function(pid){
+    if(keep[String(pid)]) return;
+    var cfg=getCF(pid);
+    if(!cfg||!Array.isArray(cfg.actuals)) return;
+    var keepRows=[], dropped=false, i, a, keys, hit, ki;
+    for(i=0;i<cfg.actuals.length;i++){
+      a=cfg.actuals[i];
+      if(!a||a.source!=='tally'){ keepRows.push(a); continue; }
+      keys=tallyLineMatchKeys(a);
+      hit=false;
+      for(ki=0;ki<keys.length;ki++){ if(matchKeys[keys[ki]]){ hit=true; break; } }
+      if(hit){ removed++; dropped=true; continue; }
+      keepRows.push(a);
+    }
+    if(!dropped) return;
+    cfg.actuals=keepRows;
+    cfg._cfReplaceActuals=true;
+    cfg._cfTallyPurged=true;
+    cfg.tallyFeedAt=Date.now();
+    cfg.tallyFeedLines=(cfg.actuals||[]).filter(function(x){ return x&&x.source==='tally'; }).length;
+    dirty.push(String(pid));
+  });
+  return {removed:removed, dirtyPids:dirty};
+}
+/** Drop TDS/retention ledger shadows (blank CC) when the same voucher already has a unique CC. */
+function stripShadowUntaggedWhenVoucherHasCc(sourcePid){
+  var group=tallyLatestUploadScopeProjects(sourcePid)||[];
+  var removed=0;
+  group.forEach(function(p){
+    var cfg=getCF(p&&p.id);
+    if(!cfg||!Array.isArray(cfg.actuals)) return;
+    var tagged={}, i, a, cc, keys, ki, keep=[];
+    for(i=0;i<cfg.actuals.length;i++){
+      a=cfg.actuals[i];
+      if(!a||a.source!=='tally') continue;
+      cc=tallyIdentityCostCentre(a);
+      if(!String(cc).trim()) continue;
+      if(tallyCcLegKind(a)==='untagged') continue;
+      tallyLineMatchKeys(a).forEach(function(k){ tagged[k]=1; });
+    }
+    if(!Object.keys(tagged).length) return;
+    for(i=0;i<cfg.actuals.length;i++){
+      a=cfg.actuals[i];
+      if(!a||a.source!=='tally'){ keep.push(a); continue; }
+      cc=tallyIdentityCostCentre(a);
+      if(String(cc).trim()){ keep.push(a); continue; }
+      keys=tallyLineMatchKeys(a);
+      var hit=false;
+      for(ki=0;ki<keys.length;ki++){ if(tagged[keys[ki]]){ hit=true; break; } }
+      if(hit){ removed++; continue; }
+      keep.push(a);
+    }
+    if(keep.length!==cfg.actuals.length){
+      cfg.actuals=keep;
+      cfg._cfReplaceActuals=true;
+    }
+  });
+  return removed;
+}
+function tallyCurrentGroupFeedAt(sourcePid){
+  var max=0;
+  (tallyLatestUploadScopeProjects(sourcePid)||[]).forEach(function(p){
+    var at=Number((getCF(p&&p.id)||{}).tallyFeedAt)||0;
+    if(at>max) max=at;
+  });
+  return max;
+}
+function tallyPidIsResidualWorkbook(pid, sourcePid){
+  if(!sourcePid||!pid) return false;
+  var gids={};
+  (tallyLatestUploadScopeProjects(sourcePid)||[]).forEach(function(p){ if(p&&p.id) gids[String(p.id)]=1; });
+  if(gids[String(pid)]) return false;
+  var n=0;
+  (getCF(pid).actuals||[]).forEach(function(a){ if(a&&a.source==='tally') n++; });
+  if(!n) return false;
+  var gAt=tallyCurrentGroupFeedAt(sourcePid);
+  var at=Number((getCF(pid)||{}).tallyFeedAt)||0;
+  if(gAt && (!at || at<gAt)) return true;
+  return false;
+}
+/**
+ * Leftover ABC/Avisa dumps must never be copied into this group.
+ * Matching voucher copies on other pids are deleted, then Mongo is told to replace them.
  */
 function reclaimOrphanTallyLinesForGroup(sourcePid){
   var group=tallyLatestUploadScopeProjects(sourcePid)||[];
   if(!group.length) return 0;
-  var gids={}, vouchers={};
+  var keys={}, scopePids=[];
   group.forEach(function(p){
     if(!p||!p.id) return;
-    gids[String(p.id)]=1;
+    scopePids.push(p.id);
     (getCF(p.id).actuals||[]).forEach(function(a){
       if(!a||a.source!=='tally') return;
-      var vid=String(a.voucherId||'').trim().toLowerCase();
-      if(vid) vouchers[vid]=1;
+      tallyLineMatchKeys(a).forEach(function(k){ keys[k]=1; });
     });
   });
-  if(!Object.keys(vouchers).length) return 0;
-  var parkPid=String(sourcePid);
-  var dest=getCF(parkPid);
-  if(!Array.isArray(dest.actuals)) dest.actuals=[];
-  var moved=0;
-  Object.keys(_cfData||{}).forEach(function(pid){
-    if(gids[String(pid)]) return;
-    var cfg=getCF(pid);
-    if(!cfg||!Array.isArray(cfg.actuals)) return;
-    var keep=[], take=[], i, a, vid;
-    for(i=0;i<cfg.actuals.length;i++){
-      a=cfg.actuals[i];
-      if(!a||a.source!=='tally'){ keep.push(a); continue; }
-      vid=String(a.voucherId||'').trim().toLowerCase();
-      if(vid && vouchers[vid]){ take.push(a); continue; }
-      keep.push(a);
-    }
-    if(!take.length) return;
-    cfg.actuals=keep;
-    take.forEach(function(row){ dest.actuals.push(row); moved++; });
-  });
-  return moved;
+  var pur=purgeResidualTallyCopies(scopePids, keys);
+  try{ stripShadowUntaggedWhenVoucherHasCc(sourcePid); }catch(eSh){}
+  return pur.removed||0;
 }
 /** Restore XML cost-centre names only — no classify. Safe to run across leftover pids. */
 function restoreTallyIdentityOnPid(pid){
@@ -1217,8 +1305,8 @@ function restoreTallyIdentityOnPid(pid){
   return n;
 }
 /**
- * Open-path heal: restore Tally identity, then reclaim+reroute only the selected project group.
- * Yields so Chrome never shows Page Unresponsive. Does not classify the leftover ABC/Avisa dumps.
+ * Open-path heal: restore Tally identity, then purge leftover copies and reroute only the selected project group.
+ * Yields so Chrome never shows Page Unresponsive. Does not classify leftover ABC/Avisa dumps, and never copies them in.
  */
 function runTallyOpenHealYielding(onDone){
   if(window.__gaHealBusy){ if(onDone) onDone(false); return; }
@@ -1239,46 +1327,12 @@ function runTallyOpenHealYielding(onDone){
   }
   function reclaimStep(){
     if(!_curPid){ finish(touched); return; }
-    var group=tallyLatestUploadScopeProjects(_curPid)||[];
-    var gids={}, vouchers={};
-    group.forEach(function(p){
-      if(!p||!p.id) return;
-      gids[String(p.id)]=1;
-      (getCF(p.id).actuals||[]).forEach(function(a){
-        if(!a||a.source!=='tally') return;
-        var vid=String(a.voucherId||'').trim().toLowerCase();
-        if(vid) vouchers[vid]=1;
-      });
-    });
-    var others=Object.keys(_cfData||{}).filter(function(pid){ return !gids[String(pid)]; });
-    var dest=getCF(_curPid);
-    if(!Array.isArray(dest.actuals)) dest.actuals=[];
-    var oi=0;
-    function reclaimOne(){
-      if(oi>=others.length || !Object.keys(vouchers).length){
-        try{ collapseDuplicateTallyAcrossProjectGroup(_curPid); }catch(eC){}
-        gaYieldToBrowser(rerouteStep);
-        return;
-      }
-      var pid=others[oi++], cfg=getCF(pid);
-      if(cfg&&Array.isArray(cfg.actuals)){
-        var keep=[], take=[], ai, a, vid;
-        for(ai=0;ai<cfg.actuals.length;ai++){
-          a=cfg.actuals[ai];
-          if(!a||a.source!=='tally'){ keep.push(a); continue; }
-          vid=String(a.voucherId||'').trim().toLowerCase();
-          if(vid && vouchers[vid]){ take.push(a); continue; }
-          keep.push(a);
-        }
-        if(take.length){
-          cfg.actuals=keep;
-          take.forEach(function(row){ dest.actuals.push(row); });
-          touched=true;
-        }
-      }
-      gaYieldToBrowser(reclaimOne);
-    }
-    gaYieldToBrowser(reclaimOne);
+    try{
+      var n=reclaimOrphanTallyLinesForGroup(_curPid)||0;
+      if(n) touched=true;
+      collapseDuplicateTallyAcrossProjectGroup(_curPid);
+    }catch(eC){}
+    gaYieldToBrowser(rerouteStep);
   }
   function rerouteStep(){
     try{
@@ -1390,7 +1444,7 @@ function pickGaAcctByL3Name(tail, scope, codes){
   var n=normTallyCostCentreLabel(tail);
   if(!n||n.length<3) return null;
   var list=(scope==='common'?idx.byL3NameCommon:idx.byL3NameBldg)[n]||[];
-  if(!list.length) list=(scope==='common'?idx.byL3NameBldg:idx.byL3NameCommon)[n]||[];
+  if(!list.length && scope==='common') list=idx.byL3NameBldg[n]||[];
   if(!list.length) return null;
   var cf=list.filter(gaAcctIsCfRow);
   if(cf.length) list=cf;
@@ -3392,26 +3446,33 @@ function tallyAppendLedgerRowsFromVoucher(attrs, vb, vi, opts, rows){
   var voucherId=tallyXmlSimpleTag(vb,'GUID')||tallyXmlSimpleTag(vb,'MASTERID')||tallyXmlSimpleTag(vb,'ALTERID')||'';
   if(onlyPR && vtype && !isTallyCfFamilyVoucherType(vtype) && !/^(journal|sales|purchase|debit note|credit note|debit|credit)\b/i.test(String(vtype))) return;
   var ents=tallyXmlListInners(vb,'ALLLEDGERENTRIES.LIST');
+  if(!ents.length) ents=tallyXmlListInners(vb,'LEDGERENTRIES.LIST');
   var vchCc=tallyXmlSimpleTag(vb,'COSTCENTRENAME');
   var vchNarr=tallyXmlSimpleTag(vb,'NARRATION');
-  for(var ei=0;ei<ents.length;ei++){
-    var ent=ents[ei];
-    var party=tallyXmlSimpleTag(ent,'LEDGERNAME');
+  var packed=[], anyAlloc=false, ei, ent, party, allocs, cc, amtStr, amt, narr, row0, ai;
+  for(ei=0;ei<ents.length;ei++){
+    ent=ents[ei];
+    party=tallyXmlSimpleTag(ent,'LEDGERNAME');
     if(!party) continue;
-    var allocs=tallyCostCentreAllocationsFromEntryStr(ent);
-    var cc=tallyXmlSimpleTag(ent,'COSTCENTRENAME');
+    allocs=tallyCostCentreAllocationsFromEntryStr(ent);
+    cc=tallyXmlSimpleTag(ent,'COSTCENTRENAME');
     if(!cc){
-      for(var ai=0;ai<allocs.length;ai++){
+      for(ai=0;ai<allocs.length;ai++){
         if(allocs[ai]&&allocs[ai].name&&isUsableTallyCostCentreName(allocs[ai].name)){ cc=allocs[ai].name; break; }
       }
     }
     if(!cc) cc=vchCc;
-    var amtStr=tallyLedgerPrimaryAmountStr(ent);
-    var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
+    amtStr=tallyLedgerPrimaryAmountStr(ent);
+    amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
     if(!amt && !allocs.length) continue;
-    var narr=tallyXmlSimpleTag(ent,'NARRATION')||vchNarr;
-    var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,ledgerAmount:amt};
-    tallyPushLedgerEntryRows(row0, allocs, rows);
+    if(allocs.length) anyAlloc=true;
+    packed.push({ent:ent, party:party, amt:amt, allocs:allocs, cc:cc, ei:ei});
+  }
+  for(ei=0;ei<packed.length;ei++){
+    if(anyAlloc && !(packed[ei].allocs&&packed[ei].allocs.length)) continue;
+    narr=tallyXmlSimpleTag(packed[ei].ent,'NARRATION')||vchNarr;
+    row0={date:date,party:packed[ei].party,rawAmount:packed[ei].amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:packed[ei].ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:packed[ei].cc,ledgerAmount:packed[ei].amt};
+    tallyPushLedgerEntryRows(row0, packed[ei].allocs, rows);
   }
 }
 /** Linear scan — avoids one giant /[\s\S]*?/ regex over multi-MB Tally XML. */
@@ -3603,21 +3664,28 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
     var voucherId=txt(vch,'GUID')||txt(vch,'MASTERID')||txt(vch,'ALTERID')||'';
     if(onlyPR && !isTallyPaymentOrReceiptType(vtype)) continue;
     var ents=vch.getElementsByTagName('ALLLEDGERENTRIES.LIST');
-    for (var ei=0; ei<ents.length; ei++){
-      var ent=ents[ei];
+    if(!ents.length) ents=vch.getElementsByTagName('LEDGERENTRIES.LIST');
+    var packed=[], anyAlloc=false, ei, ent, party, amtStr, amt, allocs, ccEarly, cc, narr, row0;
+    for (ei=0; ei<ents.length; ei++){
+      ent=ents[ei];
       if(ent.parentNode && ent.parentNode!==vch) continue;
-      var party=txt(ent,'LEDGERNAME');
+      party=txt(ent,'LEDGERNAME');
       if(!party) continue;
-      var ccEarly=tallyCostCentreFromEntryDom(ent)||txt(vch,'COSTCENTRENAME');
+      ccEarly=tallyCostCentreFromEntryDom(ent)||txt(vch,'COSTCENTRENAME');
       if(shouldSkipTallyBankLedgerLine(party, ccEarly)) continue;
-      var amtStr=tallyLedgerPrimaryAmountDom(ent)||txt(ent,'AMOUNT');
-      var amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
-      var allocs=tallyCostCentreAllocationsFromEntryDom(ent);
+      amtStr=tallyLedgerPrimaryAmountDom(ent)||txt(ent,'AMOUNT');
+      amt=parseFloat(String(amtStr).replace(/,/g,''))||0;
+      allocs=tallyCostCentreAllocationsFromEntryDom(ent);
       if(!amt && !allocs.length) continue;
-      var cc=ccEarly;
-      var narr=txt(ent,'NARRATION')||txt(vch,'NARRATION');
-      var row0={date:date,party:party,rawAmount:amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,ledgerAmount:amt};
-      tallyPushLedgerEntryRows(row0, allocs, rows);
+      if(allocs.length) anyAlloc=true;
+      packed.push({ent:ent, party:party, amt:amt, allocs:allocs, ccEarly:ccEarly, ei:ei});
+    }
+    for (ei=0; ei<packed.length; ei++){
+      if(anyAlloc && !(packed[ei].allocs&&packed[ei].allocs.length)) continue;
+      cc=packed[ei].ccEarly;
+      narr=txt(packed[ei].ent,'NARRATION')||txt(vch,'NARRATION');
+      row0={date:date,party:packed[ei].party,rawAmount:packed[ei].amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:packed[ei].ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,ledgerAmount:packed[ei].amt};
+      tallyPushLedgerEntryRows(row0, packed[ei].allocs, rows);
     }
   }
   if(rows.length) return {rows:rows, parseMode:'dom'};
@@ -3693,17 +3761,31 @@ function tallyLineLooseId(a){
 }
 /** All-phases rollup and re-imports must not add the same Payment/Receipt CC leg twice. */
 function uniqueActualsForCashflowSums(actuals){
-  var seenKey={}, seenLoose={}, out=[], i, a, k, loose;
+  var seenKey={}, seenLoose={}, seenTok={}, out=[], i, a, k, loose, tok, prev;
+  function feedN(x){ return Number(x&&(x._cfFeedGen||x.tallyFeedAt))||0; }
+  function tokOf(x){
+    var vid=String(x.voucherId||'').trim().toLowerCase();
+    var cc=tallyStableCcToken(tallyIdentityCostCentre(x));
+    if(vid) return 'v:'+vid+'|'+cc;
+    return 'd:'+String(x.date||'').slice(0,10)+'|n:'+String(x.voucherNo||'').toLowerCase()+'|t:'+String(x.voucherType||extractTallyVoucherType(x.note)||'').toLowerCase()+'|'+cc;
+  }
   for(i=0;i<(actuals||[]).length;i++){
     a=actuals[i];
     if(!a) continue;
     if(a.source==='tally'){
       k=String(a.tallyKey||'');
       loose=tallyLineLooseId(a);
+      tok=tokOf(a);
       if(k && seenKey[k]) continue;
       if(loose && seenLoose[loose]) continue;
+      if(tok && seenTok[tok]!=null){
+        prev=out[seenTok[tok]];
+        if(feedN(a)>feedN(prev)) out[seenTok[tok]]=a;
+        continue;
+      }
       if(k) seenKey[k]=1;
       if(loose) seenLoose[loose]=1;
+      if(tok) seenTok[tok]=out.length;
     }
     out.push(a);
   }
@@ -3822,7 +3904,8 @@ function ledgerLineToActual(row, route){
     tallyRoutePrefix:route.prefix||'',
     tallyAutoAllocated:route.kind==='building'||route.kind==='phase_common',
     codingAuthority:'cashflow',
-    _cfCodingVer:CF_VERSION
+    _cfCodingVer:CF_VERSION,
+    _cfFeedGen:window.__gaTallyFeedGen||Date.now()
   };
 }
 function getTallyPullFingerprintStore(){
@@ -4173,8 +4256,16 @@ function mergeTallyLinesIntoActuals(rows, opts){
   var wipeLatest=true;
   var scopePids=tallyReplaceScopePids(_curPid, opts.autoAllocate!==false, wipeLatest);
   var replaced=0;
+  var leftoverDirty={};
+  window.__gaTallyFeedGen=Date.now();
   if(eligible.length){
     replaced=wipeTallyFeedOnPids(scopePids);
+    try{
+      var pur=purgeResidualTallyCopies(scopePids, tallyMatchKeySetFromRows(eligible.map(function(x){ return x.row; })));
+      replaced+=(pur.removed||0);
+      (pur.dirtyPids||[]).forEach(function(pid){ leftoverDirty[pid]=1; });
+      stripShadowUntaggedWhenVoucherHasCc(_curPid);
+    }catch(ePur){}
   }else if(opts.purgeNonPaymentReceipt!==false){
     scopePids.forEach(function(pid){
       var c=getCF(pid);
@@ -4232,6 +4323,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
     try{ rerouted=reroutePhaseTallyActuals(_curPid)||0; }catch(eR){ rerouted=0; }
   }
   touched[String(_curPid)]=1;
+  Object.keys(leftoverDirty).forEach(function(pid){ touched[pid]=1; });
   Object.keys(touched).forEach(function(pid){
     var cfg=getCF(pid);
     cfg.tallyFeedAt=Date.now();
@@ -4311,6 +4403,16 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
     if(eligible.length){
       replaced=wipeTallyFeedOnPids(scopePids);
     }
+    var leftoverDirty={};
+    window.__gaTallyFeedGen=Date.now();
+    if(eligible.length){
+      try{
+        var pur=purgeResidualTallyCopies(scopePids, tallyMatchKeySetFromRows(eligible.map(function(x){ return x.row; })));
+        replaced+=(pur.removed||0);
+        (pur.dirtyPids||[]).forEach(function(pid){ leftoverDirty[pid]=1; });
+        stripShadowUntaggedWhenVoucherHasCc(_curPid);
+      }catch(ePur){}
+    }
     var existing={}, existingSoft={};
     scopePids.forEach(function(pid){
       (getCF(pid).actuals||[]).forEach(function(a){
@@ -4352,6 +4454,7 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
     function finishAfterCoding(){
       if(onProgress) try{ onProgress('Finishing import…'); }catch(eP4){}
       touched[String(_curPid)]=1;
+      Object.keys(leftoverDirty||{}).forEach(function(pid){ touched[pid]=1; });
       Object.keys(touched).forEach(function(pid){
         var cfg=getCF(pid);
         cfg.tallyFeedAt=Date.now();
@@ -6916,7 +7019,14 @@ function protectTallyFeedsFromStaleServer(incomingEnv){
         var lt=(L.actuals||[]).filter(function(a){return a&&a.source==='tally';}).length;
         var st=(S.actuals||[]).filter(function(a){return a&&a.source==='tally';}).length;
         var lAt=Number(L.tallyFeedAt)||0, sAt=Number(S.tallyFeedAt)||0;
-        if(lt>0 && lAt>sAt){
+        if(L._cfReplaceActuals || L._cfTallyPurged){
+          if(lAt>=sAt || !sAt){
+            S.actuals=Array.isArray(L.actuals)?L.actuals.slice():[];
+            S.tallyFeedAt=L.tallyFeedAt||lAt;
+            S.tallyFeedLines=lt;
+            S._cfTallyPurged=!!L._cfTallyPurged;
+          }
+        }else if(lt>0 && lAt>sAt){
           S.actuals=L.actuals;
           S.tallyFeedAt=L.tallyFeedAt||lAt;
           S.tallyFeedLines=lt;
@@ -7230,6 +7340,7 @@ function buildVisibleScopeCfg(){
     var bld=h.building||p.building||p.name||'Building';
     (c.actuals||[]).forEach(function(a){
       if(!a) return;
+      if(a.source==='tally' && _curPid && tallyPidIsResidualWorkbook(p.id, _curPid)) return;
       var stamp=Object.assign({}, a, {
         _scopePid:p.id,
         _scopeBuilding:a.source==='tally'?tallyScopeBuildingLabel(a, bld, vis):bld,
@@ -9160,6 +9271,10 @@ function coerceMoney(v){
  *    never include in Total Inflow / Total Outflow / movement grids.
  * 3) In − Out uses Tally COSTCENTREALLOCATIONS amounts on C / D / E / CM CF leaves
  *    (not the gross ledger AMOUNT). That is the Cash Flow statement nett.
+ * 4) Ledgers with no CATEGORYALLOCATIONS (TDS/retention on the same voucher as a unique CC)
+ *    are never imported into cashflow. Blank CC never enters In / Out / Z.
+ * 5) Latest XML upload deletes matching leftover voucher copies on other workbooks;
+ *    those copies are never moved back in.
  */
 function actualCostCenterMatchBlob(a){
   if(!a) return '';
@@ -9362,6 +9477,7 @@ function cashflowMovementExclusionReason(a){
   if(isBalExcludedLine(a)||isBalResiduaryCashflowLine(a)||isBalResiduaryCostCentreName(cc)) return 'bal';
   if(isCfZCashEquivalentsLine(a)) return 'cfz';
   if(isAutosweepBankLine(a)) return 'autosweep';
+  if(!String(cc).trim()) return 'untagged';
   if(String(cc).trim() && !isCfCashflowStatementCostCentre(cc)) return 'not_cf_statement';
   return '';
 }
@@ -16131,7 +16247,14 @@ loadAll().finally(function(){
     runTallyOpenHealYielding(function(touched){
       try{ renderAll(); }catch(eRn){}
       if(touched){
-        gaScheduleIdle(function(){ try{ saveAll(); }catch(eS){} }, 400);
+        gaScheduleIdle(function(){
+          var perPid={};
+          Object.keys(_cfData||{}).forEach(function(pid){
+            var c=getCF(pid);
+            if(c&&(c._cfReplaceActuals||c._cfTallyPurged)) perPid[pid]=['actuals','tallyFeedAt','tallyFeedLines','_cfReplaceActuals'];
+          });
+          try{ saveAll(Object.keys(perPid).length?{perPidSections:perPid}:{}); }catch(eS){}
+        }, 400);
       }
       try{ setSS('Tally routing ready','green'); }catch(eSs2){}
     });
