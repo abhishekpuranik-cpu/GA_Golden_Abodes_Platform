@@ -6,8 +6,8 @@
 <title>GA Cashflow Tracker V2</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundled.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-<script src="ga_accounting_categories_parser.js?v=106"></script>
-<script src="ga_accounting_categories.js?v=106"></script>
+<script src="ga_accounting_categories_parser.js?v=107"></script>
+<script src="ga_accounting_categories.js?v=107"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -269,8 +269,8 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 106;
-/** Unique CC only. Leftover Tally dumps are never scanned on open and never mixed into In/Out/Z. */
+var CF_VERSION = 107;
+/** Current project Tally always counts. Leftover dumps stay out of In/Out/Z and are not scanned on open. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -1284,16 +1284,11 @@ function tallyScopePidSet(sourcePid){
   return set;
 }
 function tallyShouldIgnorePidFeed(pid){
-  if(!pid) return false;
-  var n=tallyPidFeedLineCount(pid);
-  var at=Number((getCF(pid)||{}).tallyFeedAt)||0;
-  var newest=tallyNewestWorkbookFeedAt();
-  if(n>=8000 && newest && (!at || at<newest)) return true;
-  if(!_curPid) return false;
+  if(!pid || !_curPid) return false;
   var set=tallyScopePidSet(_curPid);
-  if(!Object.keys(set).length) return false;
   if(set[String(pid)]) return false;
-  return n>0;
+  if(!Object.keys(set).length) return false;
+  return tallyPidFeedLineCount(pid)>0;
 }
 function tallyPidIsResidualWorkbook(pid, sourcePid){
   if(!sourcePid||!pid) return false;
@@ -1318,9 +1313,8 @@ function restoreTallyIdentityOnPid(pid){
   if(tallyShouldIgnorePidFeed(pid)) return 0;
   var cfg=getCF(pid);
   if(!cfg||!Array.isArray(cfg.actuals)) return 0;
-  if(cfg.actuals.length>15000) return 0;
-  var n=0, i, a, raw;
-  for(i=0;i<cfg.actuals.length;i++){
+  var n=0, i, a, raw, cap=cfg.actuals.length;
+  for(i=0;i<cap;i++){
     a=cfg.actuals[i];
     if(!a||a.source!=='tally') continue;
     raw=a.tallyCostCentreRaw||a.costCentre||'';
@@ -3499,7 +3493,9 @@ function tallyAppendLedgerRowsFromVoucher(attrs, vb, vi, opts, rows){
     packed.push({ent:ent, party:party, amt:amt, allocs:allocs, cc:cc, ei:ei});
   }
   for(ei=0;ei<packed.length;ei++){
-    if(anyAlloc && !(packed[ei].allocs&&packed[ei].allocs.length)) continue;
+    if(anyAlloc && !(packed[ei].allocs&&packed[ei].allocs.length)){
+      if(!(packed[ei].cc && isUsableTallyCostCentreName(packed[ei].cc))) continue;
+    }
     narr=tallyXmlSimpleTag(packed[ei].ent,'NARRATION')||vchNarr;
     row0={date:date,party:packed[ei].party,rawAmount:packed[ei].amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:packed[ei].ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:packed[ei].cc,ledgerAmount:packed[ei].amt};
     tallyPushLedgerEntryRows(row0, packed[ei].allocs, rows);
@@ -3711,7 +3707,9 @@ function parseTallyXmlToLedgerLines(xmlText, opts){
       packed.push({ent:ent, party:party, amt:amt, allocs:allocs, ccEarly:ccEarly, ei:ei});
     }
     for (ei=0; ei<packed.length; ei++){
-      if(anyAlloc && !(packed[ei].allocs&&packed[ei].allocs.length)) continue;
+      if(anyAlloc && !(packed[ei].allocs&&packed[ei].allocs.length)){
+        if(!(packed[ei].ccEarly && isUsableTallyCostCentreName(packed[ei].ccEarly))) continue;
+      }
       cc=packed[ei].ccEarly;
       narr=txt(packed[ei].ent,'NARRATION')||txt(vch,'NARRATION');
       row0={date:date,party:packed[ei].party,rawAmount:packed[ei].amt,voucherNo:vno,voucherId:voucherId,ledgerIndex:packed[ei].ei,voucherType:vtype,note:(vtype?('['+vtype+'] '):'')+(narr||''),costCentre:cc,ledgerAmount:packed[ei].amt};
@@ -4290,6 +4288,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
   var replaced=0;
   var leftoverDirty={};
   window.__gaTallyFeedGen=Date.now();
+  _gaTallyScopePidCache={pid:'', set:null};
   if(eligible.length){
     replaced=wipeTallyFeedOnPids(scopePids);
     try{
@@ -4437,6 +4436,7 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
     }
     var leftoverDirty={};
     window.__gaTallyFeedGen=Date.now();
+    _gaTallyScopePidCache={pid:'', set:null};
     if(eligible.length){
       try{
         var pur=purgeResidualTallyCopies(scopePids, tallyMatchKeySetFromRows(eligible.map(function(x){ return x.row; })));
@@ -9597,8 +9597,9 @@ function computeCashflowValidation(cfg, opts){
   var rule1Diff=bsHas?(bs-cfzL1):null;
   var rule1Pass=bsHas&&Math.abs(rule1Diff)<0.005;
   var netCf=mov.inflow-mov.outflow;
+  var hasFeed=(mov.nIn+mov.nOut+(cfz.count||0))>0;
   var rule2Diff=netCf-cfzL1;
-  var rule2Pass=Math.abs(rule2Diff)<0.05;
+  var rule2Pass=hasFeed && Math.abs(rule2Diff)<0.05;
   var finalOk=rule2Pass;
   return {
     mov:mov, cfz:cfz, cfzL1:cfzL1, netCf:netCf,
