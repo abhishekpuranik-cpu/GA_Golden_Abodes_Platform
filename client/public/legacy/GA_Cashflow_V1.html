@@ -42,6 +42,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .exp-hero h2{font-size:18px;font-weight:800;color:var(--blue-b);margin:0 0 4px}
 .exp-hero p{font-size:11px;color:var(--muted);margin:0;line-height:1.45;max-width:720px}
 .exp-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px}
+.mc-chip{border:1px solid var(--border);background:#fff;color:var(--slate);font-size:10px;font-weight:700;padding:5px 10px;border-radius:999px;cursor:pointer}
+.mc-chip.on{background:var(--blue-l);color:var(--blue-b);border-color:#93c5fd}
+.mc-tbl{width:100%;border-collapse:collapse;font-size:10px}
+.mc-tbl th{text-align:left;background:var(--blue-l);color:var(--blue-b);padding:6px 8px;font-weight:700;position:sticky;top:0;z-index:1}
+.mc-tbl td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.mc-tbl tr:hover td{background:rgba(21,88,160,.04)}
+.mc-l1{width:100%;text-align:left;border:none;background:var(--blue-l);color:var(--blue-b);font-weight:800;font-size:11px;padding:8px 10px;cursor:pointer;border-radius:8px;margin:8px 0 4px}
 .exp-filterbar{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;align-items:end;padding:12px 14px;background:#fff;border:1px solid var(--border);border-radius:10px;margin-bottom:12px}
 .exp-filterbar label{display:block;font-size:9px;font-weight:700;color:var(--muted);margin-bottom:4px;letter-spacing:.02em;text-transform:uppercase}
 .exp-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:14px}
@@ -260,7 +267,8 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 <input type="file" id="sales-inventory-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importInventoryTemplate(this)"/>
 <input type="file" id="unsold-inventory-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importUnsoldInventoryTemplate(this)"/>
 <input type="file" id="crm-postsales-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importCRMPostSalesWorkbook(this)"/>
-<input type="file" id="coding-master-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importCodingMasterWorkbook(this)"/>
+<input type="file" id="coding-master-input" accept=".xlsx,.xls,.xlsm" data-mode="replace" style="display:none" onchange="importCodingMasterWorkbook(this)"/>
+<input type="file" id="coding-master-merge-input" accept=".xlsx,.xls,.xlsm" data-mode="merge" style="display:none" onchange="importCodingMasterWorkbook(this)"/>
 
 <script>
 // CF V1 — Part 1: Constants, data model, engine
@@ -269,7 +277,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 110;
+var CF_VERSION = 111;
 /** Current project Tally always counts. Leftover dumps stay out of In/Out/Z and are not scanned on open. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
@@ -552,6 +560,7 @@ function importCodingMasterWorkbook(input){
   if(!window.XLSX){ alert('Spreadsheet library not loaded.'); input.value=''; return; }
   if(typeof buildGaAcctMasterFromWorkbook!=='function'){ alert('Coding parser not loaded.'); input.value=''; return; }
   var file=input.files[0];
+  var mode=String(input.getAttribute('data-mode')||'replace');
   var reader=new FileReader();
   reader.onload=function(){
     try{
@@ -560,6 +569,16 @@ function importCodingMasterWorkbook(input){
       var payload=buildGaAcctMasterFromWorkbook(wb);
       payload.fileName=file.name||'';
       payload.source='upload';
+      if(mode==='merge'){
+        var st=mergeGaAcctMasterFromPayload(payload);
+        persistGaAcctMasterOverride(gaAcctMasterPayloadFromGlobals());
+        saveAll({full:true});
+        renderAll();
+        setSS('Master codes merged: +'+st.added+' new · '+st.updated+' updated · '+st.total+' live keys','green');
+        alert('Added to the live coding master.\n\nNew codes: '+st.added+'\nUpdated codes: '+st.updated+'\nLive keys now: '+st.total+'\n\nExisting Tally lines were not remapped. New imports and translations use this live master.');
+        input.value='';
+        return;
+      }
       applyGaAcctMasterPayload(payload, {source:'upload', fileName:payload.fileName, uploadedAt:payload.uploadedAt, keyCount:payload.keyCount});
       persistGaAcctMasterOverride(gaAcctMasterPayloadFromGlobals());
       if(migrateReclassifyTallyActuals()){ /* remapped categories + signs */ }
@@ -590,6 +609,276 @@ function applyGaAcctMasterFromStateEnvelope(d){
   });
   persistGaAcctMasterOverride(gaAcctMasterPayloadFromGlobals());
   return true;
+}
+function rebuildGaAcctShortIndex(book){
+  var by={};
+  Object.keys(book||{}).forEach(function(k){
+    var e=book[k];
+    if(!e||!e.shortCode) return;
+    if(!by[e.shortCode]) by[e.shortCode]=[];
+    by[e.shortCode].push(e.masterKey||k);
+  });
+  return by;
+}
+function unionGaAcctL1List(a,b){
+  var seen={}, out=[];
+  (a||[]).concat(b||[]).forEach(function(x){
+    if(!x) return;
+    var k=String(x.label||'')+'|'+String(x.l1||'')+'|'+String(x.scope||'');
+    if(seen[k]) return;
+    seen[k]=1;
+    out.push(x);
+  });
+  return out;
+}
+function mergeGaAcctMasterFromPayload(incoming){
+  incoming=incoming||{};
+  var book=Object.assign({}, GA_ACCT_L3_BY_CODE||{});
+  var src=incoming.GA_ACCT_L3_BY_CODE||{};
+  var added=0, updated=0, k;
+  for(k in src){
+    if(!Object.prototype.hasOwnProperty.call(src,k)||!src[k]) continue;
+    if(book[k]) updated++; else added++;
+    book[k]=src[k];
+  }
+  var payload={
+    schema: incoming.GA_ACCT_SCHEMA||incoming.schema||(typeof GA_ACCT_SCHEMA!=='undefined'?GA_ACCT_SCHEMA:'v3'),
+    uploadedAt: Date.now(),
+    fileName: incoming.fileName||(_gaAcctMasterMeta&&_gaAcctMasterMeta.fileName)||'',
+    source: 'upload',
+    keyCount: Object.keys(book).length,
+    GA_ACCT_SCHEMA: incoming.GA_ACCT_SCHEMA||incoming.schema||(typeof GA_ACCT_SCHEMA!=='undefined'?GA_ACCT_SCHEMA:'v3'),
+    GA_ACCT_L3_BY_CODE: book,
+    GA_ACCT_L3_BY_SHORT: rebuildGaAcctShortIndex(book),
+    GA_ACCT_CF_L1_BUILDING: unionGaAcctL1List(GA_ACCT_CF_L1_BUILDING, incoming.GA_ACCT_CF_L1_BUILDING),
+    GA_ACCT_CF_L1_COMMON: unionGaAcctL1List(GA_ACCT_CF_L1_COMMON, incoming.GA_ACCT_CF_L1_COMMON),
+    GA_ACCT_PL_L1_BUILDING: unionGaAcctL1List(GA_ACCT_PL_L1_BUILDING, incoming.GA_ACCT_PL_L1_BUILDING),
+    GA_ACCT_PL_L1_COMMON: unionGaAcctL1List(GA_ACCT_PL_L1_COMMON, incoming.GA_ACCT_PL_L1_COMMON),
+    GA_ACCT_BUILDING_PREFIXES: (incoming.GA_ACCT_BUILDING_PREFIXES&&incoming.GA_ACCT_BUILDING_PREFIXES.length)?incoming.GA_ACCT_BUILDING_PREFIXES:(GA_ACCT_BUILDING_PREFIXES||[])
+  };
+  applyGaAcctMasterPayload(payload, {source:'upload', fileName:payload.fileName, uploadedAt:payload.uploadedAt, keyCount:payload.keyCount});
+  return {added:added, updated:updated, total:payload.keyCount};
+}
+function copyMasterCodeText(t){
+  t=String(t||'').trim();
+  if(!t) return;
+  function ok(){ setSS('Copied '+t.slice(0,90),'green'); }
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText){
+      navigator.clipboard.writeText(t).then(ok).catch(function(){ window.prompt('Copy', t); });
+      return;
+    }
+  }catch(eC){}
+  window.prompt('Copy', t);
+}
+function masterCodeViewPrefix(){
+  var p=getAcctPrefixForPid(_curPid);
+  return p||'A';
+}
+function masterCodeEffectiveScope(){
+  if(_masterCodeScope==='all'||_masterCodeScope==='building'||_masterCodeScope==='common') return _masterCodeScope;
+  return masterCodeViewPrefix()==='CM'?'common':'building';
+}
+function masterCodeSearchHay(e, viewPref){
+  var show=e;
+  try{
+    if(e&&e.scope==='building'&&viewPref&&viewPref!=='CM') show=gaAcctCloneForPrefix(e, viewPref)||e;
+  }catch(eCl){}
+  return [e.masterKey,e.shortCode,e.prefix,e.scope,e.l1,e.l1Name,e.l2,e.l2Name,e.l3,e.l3Name,e.cfL3,(show&&show.cfL3)||'',e.plL3,e.desc,e.flow,e.cfL1Label,e.legacyCat1].join(' ').toLowerCase();
+}
+function masterCodeQueryMatch(hay, q){
+  var parts=String(q||'').toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if(!parts.length) return true;
+  return parts.every(function(p){ return hay.indexOf(p)>=0; });
+}
+function isMasterCodeL1Collapsed(id){
+  if(String(_masterCodeQ||'').trim()) return _masterCodeCollapsedL1[id]===true;
+  return _masterCodeCollapsedL1[id]!==false;
+}
+function listLiveMasterCodeEntries(){
+  var scope=masterCodeEffectiveScope();
+  var viewPref=masterCodeViewPrefix();
+  var q=String(_masterCodeQ||'');
+  var rows=[], k, e, hay;
+  Object.keys(GA_ACCT_L3_BY_CODE||{}).forEach(function(key){
+    e=GA_ACCT_L3_BY_CODE[key];
+    if(!e) return;
+    if(scope==='building' && e.scope==='common') return;
+    if(scope==='common' && e.scope!=='common') return;
+    if(_masterCodeCfOnly && !e.cfApplicable) return;
+    hay=masterCodeSearchHay(e, viewPref);
+    if(!masterCodeQueryMatch(hay, q)) return;
+    rows.push(e);
+  });
+  rows.sort(function(a,b){
+    var sa=String(a.scope||''), sb=String(b.scope||'');
+    if(sa!==sb) return sa==='common'?-1:1;
+    var la=String(a.l1||'')+String(a.l1Name||''), lb=String(b.l1||'')+String(b.l1Name||'');
+    if(la!==lb) return la<lb?-1:1;
+    var l2a=String(a.l2||'')+String(a.l2Name||''), l2b=String(b.l2||'')+String(b.l2Name||'');
+    if(l2a!==l2b) return l2a<l2b?-1:1;
+    return String(a.shortCode||'').localeCompare(String(b.shortCode||''));
+  });
+  return rows;
+}
+function addManualMasterCodeFromForm(){
+  var scope=String((document.getElementById('mc-add-scope')||{}).value||'building');
+  var prefix=String((document.getElementById('mc-add-prefix')||{}).value||'').trim().toUpperCase();
+  var short=String((document.getElementById('mc-add-short')||{}).value||'').trim();
+  var l3Name=String((document.getElementById('mc-add-l3name')||{}).value||'').trim();
+  var l1=String((document.getElementById('mc-add-l1')||{}).value||'').trim();
+  var l1Name=String((document.getElementById('mc-add-l1name')||{}).value||'').trim();
+  var l2=String((document.getElementById('mc-add-l2')||{}).value||'').trim();
+  var l2Name=String((document.getElementById('mc-add-l2name')||{}).value||'').trim();
+  var flow=String((document.getElementById('mc-add-flow')||{}).value||'out');
+  var cfL3=String((document.getElementById('mc-add-cfl3')||{}).value||'').trim();
+  var plL3=String((document.getElementById('mc-add-pll3')||{}).value||'').trim();
+  if(scope==='common') prefix='CM';
+  if(!prefix) prefix=(scope==='common'?'CM':'A');
+  if(!short||!l3Name||!l1Name){
+    alert('Short code, L3 name, and L1 name are required.');
+    return;
+  }
+  if(!/^[A-Z0-9]+-\d+$/i.test(short) && !/^BAL/i.test(short)){
+    if(!window.confirm('Short code "'+short+'" does not look like C5-2 / E1-1. Add it anyway?')) return;
+  }
+  var masterKey=prefix+'|'+short;
+  if(GA_ACCT_L3_BY_CODE&&GA_ACCT_L3_BY_CODE[masterKey]){
+    if(!window.confirm('Update existing live key '+masterKey+'?')) return;
+  }
+  if(!cfL3) cfL3=prefix+' CF '+short+' '+l3Name;
+  var entry={
+    schema: typeof GA_ACCT_SCHEMA!=='undefined'?GA_ACCT_SCHEMA:'v3',
+    scope: scope==='common'?'common':'building',
+    prefix: prefix,
+    masterKey: masterKey,
+    shortCode: short,
+    cfApplicable: true,
+    plApplicable: !!plL3,
+    l1: l1||short.charAt(0),
+    l1Name: l1Name,
+    l2: l2,
+    l2Name: l2Name,
+    l3: short,
+    l3Name: l3Name,
+    desc: '',
+    cfL1: '',
+    cfL2: '',
+    cfL3: cfL3,
+    plL1: '',
+    plL2: '',
+    plL3: plL3,
+    cfL1Label: (scope==='common'?'Common · ':'Building · ')+l1Name,
+    plL1Label: (scope==='common'?'Common · ':'Building · ')+l1Name,
+    flow: flow,
+    legacyCat1: flow==='in'?'Other Income':'Construction'
+  };
+  var incoming={fileName:'manual-add', GA_ACCT_L3_BY_CODE:{}, GA_ACCT_CF_L1_BUILDING:[], GA_ACCT_CF_L1_COMMON:[]};
+  incoming.GA_ACCT_L3_BY_CODE[masterKey]=entry;
+  if(entry.scope==='common') incoming.GA_ACCT_CF_L1_COMMON=[{scope:'common', l1:entry.l1, l1Name:l1Name, label:entry.cfL1Label, flow:flow}];
+  else incoming.GA_ACCT_CF_L1_BUILDING=[{scope:'building', l1:entry.l1, l1Name:l1Name, label:entry.cfL1Label, flow:flow}];
+  var st=mergeGaAcctMasterFromPayload(incoming);
+  persistGaAcctMasterOverride(gaAcctMasterPayloadFromGlobals());
+  saveAll({full:true});
+  _masterCodeShowAdd=false;
+  _masterCodeQ=short;
+  renderAll();
+  setSS('Live master updated · '+masterKey+' · '+st.total+' keys','green');
+}
+function htmlMasterCodeLockPanel(){
+  return '<div class="card" style="border-top:3px solid var(--gold);max-width:520px">'
+    +'<div style="font-size:14px;font-weight:800;color:var(--blue-b);margin-bottom:6px">Master Code</div>'
+    +'<p style="font-size:11px;color:var(--muted);line-height:1.45;margin:0 0 12px">This tab is the live L1/L2/L3 coding book used for every Tally translation. It uses a <strong>separate password</strong> from Cashflow / admin.</p>'
+    +'<button type="button" class="btn btn-primary" data-action="mc-unlock">Unlock Master Code</button>'
+    +'</div>';
+}
+function htmlMasterCodePanel(){
+  var viewPref=masterCodeViewPrefix();
+  var scope=masterCodeEffectiveScope();
+  var liveN=Object.keys(GA_ACCT_L3_BY_CODE||{}).length;
+  var rows=listLiveMasterCodeEntries();
+  var cap=280;
+  var shown=rows.slice(0, cap);
+  var groups={}, gi, e, gid, g;
+  shown.forEach(function(row){
+    gid=String(row.scope||'')+'|'+String(row.l1||'')+'|'+String(row.l1Name||'');
+    if(!groups[gid]) groups[gid]={id:gid, scope:row.scope, l1:row.l1, l1Name:row.l1Name, rows:[]};
+    groups[gid].rows.push(row);
+  });
+  var gids=Object.keys(groups);
+  var src=_gaAcctMasterMeta&&_gaAcctMasterMeta.source?_gaAcctMasterMeta.source:'shipped';
+  var fn=_gaAcctMasterMeta&&_gaAcctMasterMeta.fileName?_gaAcctMasterMeta.fileName:'';
+  var h='';
+  h+='<div class="card" style="border-top:3px solid var(--blue)">';
+  h+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;align-items:flex-start">';
+  h+='<div><div style="font-size:14px;font-weight:800;color:var(--blue-b)">Master Code</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-top:4px;line-height:1.45">Live source for every Tally → L3 translation. Building chart is the A-template cloned to this building’s letter. Common (CM) is its own sheet.</div></div>';
+  h+='<div style="font-size:10px;text-align:right;color:var(--muted)"><div><strong>'+liveN+'</strong> live keys · '+String(src)+(fn?(' · '+escHtml(fn)):'')+'</div>';
+  h+='<div>This building prefix: <strong>'+escHtml(viewPref)+'</strong></div></div></div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin:12px 0 8px">';
+  h+='<button type="button" class="btn btn-outline" data-action="mc-overwrite" style="font-size:10px">Overwrite from XLSX</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="mc-merge" style="font-size:10px">Add / update from XLSX</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="mc-toggle-add" style="font-size:10px">'+(_masterCodeShowAdd?'Hide add form':'Add a code')+'</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="clear-coding-master" style="font-size:10px">Reset to shipped</button>';
+  h+='</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px">';
+  [['all','All'],['building','Building'],['common','Common']].forEach(function(pair){
+    h+='<button type="button" class="mc-chip'+(scope===pair[0]?' on':'')+'" data-action="mc-scope" data-scope="'+pair[0]+'">'+pair[1]+'</button>';
+  });
+  h+='<button type="button" class="mc-chip'+(_masterCodeCfOnly?' on':'')+'" data-action="mc-cf-only">CF only</button>';
+  h+='</div>';
+  h+='<input type="search" class="cap-inp" id="mc-smart-q" data-action="mc-smart-q" placeholder="Search short code, L3 name, CF L3, L1, building letter…" value="'+escAttr(_masterCodeQ||'')+'" style="width:100%;max-width:640px;font-size:12px" autocomplete="off"/>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-top:6px">Showing <strong>'+shown.length+'</strong> of <strong>'+rows.length+'</strong> matches'+(rows.length>cap?' (refine search to see the rest)':'')+'.</div>';
+  h+='</div>';
+  if(_masterCodeShowAdd){
+    h+='<div class="card" style="border-top:3px solid var(--gold)">';
+    h+='<div style="font-size:12px;font-weight:800;color:var(--blue-b);margin-bottom:8px">Add or update one live code</div>';
+    h+='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px;font-size:10px">';
+    h+='<label>Scope<select id="mc-add-scope" class="cap-inp" style="width:100%"><option value="building">Building</option><option value="common">Common</option></select></label>';
+    h+='<label>Prefix<input id="mc-add-prefix" class="cap-inp" style="width:100%" value="'+escAttr(viewPref==='CM'?'A':viewPref)+'" placeholder="A"/></label>';
+    h+='<label>Short code<input id="mc-add-short" class="cap-inp" style="width:100%" placeholder="C5-2"/></label>';
+    h+='<label>L3 name<input id="mc-add-l3name" class="cap-inp" style="width:100%" placeholder="Marble"/></label>';
+    h+='<label>L1 letter<input id="mc-add-l1" class="cap-inp" style="width:100%" placeholder="C"/></label>';
+    h+='<label>L1 name<input id="mc-add-l1name" class="cap-inp" style="width:100%" placeholder="Construction Cost"/></label>';
+    h+='<label>L2<input id="mc-add-l2" class="cap-inp" style="width:100%" placeholder="5"/></label>';
+    h+='<label>L2 name<input id="mc-add-l2name" class="cap-inp" style="width:100%" placeholder="Finishes"/></label>';
+    h+='<label>Flow<select id="mc-add-flow" class="cap-inp" style="width:100%"><option value="out">Out</option><option value="in">In</option><option value="cash">Cash / Z</option><option value="exclude">Exclude</option></select></label>';
+    h+='<label style="grid-column:span 2">CF L3 (blank = auto)<input id="mc-add-cfl3" class="cap-inp" style="width:100%" placeholder="A CF C5-2 Marble"/></label>';
+    h+='<label style="grid-column:span 2">PL L3 (optional)<input id="mc-add-pll3" class="cap-inp" style="width:100%"/></label>';
+    h+='</div>';
+    h+='<button type="button" class="btn btn-primary" data-action="mc-add-save" style="margin-top:10px;font-size:11px">Save to live master</button>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-top:6px">Does not remap existing Tally lines. Next import uses this code.</div></div>';
+  }
+  if(!shown.length){
+    h+='<div class="card" style="font-size:11px;color:var(--muted)">No codes match. Clear search or switch Building / Common.</div>';
+    return h;
+  }
+  gids.forEach(function(id){
+    g=groups[id];
+    var open=!isMasterCodeL1Collapsed(id);
+    h+='<button type="button" class="mc-l1" data-action="mc-toggle-l1" data-l1="'+escAttr(id)+'">'+(open?'▾':'▸')+' '+(g.scope==='common'?'Common':'Building')+' · '+escHtml(g.l1||'')+' '+escHtml(g.l1Name||'')+' <span style="font-weight:600;color:var(--muted)">('+g.rows.length+')</span></button>';
+    if(!open) return;
+    h+='<div class="card" style="margin-top:0;padding:0;overflow:auto">';
+    h+='<table class="mc-tbl"><thead><tr><th>Short</th><th>L2 / L3</th><th>CF L3 ('+escHtml(viewPref)+')</th><th>PL L3</th><th>Flow</th><th></th></tr></thead><tbody>';
+    g.rows.forEach(function(row){
+      var disp=row;
+      try{ if(row.scope==='building'&&viewPref&&viewPref!=='CM') disp=gaAcctCloneForPrefix(row, viewPref)||row; }catch(eD){}
+      var cf=String(disp.cfL3||row.cfL3||'').trim();
+      var pl=String(row.plL3||'').trim();
+      h+='<tr>';
+      h+='<td style="white-space:nowrap;font-weight:800">'+escHtml(row.shortCode||'')+'<div style="font-size:9px;color:var(--muted);font-weight:600">'+escHtml(row.masterKey||'')+'</div></td>';
+      h+='<td><div style="font-weight:700">'+escHtml(row.l3Name||'')+'</div><div style="font-size:9px;color:var(--muted)">'+escHtml((row.l2?row.l2+' ':'')+(row.l2Name||''))+'</div></td>';
+      h+='<td>'+(cf?escHtml(cf):'<span style="color:var(--muted)">—</span>')+'</td>';
+      h+='<td>'+(pl?escHtml(pl):'<span style="color:var(--muted)">—</span>')+'</td>';
+      h+='<td>'+escHtml(row.flow||'')+(row.cfApplicable?' · CF':'')+'</td>';
+      h+='<td style="white-space:nowrap">';
+      if(cf) h+='<button type="button" class="btn btn-outline" data-action="mc-copy" data-text="'+escAttr(cf)+'" style="font-size:9px;padding:2px 6px">Copy CF</button> ';
+      h+='<button type="button" class="btn btn-outline" data-action="mc-copy" data-text="'+escAttr(row.shortCode||'')+'" style="font-size:9px;padding:2px 6px">Copy code</button>';
+      h+='</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  });
+  return h;
 }
 function cfColNameMatches(col, needles){
   var c=String(col||'').toLowerCase();
@@ -4845,7 +5134,13 @@ var _cfForecastStageOpen = {}; // stage key → expanded L1 outflow detail
 var _cfMsForecastMode = 'future'; // 'future' | 'all' — L1 × construction milestone matrix
 var _cfSubview = 'monthly'; // 'monthly' | 'payables' | 'forecast'
 var _plPeriod = 'fytd'; // 'month' | 'fytd' | 'fy'
-var _expenseUIPanel = 'schedule'; // 'dashboard' | 'insights' | 'narration' | 'gst-vendor' | 'schedule'
+var _expenseUIPanel = 'schedule'; // 'dashboard' | 'insights' | 'narration' | 'gst-vendor' | 'schedule' | 'master-code'
+var _masterCodeQ = '';
+var _masterCodeQTimer = null;
+var _masterCodeScope = ''; // '' auto | 'all' | 'building' | 'common'
+var _masterCodeCfOnly = false;
+var _masterCodeCollapsedL1 = {};
+var _masterCodeShowAdd = false;
 var _dashFrom = '';
 var _dashTo = '';
 var _dashCat1 = '';
@@ -5016,6 +5311,9 @@ var GA_MONGO_ENABLE_KEY = 'ga_mongo_state_enable';
 var GA_MONGO_API_BASE_KEY = 'ga_mongo_api_base';
 var GA_REMOVE_PROJECT_PASSWORD_KEY = 'ga_cf_remove_project_password';
 var GA_REMOVE_PROJECT_DEFAULT_PASSWORD = 'ga@admin';
+var GA_MASTER_CODE_PASSWORD_KEY = 'ga_cf_master_code_password';
+var GA_MASTER_CODE_DEFAULT_PASSWORD = 'ga@codes';
+var GA_MASTER_CODE_UNLOCK_SESSION_KEY = 'ga_cf_master_code_tab_ok';
 var GA_LAST_DELETE_SNAPSHOT_KEY = 'ga_cf_last_deleted_snapshot';
 /** Same-origin /api/... or optional base URL in localStorage (for static front + API on another host; CORS must allow the page origin). */
 function mongoStateApiUrl(){
@@ -5034,6 +5332,33 @@ function getRemoveProjectPassword(){
     if(p) return p;
   }catch(e){}
   return GA_REMOVE_PROJECT_DEFAULT_PASSWORD;
+}
+function getMasterCodePassword(){
+  try{
+    var p=String(localStorage.getItem(GA_MASTER_CODE_PASSWORD_KEY)||'').trim();
+    if(p) return p;
+  }catch(e){}
+  return GA_MASTER_CODE_DEFAULT_PASSWORD;
+}
+function isMasterCodeTabUnlocked(){
+  try{ return sessionStorage.getItem(GA_MASTER_CODE_UNLOCK_SESSION_KEY)==='1'; }catch(e){ return false; }
+}
+function setMasterCodeTabUnlocked(on){
+  try{
+    if(on) sessionStorage.setItem(GA_MASTER_CODE_UNLOCK_SESSION_KEY,'1');
+    else sessionStorage.removeItem(GA_MASTER_CODE_UNLOCK_SESSION_KEY);
+  }catch(e){}
+}
+function promptMasterCodeTabUnlock(){
+  var msg='Enter Master Code password.\n\nThis is not the Cashflow / admin password.';
+  var entered=window.prompt(msg,'');
+  if(entered===null) return false;
+  if(String(entered)!==String(getMasterCodePassword())){
+    alert('Incorrect Master Code password.');
+    return false;
+  }
+  setMasterCodeTabUnlocked(true);
+  return true;
 }
 function mongoSnapshotsApiUrl(snapshotId){
   var base=mongoStateApiUrl().replace(/\/state$/,'/snapshots');
@@ -12907,6 +13232,7 @@ function renderExpenses(){
   h+='<button type="button" class="'+(_expenseUIPanel==='narration'?'on':'')+'" data-action="expense-sub" data-panel="narration">Narration</button>';
   h+='<button type="button" class="'+(_expenseUIPanel==='gst-vendor'?'on':'')+'" data-action="expense-sub" data-panel="gst-vendor">Vendor GST</button>';
   h+='<button type="button" class="'+(_expenseUIPanel==='schedule'?'on':'')+'" data-action="expense-sub" data-panel="schedule">Schedules</button>';
+  h+='<button type="button" class="'+(_expenseUIPanel==='master-code'?'on':'')+'" data-action="expense-sub" data-panel="master-code">Master Code</button>';
   h+='</div>';
 
   if(_expenseUIPanel==='narration'){
@@ -13249,6 +13575,27 @@ function renderExpenses(){
       if(!inp) return;
       var L=String(inp.id==='expense-ledger-cat-q'?(_expenseLedgerCatQ||''):(_expenseVendorSearch||'')).length;
       try{ inp.focus(); if(typeof inp.setSelectionRange==='function') inp.setSelectionRange(L,L); }catch(x){}
+    },0);
+    return;
+  }
+
+  if(_expenseUIPanel==='master-code'){
+    if(!isMasterCodeTabUnlocked()){
+      h+=htmlMasterCodeLockPanel();
+      el.innerHTML=h;
+      return;
+    }
+    h+=htmlMasterCodePanel();
+    el.innerHTML=h;
+    setTimeout(function(){
+      if(_curTab!=='expenses'||_expenseUIPanel!=='master-code') return;
+      var inp=document.getElementById('mc-smart-q');
+      if(!inp) return;
+      try{
+        inp.focus();
+        var L=String(inp.value||'').length;
+        if(typeof inp.setSelectionRange==='function') inp.setSelectionRange(L,L);
+      }catch(x){}
     },0);
     return;
   }
@@ -15865,13 +16212,36 @@ document.addEventListener('click',function(e){
   if(a==='ul-crm-postsales')       { document.getElementById('crm-postsales-input').click(); return; }
   if(a==='upload-coding-master')   { document.getElementById('coding-master-input').click(); return; }
   if(a==='clear-coding-master')    { clearGaAcctMasterOverride(); return; }
+  if(a==='mc-unlock')              { if(promptMasterCodeTabUnlock()) renderExpenses(); return; }
+  if(a==='mc-overwrite')           { document.getElementById('coding-master-input').click(); return; }
+  if(a==='mc-merge')               { document.getElementById('coding-master-merge-input').click(); return; }
+  if(a==='mc-toggle-add')          { _masterCodeShowAdd=!_masterCodeShowAdd; renderExpenses(); return; }
+  if(a==='mc-add-save')            { addManualMasterCodeFromForm(); return; }
+  if(a==='mc-scope')               { _masterCodeScope=el.dataset.scope||'all'; renderExpenses(); return; }
+  if(a==='mc-cf-only')             { _masterCodeCfOnly=!_masterCodeCfOnly; renderExpenses(); return; }
+  if(a==='mc-toggle-l1'){
+    var lid=String(el.dataset.l1||'');
+    _masterCodeCollapsedL1[lid]=!isMasterCodeL1Collapsed(lid);
+    renderExpenses();
+    return;
+  }
+  if(a==='mc-copy')                { copyMasterCodeText(el.dataset.text||''); return; }
   if(a==='export-cf')              { exportCFTSV(); return; }
   if(a==='export-ga-tsv')          { exportGACFTSV(); return; }
   if(a==='export-ppt')             { exportInvestorPPT(); return; }
   if(a==='gst-xlsx-export')        { exportVendorGstExcel(String(el.dataset.report||'bills-inr')); return; }
   if(a==='sales-sub')              { _salesUIPanel=el.dataset.panel||'inventory'; renderSales(); return; }
   if(a==='post-sales-sub')         { _postSalesSubPanel=el.dataset.panel||'overview'; renderSales(); return; }
-  if(a==='expense-sub')            { if((el.dataset.panel||'dashboard')!=='gst-vendor') _expensePayableDrillVendor=''; _expenseUIPanel=el.dataset.panel||'dashboard'; renderExpenses(); return; }
+  if(a==='expense-sub'){
+    var panel=el.dataset.panel||'dashboard';
+    if(panel==='master-code' && !isMasterCodeTabUnlocked()){
+      if(!promptMasterCodeTabUnlock()) return;
+    }
+    if(panel!=='gst-vendor') _expensePayableDrillVendor='';
+    _expenseUIPanel=panel;
+    renderExpenses();
+    return;
+  }
   if(a==='expense-payable-vendor-drill'){
     var vDrill=String(el.dataset.vendor||'');
     _expensePayableDrillVendor=(_expensePayableDrillVendor===vDrill)?'':vDrill;
@@ -16390,6 +16760,14 @@ document.addEventListener('input',function(e){
       _expenseLedgerCatTimer=null;
       if(_curTab==='expenses' && _expenseUIPanel==='gst-vendor') renderExpenses();
     }, 320);
+  }
+  if(a==='mc-smart-q'){
+    _masterCodeQ=String(el.value||'');
+    if(_masterCodeQTimer) clearTimeout(_masterCodeQTimer);
+    _masterCodeQTimer=setTimeout(function(){
+      _masterCodeQTimer=null;
+      if(_curTab==='expenses' && _expenseUIPanel==='master-code') renderExpenses();
+    }, 220);
   }
 });
 
