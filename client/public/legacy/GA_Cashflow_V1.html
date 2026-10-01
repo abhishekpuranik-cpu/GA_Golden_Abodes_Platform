@@ -6,8 +6,8 @@
 <title>GA Cashflow Tracker V2</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pptxgenjs/3.12.0/pptxgen.bundled.min.js"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
-<script src="ga_accounting_categories_parser.js?v=105"></script>
-<script src="ga_accounting_categories.js?v=105"></script>
+<script src="ga_accounting_categories_parser.js?v=106"></script>
+<script src="ga_accounting_categories.js?v=106"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -269,8 +269,8 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 105;
-/** Unique CC only. BAL/TDS and blank-CC ledgers never enter In/Out/Z. Upload purges residual voucher copies across the workbook. */
+var CF_VERSION = 106;
+/** Unique CC only. Leftover Tally dumps are never scanned on open and never mixed into In/Out/Z. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
 var TALLY_XML_DOM_MAX_CHARS = 120000;
@@ -1164,8 +1164,9 @@ function tallyLineMatchKeys(a){
   var out=[], vid=String((a&&a.voucherId)||'').trim().toLowerCase();
   if(vid) out.push('id:'+vid);
   var d=String((a&&a.date)||'').slice(0,10);
-  var vt=String((a&&(a.voucherType||extractTallyVoucherType(a.note||a.narration||'')))||'').trim().toLowerCase();
   var vn=String((a&&a.voucherNo)||'').trim().toLowerCase();
+  var vt=String((a&&a.voucherType)||'').trim().toLowerCase();
+  if(!vt && !vid) vt=String(extractTallyVoucherType((a&&(a.note||a.narration))||'')||'').trim().toLowerCase();
   if(d && vn && vt) out.push('dvn:'+d+'|'+vt+'|'+vn);
   return out;
 }
@@ -1253,18 +1254,54 @@ function tallyCurrentGroupFeedAt(sourcePid){
   });
   return max;
 }
+function tallyNewestWorkbookFeedAt(){
+  var max=0;
+  Object.keys(_cfData||{}).forEach(function(pid){
+    var at=Number((getCF(pid)||{}).tallyFeedAt)||0;
+    if(at>max) max=at;
+  });
+  return max;
+}
+function tallyPidFeedLineCount(pid){
+  var cfg=getCF(pid)||{};
+  var n=Number(cfg.tallyFeedLines);
+  if(isFinite(n) && n>=0) return n;
+  n=0;
+  var acts=cfg.actuals;
+  if(!acts||!acts.length) return 0;
+  if(acts.length>12000) return acts.length;
+  var i;
+  for(i=0;i<acts.length;i++){ if(acts[i]&&acts[i].source==='tally') n++; }
+  return n;
+}
+var _gaTallyScopePidCache={pid:'', set:null};
+function tallyScopePidSet(sourcePid){
+  sourcePid=String(sourcePid||_curPid||'');
+  if(_gaTallyScopePidCache.pid===sourcePid && _gaTallyScopePidCache.set) return _gaTallyScopePidCache.set;
+  var set={};
+  (tallyLatestUploadScopeProjects(sourcePid)||[]).forEach(function(p){ if(p&&p.id) set[String(p.id)]=1; });
+  _gaTallyScopePidCache={pid:sourcePid, set:set};
+  return set;
+}
+function tallyShouldIgnorePidFeed(pid){
+  if(!pid) return false;
+  var n=tallyPidFeedLineCount(pid);
+  var at=Number((getCF(pid)||{}).tallyFeedAt)||0;
+  var newest=tallyNewestWorkbookFeedAt();
+  if(n>=8000 && newest && (!at || at<newest)) return true;
+  if(!_curPid) return false;
+  var set=tallyScopePidSet(_curPid);
+  if(!Object.keys(set).length) return false;
+  if(set[String(pid)]) return false;
+  return n>0;
+}
 function tallyPidIsResidualWorkbook(pid, sourcePid){
   if(!sourcePid||!pid) return false;
-  var gids={};
-  (tallyLatestUploadScopeProjects(sourcePid)||[]).forEach(function(p){ if(p&&p.id) gids[String(p.id)]=1; });
-  if(gids[String(pid)]) return false;
-  var n=0;
-  (getCF(pid).actuals||[]).forEach(function(a){ if(a&&a.source==='tally') n++; });
-  if(!n) return false;
-  var gAt=tallyCurrentGroupFeedAt(sourcePid);
-  var at=Number((getCF(pid)||{}).tallyFeedAt)||0;
-  if(gAt && (!at || at<gAt)) return true;
-  return false;
+  var prev=_curPid;
+  _curPid=sourcePid;
+  var skip=tallyShouldIgnorePidFeed(pid);
+  _curPid=prev;
+  return skip;
 }
 /**
  * Leftover ABC/Avisa dumps must never be copied into this group.
@@ -1273,23 +1310,15 @@ function tallyPidIsResidualWorkbook(pid, sourcePid){
 function reclaimOrphanTallyLinesForGroup(sourcePid){
   var group=tallyLatestUploadScopeProjects(sourcePid)||[];
   if(!group.length) return 0;
-  var keys={}, scopePids=[];
-  group.forEach(function(p){
-    if(!p||!p.id) return;
-    scopePids.push(p.id);
-    (getCF(p.id).actuals||[]).forEach(function(a){
-      if(!a||a.source!=='tally') return;
-      tallyLineMatchKeys(a).forEach(function(k){ keys[k]=1; });
-    });
-  });
-  var pur=purgeResidualTallyCopies(scopePids, keys);
   try{ stripShadowUntaggedWhenVoucherHasCc(sourcePid); }catch(eSh){}
-  return pur.removed||0;
+  return 0;
 }
 /** Restore XML cost-centre names only — no classify. Safe to run across leftover pids. */
 function restoreTallyIdentityOnPid(pid){
+  if(tallyShouldIgnorePidFeed(pid)) return 0;
   var cfg=getCF(pid);
   if(!cfg||!Array.isArray(cfg.actuals)) return 0;
+  if(cfg.actuals.length>15000) return 0;
   var n=0, i, a, raw;
   for(i=0;i<cfg.actuals.length;i++){
     a=cfg.actuals[i];
@@ -1305,13 +1334,14 @@ function restoreTallyIdentityOnPid(pid){
   return n;
 }
 /**
- * Open-path heal: restore Tally identity, then purge leftover copies and reroute only the selected project group.
- * Yields so Chrome never shows Page Unresponsive. Does not classify leftover ABC/Avisa dumps, and never copies them in.
+ * Open-path heal: identity + reroute the selected project group only. Never walk leftover dumps.
  */
 function runTallyOpenHealYielding(onDone){
   if(window.__gaHealBusy){ if(onDone) onDone(false); return; }
   window.__gaHealBusy=true;
-  var pids=Object.keys(_cfData||{});
+  _gaTallyScopePidCache={pid:'', set:null};
+  var group=(_curPid?tallyLatestUploadScopeProjects(_curPid):[])||[];
+  var pids=group.map(function(p){ return p&&p.id; }).filter(function(id){ return id && !tallyShouldIgnorePidFeed(id); });
   var i=0, touched=false, SLICE_MS=8;
   function finish(flag){
     window.__gaHealBusy=false;
@@ -1326,7 +1356,7 @@ function runTallyOpenHealYielding(onDone){
     gaYieldToBrowser(reclaimStep);
   }
   function reclaimStep(){
-    if(!_curPid){ finish(touched); return; }
+    if(!_curPid || tallyShouldIgnorePidFeed(_curPid)){ finish(touched); return; }
     try{
       var n=reclaimOrphanTallyLinesForGroup(_curPid)||0;
       if(n) touched=true;
@@ -1339,7 +1369,7 @@ function runTallyOpenHealYielding(onDone){
       ensureCommonAmenitiesProject(_curPid);
       ensureUniqueChartPrefixesInGroup(_curPid);
     }catch(eEn){}
-    var phase=tallyLatestUploadScopeProjects(_curPid)||[];
+    var phase=(tallyLatestUploadScopeProjects(_curPid)||[]).filter(function(pr){ return pr&&pr.id&&!tallyShouldIgnorePidFeed(pr.id); });
     var buckets={}, pi=0, ai=0, keep=[], p=null, cfg=null;
     function rerouteOne(){
       var t0=Date.now();
@@ -3797,6 +3827,7 @@ function collapseDuplicateTallyAcrossProjectGroup(sourcePid){
   if(!list||!list.length) return 0;
   var seen={}, removed=0;
   list.forEach(function(p){
+    if(tallyShouldIgnorePidFeed(p.id)) return;
     var c=getCF(p.id);
     if(!Array.isArray(c.actuals)) return;
     var out=[];
@@ -3848,6 +3879,7 @@ function dedupeTallyActualsPhase(sourcePid){
 /** Run once per project group per session (also after merge). Fixes already-stored triples. */
 function ensureTallyActualsDeduped(sourcePid){
   if(!sourcePid) return 0;
+  if(tallyShouldIgnorePidFeed(sourcePid)) return 0;
   var sh=getProjectHierarchy(sourcePid)||{};
   var key='g:'+String(sh.projectGroup||'')+'|v'+CF_VERSION;
   if(!window.__gaTallyDedupePhases) window.__gaTallyDedupePhases={};
@@ -7321,7 +7353,8 @@ function buildVisibleScopeCfg(){
   if(vis.length===1){
     try{ ensureTallyActualsDeduped(vis[0].id); }catch(eSc){}
     var src=getCF(vis[0].id)||{actuals:[]};
-    return Object.assign({}, src, {actuals:uniqueActualsForCashflowSums(src.actuals||[]), _scopeRollup:false, _scopeVis:vis});
+    var acts=tallyShouldIgnorePidFeed(vis[0].id)?[]:(src.actuals||[]);
+    return Object.assign({}, src, {actuals:uniqueActualsForCashflowSums(acts), _scopeRollup:false, _scopeVis:vis});
   }
   var actuals=[];
   var cfgOut={
@@ -7338,9 +7371,9 @@ function buildVisibleScopeCfg(){
     var c=getCF(p.id)||{};
     var h=getProjectHierarchy(p.id)||{};
     var bld=h.building||p.building||p.name||'Building';
-    (c.actuals||[]).forEach(function(a){
+    var skipTally=tallyShouldIgnorePidFeed(p.id);
+    if(!skipTally) (c.actuals||[]).forEach(function(a){
       if(!a) return;
-      if(a.source==='tally' && _curPid && tallyPidIsResidualWorkbook(p.id, _curPid)) return;
       var stamp=Object.assign({}, a, {
         _scopePid:p.id,
         _scopeBuilding:a.source==='tally'?tallyScopeBuildingLabel(a, bld, vis):bld,
@@ -7376,6 +7409,7 @@ function annotateVisibleTallySopRules(){
   var vis=getVisibleProjects();
   var pairingRows=[], untagged=[], missingZ=[], mixed=[], seenV={}, seenPhase={};
   vis.forEach(function(p){
+    if(tallyShouldIgnorePidFeed(p.id)) return;
     var h=getProjectHierarchy(p.id)||{};
     var pk=String(h.projectGroup||'')+'|'+String(h.phase||'');
     if(seenPhase[pk]) return;
@@ -7413,7 +7447,9 @@ function ensureCurrentProjectVisible(){
   if(_curPid==='__rollup__') return;
   var vis=getVisibleProjects();
   if(!vis.length){ _curPid=null; return; }
-  if(!_curPid || !vis.some(function(p){return p.id===_curPid;})) _curPid=vis[0].id;
+  var live=vis.find(function(p){ return p&&p.id&&!tallyShouldIgnorePidFeed(p.id); });
+  if(_curPid && vis.some(function(p){return p.id===_curPid;}) && !tallyShouldIgnorePidFeed(_curPid)) return;
+  _curPid=live?live.id:vis[0].id;
 }
 function buildProjectGroupSelect(){
   var sel=document.getElementById('proj-root-select'); if(!sel) return;
@@ -7576,7 +7612,7 @@ function buildCashflow(pid){
 
   // Build actuals index by month+cat (signed). Outflow columns flip sign at display so net L3 refunds reduce spend.
   var actMap={};
-  uniqueActualsForCashflowSums(cfg.actuals||[]).forEach(function(a){
+  uniqueActualsForCashflowSums(tallyShouldIgnorePidFeed(pid)?[]:(cfg.actuals||[])).forEach(function(a){
     if(!includeActualInCashflowSums(a)) return;
     var mo=a.date?a.date.slice(0,7):'';
     if(!mo) return;
@@ -16238,27 +16274,29 @@ loadAll().finally(function(){
     if(_cu.indexOf('script.google.com')>=0) setCfCloudStatus('Drive merge: on (same URL as V3)');
   }catch(e){}
   try{ updateMongoStatusLabel(); }catch(eM){}
-  syncFromV3(true);
-  // Open heal: identity restore + current-group reclaim/reroute, always yielding.
-  gaScheduleIdle(function(){
-    if(!window.__gaNeedTallyOpenHeal) return;
-    window.__gaNeedTallyOpenHeal=false;
-    try{ setSS('Routing Tally to buildings…','gold'); }catch(eSs){}
-    runTallyOpenHealYielding(function(touched){
-      try{ renderAll(); }catch(eRn){}
-      if(touched){
-        gaScheduleIdle(function(){
-          var perPid={};
-          Object.keys(_cfData||{}).forEach(function(pid){
-            var c=getCF(pid);
-            if(c&&(c._cfReplaceActuals||c._cfTallyPurged)) perPid[pid]=['actuals','tallyFeedAt','tallyFeedLines','_cfReplaceActuals'];
-          });
-          try{ saveAll(Object.keys(perPid).length?{perPidSections:perPid}:{}); }catch(eS){}
-        }, 400);
-      }
-      try{ setSS('Tally routing ready','green'); }catch(eSs2){}
-    });
-  }, 80);
+  gaYieldToBrowser(function(){
+    try{ syncFromV3(true); }catch(eSy){}
+    gaScheduleIdle(function(){
+      if(!window.__gaNeedTallyOpenHeal) return;
+      window.__gaNeedTallyOpenHeal=false;
+      try{ setSS('Routing Tally to buildings…','gold'); }catch(eSs){}
+      runTallyOpenHealYielding(function(touched){
+        try{ renderAll(); }catch(eRn){}
+        if(touched){
+          gaScheduleIdle(function(){
+            var perPid={};
+            (tallyLatestUploadScopeProjects(_curPid)||[]).forEach(function(p){
+              if(!p||!p.id||tallyShouldIgnorePidFeed(p.id)) return;
+              var c=getCF(p.id);
+              if(c&&(c._cfReplaceActuals||c._cfTallyPurged)) perPid[p.id]=['actuals','tallyFeedAt','tallyFeedLines','_cfReplaceActuals'];
+            });
+            try{ saveAll(Object.keys(perPid).length?{perPidSections:perPid}:{}); }catch(eS){}
+          }, 400);
+        }
+        try{ setSS('Tally routing ready','green'); }catch(eSs2){}
+      });
+    }, 80);
+  });
 });
 (function gaApplyProjectFromUrl(){
   try{
