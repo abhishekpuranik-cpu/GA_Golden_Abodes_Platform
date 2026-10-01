@@ -269,7 +269,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 109;
+var CF_VERSION = 110;
 /** Current project Tally always counts. Leftover dumps stay out of In/Out/Z and are not scanned on open. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
@@ -1402,6 +1402,7 @@ function runTallyOpenHealYielding(onDone){
         a.tallyRoutePrefix=route.prefix||'';
         a.tallyRoutePid=destPid;
         if(destPid===String(p.id)) keep.push(a);
+        else if(isTallyPidPurged(destPid)) keep.push(a);
         else {
           if(!buckets[destPid]) buckets[destPid]=[];
           buckets[destPid].push(a);
@@ -4367,6 +4368,7 @@ function mergeTallyLinesIntoActuals(rows, opts){
     cfg.tallyFeedAt=Date.now();
     cfg.tallyFeedLines=(cfg.actuals||[]).filter(function(a){return a&&a.source==='tally';}).length;
   });
+  if(eligible.length) noteTallyImportClearsPurge(Object.keys(touched));
   try{
     if(window.__gaTallyDedupePhases){
       var shd=getProjectHierarchy(_curPid)||{};
@@ -4499,6 +4501,7 @@ function mergeTallyLinesIntoActualsAsync(rows, opts, onProgress, onDone){
         cfg.tallyFeedAt=Date.now();
         cfg.tallyFeedLines=(cfg.actuals||[]).filter(function(a){return a&&a.source==='tally';}).length;
       });
+      if(eligible.length) noteTallyImportClearsPurge(Object.keys(touched));
       gaYieldToBrowser(function(){
         try{
           if(window.__gaTallyDedupePhases){
@@ -5318,6 +5321,7 @@ function restoreWorkbookFromSnapshotId(snapshotId){
       var env=(res.body&&res.body.data)||null;
       if(!isV1EnvelopeLike(env)) throw new Error('Snapshot envelope invalid');
       applyWorkbookEnvelope(env);
+      try{ localStorage.removeItem(GA_TALLY_PURGE_LS); }catch(ePurge){}
       restoredUnits=countWorkbookSoldUnits(_cfData);
       renderAll();
       if(restoredUnits===0) throw new Error('This snapshot has 0 sold units. Pick an older line in the list with a higher unit count (e.g. 2, 3, 4…).');
@@ -5517,8 +5521,9 @@ function clearImportedActualsOnCfg(cfg){
   cfg.actuals=[];
   cfg.bsCashBankBalance=null;
   cfg.tallyFeedLines=0;
-  cfg.tallyFeedAt=null;
+  cfg.tallyFeedAt=Date.now();
   cfg._cfReplaceActuals=true;
+  cfg._cfTallyPurged=true;
   return n;
 }
 function showResetImportedDataModal(){
@@ -5590,10 +5595,13 @@ function runResetImportedData(){
   if(!window.confirm('Clear all actuals on:\n'+label+'\n\n'+sum.nBuildings+' building workbook(s), '+sum.nLines+' lines ('+sum.nTally+' Tally).'+extra+'\n\nSales units and planned schedules are kept. This cannot be undone except by Load / Snapshot / re-import.')) return;
   var n=0;
   var perPidSections={};
+  var wipePids=[];
   sum.projs.forEach(function(p){
     n+=clearImportedActualsOnCfg(getCF(p.id));
-    perPidSections[p.id]=['actuals','_cfReplaceActuals'];
+    perPidSections[p.id]=['actuals','tallyFeedAt','tallyFeedLines','_cfReplaceActuals','_cfTallyPurged'];
+    wipePids.push(p.id);
   });
+  markTallyPurgedPids(wipePids, 'all');
   try{
     window.__gaLastTallyExportRaw='';
     window.__gaLastTallyParsedRows=[];
@@ -5602,10 +5610,18 @@ function runResetImportedData(){
     window.__gaLastTallyExportMeta=null;
   }catch(eClr){}
   closeModal();
-  saveAll({full:true, perPidSections:perPidSections});
+  saveAll({full:true, skipMongo:true, perPidSections:perPidSections});
   renderAll();
-  setSS('Imported actuals cleared ('+n+' lines · '+sum.nBuildings+' buildings)','gold');
-  alert('Reset complete.\n\nCleared '+n+' actual lines on '+sum.nBuildings+' building workbook(s).\nImport XML/CSV or Live sync to load Tally again.');
+  setSS('Saving reset to server…','gold');
+  persistTallyWipeToServer(wipePids).then(function(ok){
+    if(ok){
+      setSS('Imported actuals cleared ('+n+' lines · '+sum.nBuildings+' buildings)','gold');
+      alert('Reset complete.\n\nCleared '+n+' actual lines on '+sum.nBuildings+' building workbook(s).\nImport XML/CSV or Live sync to load Tally again.');
+    }else{
+      setSS('Reset saved in this browser — server save failed. Do not refresh until Mongo is green.','red');
+      alert('Actuals were cleared in this browser, but the server save failed.\n\nDo not refresh yet — wait for “MongoDB save OK”, or click Save to server, then refresh.');
+    }
+  });
 }
 function isTallyFeedActual(a){
   return !!(a && String(a.source||'')==='tally');
@@ -5660,8 +5676,9 @@ function stripTallyFeedActualsOnCfg(cfg){
   cfg.actuals=(cfg.actuals||[]).filter(function(a){ return !isTallyFeedActual(a); });
   var n=before-cfg.actuals.length;
   cfg.tallyFeedLines=0;
-  cfg.tallyFeedAt=null;
+  cfg.tallyFeedAt=Date.now();
   cfg._cfReplaceActuals=true;
+  cfg._cfTallyPurged=true;
   return n;
 }
 var GA_TALLY_WIPE_IDB='ga_cf_v1_tally_wipe_backups';
@@ -5774,6 +5791,8 @@ function runDashClearTallyFeed(){
   gaTallyWipeBackupSave(pack).then(function(saved){
     var n=0;
     vis.forEach(function(p){ n+=stripTallyFeedActualsOnCfg(getCF(p.id)); });
+    var wipePids=vis.map(function(p){ return p&&p.id; }).filter(Boolean);
+    markTallyPurgedPids(wipePids, 'tally');
     try{
       window.__gaLastTallyExportRaw='';
       window.__gaLastTallyParsedRows=[];
@@ -5782,11 +5801,18 @@ function runDashClearTallyFeed(){
       window.__gaLastTallyExportMeta=null;
     }catch(eClr){}
     closeModal();
-    saveAll({full:true});
+    saveAll({full:true, skipMongo:true});
     renderAll();
-    var note=saved&&saved._idbError?' Backup stayed in this session only (browser storage full).':' Backup saved in this browser.';
-    setSS('Tally feed cleared ('+n+' lines)'+note,'gold');
-    alert('Tally feed cleared.\n\nRemoved '+n+' uploaded/synced lines.\n'+pack.nManualKept+' manual actuals kept.'+note+'\nImport XML/CSV or Live sync to load Tally again.');
+    persistTallyWipeToServer(wipePids).then(function(ok){
+      var note=saved&&saved._idbError?' Backup stayed in this session only (browser storage full).':' Backup saved in this browser.';
+      if(ok){
+        setSS('Tally feed cleared ('+n+' lines)'+note,'gold');
+        alert('Tally feed cleared.\n\nRemoved '+n+' uploaded/synced lines.\n'+pack.nManualKept+' manual actuals kept.'+note+'\nImport XML/CSV or Live sync to load Tally again.');
+      }else{
+        setSS('Tally cleared here — server save failed. Do not refresh until Mongo is green.','red');
+        alert('Tally feed was cleared in this browser, but the server save failed.\n\nDo not refresh yet — wait for “MongoDB save OK”, then refresh.');
+      }
+    });
   }).catch(function(err){
     if(runBtn){ runBtn.disabled=false; runBtn.textContent='Clear Tally feed'; }
     alert('Backup failed — Tally feed was not cleared.\n'+String(err&&err.message||err));
@@ -5979,6 +6005,107 @@ function workbookHeavyRowCount(){
     n+=(c.units&&c.units.length)||0;
   });
   return n;
+}
+/** Tiny local stamp so a Tally wipe survives refresh even if Mongo PUT has not finished. */
+var GA_TALLY_PURGE_LS='ga_cf_v1_tally_purge';
+function readTallyPurgeTombstone(){
+  try{ return JSON.parse(localStorage.getItem(GA_TALLY_PURGE_LS)||'{}')||{}; }catch(e){ return {}; }
+}
+function writeTallyPurgeTombstone(map){
+  try{ localStorage.setItem(GA_TALLY_PURGE_LS, JSON.stringify(map||{})); }catch(e){}
+}
+function clearTallyPurgeTombstonePids(pids){
+  if(!pids||!pids.length) return;
+  var map=readTallyPurgeTombstone(), i, changed=false;
+  for(i=0;i<pids.length;i++){
+    if(map[String(pids[i])]){ delete map[String(pids[i])]; changed=true; }
+  }
+  if(changed) writeTallyPurgeTombstone(map);
+}
+function markTallyPurgedPids(pids, mode){
+  var at=Date.now(), map=readTallyPurgeTombstone();
+  mode=mode==='all'?'all':'tally';
+  (pids||[]).forEach(function(pid){
+    if(!pid) return;
+    map[String(pid)]={at:at, mode:mode};
+    var cfg=getCF(pid);
+    if(!cfg) return;
+    cfg._cfTallyPurged=true;
+    cfg._cfReplaceActuals=true;
+    cfg.tallyFeedAt=at;
+    cfg.tallyFeedLines=0;
+  });
+  writeTallyPurgeTombstone(map);
+  return at;
+}
+function persistTallyWipeToServer(pids){
+  pids=(pids||[]).map(function(id){ return String(id); }).filter(Boolean);
+  _mongoForceFullSave=true;
+  _mongoDirtyPids={};
+  _mongoDirtyPidSections={};
+  try{ localSnapshotSave(); }catch(eLs){}
+  if(!canUseMongoState()) return Promise.resolve(true);
+  var tries=0;
+  function attempt(){
+    tries++;
+    return mongoStatePutNow().then(function(ok){
+      if(ok){ clearTallyPurgeTombstonePids(pids); return true; }
+      if(tries<12 && (_mongoSaveBusy || _mongoSaveQueued)){
+        return new Promise(function(resolve){
+          setTimeout(function(){ resolve(attempt()); }, 450);
+        });
+      }
+      return false;
+    });
+  }
+  return attempt();
+}
+function applyTallyPurgeTombstoneToEnvelope(incomingEnv){
+  var map=readTallyPurgeTombstone(), pid, rec, S, tAt, sAt, changed=false, mapChanged=false;
+  if(!incomingEnv||!incomingEnv.data||!map||!Object.keys(map).length) return false;
+  for(pid in map){
+    if(!Object.prototype.hasOwnProperty.call(map,pid)) continue;
+    rec=map[pid]||{};
+    tAt=Number(rec.at)||0;
+    if(!tAt) continue;
+    S=incomingEnv.data[pid];
+    if(!S||typeof S!=='object') continue;
+    sAt=Number(S.tallyFeedAt)||0;
+    if(sAt>tAt){
+      delete map[pid];
+      mapChanged=true;
+      continue;
+    }
+    if(rec.mode==='all'){
+      S.actuals=[];
+      S.bsCashBankBalance=null;
+    }else{
+      S.actuals=(S.actuals||[]).filter(function(a){ return a&&a.source!=='tally'; });
+    }
+    S.tallyFeedLines=0;
+    S.tallyFeedAt=tAt;
+    S._cfTallyPurged=true;
+    S._cfReplaceActuals=true;
+    changed=true;
+  }
+  if(mapChanged) writeTallyPurgeTombstone(map);
+  return changed;
+}
+function noteTallyImportClearsPurge(pids){
+  var list=(pids||[]).map(function(id){ return String(id); }).filter(Boolean);
+  if(!list.length) return;
+  list.forEach(function(pid){
+    var cfg=getCF(pid);
+    if(cfg){ try{ delete cfg._cfTallyPurged; }catch(eP){ cfg._cfTallyPurged=false; } }
+  });
+  clearTallyPurgeTombstonePids(list);
+}
+function isTallyPidPurged(pid){
+  if(!pid) return false;
+  var cfg=getCF(pid);
+  if(cfg && cfg._cfTallyPurged) return true;
+  var rec=readTallyPurgeTombstone()[String(pid)];
+  return !!(rec && rec.at);
 }
 function localSnapshotSave(){
   try{
@@ -6785,6 +6912,7 @@ function autoPullMongoIfNewer(){
   if(_mongoSaveBusy || _mongoSaveQueued) return;
   if(Object.keys(_mongoDirtyPids||{}).length) return;
   if(_mongoForceFullSave) return;
+  try{ if(Object.keys(readTallyPurgeTombstone()||{}).length) return; }catch(ePurge){}
   fetch(mongoStateMetaApiUrl(),{ credentials:'include', cache:'no-store' })
     .then(function(r){ return r.ok?r.json():null; })
     .then(function(j){
@@ -7072,6 +7200,7 @@ function protectTallyFeedsFromStaleServer(incomingEnv){
         }
       });
     });
+    applyTallyPurgeTombstoneToEnvelope(incomingEnv);
   }catch(e){}
   return incomingEnv;
 }
