@@ -24,6 +24,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 /* Top bar */
 #topbar{background:linear-gradient(90deg,#0A3266,#1558A0);color:#fff;padding:0 14px;display:flex;align-items:center;gap:4px;position:sticky;top:0;z-index:200;box-shadow:0 2px 8px rgba(0,0,0,.3);flex-wrap:wrap;min-height:46px}
 #topbar .logo{font-size:14px;font-weight:800;padding:0 14px 0 0;border-right:1px solid rgba(255,255,255,.2);margin-right:4px;white-space:nowrap}
+#topbar select,#topbar option{color:var(--blue-b);background:#fff}
 .tab-btn{background:none;border:none;color:rgba(255,255,255,.7);padding:12px 11px;cursor:pointer;font-size:11px;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap}
 .tab-btn.on{color:#fff;border-bottom-color:#62C5FF}
 .tab-btn:hover{color:#fff}
@@ -48,7 +49,42 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .mc-tbl th{text-align:left;background:var(--blue-l);color:var(--blue-b);padding:6px 8px;font-weight:700;position:sticky;top:0;z-index:1}
 .mc-tbl td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
 .mc-tbl tr:hover td{background:rgba(21,88,160,.04)}
-.mc-l1{width:100%;text-align:left;border:none;background:var(--blue-l);color:var(--blue-b);font-weight:800;font-size:11px;padding:8px 10px;cursor:pointer;border-radius:8px;margin:8px 0 4px}
+.mc-wrap{display:grid;grid-template-columns:230px 1fr;gap:12px;align-items:start}
+.mc-nav{border:1px solid var(--border);border-radius:10px;background:#fff;max-height:calc(100vh - 260px);overflow:auto;padding:8px 0}
+.mc-nav-sec{font-size:9px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:8px 12px 4px}
+.mc-nav-item{display:block;width:100%;text-align:left;border:none;background:transparent;padding:7px 12px;font-size:11px;font-weight:700;color:var(--blue-b);cursor:pointer;border-left:3px solid transparent}
+.mc-nav-item:hover{background:#F8FAFC}
+.mc-nav-item.on{background:var(--blue-l);border-left-color:var(--blue)}
+.mc-nav-item.dim{color:var(--muted);font-weight:600}
+.mc-nav-item span{color:var(--muted);font-weight:600}
+.mc-sheet{border:1px solid var(--border);border-radius:10px;background:#fff;max-height:calc(100vh - 260px);overflow:auto}
+.mc-tbl--sheet{min-width:1100px}
+.mc-tbl--sheet thead th{position:sticky;z-index:2}
+.mc-tbl--sheet thead tr:first-child th{top:0}
+.mc-tbl--sheet thead tr:nth-child(2) th{top:24px;font-size:9px;letter-spacing:.02em}
+.mc-tbl--sheet td:first-child,.mc-tbl--sheet th:first-child{position:sticky;left:0;z-index:1;background:#fff;box-shadow:1px 0 0 var(--border)}
+.mc-tbl--sheet thead th:first-child{z-index:3;background:var(--blue-l)}
+.mc-row.on td{background:var(--blue-l)!important}
+.mc-row.on td:first-child{background:var(--blue-l)!important;box-shadow:inset 3px 0 0 var(--blue),1px 0 0 var(--border)}
+.mc-detail td{background:#F8FBFF!important;border-bottom:2px solid var(--blue)}
+.mc-kv{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px 14px;font-size:10px}
+.mc-kv b{display:block;color:var(--muted);font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;margin-bottom:2px}
+.mc-badge{display:inline-block;font-size:9px;font-weight:800;padding:2px 6px;border-radius:999px;background:#EEF2F6;color:var(--slate)}
+.mc-badge.bldg{background:var(--blue-l);color:var(--blue-b)}
+.mc-flag{font-weight:800;font-size:10px;text-transform:uppercase}
+.mc-menu{position:absolute;right:0;top:100%;margin-top:4px;min-width:260px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.16);z-index:40;padding:6px 0}
+.mc-menu button{display:block;width:100%;text-align:left;border:none;background:none;padding:9px 14px;font-size:11px;font-weight:700;color:var(--blue-b);cursor:pointer}
+.mc-menu button:hover{background:var(--blue-l)}
+.mc-menu button.danger{color:var(--red-b)}
+.mc-menu .hint{display:block;font-size:9px;font-weight:600;color:var(--muted);margin-top:2px}
+.mc-empty{padding:28px 16px;color:var(--muted);font-size:11px;line-height:1.5}
+.mc-mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:10px}
+@media (max-width:980px){
+  .mc-wrap{grid-template-columns:1fr}
+  .mc-nav{max-height:132px;display:flex;flex-wrap:nowrap;overflow-x:auto;padding:6px}
+  .mc-nav-sec{display:none}
+  .mc-nav-item{flex:0 0 auto;width:auto;border-left:none;border-radius:8px;white-space:nowrap}
+}
 .exp-filterbar{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;align-items:end;padding:12px 14px;background:#fff;border:1px solid var(--border);border-radius:10px;margin-bottom:12px}
 .exp-filterbar label{display:block;font-size:9px;font-weight:700;color:var(--muted);margin-bottom:4px;letter-spacing:.02em;text-transform:uppercase}
 .exp-kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-bottom:14px}
@@ -277,7 +313,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 111;
+var CF_VERSION = 113;
 /** Current project Tally always counts. Leftover dumps stay out of In/Out/Z and are not scanned on open. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
@@ -691,22 +727,52 @@ function masterCodeQueryMatch(hay, q){
   if(!parts.length) return true;
   return parts.every(function(p){ return hay.indexOf(p)>=0; });
 }
-function isMasterCodeL1Collapsed(id){
-  if(String(_masterCodeQ||'').trim()) return _masterCodeCollapsedL1[id]===true;
-  return _masterCodeCollapsedL1[id]!==false;
+function masterCodeL1Id(row){
+  return String(row&&row.scope||'')+'|'+String(row&&row.l1||'')+'|'+String(row&&row.l1Name||'');
 }
-function listLiveMasterCodeEntries(){
-  var scope=masterCodeEffectiveScope();
+function masterCodeBlank(v){
+  var s=String(v==null?'':v).trim();
+  if(!s || s==='0') return '';
+  return s;
+}
+function masterCodeDisp(row){
+  if(!row) return row;
+  if(_mcShowStored) return row;
+  var viewPref=masterCodeViewPrefix();
+  try{
+    if(row.scope==='building'&&viewPref&&viewPref!=='CM') return gaAcctCloneForPrefix(row, viewPref)||row;
+  }catch(eCl){}
+  return row;
+}
+var _mcHayCache={sig:'', byKey:{}};
+var _mcSearchRaf=0;
+function masterCodeHayCacheSig(){
+  var n=0;
+  try{ n=Object.keys(GA_ACCT_L3_BY_CODE||{}).length; }catch(eN){}
+  var up=_gaAcctMasterMeta&&(_gaAcctMasterMeta.uploadedAt||_gaAcctMasterMeta.fileName)||'';
+  return n+'|'+masterCodeViewPrefix()+'|'+String(up);
+}
+function masterCodeSearchHayCached(e, viewPref){
+  var sig=masterCodeHayCacheSig();
+  if(_mcHayCache.sig!==sig){ _mcHayCache={sig:sig, byKey:{}}; }
+  var k=e&&e.masterKey?String(e.masterKey):'';
+  if(k && _mcHayCache.byKey[k]) return _mcHayCache.byKey[k];
+  var hay=masterCodeSearchHay(e, viewPref);
+  if(k) _mcHayCache.byKey[k]=hay;
+  return hay;
+}
+function listLiveMasterCodeEntries(scopeOverride){
+  var scope=scopeOverride||masterCodeEffectiveScope();
   var viewPref=masterCodeViewPrefix();
   var q=String(_masterCodeQ||'');
-  var rows=[], k, e, hay;
+  var rows=[], e, hay;
   Object.keys(GA_ACCT_L3_BY_CODE||{}).forEach(function(key){
     e=GA_ACCT_L3_BY_CODE[key];
     if(!e) return;
     if(scope==='building' && e.scope==='common') return;
     if(scope==='common' && e.scope!=='common') return;
     if(_masterCodeCfOnly && !e.cfApplicable) return;
-    hay=masterCodeSearchHay(e, viewPref);
+    hay=masterCodeSearchHayCached(e, viewPref);
     if(!masterCodeQueryMatch(hay, q)) return;
     rows.push(e);
   });
@@ -720,6 +786,35 @@ function listLiveMasterCodeEntries(){
     return String(a.shortCode||'').localeCompare(String(b.shortCode||''));
   });
   return rows;
+}
+function groupMasterCodeRows(rows){
+  var groups={}, order=[];
+  (rows||[]).forEach(function(row){
+    var id=masterCodeL1Id(row);
+    if(!groups[id]){
+      groups[id]={id:id, scope:row.scope, l1:row.l1, l1Name:row.l1Name, rows:[]};
+      order.push(id);
+    }
+    groups[id].rows.push(row);
+  });
+  return {groups:groups, order:order};
+}
+function htmlMcFlow(flow){
+  var f=String(flow||'');
+  var col='#4A5568';
+  if(f==='in') col='#166534';
+  else if(f==='cash') col='#1558A0';
+  else if(f==='out') col='#0A3266';
+  return '<span class="mc-flag" style="color:'+col+'">'+escHtml(f||'—')+'</span>';
+}
+function htmlMcYes(v){ return v?'<span style="color:#166534;font-weight:800">Yes</span>':'<span style="color:var(--muted)">—</span>'; }
+function htmlMcCell(v, mono){
+  var s=masterCodeBlank(v);
+  if(!s) return '<span style="color:var(--muted)">—</span>';
+  return '<span class="'+(mono?'mc-mono':'')+'" title="'+escAttr(s)+'">'+escHtml(s)+'</span>';
+}
+function isMasterCodeL1Collapsed(id){
+  return _masterCodeCollapsedL1[id]===true;
 }
 function addManualMasterCodeFromForm(){
   var scope=String((document.getElementById('mc-add-scope')||{}).value||'building');
@@ -785,6 +880,68 @@ function addManualMasterCodeFromForm(){
   renderAll();
   setSS('Live master updated · '+masterKey+' · '+st.total+' keys','green');
 }
+function masterCodeResultCap(){
+  return String(_masterCodeQ||'').trim()?800:280;
+}
+function htmlMasterCodeMatchLine(shownN, rowsN, cap){
+  return 'Showing <strong>'+shownN+'</strong> of <strong>'+rowsN+'</strong> matches'+(rowsN>cap?' (add another word to narrow)':'')+'.';
+}
+function htmlMasterCodeResultsHtml(){
+  var viewPref=masterCodeViewPrefix();
+  var rows=listLiveMasterCodeEntries();
+  var cap=masterCodeResultCap();
+  var shown=rows.slice(0, cap);
+  var searching=!!String(_masterCodeQ||'').trim();
+  var packed=groupMasterCodeRows(shown);
+  var h='';
+  if(!shown.length){
+    h+='<div class="card" style="font-size:11px;color:var(--muted)">No codes match. Clear search or switch Building / Common.</div>';
+    return {html:h, shown:shown.length, total:rows.length, cap:cap};
+  }
+  packed.order.forEach(function(id){
+    var g=packed.groups[id];
+    var open=searching?true:!isMasterCodeL1Collapsed(id);
+    h+='<button type="button" class="mc-l1" data-action="mc-toggle-l1" data-l1="'+escAttr(id)+'">'+(open?'▾':'▸')+' '+(g.scope==='common'?'Common':'Building')+' · '+escHtml(g.l1||'')+' '+escHtml(g.l1Name||'')+' <span style="font-weight:600;color:var(--muted)">('+g.rows.length+')</span></button>';
+    if(!open) return;
+    h+='<div class="card" style="margin-top:0;padding:0;overflow:auto">';
+    h+='<table class="mc-tbl"><thead><tr><th>Short</th><th>L2 / L3</th><th>CF L3 ('+escHtml(viewPref)+')</th><th>PL L3</th><th>Flow</th><th></th></tr></thead><tbody>';
+    g.rows.forEach(function(row){
+      var disp=masterCodeDisp(row)||row;
+      var cf=String(disp.cfL3||row.cfL3||'').trim();
+      var pl=String(row.plL3||'').trim();
+      h+='<tr>';
+      h+='<td style="white-space:nowrap;font-weight:800">'+escHtml(row.shortCode||'')+'<div style="font-size:9px;color:var(--muted);font-weight:600">'+escHtml(row.masterKey||'')+'</div></td>';
+      h+='<td><div style="font-weight:700">'+escHtml(row.l3Name||'')+'</div><div style="font-size:9px;color:var(--muted)">'+escHtml((row.l2?row.l2+' ':'')+(row.l2Name||''))+'</div></td>';
+      h+='<td>'+(cf?escHtml(cf):'<span style="color:var(--muted)">—</span>')+'</td>';
+      h+='<td>'+(pl?escHtml(pl):'<span style="color:var(--muted)">—</span>')+'</td>';
+      h+='<td>'+escHtml(row.flow||'')+(row.cfApplicable?' · CF':'')+'</td>';
+      h+='<td style="white-space:nowrap">';
+      if(cf) h+='<button type="button" class="btn btn-outline" data-action="mc-copy" data-text="'+escAttr(cf)+'" style="font-size:9px;padding:2px 6px">Copy CF</button> ';
+      h+='<button type="button" class="btn btn-outline" data-action="mc-copy" data-text="'+escAttr(row.shortCode||'')+'" style="font-size:9px;padding:2px 6px">Copy code</button>';
+      h+='</td></tr>';
+    });
+    h+='</tbody></table></div>';
+  });
+  return {html:h, shown:shown.length, total:rows.length, cap:cap};
+}
+function refreshMasterCodeResults(){
+  var box=document.getElementById('mc-results');
+  var line=document.getElementById('mc-match-line');
+  if(!box){
+    if(_curTab==='expenses' && _expenseUIPanel==='master-code') renderExpenses();
+    return;
+  }
+  var painted=htmlMasterCodeResultsHtml();
+  if(line) line.innerHTML=htmlMasterCodeMatchLine(painted.shown, painted.total, painted.cap);
+  box.innerHTML=painted.html;
+}
+function scheduleMasterCodeSearchRefresh(){
+  if(_mcSearchRaf) return;
+  _mcSearchRaf=requestAnimationFrame(function(){
+    _mcSearchRaf=0;
+    refreshMasterCodeResults();
+  });
+}
 function htmlMasterCodeLockPanel(){
   return '<div class="card" style="border-top:3px solid var(--gold);max-width:520px">'
     +'<div style="font-size:14px;font-weight:800;color:var(--blue-b);margin-bottom:6px">Master Code</div>'
@@ -796,16 +953,7 @@ function htmlMasterCodePanel(){
   var viewPref=masterCodeViewPrefix();
   var scope=masterCodeEffectiveScope();
   var liveN=Object.keys(GA_ACCT_L3_BY_CODE||{}).length;
-  var rows=listLiveMasterCodeEntries();
-  var cap=280;
-  var shown=rows.slice(0, cap);
-  var groups={}, gi, e, gid, g;
-  shown.forEach(function(row){
-    gid=String(row.scope||'')+'|'+String(row.l1||'')+'|'+String(row.l1Name||'');
-    if(!groups[gid]) groups[gid]={id:gid, scope:row.scope, l1:row.l1, l1Name:row.l1Name, rows:[]};
-    groups[gid].rows.push(row);
-  });
-  var gids=Object.keys(groups);
+  var painted=htmlMasterCodeResultsHtml();
   var src=_gaAcctMasterMeta&&_gaAcctMasterMeta.source?_gaAcctMasterMeta.source:'shipped';
   var fn=_gaAcctMasterMeta&&_gaAcctMasterMeta.fileName?_gaAcctMasterMeta.fileName:'';
   var h='';
@@ -827,8 +975,8 @@ function htmlMasterCodePanel(){
   });
   h+='<button type="button" class="mc-chip'+(_masterCodeCfOnly?' on':'')+'" data-action="mc-cf-only">CF only</button>';
   h+='</div>';
-  h+='<input type="search" class="cap-inp" id="mc-smart-q" data-action="mc-smart-q" placeholder="Search short code, L3 name, CF L3, L1, building letter…" value="'+escAttr(_masterCodeQ||'')+'" style="width:100%;max-width:640px;font-size:12px" autocomplete="off"/>';
-  h+='<div style="font-size:10px;color:var(--muted);margin-top:6px">Showing <strong>'+shown.length+'</strong> of <strong>'+rows.length+'</strong> matches'+(rows.length>cap?' (refine search to see the rest)':'')+'.</div>';
+  h+='<input type="search" class="cap-inp" id="mc-smart-q" data-action="mc-smart-q" placeholder="Search short code, L3 name, CF L3, L1, building letter…" value="'+escAttr(_masterCodeQ||'')+'" style="width:100%;max-width:640px;font-size:12px" autocomplete="off" spellcheck="false"/>';
+  h+='<div id="mc-match-line" style="font-size:10px;color:var(--muted);margin-top:6px">'+htmlMasterCodeMatchLine(painted.shown, painted.total, painted.cap)+'</div>';
   h+='</div>';
   if(_masterCodeShowAdd){
     h+='<div class="card" style="border-top:3px solid var(--gold)">';
@@ -849,35 +997,7 @@ function htmlMasterCodePanel(){
     h+='<button type="button" class="btn btn-primary" data-action="mc-add-save" style="margin-top:10px;font-size:11px">Save to live master</button>';
     h+='<div style="font-size:10px;color:var(--muted);margin-top:6px">Does not remap existing Tally lines. Next import uses this code.</div></div>';
   }
-  if(!shown.length){
-    h+='<div class="card" style="font-size:11px;color:var(--muted)">No codes match. Clear search or switch Building / Common.</div>';
-    return h;
-  }
-  gids.forEach(function(id){
-    g=groups[id];
-    var open=!isMasterCodeL1Collapsed(id);
-    h+='<button type="button" class="mc-l1" data-action="mc-toggle-l1" data-l1="'+escAttr(id)+'">'+(open?'▾':'▸')+' '+(g.scope==='common'?'Common':'Building')+' · '+escHtml(g.l1||'')+' '+escHtml(g.l1Name||'')+' <span style="font-weight:600;color:var(--muted)">('+g.rows.length+')</span></button>';
-    if(!open) return;
-    h+='<div class="card" style="margin-top:0;padding:0;overflow:auto">';
-    h+='<table class="mc-tbl"><thead><tr><th>Short</th><th>L2 / L3</th><th>CF L3 ('+escHtml(viewPref)+')</th><th>PL L3</th><th>Flow</th><th></th></tr></thead><tbody>';
-    g.rows.forEach(function(row){
-      var disp=row;
-      try{ if(row.scope==='building'&&viewPref&&viewPref!=='CM') disp=gaAcctCloneForPrefix(row, viewPref)||row; }catch(eD){}
-      var cf=String(disp.cfL3||row.cfL3||'').trim();
-      var pl=String(row.plL3||'').trim();
-      h+='<tr>';
-      h+='<td style="white-space:nowrap;font-weight:800">'+escHtml(row.shortCode||'')+'<div style="font-size:9px;color:var(--muted);font-weight:600">'+escHtml(row.masterKey||'')+'</div></td>';
-      h+='<td><div style="font-weight:700">'+escHtml(row.l3Name||'')+'</div><div style="font-size:9px;color:var(--muted)">'+escHtml((row.l2?row.l2+' ':'')+(row.l2Name||''))+'</div></td>';
-      h+='<td>'+(cf?escHtml(cf):'<span style="color:var(--muted)">—</span>')+'</td>';
-      h+='<td>'+(pl?escHtml(pl):'<span style="color:var(--muted)">—</span>')+'</td>';
-      h+='<td>'+escHtml(row.flow||'')+(row.cfApplicable?' · CF':'')+'</td>';
-      h+='<td style="white-space:nowrap">';
-      if(cf) h+='<button type="button" class="btn btn-outline" data-action="mc-copy" data-text="'+escAttr(cf)+'" style="font-size:9px;padding:2px 6px">Copy CF</button> ';
-      h+='<button type="button" class="btn btn-outline" data-action="mc-copy" data-text="'+escAttr(row.shortCode||'')+'" style="font-size:9px;padding:2px 6px">Copy code</button>';
-      h+='</td></tr>';
-    });
-    h+='</tbody></table></div>';
-  });
+  h+='<div id="mc-results">'+painted.html+'</div>';
   return h;
 }
 function cfColNameMatches(col, needles){
@@ -2461,6 +2581,7 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   var hasBalN=(sop.pairingRows||[]).filter(function(r){ return r.hasBal || Math.abs(r.balSum||0)>=0.05; }).length;
   var zNeqN=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('z_neq_eligible_l3')>=0; }).length;
   var ok=showZ?!!V.rule2Pass:true;
+  var alarmN=untaggedN+missZ+wrongN+zNeqN;
   var scopeNote=cfg&&cfg._scopeRollup?('Rollup: '+escHtml(cfg.projName||'')+'. '):'';
   var h='<div class="card" style="margin-bottom:12px;border-left:4px solid '+(showZ?(ok?'#166534':'#991B1B'):'#1558A0')+';padding:14px 16px">';
   h+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">';
@@ -2482,8 +2603,10 @@ function htmlExpenseSopReconcileTable(cfg, filt){
     h+='<tr><td><strong>Difference (Net cashflow − Sum of Z)</strong></td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesDisplay(V.rule2Diff)+'</strong></td></tr>';
   }
   h+='</tbody></table>';
-  if(showZ){
+  if(showZ && (!ok || alarmN)){
     h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged at entry level: untagged '+untaggedN+' · missing Z '+missZ+' · missing L3 (Z-to-Z) '+missL3+' · BAL/TDS excluded '+hasBalN+' · Z ≠ L3 '+zNeqN+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
+  } else if(showZ){
+    h+='<div style="font-size:10px;margin-top:8px;color:var(--muted)">Net = Z. Z-to-Z and BAL/TDS stay on the extract only — they are not in In, Out, or Z. <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
   }
   h+='</div>';
   return h;
@@ -4407,43 +4530,71 @@ function downloadCfZVsRestDeltaXlsx(audit){
   XLSX.utils.book_append_sheet(wb, sheetFrom(audit.routeRows,'All routed Tally'), 'Routing_audit');
   XLSX.writeFile(wb, 'GA_CF_Z_vs_Rest_Delta_'+new Date().toISOString().slice(0,10)+'.xlsx');
 }
-/** After each sync/import: Net CF vs Z, pairing list, missing Z / untagged exceptions. */
+/** After each sync/import: Net CF vs Z on the visible rollup. Skip the alarm modal when company tally is ₹0. */
 function showCfZBalanceAfterSync(res){
   try{
     if(res&&res.sopAudit) window.__gaLastSopAudit=res.sopAudit;
     else annotatePhaseTallySopRules(_curPid);
   }catch(eAn){}
-  var cfg=getCF(_curPid)||{};
+  var vis=[];
+  try{ vis=getVisibleProjects()||[]; }catch(eVis){ vis=[]; }
+  var showZ=false;
+  try{ showZ=visibleScopeShowsCompanyZ(vis); }catch(eZ){ showZ=false; }
+  var cfg=null;
+  try{ cfg=buildVisibleScopeCfg(); }catch(eC){ cfg=null; }
+  if(!cfg) cfg=getCF(_curPid)||{};
   var V=computeCashflowValidation(cfg);
   var sop=window.__gaLastSopAudit||{pairingRows:[],untagged:[],missingZ:[]};
   var added=res&&res.added||0;
   var untaggedN=(sop.untagged||[]).length;
   var missZ=(sop.pairingRows||[]).filter(function(r){ return r.reason==='missing_z'||(String(r.reason||'').indexOf('missing_z')>=0); }).length;
+  var missL3=(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length;
+  var hasBalN=(sop.pairingRows||[]).filter(function(r){ return r.hasBal || Math.abs(r.balSum||0)>=0.05; }).length;
   var wrongN=(sop.pairingRows||[]).filter(function(r){ return r.verdict==='Wrong'; }).length;
-  var ok=!!V.rule2Pass && !untaggedN && !missZ && !wrongN;
-  if(!added && !(cfg.actuals||[]).some(function(a){return a&&a.source==='tally';})){
+  var rupeeOk=showZ?!!V.rule2Pass:true;
+  var pairingOk=!untaggedN && !missZ && !wrongN;
+  var hasTally=(cfg.actuals||[]).some(function(a){return a&&a.source==='tally';});
+  if(!added && !hasTally){
     alert('Tally sync finished but no voucher lines were imported.\n\nAdded: 0 · Skipped: '+(res&&res.skipped||0)+'.');
     return;
   }
-  var border=V.rule2Pass?'#166534':'#991B1B';
-  var bg=V.rule2Pass?'#F0FDF4':'#FEF2F2';
+  if(rupeeOk && pairingOk){
+    var msg='Tally SOP: cashflow tallied'+(added?(' · +'+added+' lines'):'');
+    if(showZ) msg+=' · Net = Z';
+    else msg+=' · open All buildings or Common Amenities to confirm Net = Z';
+    try{ setSS(msg,'green'); }catch(eSs){}
+    return;
+  }
+  var border=rupeeOk?'#166534':'#991B1B';
+  var bg=rupeeOk?'#F0FDF4':'#FEF2F2';
+  var title=showZ?(rupeeOk?'Cashflow tallied':'Cashflow not tallied'):'Building imported';
   var h='<div class="modal-bg" data-action="close-modal"><div class="modal" onclick="event.stopPropagation()" style="width:760px;max-width:96vw;max-height:90vh;overflow:auto;border-top:4px solid '+border+';background:'+bg+'">';
-  h+='<h3 style="margin-top:0">Tally SOP check — '+(V.rule2Pass?'Cashflow tallied':'Cashflow not tallied')+'</h3>';
-  h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">Each Payment/Receipt has two cashflow legs: <strong>Z</strong> and <strong>eligible L3</strong>. They must cancel. <strong>BAL/TDS codes are excluded from In, Out, Z, and Z+L3</strong>. PL is not cashflow. Exceptions stay in the file, flagged at voucher level.</p>';
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Net cashflow (In − Out)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.netCf)+'</div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Z total C&amp;CE</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.cfzL1)+'</div></div>';
-  h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Difference</div><div style="font-weight:800;font-size:16px;color:'+(V.rule2Pass?'#166534':'#991B1B')+'">'+formatRupeesDisplay(V.rule2Diff)+'</div></div>';
-  h+='</div>';
-  h+='<p style="font-size:11px;margin:0 0 8px">Entry flags: <strong>'+untaggedN+'</strong> untagged · <strong>'+missZ+'</strong> missing Z · <strong>'+(sop.pairingRows||[]).filter(function(r){ return String(r.reason||'').indexOf('missing_l3')>=0; }).length+'</strong> missing L3 · <strong>'+(sop.pairingRows||[]).filter(function(r){ return r.hasBal || Math.abs(r.balSum||0)>=0.05; }).length+'</strong> BAL/TDS excluded (not in Pairing balance) · <strong>'+wrongN+'</strong> wrong pairing.</p>';
-  h+='<div style="font-size:11px;font-weight:800;margin:8px 0 4px">Entry-wise: Z leg vs eligible L3 (cost-centre amounts)</div>';
+  h+='<h3 style="margin-top:0">Tally SOP check — '+title+'</h3>';
+  if(showZ){
+    h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">Each Payment/Receipt has two cashflow legs: <strong>Z</strong> and <strong>eligible L3</strong>. They must cancel. <strong>BAL/TDS codes are excluded from In, Out, Z, and Z+L3</strong>. PL is not cashflow. Z-to-Z (no L3) that nets to ₹0 is not a pairing failure.</p>';
+    h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
+    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Net cashflow (In − Out)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.netCf)+'</div></div>';
+    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Z total C&amp;CE</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.cfzL1)+'</div></div>';
+    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Difference</div><div style="font-weight:800;font-size:16px;color:'+(rupeeOk?'#166534':'#991B1B')+'">'+formatRupeesDisplay(V.rule2Diff)+'</div></div>';
+    h+='</div>';
+  } else {
+    h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">This view is one building. Company <strong>Z</strong> lives on <strong>Common Amenities</strong>, so Net vs Z is not scored here. Open All buildings to tally. Pairing exceptions below still need a look.</p>';
+  }
+  h+='<p style="font-size:11px;margin:0 0 8px">Entry flags: <strong>'+untaggedN+'</strong> untagged · <strong>'+missZ+'</strong> missing Z · <strong>'+wrongN+'</strong> wrong pairing'+(missL3?(' · '+missL3+' Z-to-Z (info)'):'')+(hasBalN?(' · '+hasBalN+' BAL/TDS excluded'):'')+'.</p>';
+  h+='<div style="font-size:11px;font-weight:800;margin:8px 0 4px">Entry-wise: exceptions first</div>';
   h+='<div style="max-height:220px;overflow:auto;border:1px solid var(--border);border-radius:8px;background:#fff;margin-bottom:10px">';
   h+='<table class="amt-pair-tbl" style="width:100%;font-size:10px"><thead><tr><th>Date</th><th>Type</th><th>Vch</th><th>Pairing</th><th>Z</th><th>L3</th><th>Verdict</th></tr></thead><tbody>';
-  (sop.pairingRows||[]).slice(0,200).forEach(function(r){
-    var col=r.verdict==='Correct'?'#166534':'#991B1B';
+  var rows=(sop.pairingRows||[]).slice();
+  rows.sort(function(a,b){
+    var aw=a&&a.verdict==='Wrong'?0:1;
+    var bw=b&&b.verdict==='Wrong'?0:1;
+    return aw-bw;
+  });
+  rows.slice(0,200).forEach(function(r){
+    var col=r.verdict==='Wrong'?'#991B1B':'#166534';
     h+='<tr><td>'+escHtml(r.date||'')+'</td><td>'+escHtml(r.voucherType||'')+'</td><td>'+escHtml(r.voucherNo||'')+'</td><td>'+escHtml(r.pairing||'')+'</td><td class="amt">'+formatRupeesDisplay(r.zSum||0)+'</td><td class="amt">'+formatRupeesDisplay(r.eligSum||0)+'</td><td style="font-weight:800;color:'+col+'">'+escHtml(r.verdict||'')+(r.reason?(' · '+escHtml(r.reason)):'')+'</td></tr>';
   });
-  if(!(sop.pairingRows||[]).length) h+='<tr><td colspan="7" style="color:var(--muted)">No grouped vouchers yet.</td></tr>';
+  if(!rows.length) h+='<tr><td colspan="7" style="color:var(--muted)">No grouped vouchers yet.</td></tr>';
   h+='</tbody></table></div>';
   if(res){
     h+='<p style="font-size:11px;color:var(--muted);margin:0 0 12px">Sync: +'+(res.added||0)+' · skipped '+(res.skipped||0)+(res.codingUnmapped?(' · unmapped master '+res.codingUnmapped):'')+'</p>';
@@ -5139,6 +5290,14 @@ var _masterCodeQ = '';
 var _masterCodeQTimer = null;
 var _masterCodeScope = ''; // '' auto | 'all' | 'building' | 'common'
 var _masterCodeCfOnly = false;
+var _mcL1 = '';
+var _mcLastL1 = '';
+var _mcSelKey = '';
+var _mcDetailOpen = false;
+var _mcShowMapping = false;
+var _mcShowStored = false;
+var _mcMenuOpen = false;
+var _mcSheetScroll = 0;
 var _masterCodeCollapsedL1 = {};
 var _masterCodeShowAdd = false;
 var _dashFrom = '';
@@ -7123,6 +7282,78 @@ function scheduleMongoStateSave(delayMs){
     mongoStatePutNow();
   }, Math.max(200, delayMs||1300));
 }
+function cfPeek(pid){
+  try{
+    if(pid!=null && _cfData && _cfData[pid] && typeof _cfData[pid]==='object') return _cfData[pid];
+  }catch(ePk){}
+  return null;
+}
+function hierarchyNonempty(v){
+  var s=String(v==null?'':v).trim();
+  return !!(s && s!=='Unassigned');
+}
+function pickHierarchyValue(primary, fallbackA, fallbackB){
+  if(hierarchyNonempty(primary)) return String(primary).trim();
+  if(hierarchyNonempty(fallbackA)) return String(fallbackA).trim();
+  if(hierarchyNonempty(fallbackB)) return String(fallbackB).trim();
+  var p=String(primary==null?'':primary).trim();
+  var a=String(fallbackA==null?'':fallbackA).trim();
+  var b=String(fallbackB==null?'':fallbackB).trim();
+  return p||a||b||'';
+}
+function cfgHierarchyBits(cfg){
+  cfg=cfg||{};
+  var u0=(Array.isArray(cfg.units)&&cfg.units[0])||(Array.isArray(cfg.unsoldUnits)&&cfg.unsoldUnits[0])||{};
+  return {
+    projectGroup: cfg.projectGroup||u0.projectGroup||'',
+    phase: cfg.phase||u0.phase||u0.projectPhase||'',
+    building: cfg.building||u0.building||u0.tower||u0.wing||'',
+    acctPrefix: cfg.acctPrefix||'',
+    tallyCommonCostOwner: !!cfg.tallyCommonCostOwner
+  };
+}
+function applyHierarchyOntoProject(p, prev, cfg){
+  if(!p) return p;
+  var bits=cfgHierarchyBits(cfg);
+  prev=prev||{};
+  p.projectGroup=pickHierarchyValue(p.projectGroup, prev.projectGroup, bits.projectGroup);
+  p.phase=pickHierarchyValue(p.phase, prev.phase, bits.phase);
+  p.building=pickHierarchyValue(p.building, prev.building, bits.building);
+  p.acctPrefix=pickHierarchyValue(p.acctPrefix, prev.acctPrefix, bits.acctPrefix);
+  if(prev.tallyCommonCostOwner || bits.tallyCommonCostOwner) p.tallyCommonCostOwner=true;
+  if(prev._commonAmenities || p._commonAmenities) p._commonAmenities=true;
+  return p;
+}
+function hydrateProjsFromCfData(){
+  (PROJS||[]).forEach(function(p){
+    if(!p||p.id==null) return;
+    applyHierarchyOntoProject(p, null, cfPeek(p.id));
+  });
+}
+function absorbV3ProjectList(incoming){
+  var prevById={};
+  (PROJS||[]).forEach(function(p){ if(p&&p.id!=null) prevById[String(p.id)]=p; });
+  var v3ids=(incoming||[]).map(function(p){ return p.id; });
+  var kept=(PROJS||[]).filter(function(p){ return p&&p._manual && v3ids.indexOf(p.id)<0; });
+  (incoming||[]).forEach(function(p){
+    if(!p) return;
+    var merged=Object.assign({}, p);
+    applyHierarchyOntoProject(merged, prevById[String(p.id)], cfPeek(p.id));
+    kept.push(merged);
+  });
+  PROJS=kept;
+  hydrateProjsFromCfData();
+}
+function persistProjectHierarchyToCfg(p){
+  if(!p||p.id==null) return;
+  var cfg=getCF(p.id);
+  if(!cfg) return;
+  if(hierarchyNonempty(p.projectGroup)) cfg.projectGroup=String(p.projectGroup).trim();
+  if(hierarchyNonempty(p.phase)) cfg.phase=String(p.phase).trim();
+  if(hierarchyNonempty(p.building)) cfg.building=String(p.building).trim();
+  if(hierarchyNonempty(p.acctPrefix)) cfg.acctPrefix=String(p.acctPrefix).trim();
+  if(p.tallyCommonCostOwner) cfg.tallyCommonCostOwner=true;
+}
 /** PROJS drives the header dropdown; _cfData holds rows. After Mongo load, add any missing ids so V3 localStorage cannot hide cloud-only projects. */
 function mergeProjectsFromCfData(){
   try{
@@ -7135,9 +7366,19 @@ function mergeProjectsFromCfData(){
       var cfg=_cfData[pid];
       if(!cfg||typeof cfg!=='object') return;
       var name=(cfg.projName&&String(cfg.projName).trim())||pid;
-      PROJS.push({id:pid,name:name});
+      var bits=cfgHierarchyBits(cfg);
+      PROJS.push({
+        id:pid,
+        name:name,
+        projectGroup:bits.projectGroup||'',
+        phase:bits.phase||'',
+        building:bits.building||'',
+        acctPrefix:bits.acctPrefix||'',
+        tallyCommonCostOwner:!!bits.tallyCommonCostOwner
+      });
       seen[pid]=1;
     });
+    hydrateProjsFromCfData();
   }catch(e){}
 }
 /** Drop one project from PROJS + _cfData; save (Mongo if enabled). V3 can re-add the row if that id still exists in ga_rp_projects. */
@@ -7617,13 +7858,13 @@ function syncFromV3(noPersist){
     if(raw&&raw!==_lastProjHash){
       var pp=JSON.parse(raw);
       if(pp&&pp.length){
-        // Merge: keep manual projects, update/add V3 projects
-        var v3ids=pp.map(function(p){return p.id;});
-        PROJS=PROJS.filter(function(p){return p._manual&&!v3ids.includes(p.id);});
-        pp.forEach(function(p){PROJS.push(p);});
+        absorbV3ProjectList(pp);
         _lastProjHash=raw;
         mergeProjectsFromCfData();
-        PROJS.forEach(function(p){var d=getCF(p.id);d.projName=p.name;if(p._projMonths)d.totalMonths=p._projMonths;});
+        PROJS.forEach(function(p){
+          persistProjectHierarchyToCfg(p);
+          var d=getCF(p.id);d.projName=p.name;if(p._projMonths)d.totalMonths=p._projMonths;
+        });
         buildProjectGroupSelect();
         buildPhaseSelect();
         buildBuildingSelect();
@@ -7685,6 +7926,8 @@ function inferProjectGroupFromProject(p){
   if(!p) return 'Unassigned';
   var explicit=(p.projectGroup||p.project||p.parentProject||p.program||p.projectRoot||p.rootProject||p.group||p.cluster||p.project_name||'').toString().trim();
   if(explicit) return explicit;
+  var cfg=p.id!=null?cfPeek(p.id):null;
+  if(cfg&&hierarchyNonempty(cfg.projectGroup)) return String(cfg.projectGroup).trim();
   var n=String(p.name||'').trim();
   if(!n) return 'Unassigned';
   var pathParts=n.split(/\s*(?:>|\/|\|)\s*/).map(function(x){ return String(x||'').trim(); }).filter(Boolean);
@@ -7698,6 +7941,12 @@ function inferPhaseFromProject(p){
   if(!p) return 'Unassigned';
   var explicit=(p.phase||p.projectPhase||p._phase||p.phaseName||p.phase_name||p.phaseLabel||'').toString().trim();
   if(explicit) return explicit;
+  var cfg=p.id!=null?cfPeek(p.id):null;
+  if(cfg){
+    if(hierarchyNonempty(cfg.phase)) return String(cfg.phase).trim();
+    var u0=(Array.isArray(cfg.units)&&cfg.units[0])||(Array.isArray(cfg.unsoldUnits)&&cfg.unsoldUnits[0])||null;
+    if(u0&&hierarchyNonempty(u0.phase||u0.projectPhase)) return String(u0.phase||u0.projectPhase).trim();
+  }
   var n=String(p.name||'');
   var pathParts=n.split(/\s*(?:>|\/|\|)\s*/).map(function(x){ return String(x||'').trim(); }).filter(Boolean);
   if(pathParts.length>=3) return pathParts[1];
@@ -7709,6 +7958,15 @@ function inferBuildingFromProject(p){
   if(!p) return 'Unassigned';
   var explicit=(p.building||p._building||p.buildingName||p._buildingName||p.tower||p.towerName||p.wing||p.block||p.building_name||'').toString().trim();
   if(explicit) return explicit;
+  var cfg=p.id!=null?cfPeek(p.id):null;
+  if(cfg){
+    if(hierarchyNonempty(cfg.building)) return String(cfg.building).trim();
+    var u0=(Array.isArray(cfg.units)&&cfg.units[0])||(Array.isArray(cfg.unsoldUnits)&&cfg.unsoldUnits[0])||null;
+    if(u0){
+      var ub=u0.building||u0.tower||u0.wing||'';
+      if(hierarchyNonempty(ub)) return String(ub).trim();
+    }
+  }
   var n=String(p.name||'').trim();
   if(!n) return 'Unassigned';
   var pathParts=n.split(/\s*(?:>|\/|\|)\s*/).map(function(x){ return String(x||'').trim(); }).filter(Boolean);
@@ -9941,8 +10199,10 @@ function annotatePhaseTallySopRules(sourcePid){
     if(isTallyPaymentOrReceiptType(vt) && hasZ && !hasElig) flags.push('missing_l3');
     if(hasPl && reason!=='mixed_pair') flags.push('has_pl');
     if(hasOther) flags.push('other_cc');
-    if(zNeq) flags.push('z_neq_eligible_l3');
-    if((isTallyPaymentOrReceiptType(vt) && hasZ && !hasElig) || zNeq) verdict='Wrong';
+    if(zNeq){
+      flags.push('z_neq_eligible_l3');
+      verdict='Wrong';
+    }
     var reasonOut=flags.join(',');
     var cfLineN=0;
     g.lines.forEach(function(a){
@@ -13204,10 +13464,13 @@ function renderExpenses(){
   if(!PROJS.length){el.innerHTML=noProjectMsg();return;}
   var vis=getVisibleProjects();
   if(!vis.length){el.innerHTML=noProjectMsg();return;}
-  vis.forEach(function(p){ try{ ensureTallyActualsDeduped(p.id); }catch(eDd){} });
-  var cfg=buildVisibleScopeCfg();
-  var actsAll=cfg.actuals||[];
-  var acts=uniqueActualsForCashflowSums(actsAll.filter(function(a){ return includeActualInCashflowSums(a); }));
+  var skipLedger=_expenseUIPanel==='master-code';
+  if(!skipLedger){
+    vis.forEach(function(p){ try{ ensureTallyActualsDeduped(p.id); }catch(eDd){} });
+  }
+  var cfg=skipLedger?(getCF(_curPid)||{}):buildVisibleScopeCfg();
+  var actsAll=skipLedger?[]:(cfg.actuals||[]);
+  var acts=skipLedger?[]:uniqueActualsForCashflowSums(actsAll.filter(function(a){ return includeActualInCashflowSums(a); }));
   function sumSched(skey){ return (cfg[skey]||[]).reduce(function(s,e){return s+(parseFloat(e.amount)||0);},0); }
   function sumActual(cat){
     return acts.filter(function(a){ return a.cat1===cat; }).reduce(function(s,a){
@@ -13591,11 +13854,8 @@ function renderExpenses(){
       if(_curTab!=='expenses'||_expenseUIPanel!=='master-code') return;
       var inp=document.getElementById('mc-smart-q');
       if(!inp) return;
-      try{
-        inp.focus();
-        var L=String(inp.value||'').length;
-        if(typeof inp.setSelectionRange==='function') inp.setSelectionRange(L,L);
-      }catch(x){}
+      if(document.activeElement===inp) return;
+      try{ inp.focus(); }catch(x){}
     },0);
     return;
   }
@@ -14483,6 +14743,10 @@ function saveHierarchyFromModal(){
       return;
     }
     PROJS[i][k]=val;
+    if(k==='projectGroup'||k==='phase'||k==='building'||k==='acctPrefix'){
+      var cfgH=getCF(PROJS[i].id);
+      if(cfgH) cfgH[k]=k==='acctPrefix'&&val?val.toUpperCase():val;
+    }
     if(k==='acctPrefix' && val){
       var b=String(PROJS[i].building||inferBuildingFromProject(PROJS[i])||'').trim();
       if(b&&b!=='Unassigned') map[b]=val.toUpperCase();
@@ -14509,6 +14773,7 @@ function saveHierarchyFromModal(){
     seenPhases[k]=1;
     ensureCommonAmenitiesProject(p.id);
   });
+  (PROJS||[]).forEach(persistProjectHierarchyToCfg);
   saveAll();
   buildPhaseSelect();
   buildBuildingSelect();
@@ -14537,6 +14802,7 @@ function saveManualProj(){
   cfg.startDate=document.getElementById('mp-start').value||'';
   cfg.totalMonths=PROJS[PROJS.length-1]._projMonths;
   cfg.gaMonthly=feeMonthly;
+  persistProjectHierarchyToCfg(PROJS[PROJS.length-1]);
   saveAll(); closeModal(); buildProjectGroupSelect(); buildPhaseSelect(); buildBuildingSelect(); buildProjSelect(); selectProj(id);
 }
 
@@ -16217,12 +16483,25 @@ document.addEventListener('click',function(e){
   if(a==='mc-merge')               { document.getElementById('coding-master-merge-input').click(); return; }
   if(a==='mc-toggle-add')          { _masterCodeShowAdd=!_masterCodeShowAdd; renderExpenses(); return; }
   if(a==='mc-add-save')            { addManualMasterCodeFromForm(); return; }
-  if(a==='mc-scope')               { _masterCodeScope=el.dataset.scope||'all'; renderExpenses(); return; }
-  if(a==='mc-cf-only')             { _masterCodeCfOnly=!_masterCodeCfOnly; renderExpenses(); return; }
+  if(a==='mc-scope'){
+    _masterCodeScope=el.dataset.scope||'all';
+    document.querySelectorAll('#page-expenses [data-action="mc-scope"]').forEach(function(b){
+      b.classList.toggle('on', (b.dataset.scope||'')===_masterCodeScope);
+    });
+    refreshMasterCodeResults();
+    return;
+  }
+  if(a==='mc-cf-only'){
+    _masterCodeCfOnly=!_masterCodeCfOnly;
+    var cfChip=document.querySelector('#page-expenses [data-action="mc-cf-only"]');
+    if(cfChip) cfChip.classList.toggle('on', _masterCodeCfOnly);
+    refreshMasterCodeResults();
+    return;
+  }
   if(a==='mc-toggle-l1'){
     var lid=String(el.dataset.l1||'');
     _masterCodeCollapsedL1[lid]=!isMasterCodeL1Collapsed(lid);
-    renderExpenses();
+    refreshMasterCodeResults();
     return;
   }
   if(a==='mc-copy')                { copyMasterCodeText(el.dataset.text||''); return; }
@@ -16762,12 +17041,9 @@ document.addEventListener('input',function(e){
     }, 320);
   }
   if(a==='mc-smart-q'){
+    if(e.isComposing) return;
     _masterCodeQ=String(el.value||'');
-    if(_masterCodeQTimer) clearTimeout(_masterCodeQTimer);
-    _masterCodeQTimer=setTimeout(function(){
-      _masterCodeQTimer=null;
-      if(_curTab==='expenses' && _expenseUIPanel==='master-code') renderExpenses();
-    }, 220);
+    scheduleMasterCodeSearchRefresh();
   }
 });
 
@@ -16829,12 +17105,13 @@ setInterval(function(){
   var raw=localStorage.getItem('ga_rp_projects');
   if(raw&&raw!==_lastProjHash){
     try{var pp=JSON.parse(raw);if(pp&&pp.length){
-      var v3ids=pp.map(function(p){return p.id;});
-      PROJS=PROJS.filter(function(p){return p._manual&&!v3ids.includes(p.id);});
-      pp.forEach(function(p){PROJS.push(p);});
+      absorbV3ProjectList(pp);
       _lastProjHash=raw;
       mergeProjectsFromCfData();
-      PROJS.forEach(function(p){var d=getCF(p.id);d.projName=p.name;if(p._projMonths)d.totalMonths=p._projMonths;});
+      PROJS.forEach(function(p){
+        persistProjectHierarchyToCfg(p);
+        var d=getCF(p.id);d.projName=p.name;if(p._projMonths)d.totalMonths=p._projMonths;
+      });
       buildProjectGroupSelect();
       buildPhaseSelect();
       buildBuildingSelect();
