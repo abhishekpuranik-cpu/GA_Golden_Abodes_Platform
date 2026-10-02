@@ -313,7 +313,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 113;
+var CF_VERSION = 114;
 /** Current project Tally always counts. Leftover dumps stay out of In/Out/Z and are not scanned on open. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
@@ -2572,7 +2572,8 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   var vis=(cfg&&cfg._scopeVis)||getVisibleProjects();
   var showZ=visibleScopeShowsCompanyZ(vis);
   filt=filt||{};
-  var V=computeCashflowValidation(cfg, {fromMonth:filt.from||'', toMonth:filt.to||''});
+  var span=tallyFeedMonthSpan((cfg&&cfg.actuals)||[]);
+  var V=computeCashflowValidation(cfg);
   var sop=window.__gaLastSopAudit||{};
   var untaggedN=(sop.untagged||[]).length;
   var wrongN=(sop.pairingRows||[]).filter(function(r){ return r.verdict==='Wrong'; }).length;
@@ -2583,6 +2584,7 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   var ok=showZ?!!V.rule2Pass:true;
   var alarmN=untaggedN+missZ+wrongN+zNeqN;
   var scopeNote=cfg&&cfg._scopeRollup?('Rollup: '+escHtml(cfg.projName||'')+'. '):'';
+  var feedNote=(span.from&&span.to)?('Latest Payment/Receipt <strong>'+escHtml(span.from)+' → '+escHtml(span.to)+'</strong>. '):'';
   var h='<div class="card" style="margin-bottom:12px;border-left:4px solid '+(showZ?(ok?'#166534':'#991B1B'):'#1558A0')+';padding:14px 16px">';
   h+='<div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px">';
   h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b)">'+(showZ?'Accounting reconcile — Cashflow vs Z':'This building — eligible L3 cashflow')+'</div>';
@@ -2590,23 +2592,23 @@ function htmlExpenseSopReconcileTable(cfg, filt){
   else h+='<span style="font-size:10px;font-weight:800;padding:2px 10px;border-radius:999px;background:#E8F1FB;color:#1558A0">BUILDING SCOPE</span>';
   h+='</div>';
   if(showZ){
-    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Same date window as the dashboard filter. Company Tally is counted <strong>once</strong> (All phases / All buildings does not add the same voucher twice). Inflows − Outflows are unique Payment/Receipt CF L3s (refunds netted). <strong>BAL/TDS codes are never in In, Out, Sum of Z, or Z+L3.</strong> Other SOP flags stay on the extract — they do not drop CF L3 rupees. <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Contra is in Z only.</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+feedNote+'This card is the <strong>full Tally feed</strong> — the burn-tree month filter does not change In, Out, or Z. Company Tally is counted <strong>once</strong>. Inflows − Outflows are unique Payment/Receipt CF L3s (refunds netted). <strong>BAL/TDS codes are never in In, Out, Sum of Z, or Z+L3.</strong> <strong>Difference = Net cashflow − Sum of Z</strong> (must be ₹0 to tally). Amounts show Cr/L and exact rupees so 2.055 Cr is not shown as 2.06.</div>';
   } else {
-    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+'Inflows and outflows are this building&apos;s eligible CF L3 only (C/D/E CF). Company <strong>Sum of Z</strong> (banks/cash) lives on <strong>Common Amenities</strong>. Open Common Amenities or All buildings to tally Net = Z.</div>';
+    h+='<div style="font-size:10px;color:var(--muted);margin-bottom:10px;line-height:1.45">'+scopeNote+feedNote+'Inflows and outflows are this building&apos;s eligible CF L3 only (C/D/E CF). Company <strong>Sum of Z</strong> (banks/cash) lives on <strong>Common Amenities</strong>. Open Common Amenities or All buildings to tally Net = Z.</div>';
   }
   h+='<table class="amt-pair-tbl" style="width:100%;font-size:12px"><thead><tr><th>Measure</th><th style="text-align:right">Amount</th></tr></thead><tbody>';
-  h+='<tr><td>Sum of cashflow (inflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.inflow)+'</td></tr>';
-  h+='<tr><td>Sum of cashflow (outflows)</td><td class="amt">'+formatRupeesDisplay(V.mov.outflow)+'</td></tr>';
-  h+='<tr><td><strong>Net cashflow (In − Out)</strong></td><td class="amt"><strong>'+formatRupeesDisplay(V.netCf)+'</strong></td></tr>';
+  h+='<tr><td>Sum of cashflow (inflows)</td><td class="amt">'+formatRupeesReconcile(V.mov.inflow)+'</td></tr>';
+  h+='<tr><td>Sum of cashflow (outflows)</td><td class="amt">'+formatRupeesReconcile(V.mov.outflow)+'</td></tr>';
+  h+='<tr><td><strong>Net cashflow (In − Out)</strong></td><td class="amt"><strong>'+formatRupeesReconcile(V.netCf)+'</strong></td></tr>';
   if(showZ){
-    h+='<tr><td>Sum of Z (Cash &amp; Cash Equivalents)</td><td class="amt">'+formatRupeesDisplay(V.cfzL1)+'</td></tr>';
-    h+='<tr><td><strong>Difference (Net cashflow − Sum of Z)</strong></td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesDisplay(V.rule2Diff)+'</strong></td></tr>';
+    h+='<tr><td>Sum of Z (Cash &amp; Cash Equivalents)</td><td class="amt">'+formatRupeesReconcile(V.cfzL1)+'</td></tr>';
+    h+='<tr><td><strong>Difference (Net cashflow − Sum of Z)</strong></td><td class="amt" style="color:'+(ok?'#166534':'#991B1B')+'"><strong>'+formatRupeesReconcile(V.rule2Diff)+'</strong></td></tr>';
   }
   h+='</tbody></table>';
   if(showZ && (!ok || alarmN)){
     h+='<div style="font-size:10px;margin-top:8px;color:#B45309">Flagged at entry level: untagged '+untaggedN+' · missing Z '+missZ+' · missing L3 (Z-to-Z) '+missL3+' · BAL/TDS excluded '+hasBalN+' · Z ≠ L3 '+zNeqN+' · wrong pairing '+wrongN+' · <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
   } else if(showZ){
-    h+='<div style="font-size:10px;margin-top:8px;color:var(--muted)">Net = Z. Z-to-Z and BAL/TDS stay on the extract only — they are not in In, Out, or Z. <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
+    h+='<div style="font-size:10px;margin-top:8px;color:var(--muted)">Net = Z on the full Tally feed. Z-to-Z and BAL/TDS stay on the extract only. <button type="button" class="btn btn-outline" data-action="tally-dl-sop-xlsx" style="font-size:10px;padding:2px 8px">Extract list</button></div>';
   }
   h+='</div>';
   return h;
@@ -4573,9 +4575,9 @@ function showCfZBalanceAfterSync(res){
   if(showZ){
     h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">Each Payment/Receipt has two cashflow legs: <strong>Z</strong> and <strong>eligible L3</strong>. They must cancel. <strong>BAL/TDS codes are excluded from In, Out, Z, and Z+L3</strong>. PL is not cashflow. Z-to-Z (no L3) that nets to ₹0 is not a pairing failure.</p>';
     h+='<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;font-size:12px;margin-bottom:12px">';
-    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Net cashflow (In − Out)</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.netCf)+'</div></div>';
-    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Z total C&amp;CE</div><div style="font-weight:800;font-size:16px">'+formatRupeesDisplay(V.cfzL1)+'</div></div>';
-    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Difference</div><div style="font-weight:800;font-size:16px;color:'+(rupeeOk?'#166534':'#991B1B')+'">'+formatRupeesDisplay(V.rule2Diff)+'</div></div>';
+    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Net cashflow (In − Out)</div><div style="font-weight:800;font-size:16px">'+formatRupeesReconcile(V.netCf)+'</div></div>';
+    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Z total C&amp;CE</div><div style="font-weight:800;font-size:16px">'+formatRupeesReconcile(V.cfzL1)+'</div></div>';
+    h+='<div><div style="font-size:10px;color:var(--muted);font-weight:700">Difference</div><div style="font-weight:800;font-size:16px;color:'+(rupeeOk?'#166534':'#991B1B')+'">'+formatRupeesReconcile(V.rule2Diff)+'</div></div>';
     h+='</div>';
   } else {
     h+='<p style="font-size:12px;line-height:1.5;margin:0 0 12px">This view is one building. Company <strong>Z</strong> lives on <strong>Common Amenities</strong>, so Net vs Z is not scored here. Open All buildings to tally. Pairing exceptions below still need a look.</p>';
@@ -9989,6 +9991,29 @@ function formatRupeesDisplay(v){
   if(a>=1e5) return s+'₹'+(a/1e5).toFixed(2)+' L';
   return s+'₹'+Math.round(a).toLocaleString('en-IN');
 }
+function formatRupeesExact(v){
+  var n=typeof v==='number'?v:parseFloat(v);
+  if(!isFinite(n)||n===0) return '₹0.00';
+  return (n<0?'−':'')+'₹'+Math.abs(n).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2});
+}
+/** Cr/L compact plus exact rupees — stops 2.055 Cr rounding to 2.06 vs Tally 2.04. */
+function formatRupeesReconcile(v){
+  var n=typeof v==='number'?v:parseFloat(v);
+  if(!isFinite(n)||n===0) return '₹0';
+  var compact=formatRupeesDisplay(n);
+  if(Math.abs(n)<1e5) return compact;
+  return compact+'<div style="font-size:10px;font-weight:600;color:var(--muted);margin-top:2px">'+formatRupeesExact(n)+'</div>';
+}
+function tallyFeedMonthSpan(actuals){
+  var mos=[], i, mo;
+  for(i=0;i<(actuals||[]).length;i++){
+    if(!actuals[i]||actuals[i].source!=='tally') continue;
+    mo=String((typeof normalizeToISODate==='function'?normalizeToISODate(actuals[i].date):actuals[i].date)||'').slice(0,7);
+    if(/^\d{4}-\d{2}$/.test(mo)) mos.push(mo);
+  }
+  mos.sort();
+  return {from:mos[0]||'', to:mos.length?mos[mos.length-1]:'', n:mos.length};
+}
 function crN(v){ // compact for table cells
   var n=typeof v==='number'?v:parseFloat(v);
   if(!isFinite(n)||n===0) return '';
@@ -13519,8 +13544,8 @@ function renderExpenses(){
   if(_expenseUIPanel==='dashboard'){
     var dashFilt={from:_dashFrom,to:_dashTo,cat1:_dashCat1};
     try{ annotateVisibleTallySopRules(); }catch(eSop){}
-    h+=htmlExpenseSopReconcileTable(cfg, dashFilt);
-    h+=htmlExpenseDashFilterBar(acts);
+    h+=htmlExpenseSopReconcileTable(cfg, {});
+    h+=htmlExpenseDashFilterBar(actsAll);
     h+=htmlExpenseMetricsDashboard(cfg, dashFilt);
     var actsOut=acts.filter(function(a){ return isExpenseDashboardOutflow(a)&&actualMatchesExpenseDashFilter(a,dashFilt); });
     var actsIn=acts.filter(function(a){ return isExpenseDashboardInflow(a)&&actualMatchesExpenseDashFilter(a,dashFilt); });
