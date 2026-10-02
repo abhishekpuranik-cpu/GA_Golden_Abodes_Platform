@@ -74,7 +74,8 @@ export async function unpackV1CashflowRowData(db, rowData) {
     manualProjs: rowData.manualProjs,
     ui: rowData.ui,
     data: inner,
-    acctMaster
+    acctMaster,
+    ...(Object.prototype.hasOwnProperty.call(rowData, 'cstSumFeed') ? { cstSumFeed: rowData.cstSumFeed } : {})
   };
 }
 
@@ -204,7 +205,10 @@ export function mergeV1CashflowEnvelopes(existingEnv, incomingEnv) {
         ? incomingEnv.acctMaster
         : ex?.acctMaster && ex.acctMaster.GA_ACCT_L3_BY_CODE
           ? ex.acctMaster
-          : undefined
+          : undefined,
+    cstSumFeed: Object.prototype.hasOwnProperty.call(incomingEnv, 'cstSumFeed')
+      ? incomingEnv.cstSumFeed
+      : ex?.cstSumFeed
   };
 }
 
@@ -415,6 +419,9 @@ export async function packV1CashflowRowData(db, envelope, probeCtx = {}) {
     meta.acctMasterGzip = new Binary(
       zlib.gzipSync(JSON.stringify(envelope.acctMaster), { level: zlib.constants.Z_BEST_SPEED })
     );
+  }
+  if (Object.prototype.hasOwnProperty.call(envelope, 'cstSumFeed')) {
+    meta.cstSumFeed = envelope.cstSumFeed || null;
   }
 
   const gz = zlib.gzipSync(JSON.stringify(inner), { level: zlib.constants.Z_BEST_SPEED });

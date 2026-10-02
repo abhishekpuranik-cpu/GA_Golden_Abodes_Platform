@@ -259,6 +259,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
     <span style="font-weight:700;color:var(--blue-b)">Tally feed</span>
     <button type="button" class="btn btn-primary" data-action="tally-sync-modal" style="font-size:10px;padding:4px 10px">Live sync</button>
     <button type="button" class="btn btn-outline" data-action="import-tally" style="font-size:10px;padding:4px 8px" title="Import Payment/Receipt XML or CSV">Import XML/CSV</button>
+    <button type="button" class="btn btn-outline" data-action="import-cstsum" style="font-size:10px;padding:4px 8px" title="Upload Tally CstSum (cost-centre summary) for L3 reconcile">CstSum XML</button>
     <button type="button" class="btn btn-outline" data-action="reset-imported-modal" style="font-size:10px;padding:4px 8px;color:#991B1B;border-color:#fca5a5" title="Clear Tally/imported actuals for a building, phase, or project. Hierarchy and sales stay.">Reset imported data</button>
   </span>
   <span class="sync-group" title="MongoDB is the shared workbook store for the team.">
@@ -295,6 +296,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 
 <!-- Static file inputs -->
 <input type="file" id="tally-file-input" accept=".csv,.tsv,.txt,.xml,.xlsx,.xls,text/xml" multiple style="display:none" onchange="importTallyFile(this)"/>
+<input type="file" id="cstsum-file-input" accept=".xml,text/xml" style="display:none" onchange="importCstSumFile(this)"/>
 <input type="file" id="cap-template-input" accept=".xlsx,.xls" style="display:none" onchange="importCapitalTemplate(this)"/>
 <input type="file" id="cf-import-input"   accept=".json" style="display:none"/>
 <input type="file" id="sales-milestones-input" accept=".xlsx,.xls,.xlsm" style="display:none" onchange="importMilestoneTemplate(this)"/>
@@ -313,7 +315,7 @@ input[type="date"].cap-inp,input[type="month"].cap-inp{min-width:11rem;width:aut
 // ══════════════════════════════════════════════════════════════
 // CONSTANTS
 // ══════════════════════════════════════════════════════════════
-var CF_VERSION = 114;
+var CF_VERSION = 115;
 /** Current project Tally always counts. Leftover dumps stay out of In/Out/Z and are not scanned on open. */
 var COMMON_AMENITIES_BUILDING_NAME = 'Common Amenities';
 /** Cap DOMParser size — above this, regex-only (avoids tab crash on large Tally XML). */
@@ -5287,7 +5289,7 @@ var _cfForecastStageOpen = {}; // stage key → expanded L1 outflow detail
 var _cfMsForecastMode = 'future'; // 'future' | 'all' — L1 × construction milestone matrix
 var _cfSubview = 'monthly'; // 'monthly' | 'payables' | 'forecast'
 var _plPeriod = 'fytd'; // 'month' | 'fytd' | 'fy'
-var _expenseUIPanel = 'schedule'; // 'dashboard' | 'insights' | 'narration' | 'gst-vendor' | 'schedule' | 'master-code'
+var _expenseUIPanel = 'schedule'; // 'dashboard' | 'insights' | 'narration' | 'gst-vendor' | 'schedule' | 'master-code' | 'cstsum'
 var _masterCodeQ = '';
 var _masterCodeQTimer = null;
 var _masterCodeScope = ''; // '' auto | 'all' | 'building' | 'common'
@@ -5796,6 +5798,7 @@ function applyWorkbookEnvelope(env){
   if(env.ui&&env.ui.projRoot) _curProjRoot=env.ui.projRoot;
   if(env.ui&&env.ui.phase) _curPhase=env.ui.phase;
   if(env.ui&&env.ui.building) _curBuilding=env.ui.building;
+  hydrateCstSumFeed(env);
 }
 function restoreWorkbookFromSnapshotId(snapshotId){
   if(!snapshotId) return Promise.reject(new Error('Missing snapshot id'));
@@ -6451,7 +6454,8 @@ function cfStatePayload(){
       phase:_curPhase||'__all__',
       building:_curBuilding||'__all__',
       projectGroup:'__all__'
-    }
+    },
+    cstSumFeed:_gaCstSum||null
   };
   var ap=gaAcctMasterPayloadFromGlobals();
   if(ap){
@@ -6639,7 +6643,7 @@ function mongoPayloadForSave(){
     slim[pid]=slice;
   });
   if(!Object.keys(slim).length) return {payload:full, dirtyKeys:[]};
-  var partialPayload={v:full.v,ts:full.ts,data:slim,manualProjs:full.manualProjs,ui:full.ui};
+  var partialPayload={v:full.v,ts:full.ts,data:slim,manualProjs:full.manualProjs,ui:full.ui,cstSumFeed:full.cstSumFeed||null};
   if(full.acctMaster) partialPayload.acctMaster=full.acctMaster;
   return {
     payload:partialPayload,
@@ -6673,7 +6677,8 @@ function mergeV1CashflowEnvelopeClient(existingEnv, incomingEnv){
     data: mergedData,
     manualProjs: mergedManual,
     ui: Object.assign({}, (ex.ui&&typeof ex.ui==='object')?ex.ui:{}, (incomingEnv.ui&&typeof incomingEnv.ui==='object')?incomingEnv.ui:{}),
-    acctMaster: (incomingEnv&&incomingEnv.acctMaster)?incomingEnv.acctMaster:(ex.acctMaster||undefined)
+    acctMaster: (incomingEnv&&incomingEnv.acctMaster)?incomingEnv.acctMaster:(ex.acctMaster||undefined),
+    cstSumFeed: incomingEnv&&Object.prototype.hasOwnProperty.call(incomingEnv,'cstSumFeed')?incomingEnv.cstSumFeed:(ex.cstSumFeed||undefined)
   };
 }
 function fetchMongoEnvelope(){
@@ -7453,6 +7458,7 @@ function loadAllFromMongo(){
       _curProjRoot=(d.ui&&d.ui.projRoot)||'__all__';
       _curPhase=(d.ui&&d.ui.phase)||'__all__';
       _curBuilding=(d.ui&&d.ui.building)||'__all__';
+      hydrateCstSumFeed(d);
       _mongoStateVersion=Number(res.body.version)||0;
       _mongoLoadedSoldUnits=countWorkbookSoldUnits(_cfData);
       bootstrapGaAcctMaster(d);
@@ -7838,6 +7844,7 @@ function loadAll(){
       consolidateParadiseWorkbookKeys();
       if(d.ui&&d.ui.projRoot) _curProjRoot=d.ui.projRoot;
       bootstrapGaAcctMaster(d);
+      hydrateCstSumFeed(d);
       var needVersionBump=!d.v||d.v<CF_VERSION;
       window.__gaNeedTallyOpenHeal=true;
       if(migrateCfCategoryLabels()||migrateLegacyGaMonthlyDefault()||needVersionBump) saveAll();
@@ -10014,6 +10021,318 @@ function tallyFeedMonthSpan(actuals){
   mos.sort();
   return {from:mos[0]||'', to:mos.length?mos[mos.length-1]:'', n:mos.length};
 }
+/** Latest CstSum.xml upload — not mixed into Payment/Receipt actuals. */
+var _gaCstSum=null;
+var _cstSumDeltaView='diff';
+var _cstSumRan=false;
+var GA_CSTSUM_LS='ga_cf_v1_cstsum';
+function looksLikeCstSumXml(text){
+  var s=String(text||'');
+  return /<DSPACCNAME[\s>]/i.test(s) && /<(?:DSPCLAMTA|DSPDRAMTA|DSPCRAMTA)[\s>]/i.test(s);
+}
+function looksLikeTallyVoucherXml(text){
+  return /<VOUCHER[\s>]/i.test(String(text||''));
+}
+function cstSumDecodeDisp(s){
+  return String(s||'')
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi,'$1')
+    .replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&quot;/gi,'"').replace(/&#39;/gi,"'")
+    .replace(/<[^>]+>/g,'').replace(/\s+/g,' ').trim();
+}
+function cstSumChartRest(name){
+  return String(name||'').trim().replace(/^CM\s+CF\s+/i,'').replace(/^[A-Z]\s+CF\s+/i,'').replace(/^CF\s+/i,'');
+}
+function cstSumLetter(name){
+  var s=String(name||'').trim();
+  if(isCfZCashEquivalentsCostCentreName(s)||/^CF\s*Z/i.test(s)) return 'Z';
+  if(isBalResiduaryCostCentreName(s)||/^BAL/i.test(s)) return 'BAL';
+  if(/^CM[\s\-]*CF\b/i.test(s)) return 'CM';
+  var m=s.match(/^([A-Z])\s+CF\b/i);
+  return m?m[1].toUpperCase():'';
+}
+function cstSumLeaf(name){
+  return cstSumChartRest(name).replace(/^[A-Za-z]{1,3}\d+(?:-\d+)*\s+/,'').replace(/\s+/g,' ').trim().toLowerCase();
+}
+function cstSumCode(name){
+  var s=String(name||'');
+  var m=s.match(/\b(BAL\d+-\d+)\b/i)||s.match(/\b(Z\d+-\d+)\b/i)||s.match(/\b([A-Z]\d+-\d+)\b/i);
+  return m?m[1].toUpperCase():'';
+}
+function cstSumLevel(name){
+  var rest=cstSumChartRest(name);
+  if(!rest) return 'skip';
+  if(/\d+-\d+/.test(rest)) return 'L3';
+  if(/\b[A-Z]?\d+\b/i.test(rest)&&!/\d+-\d+/.test(rest)) return 'L2';
+  return 'L1';
+}
+function cstSumBucket(name){
+  if(isCfZCashEquivalentsCostCentreName(name)||cstSumLetter(name)==='Z') return 'z';
+  if(isBalResiduaryCostCentreName(name)||cstSumLetter(name)==='BAL') return 'bal';
+  return 'l3';
+}
+function cstSumAliasKey(name){
+  var letter=cstSumLetter(name)||'CM';
+  var leaf=cstSumLeaf(name);
+  var code=cstSumCode(name);
+  if(leaf&&leaf.length>=3) return letter+'|'+leaf;
+  return letter+'|code:'+(code||String(name||'').toLowerCase());
+}
+function parseCstSumXml(text){
+  var xml=normalizeTallyUploadText(String(text||''));
+  var rows=[], re=/<DSPACCNAME>[\s\S]*?<DSPDISPNAME>([\s\S]*?)<\/DSPDISPNAME>[\s\S]*?<\/DSPACCNAME>\s*<DSPACCINFO>([\s\S]*?)<\/DSPACCINFO>/gi;
+  var m, name, info, closing, debit, credit, level;
+  function tagAmt(block, tag){
+    var mm=new RegExp('<'+tag+'>([\\s\\S]*?)</'+tag+'>','i').exec(block||'');
+    return tallyRound2(parseFloat(String(mm&&mm[1]||'').replace(/,/g,''))||0);
+  }
+  while((m=re.exec(xml))){
+    name=cstSumDecodeDisp(m[1]);
+    if(!name) continue;
+    info=m[2];
+    closing=tagAmt(info,'DSPCLAMTA');
+    debit=tagAmt(info,'DSPDRAMTA');
+    credit=tagAmt(info,'DSPCRAMTA');
+    if(!closing&&!debit&&!credit) continue;
+    level=cstSumLevel(name);
+    rows.push({
+      name:name, code:cstSumCode(name), letter:cstSumLetter(name), leaf:cstSumLeaf(name),
+      level:level, bucket:cstSumBucket(name), alias:cstSumAliasKey(name),
+      closing:closing, debit:debit, credit:credit, periodNet:tallyRound2(debit+credit)
+    });
+  }
+  return rows;
+}
+function visibleCstSumLetters(vis){
+  vis=vis||getVisibleProjects();
+  var set={}, i, p, h, pref;
+  for(i=0;i<(vis||[]).length;i++){
+    p=vis[i];
+    if(!p) continue;
+    if(isConfiguredTallyCommonOwner(p)||isCommonAmenitiesProject(p)){ set.CM=1; set.Z=1; set.BAL=1; continue; }
+    h=getProjectHierarchy(p.id)||{};
+    pref=String(p.acctPrefix||h.acctPrefix||inferAcctPrefixFromBuildingName(h.building||p.building||p.name)||'').toUpperCase();
+    if(pref==='CM'){ set.CM=1; continue; }
+    if(/^[A-Z]$/.test(pref)) set[pref]=1;
+  }
+  return set;
+}
+function collectCashflowL3ByAlias(cfg){
+  var acts=uniqueActualsForCashflowSums((cfg&&cfg.actuals)||[]);
+  var by={}, i, a, cc, alias, bucket, level;
+  for(i=0;i<acts.length;i++){
+    a=acts[i];
+    if(!a||a.source!=='tally') continue;
+    cc=tallyIdentityCostCentre(a);
+    if(!cc) continue;
+    bucket=cstSumBucket(cc);
+    level=cstSumLevel(cc);
+    if(level!=='L3') continue;
+    if(bucket==='l3'&&!isCfCashflowStatementCostCentre(cc)) continue;
+    alias=cstSumAliasKey(cc);
+    if(!by[alias]) by[alias]={name:cc, alias:alias, letter:cstSumLetter(cc), code:cstSumCode(cc), bucket:bucket, sum:0, n:0};
+    by[alias].sum=tallyRound2(by[alias].sum+tallySignedCcAmount(a));
+    by[alias].n++;
+  }
+  return by;
+}
+function reconcileCstSumVsCashflow(cfg){
+  var feed=_gaCstSum, vis=(cfg&&cfg._scopeVis)||getVisibleProjects();
+  var letters=visibleCstSumLetters(vis), letterKeys=Object.keys(letters), allowAll=!letterKeys.length;
+  function letterOk(letter){
+    if(allowAll) return true;
+    if(!letter) return !!letters.CM;
+    if(letter==='Z') return !!letters.Z||!!letters.CM;
+    if(letter==='BAL') return !!letters.BAL||!!letters.CM;
+    return !!letters[letter];
+  }
+  var cf=collectCashflowL3ByAlias(cfg), cstBy={}, keys={}, rows=[];
+  Object.keys(cf).forEach(function(k){ if(!letterOk(cf[k].letter)) delete cf[k]; });
+  (feed&&feed.rows||[]).forEach(function(r){
+    if(!r) return;
+    if(r.level!=='L3') return;
+    if(r.bucket!=='l3'&&r.bucket!=='z'&&r.bucket!=='bal') return;
+    if(r.bucket==='l3'&&!isCfCashflowStatementCostCentre(r.name)) return;
+    if(!letterOk(r.letter)) return;
+    var prev=cstBy[r.alias];
+    var mag=Math.abs(r.closing)+Math.abs(r.debit)+Math.abs(r.credit);
+    var prevMag=prev?Math.abs(prev.closing)+Math.abs(prev.debit)+Math.abs(prev.credit):-1;
+    if(!prev||mag>=prevMag) cstBy[r.alias]=r;
+  });
+  Object.keys(cstBy).forEach(function(k){ keys[k]=1; });
+  Object.keys(cf).forEach(function(k){ keys[k]=1; });
+  Object.keys(keys).forEach(function(alias){
+    var c=cstBy[alias], a=cf[alias];
+    var cstAmt=c?c.closing:0, cfAmt=a?a.sum:0, delta=tallyRound2(cfAmt-cstAmt);
+    var status=!c?'cf_only':!a?'cst_only':(Math.abs(delta)<0.05?'match':'diff');
+    rows.push({
+      name:(c&&c.name)||(a&&a.name)||alias, cstName:c&&c.name||'', cfName:a&&a.name||'',
+      code:(c&&c.code)||(a&&a.code)||'', letter:(c&&c.letter)||(a&&a.letter)||'',
+      bucket:(c&&c.bucket)||(a&&a.bucket)||'l3', cst:cstAmt, cf:cfAmt, delta:delta, n:a?a.n:0, status:status
+    });
+  });
+  rows.sort(function(x,y){ return Math.abs(y.delta)-Math.abs(x.delta); });
+  function pack(bucket){
+    var list=rows.filter(function(r){ return r.bucket===bucket; });
+    var match=0, diff=0, cstOnly=0, cfOnly=0, abs=0;
+    list.forEach(function(r){
+      if(r.status==='match') match++;
+      else if(r.status==='diff') diff++;
+      else if(r.status==='cst_only') cstOnly++;
+      else cfOnly++;
+      abs+=Math.abs(r.delta);
+    });
+    return {rows:list, match:match, diff:diff, cstOnly:cstOnly, cfOnly:cfOnly, absGap:tallyRound2(abs)};
+  }
+  return {
+    fileName:feed&&feed.fileName||'', uploadedAt:feed&&feed.uploadedAt||0, group:feed&&feed.group||'',
+    scope:visibleScopeTitle(vis), letters:letterKeys, l3:pack('l3'), z:pack('z'), bal:pack('bal')
+  };
+}
+function persistCstSumFeed(){
+  try{
+    if(_gaCstSum) localStorage.setItem(GA_CSTSUM_LS, JSON.stringify(_gaCstSum));
+    else localStorage.removeItem(GA_CSTSUM_LS);
+  }catch(eLs){}
+  try{ saveAll(); }catch(eS){}
+}
+function hydrateCstSumFeed(env){
+  if(env && Object.prototype.hasOwnProperty.call(env,'cstSumFeed')){
+    var f=env.cstSumFeed;
+    _gaCstSum=(f && Array.isArray(f.rows) && f.rows.length)?f:null;
+    _cstSumRan=false;
+    return;
+  }
+  try{
+    var raw=localStorage.getItem(GA_CSTSUM_LS);
+    if(raw){
+      var parsed=JSON.parse(raw);
+      if(parsed && Array.isArray(parsed.rows) && parsed.rows.length) _gaCstSum=parsed;
+    }
+  }catch(eH){}
+}
+function applyCstSumUpload(text, fileName){
+  if(looksLikeTallyVoucherXml(text)&&!looksLikeCstSumXml(text)){
+    alert('This is a Payment/Receipt voucher XML.\nUse Import XML/CSV for that file. CstSum is the cost-centre summary export.');
+    return false;
+  }
+  var rows=parseCstSumXml(text);
+  if(!rows.length){
+    alert('No cost-centre rows found in that XML.\nExport CstSum (cost centre summary) from Tally — it should contain DSPACCNAME / DSPCLAMTA tags.');
+    return false;
+  }
+  var sh=getProjectHierarchy(_curPid)||{};
+  _gaCstSum={
+    fileName:fileName||'CstSum.xml',
+    uploadedAt:Date.now(),
+    group:sh.projectGroup||'',
+    pid:_curPid||'',
+    rows:rows
+  };
+  persistCstSumFeed();
+  _expenseUIPanel='cstsum';
+  _cstSumDeltaView='diff';
+  _cstSumRan=false;
+  try{ renderExpenses(); }catch(eR){}
+  setSS('CstSum loaded: '+rows.length+' rows from '+(fileName||'XML')+' · click Run reconcile','green');
+  return true;
+}
+function importCstSumFile(input){
+  var file=input&&input.files&&input.files[0];
+  if(!file) return;
+  var reader=new FileReader();
+  reader.onload=function(e){
+    decodeTallyUploadArrayBufferAsync(e.target.result, null, function(text){
+      applyCstSumUpload(text, file.name);
+      try{ input.value=''; }catch(eC){}
+    });
+  };
+  reader.onerror=function(){ alert('Could not read '+(file.name||'file')+'.'); try{ input.value=''; }catch(eC){} };
+  reader.readAsArrayBuffer(file);
+}
+function clearCstSumFeed(){
+  if(!_gaCstSum) return;
+  if(!window.confirm('Remove the uploaded CstSum from this workbook? Payment/Receipt actuals are not touched.')) return;
+  _gaCstSum=null;
+  _cstSumRan=false;
+  persistCstSumFeed();
+  renderExpenses();
+}
+function htmlCstSumDeltaTable(title, pack, view){
+  if(!pack) return '';
+  var rows=pack.rows||[], show=rows;
+  if(view==='diff') show=rows.filter(function(r){ return r.status==='diff'; });
+  else if(view==='cst_only') show=rows.filter(function(r){ return r.status==='cst_only'; });
+  else if(view==='cf_only') show=rows.filter(function(r){ return r.status==='cf_only'; });
+  else if(view==='match') show=rows.filter(function(r){ return r.status==='match'; });
+  var h='<div class="card" style="margin-bottom:12px;padding:14px 16px">';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b);margin-bottom:6px">'+escHtml(title)+'</div>';
+  h+='<div style="font-size:10px;color:var(--muted);margin-bottom:8px">Match '+pack.match+' · Amount diff '+pack.diff+' · CstSum only '+pack.cstOnly+' · Cashflow only '+pack.cfOnly+' · Abs gap '+formatRupeesDisplay(pack.absGap)+'</div>';
+  h+='<div style="max-height:360px;overflow:auto;border:1px solid var(--border);border-radius:8px">';
+  h+='<table class="amt-pair-tbl" style="width:100%;font-size:10px"><thead><tr><th>L3</th><th>Status</th><th>CstSum closing</th><th>Cashflow unique</th><th>Delta (CF − CstSum)</th><th>CF lines</th></tr></thead><tbody>';
+  if(!show.length) h+='<tr><td colspan="6" style="color:var(--muted)">No rows in this view.</td></tr>';
+  show.forEach(function(r){
+    var col=r.status==='match'?'#166534':(r.status==='diff'?'#991B1B':'#B45309');
+    var names=escHtml(r.name||'');
+    if(r.cstName&&r.cfName&&r.cstName!==r.cfName) names=escHtml(r.cstName)+' <span style="color:var(--muted)">↔</span> '+escHtml(r.cfName);
+    h+='<tr><td>'+names+(r.code?(' <span style="color:var(--muted)">'+escHtml(r.code)+'</span>'):'')+'</td><td style="font-weight:800;color:'+col+'">'+escHtml(r.status)+'</td>';
+    h+='<td class="amt">'+formatRupeesExact(r.cst)+'</td><td class="amt">'+formatRupeesExact(r.cf)+'</td><td class="amt" style="color:'+col+'">'+formatRupeesExact(r.delta)+'</td><td>'+(r.n||'—')+'</td></tr>';
+  });
+  h+='</tbody></table></div></div>';
+  return h;
+}
+function htmlCstSumPanel(cfg){
+  var h='', rec, stamp;
+  h+='<div class="card" style="margin-bottom:12px;padding:14px 16px;border-left:4px solid #1558A0">';
+  h+='<div style="font-size:13px;font-weight:800;color:var(--blue-b);margin-bottom:6px">CstSum vs Cashflow L3</div>';
+  h+='<div style="font-size:10px;color:var(--muted);line-height:1.45;margin-bottom:10px">Upload Tally <strong>Cost Centre Summary (CstSum)</strong> separately from Payment/Receipt. Reconcile compares CstSum <strong>L3 closings</strong> to unique Payment/Receipt cost-centre amounts on the current Project / Phase / Building filter. Journals and other voucher types in CstSum will not match Payment/Receipt cashflow — those rows stay on the delta. Z and BAL are listed separately and stay out of In/Out.</div>';
+  h+='<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">';
+  h+='<button type="button" class="btn btn-primary" data-action="import-cstsum">Upload CstSum XML</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="cstsum-run"'+(_gaCstSum?'':' disabled')+'>Run reconcile</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="cstsum-dl-xlsx"'+(_gaCstSum?'':' disabled')+'>Extract delta XLSX</button>';
+  h+='<button type="button" class="btn btn-outline" data-action="cstsum-clear"'+(_gaCstSum?'':' disabled')+' style="color:#991B1B;border-color:#fca5a5">Clear CstSum</button>';
+  h+='</div>';
+  if(!_gaCstSum){
+    h+='<div style="font-size:11px;color:var(--muted)">No CstSum loaded yet for this workbook.</div></div>';
+    return h;
+  }
+  stamp=new Date(_gaCstSum.uploadedAt||Date.now()).toLocaleString();
+  h+='<div style="font-size:11px;margin-bottom:8px"><strong>'+escHtml(_gaCstSum.fileName)+'</strong> · '+escHtml(stamp)+' · '+(_gaCstSum.rows||[]).length+' CstSum rows · current filter: '+escHtml(visibleScopeTitle((cfg&&cfg._scopeVis)||getVisibleProjects())||'')+'</div>';
+  if(!_cstSumRan){
+    h+='<div style="font-size:11px;color:var(--muted)">File is stored separately from Payment/Receipt. Click <strong>Run reconcile</strong> to compare CstSum L3 closings with unique Cashflow L3s for this project filter.</div></div>';
+    return h;
+  }
+  rec=reconcileCstSumVsCashflow(cfg);
+  h+='<div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px">';
+  [['all','All rows'],['diff','Amount diffs'],['cst_only','CstSum only'],['cf_only','Cashflow only'],['match','Exact match']].forEach(function(opt){
+    h+='<button type="button" class="btn '+(_cstSumDeltaView===opt[0]?'btn-primary':'btn-outline')+'" data-action="cstsum-view" data-view="'+opt[0]+'" style="font-size:10px;padding:4px 8px">'+opt[1]+'</button>';
+  });
+  h+='</div></div>';
+  h+=htmlCstSumDeltaTable('L3 cashflow leaves', rec.l3, _cstSumDeltaView);
+  h+=htmlCstSumDeltaTable('Z Cash & Cash Equivalents', rec.z, 'all');
+  h+=htmlCstSumDeltaTable('BAL / TDS (excluded from In/Out/Z)', rec.bal, 'all');
+  return h;
+}
+function downloadCstSumDeltaXlsx(){
+  if(!_gaCstSum||!window.XLSX){ alert('Upload CstSum first.'); return; }
+  var rec=reconcileCstSumVsCashflow(buildVisibleScopeCfg());
+  function sheet(pack){
+    var aoa=[['L3','CstSum name','Cashflow name','Code','Letter','Status','CstSum closing','Cashflow unique','Delta CF−CstSum','CF lines']];
+    (pack.rows||[]).forEach(function(r){
+      aoa.push([r.name,r.cstName,r.cfName,r.code,r.letter,r.status,r.cst,r.cf,r.delta,r.n]);
+    });
+    return XLSX.utils.aoa_to_sheet(aoa);
+  }
+  var wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['File', rec.fileName],['Scope', rec.scope],['L3 abs gap', rec.l3.absGap],['L3 match', rec.l3.match],
+    ['L3 amount diff', rec.l3.diff],['L3 CstSum only', rec.l3.cstOnly],['L3 Cashflow only', rec.l3.cfOnly],
+    ['Note','CstSum is cost-centre closing (all voucher types). Cashflow is unique Payment/Receipt CC allocations.']
+  ]), 'Summary');
+  XLSX.utils.book_append_sheet(wb, sheet(rec.l3), 'L3_delta');
+  XLSX.utils.book_append_sheet(wb, sheet(rec.z), 'Z');
+  XLSX.utils.book_append_sheet(wb, sheet(rec.bal), 'BAL');
+  XLSX.writeFile(wb, 'GA_CstSum_vs_Cashflow_L3_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
 function crN(v){ // compact for table cells
   var n=typeof v==='number'?v:parseFloat(v);
   if(!isFinite(n)||n===0) return '';
@@ -10330,7 +10649,7 @@ function sumCashflowMovementInOut(actuals, opts){
   });
   return {inflow:inflow, outflow:outflow, nIn:nIn, nOut:nOut, exclBal:exclBal, exclCfz:exclCfz, exclAuto:exclAuto};
 }
-/** Rule 1 (BS vs CF Z) + Rule 2 (In − Out + CF Z = 0). Entries are never mutated. */
+/** Rule 1 (BS vs CF Z) + Rule 2 (Net cashflow − Sum of Z = 0). Entries are never mutated. */
 function computeCashflowValidation(cfg, opts){
   opts=opts||{};
   var acts=(cfg&&cfg.actuals)||[];
@@ -13511,6 +13830,7 @@ function renderExpenses(){
   h+='</div>';
   h+='<div class="exp-toolbar">';
   h+='<button class="btn btn-outline" data-action="import-tally" style="font-size:11px" title="Payment/Receipt XML or CSV">⬆ Import feed</button>';
+  h+='<button class="btn btn-outline" data-action="import-cstsum" style="font-size:11px" title="Tally cost-centre summary XML">⬆ CstSum XML</button>';
   h+='<button class="btn btn-outline" data-action="dl-expense-template" style="font-size:11px">⬇ Schedule template</button>';
   h+='<button class="btn btn-outline" data-action="ul-expense-schedule" style="font-size:11px">⬆ Upload schedule</button>';
   h+='</div>';
@@ -13521,6 +13841,7 @@ function renderExpenses(){
   h+='<button type="button" class="'+(_expenseUIPanel==='gst-vendor'?'on':'')+'" data-action="expense-sub" data-panel="gst-vendor">Vendor GST</button>';
   h+='<button type="button" class="'+(_expenseUIPanel==='schedule'?'on':'')+'" data-action="expense-sub" data-panel="schedule">Schedules</button>';
   h+='<button type="button" class="'+(_expenseUIPanel==='master-code'?'on':'')+'" data-action="expense-sub" data-panel="master-code">Master Code</button>';
+  h+='<button type="button" class="'+(_expenseUIPanel==='cstsum'?'on':'')+'" data-action="expense-sub" data-panel="cstsum">CstSum</button>';
   h+='</div>';
 
   if(_expenseUIPanel==='narration'){
@@ -13882,6 +14203,12 @@ function renderExpenses(){
       if(document.activeElement===inp) return;
       try{ inp.focus(); }catch(x){}
     },0);
+    return;
+  }
+
+  if(_expenseUIPanel==='cstsum'){
+    h+=htmlCstSumPanel(cfg);
+    el.innerHTML=h;
     return;
   }
 
@@ -14933,6 +15260,11 @@ function importTallyXmlBatch(filePayloads){
         var text=normalizeTallyUploadText(String(fp.text||'').replace(/^\uFEFF/,''));
         fp.text=null;
         if(!text.trim()){ errors.push((fp.name||'file')+': empty'); parseNext(); return; }
+        if(looksLikeCstSumXml(text) && !looksLikeTallyVoucherXml(text)){
+          closeModal();
+          applyCstSumUpload(text, fp.name||'CstSum.xml');
+          return;
+        }
         if(!/<ENVELOPE[\s>]/i.test(text) && !/<VOUCHER[\s/>]/i.test(text) && !/<DSPDISPNAME>/i.test(text)){
           errors.push((fp.name||'file')+': not Tally XML (expected voucher or Cash Flow statement export)');
           parseNext(); return;
@@ -16472,6 +16804,17 @@ document.addEventListener('click',function(e){
   if(a==='save-manual-proj')       { saveManualProj(); return; }
   if(a==='sync-v3')                { syncFromV3(); return; }
   if(a==='import-tally')           { document.getElementById('tally-file-input').click(); return; }
+  if(a==='import-cstsum')          { document.getElementById('cstsum-file-input').click(); return; }
+  if(a==='cstsum-run'){
+    if(!_gaCstSum){ alert('Upload a CstSum XML first.'); return; }
+    _expenseUIPanel='cstsum';
+    _cstSumRan=true;
+    renderExpenses();
+    return;
+  }
+  if(a==='cstsum-dl-xlsx')         { downloadCstSumDeltaXlsx(); return; }
+  if(a==='cstsum-clear')           { clearCstSumFeed(); return; }
+  if(a==='cstsum-view')            { _cstSumDeltaView=el.dataset.view||'diff'; renderExpenses(); return; }
   if(a==='reset-imported-modal')   { showResetImportedDataModal(); return; }
   if(a==='reset-imported-scope')   { refreshResetImportedScopeCards(); return; }
   if(a==='reset-imported-run')     { runResetImportedData(); return; }
