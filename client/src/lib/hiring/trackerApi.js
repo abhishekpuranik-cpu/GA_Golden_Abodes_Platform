@@ -25,7 +25,33 @@ const qs = (params = {}) => {
   return q ? `?${q}` : '';
 };
 
+/* Last good response per key (shown instantly on revisit) + in-flight dedupe. */
+const memo = new Map();
+const inflight = new Map();
+let memoOwner = null;
+
+export const trackerCache = {
+  peek: (key) => memo.get(key),
+  bindUser(userId) {
+    const id = userId || null;
+    if (memoOwner !== id) { memo.clear(); inflight.clear(); memoOwner = id; }
+  },
+  clear() { memo.clear(); }
+};
+
+function shared(key, fn) {
+  if (inflight.has(key)) return inflight.get(key);
+  const p = fn()
+    .then((d) => { memo.set(key, d); return d; })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, p);
+  return p;
+}
+
+export const candidatesKey = (params) => `candidates${qs(params)}`;
+
 export const trackerApi = {
+  bootstrap: () => shared('bootstrap', () => unwrap(apiFetch(`${BASE}/bootstrap`))),
   me: () => unwrap(apiFetch(`${BASE}/me`)),
   users: () => unwrap(apiFetch(`${BASE}/users`)),
   positions: () => unwrap(apiFetch(`${BASE}/positions`)),
@@ -36,7 +62,7 @@ export const trackerApi = {
   saveTemplate: (positionId, kind, questions) => unwrap(apiFetch(`${BASE}/templates/${positionId}/${kind}`, json('PUT', { questions }))),
   resetTemplate: (positionId, kind) => unwrap(apiFetch(`${BASE}/templates/${positionId}/${kind}/reset`, json('POST'))),
 
-  candidates: (params) => unwrap(apiFetch(`${BASE}/candidates${qs(params)}`)),
+  candidates: (params) => shared(candidatesKey(params), () => unwrap(apiFetch(`${BASE}/candidates${qs(params)}`))),
   candidate: (id) => unwrap(apiFetch(`${BASE}/candidates/${id}`)),
   createCandidate: (body) => unwrap(apiFetch(`${BASE}/candidates`, json('POST', body))),
   updateCandidate: (id, body) => unwrap(apiFetch(`${BASE}/candidates/${id}`, json('PATCH', body))),
@@ -60,5 +86,5 @@ export const trackerApi = {
   saveMgmtEval: (id, round, body) => unwrap(apiFetch(`${BASE}/mgmt/candidates/${id}/eval/${round}`, json('PUT', body))),
   setSecondRound: (id, required) => unwrap(apiFetch(`${BASE}/mgmt/candidates/${id}/second-round`, json('POST', { required }))),
 
-  dashboard: (params) => unwrap(apiFetch(`${BASE}/dashboard${qs(params)}`))
+  dashboard: (params) => shared(`dashboard${qs(params)}`, () => unwrap(apiFetch(`${BASE}/dashboard${qs(params)}`)))
 };

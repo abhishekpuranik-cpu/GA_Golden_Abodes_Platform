@@ -8,6 +8,10 @@ export async function attachHiringUser(req, _res, next) {
     req.hiringUser = devBypassUser();
     return next();
   }
+  if (req.authUser) {
+    req.hiringUser = req.authUser;
+    return next();
+  }
   try {
     const db = await ensureMongo();
     const sess = await resolveSession(db, req);

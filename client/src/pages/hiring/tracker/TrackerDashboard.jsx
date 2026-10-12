@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useOutletContext } from 'react-router-dom';
-import { trackerApi } from '../../../lib/hiring/trackerApi.js';
+import { trackerApi, trackerCache } from '../../../lib/hiring/trackerApi.js';
 import { STAGES, STAGE_LABEL, fmtDate, scoreTone } from '../../../lib/hiring/trackerLabels.js';
 
 const fmtAvg = (v) => (v == null ? '—' : Number(v).toFixed(1));
@@ -10,10 +10,11 @@ export default function TrackerDashboard() {
   const { caps, positions, users } = useOutletContext();
   const navigate = useNavigate();
   const [filters, setFilters] = useState(EMPTY);
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(() => trackerCache.peek('dashboard') || null);
   const [err, setErr] = useState('');
 
   const load = useCallback(() => {
+    if (filters === EMPTY && trackerCache.peek('dashboard')) setData(trackerCache.peek('dashboard'));
     trackerApi.dashboard(filters).then((d) => { setData(d); setErr(''); }).catch((e) => setErr(e.message));
   }, [filters]);
   useEffect(() => { load(); }, [load]);

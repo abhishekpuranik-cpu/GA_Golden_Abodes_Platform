@@ -1,22 +1,37 @@
 import { useCallback, useEffect, useState } from 'react';
 import { NavLink, Outlet, useOutletContext } from 'react-router-dom';
-import { trackerApi } from '../../../lib/hiring/trackerApi.js';
+import { trackerApi, trackerCache } from '../../../lib/hiring/trackerApi.js';
 import '../../../hiring-tracker.css';
+
+const fromBoot = (b) => ({ loading: false, error: '', caps: b.caps, positions: b.positions || [], users: b.users || [] });
+
+function preloadPages() {
+  import('./TrackerPipeline.jsx');
+  import('./TrackerCandidate.jsx');
+  import('./TrackerDashboard.jsx');
+}
 
 export default function TrackerLayout() {
   const parent = useOutletContext() || {};
-  const [state, setState] = useState({ loading: true, error: '', caps: null, positions: [], users: [] });
+  trackerCache.bindUser(parent.user?.id || parent.user?._id || parent.user?.email);
+  const [state, setState] = useState(() => {
+    const boot = trackerCache.peek('bootstrap');
+    return boot ? fromBoot(boot) : { loading: true, error: '', caps: null, positions: [], users: [] };
+  });
 
   const load = useCallback(async () => {
     try {
-      const [me, pos, us] = await Promise.all([trackerApi.me(), trackerApi.positions(), trackerApi.users()]);
-      setState({ loading: false, error: '', caps: me.caps, positions: pos.positions || [], users: us.users || [] });
+      setState(fromBoot(await trackerApi.bootstrap()));
     } catch (e) {
       setState((s) => ({ ...s, loading: false, error: e.message, denied: e.status === 403 }));
     }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    load();
+    trackerApi.candidates({}).catch(() => {});
+    preloadPages();
+  }, [load]);
 
   if (state.loading) return <p className="hr-muted">Loading Hiring Tracker…</p>;
   if (state.error) {

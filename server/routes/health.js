@@ -61,43 +61,7 @@ healthRouter.get('/health', async (req, res) => {
   let v1Cashflow = null;
   if (db) {
     try {
-      const row = await db.collection('app_states').findOne({ _id: V1_CASHFLOW_APP_ID }, { projection: { version: 1, data: 1 } });
-      let soldUnits = 0;
-      if (row?.data) {
-        soldUnits = countSoldUnitsInEnvelope(await repairV1CashflowForRead(db, row.data));
-      }
-      const restoreRows = await db
-        .collection('platform_ops_flags')
-        .find({ _id: { $regex: /^v1_auto_restore:/ } })
-        .sort({ at: -1 })
-        .limit(8)
-        .toArray();
-      const restoreFlag =
-        restoreRows.find((r) => r.soldUnitCount > 0) ||
-        restoreRows.find((r) => r.done && !r.skipped) ||
-        restoreRows[0] ||
-        null;
-      const byProject = row?.data
-        ? soldUnitsByProject(await repairV1CashflowForRead(db, row.data))
-        : {};
-      v1Cashflow = {
-        version: row?.version || 0,
-        soldUnits,
-        paradiseUnits: soldUnitsForParadiseLike(
-          row?.data ? await repairV1CashflowForRead(db, row.data) : { data: {} }
-        ),
-        unitsByProject: byProject,
-        autoRestoreBefore: V1_AUTO_RESTORE_BEFORE || null,
-        autoRestore: restoreFlag
-          ? {
-              done: !!restoreFlag.done,
-              skipped: !!restoreFlag.skipped,
-              soldUnitCount: restoreFlag.soldUnitCount ?? null,
-              paradiseUnits: restoreFlag.byProject?.P009 ?? restoreFlag.priorParadiseUnits ?? null,
-              snapshotAt: restoreFlag.snapshotAt ?? null
-            }
-          : null
-      };
+      v1Cashflow = await cachedV1Summary(db);
     } catch {
       v1Cashflow = { error: 'read_failed' };
     }
@@ -122,3 +86,55 @@ healthRouter.get('/health', async (req, res) => {
     }
   });
 });
+
+const V1_SUMMARY_TTL_MS = 5 * 60_000;
+const v1Summary = { value: null, version: null, at: 0, pending: null };
+
+async function cachedV1Summary(db) {
+  const head = await db.collection('app_states').findOne({ _id: V1_CASHFLOW_APP_ID }, { projection: { version: 1 } });
+  const version = head?.version || 0;
+  if (v1Summary.value && v1Summary.version === version && Date.now() - v1Summary.at < V1_SUMMARY_TTL_MS) {
+    return v1Summary.value;
+  }
+  if (!v1Summary.pending) {
+    v1Summary.pending = computeV1Summary(db)
+      .then((value) => {
+        Object.assign(v1Summary, { value, version: value.version, at: Date.now() });
+        return value;
+      })
+      .finally(() => { v1Summary.pending = null; });
+  }
+  return v1Summary.pending;
+}
+
+async function computeV1Summary(db) {
+  const row = await db.collection('app_states').findOne({ _id: V1_CASHFLOW_APP_ID }, { projection: { version: 1, data: 1 } });
+  const repaired = row?.data ? await repairV1CashflowForRead(db, row.data) : null;
+  const restoreRows = await db
+    .collection('platform_ops_flags')
+    .find({ _id: { $regex: /^v1_auto_restore:/ } })
+    .sort({ at: -1 })
+    .limit(8)
+    .toArray();
+  const restoreFlag =
+    restoreRows.find((r) => r.soldUnitCount > 0) ||
+    restoreRows.find((r) => r.done && !r.skipped) ||
+    restoreRows[0] ||
+    null;
+  return {
+    version: row?.version || 0,
+    soldUnits: repaired ? countSoldUnitsInEnvelope(repaired) : 0,
+    paradiseUnits: soldUnitsForParadiseLike(repaired || { data: {} }),
+    unitsByProject: repaired ? soldUnitsByProject(repaired) : {},
+    autoRestoreBefore: V1_AUTO_RESTORE_BEFORE || null,
+    autoRestore: restoreFlag
+      ? {
+          done: !!restoreFlag.done,
+          skipped: !!restoreFlag.skipped,
+          soldUnitCount: restoreFlag.soldUnitCount ?? null,
+          paradiseUnits: restoreFlag.byProject?.P009 ?? restoreFlag.priorParadiseUnits ?? null,
+          snapshotAt: restoreFlag.snapshotAt ?? null
+        }
+      : null
+  };
+}

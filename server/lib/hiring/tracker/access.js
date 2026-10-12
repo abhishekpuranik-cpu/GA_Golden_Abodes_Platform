@@ -28,7 +28,7 @@ export function trackerCaps(user) {
     decide,
     admin,
     override: decide,
-    editHrTemplates: admin || decide,
+    editHrTemplates: hr,
     editMgmtTemplates: mgmt && (admin || decide)
   };
 }

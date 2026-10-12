@@ -74,9 +74,18 @@ try {
   const tplDm = await call('dm', 'GET', `/templates?positionId=${clm._id}`);
   check('Decision-maker sees HR + R1 + R2 questionnaires', tplDm.json.templates.length === 3);
   expectStatus('HR cannot edit management questionnaire', await call('hr', 'PUT', `/templates/${clm._id}/MGMT_R1`, { questions: [{ text: 'x', weight: 1 }] }), 403);
+  expectStatus('HR cannot reset management questionnaire', await call('hr', 'POST', `/templates/${clm._id}/MGMT_R1/reset`), 403);
+  check('HR can edit the HR screening questionnaire', meHr.json.caps.editHrTemplates && !meHr.json.caps.editMgmtTemplates);
+  const sameHrQuestions = tplHr.json.templates[0].questions.map((q) => ({ text: q.text, category: q.category, weight: q.weight }));
+  const hrTplEdit = await call('hr', 'PUT', `/templates/${clm._id}/HR`, { questions: sameHrQuestions });
+  check('HR saves the HR screening questionnaire', hrTplEdit.status === 200, `${hrTplEdit.status} ${hrTplEdit.json?.error || ''}`);
 
   const ul = await call('hr', 'GET', '/users');
   check('Users list returns tracker users with roles', ul.json.users.length >= 4 && ul.json.users.some((u) => u.decide));
+  const bootHr = await call('hr', 'GET', '/bootstrap');
+  check('Bootstrap returns caps, positions and users in one call',
+    bootHr.status === 200 && bootHr.json.caps?.hr && !bootHr.json.caps.mgmt && bootHr.json.positions.length === 8 && bootHr.json.users.length >= 4);
+  expectStatus('Viewer without tracker permission: /bootstrap', await call('outsider', 'GET', '/bootstrap'), 403);
 
   console.log('\nCandidate creation');
   expectStatus('Missing phone and email', await call('hr', 'POST', '/candidates', { positionId: clm._id, name: 'No Contact' }), 422);

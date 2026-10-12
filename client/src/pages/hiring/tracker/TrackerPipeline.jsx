@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useOutletContext, useSearchParams } from 'react-router-dom';
-import { trackerApi } from '../../../lib/hiring/trackerApi.js';
+import { trackerApi, trackerCache, candidatesKey } from '../../../lib/hiring/trackerApi.js';
 import {
   STAGES, STAGE_LABEL, STATUS_LABEL, ROUND_STATUS_LABEL, REASON_LABEL,
   fmtDate, daysSince, isOverdue, scoreTone, initials
@@ -137,7 +137,10 @@ export default function TrackerPipeline() {
   const load = useCallback(() => {
     const { q, status, ...rest } = filters;
     const apiStatus = ['open', 'all'].includes(status) ? '' : status;
-    trackerApi.candidates({ ...rest, status: apiStatus })
+    const query = { ...rest, status: apiStatus };
+    const cached = trackerCache.peek(candidatesKey(query));
+    if (cached) setList(cached.candidates || []);
+    trackerApi.candidates(query)
       .then((d) => { setList(d.candidates || []); setErr(''); })
       .catch((e) => setErr(e.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps

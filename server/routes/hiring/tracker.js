@@ -111,13 +111,50 @@ function moveStage(cand, req, to, { note = '', override = false, confidential = 
 /* Session capabilities + reference data                               */
 /* ------------------------------------------------------------------ */
 
+const REF_TTL_MS = 60_000;
+const refCache = { users: null, usersAt: 0, positions: null, positionsAt: 0 };
+
+function invalidatePositions() {
+  refCache.positions = null;
+  refCache.positionsAt = 0;
+}
+
+async function cachedPositions() {
+  if (refCache.positions && Date.now() - refCache.positionsAt < REF_TTL_MS) return refCache.positions;
+  const positions = await TrkPosition.find({}).sort({ sortOrder: 1, title: 1 }).lean();
+  refCache.positions = positions;
+  refCache.positionsAt = Date.now();
+  return positions;
+}
+
+async function cachedUsers() {
+  if (refCache.users && Date.now() - refCache.usersAt < REF_TTL_MS) return refCache.users;
+  const users = await loadTrackerUsers();
+  refCache.users = users;
+  refCache.usersAt = Date.now();
+  return users;
+}
+
+function mePayload(req) {
+  return { caps: req.trk, perms: TRACKER_PERMS, stages: TRK_STAGES, stageLabels: STAGE_LABELS, reasonCodes: TRK_REASON_CODES };
+}
+
 router.get('/me', (req, res) => {
-  res.json({ caps: req.trk, perms: TRACKER_PERMS, stages: TRK_STAGES, stageLabels: STAGE_LABELS, reasonCodes: TRK_REASON_CODES });
+  res.json(mePayload(req));
 });
 
-router.get('/users', handle(async (req, res) => {
+router.get('/bootstrap', handle(async (req, res) => {
+  const [positions, users] = await Promise.all([cachedPositions(), cachedUsers()]);
+  res.json({ ...mePayload(req), positions, users });
+}));
+
+router.get('/users', handle(async (_req, res) => {
+  res.json({ users: await cachedUsers() });
+}));
+
+async function loadTrackerUsers() {
   const db = await ensureMongo();
-  if (!db) return res.json({ users: [] });
+  if (!db) return [];
   const [users, roles] = await Promise.all([
     db.collection('auth_users').find(
       { status: { $ne: 'disabled' } },
@@ -138,16 +175,15 @@ router.get('/users', handle(async (req, res) => {
     out.push({ id: String(u._id), name: u.name || u.email, email: u.email, mgmt: caps.mgmt, decide: caps.decide });
   }
   out.sort((a, b) => a.name.localeCompare(b.name));
-  res.json({ users: out });
-}));
+  return out;
+}
 
 /* ------------------------------------------------------------------ */
 /* Positions                                                            */
 /* ------------------------------------------------------------------ */
 
 router.get('/positions', handle(async (_req, res) => {
-  const positions = await TrkPosition.find({}).sort({ sortOrder: 1, title: 1 }).lean();
-  res.json({ positions });
+  res.json({ positions: await cachedPositions() });
 }));
 
 const POSITION_FIELDS = ['title', 'department', 'reportsTo', 'experience', 'education', 'location', 'mandate'];
@@ -161,6 +197,7 @@ router.post('/positions', requireTemplateEditor, handle(async (req, res) => {
   const doc = { code, sortOrder: count + 1, openings: Math.max(0, Number(req.body?.openings) || 1) };
   for (const f of POSITION_FIELDS) doc[f] = str(req.body?.[f], 2000);
   const pos = await TrkPosition.create(doc);
+  invalidatePositions();
   await ensureTemplatesForPosition(pos);
   res.status(201).json({ position: pos });
 }));
@@ -173,6 +210,7 @@ router.patch('/positions/:pid', requireTemplateEditor, handle(async (req, res) =
   if (req.body?.openings !== undefined) pos.openings = Math.max(0, Number(req.body.openings) || 0);
   if (req.body?.isActive !== undefined) pos.isActive = Boolean(req.body.isActive);
   await pos.save();
+  invalidatePositions();
   res.json({ position: pos });
 }));
 
