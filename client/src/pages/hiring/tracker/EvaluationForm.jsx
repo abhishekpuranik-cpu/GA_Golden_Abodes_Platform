@@ -47,7 +47,7 @@ function suggestion(score) {
  * kind: 'HR' | 'R1' | 'R2'
  * fetchEval(): Promise<{evaluation}>; saveEval(body): Promise<{evaluation, candidate}>
  */
-export default function EvaluationForm({ kind, fetchEval, saveEval, canEdit, onSaved, lockedReason }) {
+export default function EvaluationForm({ kind, fetchEval, saveEval, canEdit, onSaved, lockedReason, candidateName, positionTitle }) {
   const L = LABELS[kind === 'HR' ? 'HR' : 'MGMT'];
   const isMgmt = kind !== 'HR';
   const [ev, setEv] = useState(null);
@@ -77,7 +77,7 @@ export default function EvaluationForm({ kind, fetchEval, saveEval, canEdit, onS
   const readOnly = !canEdit || !editing;
 
   const payload = useCallback((e, submit) => ({
-    answers: e.answers.map((a) => ({ qid: a.qid, response: a.response, comment: a.comment, score: a.score })),
+    answers: e.answers.map((a) => ({ qid: a.qid, response: a.response, comment: a.comment, score: a.score, flagged: Boolean(a.flagged) })),
     recommendation: e.recommendation,
     summary: e.summary,
     ...(isMgmt ? { strengths: e.strengths, concerns: e.concerns } : {}),
@@ -156,6 +156,12 @@ export default function EvaluationForm({ kind, fetchEval, saveEval, canEdit, onS
   return (
     <div className="ht-eval">
       <div className="ht-eval-questions">
+        {candidateName && (
+          <p className="ht-eval-for">
+            Answers recorded for <b>{candidateName}</b>{positionTitle ? ` · ${positionTitle}` : ''}
+            {!isMgmt && <span> — flag (⚑) any answer the 1st-round interviewer should dig into.</span>}
+          </p>
+        )}
         {ev.status === 'SUBMITTED' && (
           <div className="ht-alert ht-alert-ok">
             Submitted by {ev.evaluatorName || '—'} on {fmtDate(ev.submittedAt, true)}.
@@ -185,6 +191,18 @@ export default function EvaluationForm({ kind, fetchEval, saveEval, canEdit, onS
                   <span className="ht-q-num">Q{i + 1}</span>
                   <p>{a.text}</p>
                   <span className="ht-q-weight" title="Weightage">×{a.weight}</span>
+                  {!isMgmt && (
+                    <button
+                      type="button"
+                      className={`ht-flag ${a.flagged ? 'on' : ''}`}
+                      disabled={readOnly}
+                      aria-pressed={Boolean(a.flagged)}
+                      title={a.flagged ? 'Flagged for the 1st-round interviewer' : 'Flag this answer for the 1st-round interviewer'}
+                      onClick={() => updateAnswer(a.qid, { flagged: !a.flagged })}
+                    >
+                      ⚑{a.flagged ? ' Flagged' : ''}
+                    </button>
+                  )}
                 </div>
                 {a.guidance && (
                   <button type="button" className="ht-guide-toggle" onClick={() => setOpenGuide((o) => ({ ...o, [a.qid]: !o[a.qid] }))}>

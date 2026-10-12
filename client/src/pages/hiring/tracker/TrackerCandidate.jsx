@@ -6,6 +6,7 @@ import {
   fmtDate, daysSince, isOverdue, scoreTone
 } from '../../../lib/hiring/trackerLabels.js';
 import EvaluationForm from './EvaluationForm.jsx';
+import PreReadPanel from './PreReadPanel.jsx';
 import {
   StatusModal, ReasonModal, MoveStageModal, ScheduleModal, DecisionModal, EditProfileModal, NextActionModal
 } from './TrackerModals.jsx';
@@ -73,7 +74,10 @@ export default function TrackerCandidate() {
     trackerApi.candidate(id)
       .then((d) => {
         setData(d);
-        setOpen((o) => (Object.keys(o).length ? o : { [defaultSection(d.candidate)]: true }));
+        setOpen((o) => (Object.keys(o).length ? o : {
+          [defaultSection(d.candidate)]: true,
+          ...(d.candidate.stage === 'MGMT_R1' ? { preread: true } : {})
+        }));
       })
       .catch((e) => setErr(e.message));
   }, [id]);
@@ -240,12 +244,32 @@ export default function TrackerCandidate() {
             </div>
             <EvaluationForm
               kind="HR"
+              candidateName={c.name}
+              positionTitle={position?.title}
               fetchEval={() => trackerApi.hrEval(c._id)}
               saveEval={(body) => trackerApi.saveHrEval(c._id, body)}
               canEdit={caps.hr && c.status === 'ACTIVE' && (inHr || caps.override)}
               lockedReason={c.status !== 'ACTIVE' ? 'Resume the candidate to edit the screening.' : !inHr ? 'Locked — candidate has moved to management rounds.' : ''}
               onSaved={(cand, submitted) => { if (cand) setCand(cand); if (submitted) { flash('HR screening submitted'); load(); } }}
             />
+          </Section>
+
+          <Section
+            id="sec-preread"
+            title="1st round pre-read"
+            meta={c.hr?.status === 'SUBMITTED' ? 'From HR screening' : 'After HR screening'}
+            open={open.preread}
+            onToggle={() => toggle('preread')}
+          >
+            {open.preread && (
+              <PreReadPanel
+                candidateId={c._id}
+                candidateName={c.name}
+                positionTitle={position?.title}
+                hrSubmittedAt={c.hr?.submittedAt}
+                canRegenerate={caps.hr}
+              />
+            )}
           </Section>
 
           <Section id="sec-r1" title="1st round interview (Management)" meta={r1Meta} open={open.r1} onToggle={() => toggle('r1')}>

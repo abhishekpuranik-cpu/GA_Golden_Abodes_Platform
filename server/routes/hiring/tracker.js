@@ -15,6 +15,7 @@ import {
   BUCKETS, FUNNEL, daysBetween
 } from '../../lib/hiring/tracker/core.js';
 import { defaultQuestions, ensureTemplatesForPosition } from '../../lib/hiring/tracker/seed.js';
+import { generatePreRead } from '../../lib/hiring/tracker/preRead.js';
 
 const router = Router();
 router.use(attachHiringUser, attachTrackerCaps);
@@ -635,7 +636,8 @@ function mergeAnswers(evalDoc, incoming) {
       ...plain,
       response: inc.response !== undefined ? str(inc.response, 4000) : plain.response,
       comment: inc.comment !== undefined ? str(inc.comment, 4000) : plain.comment,
-      score: s == null ? null : (Number.isInteger(s) && s >= 1 && s <= 5 ? s : plain.score)
+      score: s == null ? null : (Number.isInteger(s) && s >= 1 && s <= 5 ? s : plain.score),
+      flagged: inc.flagged !== undefined ? Boolean(inc.flagged) : Boolean(plain.flagged)
     };
   });
 }
@@ -724,7 +726,59 @@ router.put('/candidates/:id/hr-eval', handle(async (req, res) => {
     applyStageDefaults(cand);
   }
   await cand.save();
+  if (submit) {
+    generatePreRead({ cand: cand.toObject(), byName: a.name })
+      .catch((e) => console.warn('[Hiring Tracker] pre-read failed:', e?.message || e));
+  }
   res.json({ evaluation: ev, calc, candidate: serializeCandidate(cand, req.trk) });
+}));
+
+/* ---------- 1st-round pre-read (derived from HR screening only) ---------- */
+
+async function preReadPayload(candId) {
+  const ev = await TrkHrEval.findOne({ candidateId: candId }, { preRead: 1, status: 1, submittedAt: 1 }).lean();
+  const pr = ev?.preRead || { status: 'NONE' };
+  const stale = Boolean(pr.basedOnSubmittedAt && ev?.submittedAt && new Date(pr.basedOnSubmittedAt).getTime() !== new Date(ev.submittedAt).getTime());
+  return { preRead: pr, hrStatus: ev?.status || 'NOT_STARTED', stale };
+}
+
+router.get('/candidates/:id/pre-read', handle(async (req, res) => {
+  const cand = await loadCandidate(req, res);
+  if (!cand) return;
+  res.json(await preReadPayload(cand._id));
+}));
+
+router.post('/candidates/:id/pre-read', handle(async (req, res) => {
+  const cand = await loadCandidate(req, res);
+  if (!cand) return;
+  const ev = await TrkHrEval.findOne({ candidateId: cand._id }, { status: 1 }).lean();
+  if (ev?.status !== 'SUBMITTED') return fail(res, 409, 'Submit the HR screening first');
+  await generatePreRead({ cand: cand.toObject(), byName: actor(req).name });
+  res.json(await preReadPayload(cand._id));
+}));
+
+const linesOf = (v, n, len) => (Array.isArray(v) ? v : []).slice(0, n).map((x) => str(x, len)).filter(Boolean);
+
+router.put('/candidates/:id/pre-read', handle(async (req, res) => {
+  const cand = await loadCandidate(req, res);
+  if (!cand) return;
+  const ev = await TrkHrEval.findOne({ candidateId: cand._id }, { preRead: 1 }).lean();
+  if (ev?.preRead?.status !== 'READY') return fail(res, 409, 'Generate the pre-read first');
+  const b = req.body || {};
+  const pts = (v) => (Array.isArray(v) ? v : []).slice(0, 8)
+    .map((p) => ({ point: str(p?.point, 300), evidence: str(p?.evidence, 500) })).filter((p) => p.point);
+  const set = { 'preRead.editedAt': new Date(), 'preRead.editedByName': actor(req).name };
+  if (b.headline !== undefined) set['preRead.headline'] = str(b.headline, 300);
+  if (b.verdict !== undefined) set['preRead.verdict'] = str(b.verdict, 1500);
+  if (b.strengths !== undefined) set['preRead.strengths'] = pts(b.strengths);
+  if (b.concerns !== undefined) set['preRead.concerns'] = pts(b.concerns);
+  if (b.verify !== undefined) set['preRead.verify'] = linesOf(b.verify, 10, 300);
+  if (b.probes !== undefined) {
+    set['preRead.probes'] = (Array.isArray(b.probes) ? b.probes : []).slice(0, 10)
+      .map((p) => ({ question: str(p?.question, 400), why: str(p?.why, 300) })).filter((p) => p.question);
+  }
+  await TrkHrEval.updateOne({ candidateId: cand._id }, { $set: set });
+  res.json(await preReadPayload(cand._id));
 }));
 
 /* ---------- Final decision ---------- */

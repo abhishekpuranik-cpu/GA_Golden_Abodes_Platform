@@ -53,6 +53,9 @@ export const trackerApi = {
 
   hrEval: (id) => unwrap(apiFetch(`${BASE}/candidates/${id}/hr-eval`)),
   saveHrEval: (id, body) => unwrap(apiFetch(`${BASE}/candidates/${id}/hr-eval`, json('PUT', body))),
+  preRead: (id) => unwrap(apiFetch(`${BASE}/candidates/${id}/pre-read`)),
+  regeneratePreRead: (id) => unwrap(apiFetch(`${BASE}/candidates/${id}/pre-read`, json('POST'))),
+  savePreRead: (id, body) => unwrap(apiFetch(`${BASE}/candidates/${id}/pre-read`, json('PUT', body))),
   mgmtEval: (id, round) => unwrap(apiFetch(`${BASE}/mgmt/candidates/${id}/eval/${round}`)),
   saveMgmtEval: (id, round, body) => unwrap(apiFetch(`${BASE}/mgmt/candidates/${id}/eval/${round}`, json('PUT', body))),
   setSecondRound: (id, required) => unwrap(apiFetch(`${BASE}/mgmt/candidates/${id}/second-round`, json('POST', { required }))),

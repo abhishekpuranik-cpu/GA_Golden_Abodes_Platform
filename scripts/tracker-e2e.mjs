@@ -98,12 +98,33 @@ try {
   check('Draft saves with partial scores', draft.status === 200 && draft.json.evaluation.status === 'DRAFT');
   expectStatus('Submit incomplete HR screening', await call('hr', 'PUT', `/candidates/${A}/hr-eval`, { submit: true, recommendation: 'RECOMMENDED' }), 422);
   // Weighted score check: alternate 5 and 3.
-  const ans = hrEv.json.evaluation.answers.map((a, i) => ({ qid: a.qid, score: i % 2 ? 3 : 5, response: 'r', comment: 'c' }));
+  const ans = hrEv.json.evaluation.answers.map((a, i) => ({
+    qid: a.qid, score: i % 2 ? 3 : 5, response: `Asha answer ${i + 1}`, comment: 'c', flagged: i === 1
+  }));
   const wSum = hrEv.json.evaluation.answers.reduce((s, a) => s + a.weight, 0);
   const expected = Math.round((hrEv.json.evaluation.answers.reduce((s, a, i) => s + a.weight * (i % 2 ? 3 : 5), 0) / wSum) * 100) / 100;
   const sub = await call('hr', 'PUT', `/candidates/${A}/hr-eval`, { answers: ans, recommendation: 'RECOMMENDED', summary: 'Strong closer', submit: true });
   check(`Weighted HR score = ${expected}`, Math.abs(sub.json?.evaluation?.score - expected) < 0.01, `got ${sub.json?.evaluation?.score}`);
   check('Recommended → auto-advance to 1st round', sub.json?.candidate?.stage === 'MGMT_R1');
+  check('Answer flag stored on this candidate\'s screening', sub.json?.evaluation?.answers?.[1]?.flagged === true && !sub.json.evaluation.answers[0].flagged);
+
+  console.log('\n1st-round pre-read');
+  let pr;
+  for (let i = 0; i < 20; i += 1) {
+    pr = await call('hr', 'GET', `/candidates/${A}/pre-read`);
+    if (pr.json?.preRead?.status === 'READY') break;
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  const p = pr.json.preRead;
+  check('Pre-read generated automatically on HR submit', p.status === 'READY' && p.headline && p.digest.length === 10, JSON.stringify(p).slice(0, 200));
+  check('Digest carries this candidate\'s own answers', p.digest.some((d) => d.takeaway.includes('Asha answer 1')));
+  check('HR-flagged answer leads the suggested probes', p.probes.length > 0 && /Flagged by HR/.test(p.probes[0].why), JSON.stringify(p.probes[0]));
+  check('Strengths and category scores populated', p.strengths.length > 0 && p.categoryScores.length > 0);
+  const ed = await call('int1', 'PUT', `/candidates/${A}/pre-read`, { headline: 'Edited headline', probes: [{ question: 'Q?', why: 'because' }] });
+  check('Interviewer can edit the pre-read', ed.json?.preRead?.headline === 'Edited headline' && ed.json.preRead.editedByName === 'Ivan Interviewer');
+  const rg = await call('hr', 'POST', `/candidates/${A}/pre-read`);
+  check('Regenerate rebuilds from screening', rg.json?.preRead?.headline !== 'Edited headline' && rg.json.preRead.status === 'READY');
+  expectStatus('Viewer cannot read pre-read', await call('outsider', 'GET', `/candidates/${A}/pre-read`), 403);
 
   console.log('\nScheduling (HR coordinates)');
   const t1 = new Date(Date.now() + 2 * 864e5).toISOString();
@@ -135,7 +156,8 @@ try {
   const hrList = await call('hr', 'GET', '/candidates?status=');
   const hrDash = await call('hr', 'GET', '/dashboard');
   const hrHrEval = await call('hr', 'GET', `/candidates/${A}/hr-eval`);
-  const leak = [hrView, hrList, hrDash, hrHrEval].some((r) => r.text.includes(SECRET));
+  const hrPreRead = await call('hr', 'POST', `/candidates/${A}/pre-read`);
+  const leak = [hrView, hrList, hrDash, hrHrEval, hrPreRead].some((r) => r.text.includes(SECRET));
   check('No management content in any HR-reachable response', !leak);
   check('HR candidate view has no management score fields', !hrView.text.includes('mgmtEval') && hrView.json.candidate.r1EvalStatus === 'SUBMITTED');
   check('HR list carries no management scores', hrList.json.candidates.every((c) => !c.mgmtEval));
@@ -163,6 +185,7 @@ try {
 
   console.log('\nReject / hold / resume / no-show / override');
   const B = (await call('hr', 'POST', '/candidates', { positionId: clm._id, name: 'Bala R', phone: '9800000002' })).json.candidate._id;
+  expectStatus('Pre-read refused before HR submits', await call('hr', 'POST', `/candidates/${B}/pre-read`), 409);
   expectStatus('Reject without reason code', await call('hr', 'POST', `/candidates/${B}/transition`, { action: 'REJECT' }), 422);
   expectStatus('HR puts B on hold (HR stage)', await call('hr', 'POST', `/candidates/${B}/transition`, { action: 'HOLD', reasonCode: 'OTHER', reason: 'Travelling' }), 200);
   expectStatus('HR evaluation blocked while on hold', await call('hr', 'PUT', `/candidates/${B}/hr-eval`, { summary: 'x' }), 409);

@@ -153,7 +153,31 @@ const AnswerSchema = new Schema({
   weight: { type: Number, default: 3 },
   response: { type: String, default: '' },
   comment: { type: String, default: '' },
-  score: { type: Number, min: 1, max: 5, default: null }
+  score: { type: Number, min: 1, max: 5, default: null },
+  flagged: { type: Boolean, default: false }
+}, { _id: false });
+
+const PreReadPointSchema = new Schema({ point: String, evidence: String }, { _id: false });
+
+/** HR-derived brief for 1st-round interviewers. Built only from HR screening + profile, never management data. */
+const PreReadSchema = new Schema({
+  status: { type: String, enum: ['NONE', 'GENERATING', 'READY', 'FAILED'], default: 'NONE' },
+  source: { type: String, enum: ['AI', 'RULES', ''], default: '' },
+  headline: { type: String, default: '' },
+  verdict: { type: String, default: '' },
+  snapshot: [{ _id: false, label: String, value: String }],
+  categoryScores: [{ _id: false, category: String, score: Number }],
+  strengths: [PreReadPointSchema],
+  concerns: [PreReadPointSchema],
+  verify: [String],
+  probes: [{ _id: false, question: String, why: String }],
+  digest: [{ _id: false, qid: String, question: String, takeaway: String, score: Number, flagged: Boolean }],
+  error: { type: String, default: '' },
+  basedOnSubmittedAt: { type: Date, default: null },
+  generatedAt: { type: Date, default: null },
+  generatedByName: { type: String, default: '' },
+  editedAt: { type: Date, default: null },
+  editedByName: { type: String, default: '' }
 }, { _id: false });
 
 const EvalBase = {
@@ -170,7 +194,7 @@ const EvalBase = {
   submittedAt: { type: Date, default: null }
 };
 
-const HrEvalSchema = new Schema({ ...EvalBase }, { timestamps: true });
+const HrEvalSchema = new Schema({ ...EvalBase, preRead: { type: PreReadSchema, default: () => ({}) } }, { timestamps: true });
 HrEvalSchema.index({ candidateId: 1 }, { unique: true });
 
 const MgmtEvalSchema = new Schema({
