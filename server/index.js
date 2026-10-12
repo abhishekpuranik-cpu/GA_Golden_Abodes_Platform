@@ -27,6 +27,7 @@ import { startHiringMetaviewRetry } from './jobs/hiringMetaviewRetry.js';
 import { seedPostSalesIfEmpty } from './lib/postsales/seedIfEmpty.js';
 import { seedHiringIfEmpty } from './lib/hiring/seedIfEmpty.js';
 import { ensureHiringIndexes } from './lib/hiring/ensureIndexes.js';
+import { seedHiringTracker } from './lib/hiring/tracker/seed.js';
 import { seedAdminServicesIfNeeded, ensureAdminServicesIndexes } from './lib/adminServices/migrate.js';
 import { isDevAuthBypass } from './lib/devAuthBypass.js';
 import { maybePurgePostSalesOnStart } from './lib/postsales/purgeUnitData.js';
@@ -209,6 +210,7 @@ async function boot() {
   if (process.env.NODE_ENV !== 'production') await seedPostSalesIfEmpty();
   await seedHiringIfEmpty();
   await ensureHiringIndexes();
+  await seedHiringTracker();
   try {
     await seedAdminServicesIfNeeded();
     await ensureAdminServicesIndexes();

@@ -51,6 +51,11 @@ const HrDashboardLayout = lazy(() => import('./pages/hiring/HiringDashboardLayou
 const HrKpisTab = lazy(() => import('./pages/hiring/HiringKpisTab.jsx'));
 const HrRequirementsTab = lazy(() => import('./pages/hiring/HiringRequirementsTab.jsx'));
 const HrActivityLogTab = lazy(() => import('./pages/hiring/HiringActivityLogTab.jsx'));
+const HtLayout = lazy(() => import('./pages/hiring/tracker/TrackerLayout.jsx'));
+const HtPipeline = lazy(() => import('./pages/hiring/tracker/TrackerPipeline.jsx'));
+const HtDashboard = lazy(() => import('./pages/hiring/tracker/TrackerDashboard.jsx'));
+const HtQuestionnaires = lazy(() => import('./pages/hiring/tracker/TrackerQuestionnaires.jsx'));
+const HtCandidate = lazy(() => import('./pages/hiring/tracker/TrackerCandidate.jsx'));
 const AdminServicesLayout = lazy(() => import('./pages/adminServices/AdminServicesLayout.jsx'));
 const AsTravelLayout = lazy(() => import('./pages/adminServices/TravelLayout.jsx'));
 const AsStaffOnly = lazy(() => import('./pages/adminServices/StaffOnly.jsx'));
@@ -208,6 +213,12 @@ export default function App() {
           <Route path="req/:id/candidate/:cid" element={<HrCandidateProfile />} />
           <Route path="interviews" element={<HrInterviewCalendar />} />
           <Route path="ctc" element={<HrCtcGenerator />} />
+          <Route path="tracker" element={<HtLayout />}>
+            <Route index element={<HtPipeline />} />
+            <Route path="dashboard" element={<HtDashboard />} />
+            <Route path="questionnaires" element={<HtQuestionnaires />} />
+            <Route path="c/:id" element={<HtCandidate />} />
+          </Route>
           <Route path="dashboard" element={<HrDashboardLayout />}>
             <Route index element={<HrKpisTab />} />
             <Route path="requirements" element={<HrRequirementsTab />} />

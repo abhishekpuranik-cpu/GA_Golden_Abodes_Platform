@@ -22,6 +22,7 @@
     "purge:postsales": "node server/scripts/purgePostSalesUnits.js",
     "test:hiring-access": "node scripts/hiring-viewer-403-test.mjs",
     "test:hiring-import": "node scripts/hiring-import-demo.mjs",
+    "test:hiring-tracker": "node scripts/tracker-e2e.mjs",
     "test:m9": "node scripts/test-m9-admin-services.mjs",
     "migrate:m9": "node server/migrations/m9-admin-services.mjs up",
     "migrate:m9:down": "node server/migrations/m9-admin-services.mjs down --dry-run"

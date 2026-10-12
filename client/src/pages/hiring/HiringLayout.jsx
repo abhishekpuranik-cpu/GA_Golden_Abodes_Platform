@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, NavLink, Outlet } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { authApi } from '../../lib/api.js';
 import { hiringApi } from '../../lib/hiringApi.js';
 import { HIRING_NAV } from '../../lib/hiringTabs.js';
@@ -17,9 +17,15 @@ export default function HiringLayout() {
     hiringApi.health().then(setHealth).catch(() => setHealth({ sourcingMode: 'manual' }));
   }, []);
 
+  const { pathname } = useLocation();
+  const onTracker = pathname.startsWith('/app/hiring/tracker');
+  const perms = user?.permissions || [];
+  const canSeeTracker = perms.includes('manage_security') || perms.some((p) => p.startsWith('HIRING.TRACKER.'));
+  const nav = HIRING_NAV.filter((n) => !n.tracker || canSeeTracker || onTracker);
+
   const canWrite =
     (user?.roleIds || []).some((r) => ['admin', 'hiring_manager'].includes(r)) ||
-    (user?.permissions || []).includes('manage_security') ||
+    perms.includes('manage_security') ||
     (user?.allowedApps || []).includes('hiring');
 
   return (
@@ -34,7 +40,7 @@ export default function HiringLayout() {
             </div>
           </div>
           <nav className="hr-nav">
-            {HIRING_NAV.map((n) => (
+            {nav.map((n) => (
               <NavLink key={n.path} to={n.path} end={n.end} className={({ isActive }) => (isActive ? 'active' : '')}>
                 {n.label}
               </NavLink>
@@ -47,12 +53,14 @@ export default function HiringLayout() {
         <main className="hr-body">
           <Outlet context={{ user, canWrite, sourcingAuto: health?.sourcingMode === 'auto' }} />
         </main>
-        <VaultAskAi
-          appId="hiring"
-          appLabel="Hiring & Sourcing"
-          exampleKey="hiring"
-          buildContext={buildHiringAskContext}
-        />
+        {!onTracker && (
+          <VaultAskAi
+            appId="hiring"
+            appLabel="Hiring & Sourcing"
+            exampleKey="hiring"
+            buildContext={buildHiringAskContext}
+          />
+        )}
       </div>
     </PlatformShell>
   );

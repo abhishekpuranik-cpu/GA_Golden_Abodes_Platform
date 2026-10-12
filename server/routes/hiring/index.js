@@ -9,6 +9,7 @@ import dashboardRouter from './dashboard.js';
 import activityLogRouter from './activityLog.js';
 import reportsRouter from './reports.js';
 import healthRouter from './health.js';
+import trackerRouter from './tracker.js';
 
 const router = Router();
 
@@ -26,5 +27,6 @@ router.use('/offers', offersRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/activity-log', activityLogRouter);
 router.use('/reports', reportsRouter);
+router.use('/tracker', trackerRouter);
 
 export default router;
