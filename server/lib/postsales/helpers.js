@@ -1,8 +1,9 @@
 import { STEPS } from './steps.js';
+import { getResolvedStepDef, getResolvedStepDefs } from './activityCatalog.js';
 import { getStepTaskKind, defaultAssigneeForKind } from './taskKinds.js';
 
 export function getStepDef(stepNumber) {
-  return STEPS.find((s) => s.number === stepNumber);
+  return getResolvedStepDef(stepNumber);
 }
 
 export function addCalendarDays(from, days) {
@@ -41,7 +42,7 @@ export function buildPipelineStepDocs(unit, fundingType, { startedBy = unit.crmE
   const now = new Date();
   const bookingAnchor = unit.bookingDate ? new Date(unit.bookingDate) : now;
   const start = Math.max(1, Math.min(20, Number(startAtStep) || 1));
-  return STEPS.map((def) => {
+  return getResolvedStepDefs().map((def) => {
     const taskKind = getStepTaskKind(def.number);
     let status = 'pending';
     if (def.number < start) status = 'completed';

@@ -5,6 +5,7 @@ import Unit from '../../models/postsales/Unit.js';
 import { ensureMongo } from '../../lib/mongo.js';
 import { resolveSession } from '../auth.js';
 import { STEPS } from '../../lib/postsales/steps.js';
+import { getResolvedStepDef } from '../../lib/postsales/activityCatalog.js';
 import { hydrateStepTaskKinds } from '../../lib/postsales/helpers.js';
 import { getStepTaskKind, TASK_KINDS } from '../../lib/postsales/taskKinds.js';
 import { CLP_STEP, mapClpLetterTaskToMyTask } from '../../lib/postsales/clpLetterTasks.js';
@@ -65,7 +66,7 @@ function sortTasksByFollowUp(steps) {
 
 function mapStepToTask(s, unitMap) {
   const u = unitMap[String(s.unitId)];
-  const def = STEPS.find((d) => d.number === s.stepNumber);
+  const def = getResolvedStepDef(s.stepNumber);
   const taskKind = s.taskKind || getStepTaskKind(s.stepNumber);
   return {
     _id: s._id,

@@ -18,6 +18,7 @@ import bootstrapRouter from './bootstrap.js';
 import reportsRouter from './reports.js';
 import clpScheduleRouter from './clpSchedule.js';
 import clpLetterTasksRouter from './clpLetterTasks.js';
+import slaConfigRouter from './slaConfig.js';
 
 const router = Router();
 
@@ -42,5 +43,6 @@ router.use('/bootstrap', bootstrapRouter);
 router.use('/inventory', inventoryRouter);
 router.use('/reports', reportsRouter);
 router.use('/clp-letter-tasks', clpLetterTasksRouter);
+router.use('/sla-config', slaConfigRouter);
 
 export default router;

@@ -10,7 +10,8 @@ import { useDocuments } from '../../hooks/postsales/useDocuments.js';
 
 import { useAssignees } from '../../hooks/postsales/useMyTasks.js';
 
-import { STEPS, PHASES, ESCALATION_MATRIX } from '../../data/postsales/steps.js';
+import { PHASES, ESCALATION_MATRIX } from '../../data/postsales/steps.js';
+import { usePipelineStepDefs } from '../../hooks/postsales/usePipelineStepDefs.js';
 
 import { TYPE_LABELS, docTypesForStep } from '../../data/postsales/stepDocs.js';
 import { formatDueDate, formatSlaTarget, slaCountdown } from '../../lib/postSalesSla.js';
@@ -84,6 +85,7 @@ export default function UnitPipeline() {
   const { documents, uploadDocument } = useDocuments(needDocuments ? id : null);
 
   const { cxTeam, backendTeam } = useAssignees();
+  const pipelineStepDefs = usePipelineStepDefs();
 
   const highlightMilestone = searchParams.get('milestone') || searchParams.get('milestoneName') || '';
 
@@ -130,7 +132,7 @@ export default function UnitPipeline() {
 
 
 
-  const stepDef = useMemo(() => STEPS.find((s) => s.number === selected), [selected]);
+  const stepDef = useMemo(() => pipelineStepDefs.find((s) => s.number === selected), [pipelineStepDefs, selected]);
 
   const stepRecord = useMemo(() => steps.find((s) => s.stepNumber === selected), [steps, selected]);
 

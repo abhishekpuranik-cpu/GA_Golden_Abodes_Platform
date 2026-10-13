@@ -11,6 +11,7 @@ export async function ensurePostSalesMongoose() {
 
 export function postSalesReady(req, res, next) {
   ensurePostSalesMongoose()
+    .then(() => import('./activityCatalog.js').then((m) => m.ensureCatalogLoaded()))
     .then(() => next())
     .catch((err) => {
       console.error('[postsales] Mongo connection failed:', err.message);

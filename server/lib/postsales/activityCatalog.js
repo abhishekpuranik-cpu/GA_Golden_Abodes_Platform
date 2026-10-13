@@ -4,6 +4,59 @@ import { getStepTaskKind } from './taskKinds.js';
 const CATALOG_ID = 'pipeline_activity_catalog';
 
 let cachedKindMap = null;
+let cachedActivitiesByNumber = null;
+let catalogLoadPromise = null;
+
+function activityToStepDef(a) {
+  if (!a) return null;
+  const base = STEPS.find((s) => s.number === a.number) || {};
+  return {
+    ...base,
+    ...a,
+    number: a.number,
+    blockedBy: Array.isArray(a.blockedBy) && a.blockedBy.length ? a.blockedBy : [...(base.blockedBy || [])],
+    checklist: Array.isArray(a.checklist) && a.checklist.length ? a.checklist : [...(base.checklist || [])],
+    homeLoanChecklist: a.homeLoanChecklist?.length ? a.homeLoanChecklist : [...(base.homeLoanChecklist || [])],
+    selfFundedChecklist: a.selfFundedChecklist?.length ? a.selfFundedChecklist : [...(base.selfFundedChecklist || [])],
+  };
+}
+
+function refreshActivityCache(activities) {
+  cachedActivitiesByNumber = Object.fromEntries(activities.map((a) => [a.number, a]));
+  cachedKindMap = stepTaskKindMap(activities);
+}
+
+export function getResolvedStepDef(stepNumber) {
+  const n = Number(stepNumber);
+  const cached = cachedActivitiesByNumber?.[n];
+  if (cached) return activityToStepDef(cached);
+  return STEPS.find((s) => s.number === n) || null;
+}
+
+export function getResolvedStepDefs() {
+  if (cachedActivitiesByNumber) {
+    return Object.values(cachedActivitiesByNumber)
+      .sort((a, b) => a.number - b.number)
+      .map(activityToStepDef);
+  }
+  return STEPS;
+}
+
+export async function ensureCatalogLoaded() {
+  if (cachedActivitiesByNumber) return { activities: getResolvedStepDefs() };
+  if (!catalogLoadPromise) {
+    catalogLoadPromise = (async () => {
+      const { ensureMongo } = await import('../mongo.js');
+      const db = await ensureMongo();
+      if (!db) return { activities: STEPS.map(activityFromStep) };
+      return loadActivityCatalog(db);
+    })().catch((err) => {
+      catalogLoadPromise = null;
+      throw err;
+    });
+  }
+  return catalogLoadPromise;
+}
 
 function norm(s) {
   return String(s || '').trim();
@@ -78,7 +131,7 @@ export async function loadActivityCatalog(db) {
   const doc = await db.collection('post_sales_settings').findOne({ _id: CATALOG_ID });
   if (doc?.activities?.length) {
     const activities = doc.activities.map(ensureActivityShape).filter(Boolean).sort((a, b) => a.number - b.number);
-    cachedKindMap = stepTaskKindMap(activities);
+    refreshActivityCache(activities);
     return { activities, updatedAt: doc.updatedAt || null };
   }
   return seedActivityCatalog(db);
@@ -92,7 +145,7 @@ async function seedActivityCatalog(db) {
     { $set: { activities, updatedAt } },
     { upsert: true }
   );
-  cachedKindMap = stepTaskKindMap(activities);
+  refreshActivityCache(activities);
   return { activities, updatedAt };
 }
 
@@ -108,7 +161,7 @@ export async function saveActivityCatalog(db, activities) {
     { $set: { activities: cleaned, updatedAt } },
     { upsert: true }
   );
-  cachedKindMap = stepTaskKindMap(cleaned);
+  refreshActivityCache(cleaned);
   return { activities: cleaned, updatedAt };
 }
 
