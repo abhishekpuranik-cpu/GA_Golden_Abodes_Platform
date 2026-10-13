@@ -150,6 +150,7 @@ export const postSalesApi = {
   },
   getSlaConfig: () => apiFetch(`${BASE}/sla-config`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   saveSlaConfig: (steps) => allocationFetch(`${BASE}/sla-config`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steps }) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
+  recalculatePipelineSlas: (body = {}) => allocationFetch(`${BASE}/sla-config/recalculate`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   getActivityCatalog: () => allocationFetch(`${BASE}/allocation/catalog`).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   addActivityCatalogItem: (body) => allocationFetch(`${BASE}/allocation/catalog`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),
   updateActivityCatalogItem: (number, body) => allocationFetch(`${BASE}/allocation/catalog/${number}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => { if (!r.ok) throw new Error(r.data?.error); return r.data; }),

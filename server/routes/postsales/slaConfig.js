@@ -7,6 +7,7 @@ import {
   saveActivityCatalog,
 } from '../../lib/postsales/activityCatalog.js';
 import { requireAllocationAdmin } from '../../lib/postsales/allocationAdmin.js';
+import { recalculateAllPipelineSlas } from '../../lib/postsales/recalculatePipelineSla.js';
 
 const router = Router();
 
@@ -68,6 +69,22 @@ router.put('/', requireAllocationAdmin, async (req, res) => {
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+router.post('/recalculate', requireAllocationAdmin, async (req, res) => {
+  try {
+    const dryRun = req.body?.dryRun === true;
+    const project = req.body?.project ? String(req.body.project).trim() : '';
+    const phase = req.body?.phase ? String(req.body.phase).trim() : '';
+    const result = await recalculateAllPipelineSlas({
+      project: project || undefined,
+      phase: phase || undefined,
+      dryRun,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -4,6 +4,8 @@ import { PHASES, ESCALATION_MATRIX } from '../../data/postsales/steps.js';
 import { postSalesApi } from '../../lib/postSalesApi.js';
 import { formatSlaSummary } from '../../lib/postsales/mergeStepCatalog.js';
 import { invalidatePipelineStepDefsCache } from '../../hooks/postsales/usePipelineStepDefs.js';
+import { useInventoryFilters } from '../../hooks/postsales/useInventoryFilters.js';
+import PostSalesFilterBar from '../../components/postsales/PostSalesFilterBar.jsx';
 
 const SLA_UNITS = [
   'calendar days',
@@ -32,6 +34,9 @@ export default function SlaSettings() {
   const [selected, setSelected] = useState(null);
   const [message, setMessage] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [recalcBusy, setRecalcBusy] = useState(false);
+
+  const { project, phase, building, setProject, setPhase, setBuilding, options, query, clear } = useInventoryFilters();
 
   const [unlocked, setUnlocked] = useState(() => postSalesApi.hasAllocationAdmin());
   const [password, setPassword] = useState('');
@@ -128,7 +133,7 @@ export default function SlaSettings() {
       setDraft(cloneSteps(list));
       setUpdatedAt(data.updatedAt || null);
       invalidatePipelineStepDefsCache();
-      setMessage('SLA settings saved. New due dates apply when steps start or are updated.');
+      setMessage('SLA settings saved. Use “Recalculate unit due dates” to apply to existing in-progress and completed main steps.');
     } catch (e) {
       setError(e.message);
       if (e.message?.includes('admin access')) setUnlocked(false);
@@ -140,6 +145,37 @@ export default function SlaSettings() {
   const handleDiscard = () => {
     setDraft(cloneSteps(steps));
     setMessage(null);
+  };
+
+  const handleRecalculate = async () => {
+    if (!unlocked) return;
+    const scope = project || phase ? ` for ${[project, phase].filter(Boolean).join(' · ')}` : ' for all units';
+    const ok = window.confirm(
+      `Recalculate pipeline due dates${scope}?\n\n`
+      + '• Updates main process steps (1–11, 13–20) that are in progress, overdue, or completed\n'
+      + '• Step 12 (CLP letters) is unchanged\n'
+      + '• Demands / CLP collection dates stay as they are\n\n'
+      + 'Continue?',
+    );
+    if (!ok) return;
+    setRecalcBusy(true);
+    setMessage(null);
+    setError(null);
+    try {
+      const result = await postSalesApi.recalculatePipelineSlas({
+        project: query.project || undefined,
+        phase: query.phase || undefined,
+      });
+      setMessage(
+        `Recalculated ${result.unitsProcessed} units — ${result.stepsTouched} steps updated `
+        + `(${result.fieldsUpdated} field changes). CLP collection dates untouched.`,
+      );
+    } catch (e) {
+      setError(e.message);
+      if (e.message?.includes('admin access')) setUnlocked(false);
+    } finally {
+      setRecalcBusy(false);
+    }
   };
 
   return (
@@ -182,6 +218,17 @@ export default function SlaSettings() {
         </div>
       )}
 
+      <PostSalesFilterBar
+        project={project}
+        phase={phase}
+        building={building}
+        onProjectChange={setProject}
+        onPhaseChange={setPhase}
+        onBuildingChange={setBuilding}
+        options={options}
+        onClear={clear}
+      />
+
       {unlocked && (
         <div className="ps-sla-toolbar">
           <span className="ps-badge ps-badge-blue">Editing unlocked</span>
@@ -189,6 +236,15 @@ export default function SlaSettings() {
             Lock
           </button>
           <div className="ps-sla-toolbar-actions">
+            <button
+              type="button"
+              className="ps-btn"
+              disabled={recalcBusy}
+              onClick={handleRecalculate}
+              title="Apply saved SLAs to existing pipeline steps; CLP demands unchanged"
+            >
+              {recalcBusy ? 'Recalculating…' : 'Recalculate unit due dates'}
+            </button>
             <button type="button" className="ps-btn" disabled={!dirty || busy} onClick={handleDiscard}>
               Discard changes
             </button>
